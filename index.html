@@ -21,7 +21,7 @@
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-presets="react">
+  <script type="text/babel" data-presets="react" data-type="module">
     const { useState, useRef, useEffect, useCallback } = React;
 
 /* ═══════════════════════════════════════════════════════════
@@ -937,8 +937,6 @@ function Labels({plants,setPlants,user}){
   </div>;
 }
 
-  </script>
-  <script type="text/babel" data-presets="react">
 /* ══════════════════════════════════════════════════════════
    NURSERIES
 ══════════════════════════════════════════════════════════ */
@@ -1620,8 +1618,6 @@ function TaxCenter({plants,expenses,timecards}){
   </div>;
 }
 
-  </script>
-  <script type="text/babel" data-presets="react">
 /* ══════════════════════════════════════════════════════════
    AUDIT LOG
 ══════════════════════════════════════════════════════════ */
@@ -2124,131 +2120,6 @@ function Customers({plants}){
           </Row>
           <div style={{height:10,background:C.g100,borderRadius:5,overflow:"hidden"}}>
             <div style={{width:`${(s.revenue/maxRev)*100}%`,height:"100%",background:i===0?C.gold:i<=2?C.g600:C.g400,borderRadius:5,transition:"width .4s"}}/>
-          </div>
-        </Card>)}
-      </div>
-    </div>}
-  </div>;
-}
-
-  const [tab,setTab]=useState("customers");
-
-  // Build customer list from sold plants
-  const soldPlants=plants.filter(p=>p.status==="Sold"&&p.customerUsername);
-  const custMap={};
-  soldPlants.forEach(p=>{
-    const u=p.customerUsername;
-    if(!custMap[u])custMap[u]={username:u,name:p.customerName||"",state:p.customerState||"",orders:[],total:0,plants:0};
-    custMap[u].orders.push(p);
-    custMap[u].total+=(+p.salePrice||0);
-    custMap[u].plants++;
-  });
-  const customers=Object.values(custMap).sort((a,b)=>b.total-a.total);
-
-  // State breakdown from all sold plants with state info
-  const stateMap={};
-  plants.filter(p=>p.status==="Sold"&&p.customerState).forEach(p=>{
-    const s=p.customerState;
-    if(!stateMap[s])stateMap[s]={state:s,revenue:0,orders:0,customers:new Set()};
-    stateMap[s].revenue+=(+p.salePrice||0);
-    stateMap[s].orders++;
-    stateMap[s].customers.add(p.customerUsername||"?");
-  });
-  const states=Object.values(stateMap).map(s=>({...s,customers:s.customers.size})).sort((a,b)=>b.revenue-a.revenue);
-
-  // Also add pre-loaded April data from the uploaded file
-  const preloadedStates=[
-    {state:"TX",revenue:3347.86,orders:121,customers:13},
-    {state:"CA",revenue:3235.06,orders:102,customers:18},
-    {state:"NJ",revenue:2276.06,orders:68,customers:1},
-    {state:"MA",revenue:1934.12,orders:52,customers:1},
-    {state:"IL",revenue:1228.11,orders:29,customers:4},
-    {state:"LA",revenue:1192.48,orders:32,customers:3},
-    {state:"GA",revenue:1139.41,orders:36,customers:3},
-    {state:"SC",revenue:989.00,orders:35,customers:4},
-    {state:"MI",revenue:781.00,orders:26,customers:2},
-    {state:"WA",revenue:740.71,orders:20,customers:4},
-    {state:"WI",revenue:623.88,orders:31,customers:2},
-    {state:"MD",revenue:607.13,orders:19,customers:4},
-    {state:"NC",revenue:603.04,orders:22,customers:4},
-    {state:"HI",revenue:559.81,orders:13,customers:2},
-    {state:"FL",revenue:544.92,orders:24,customers:6},
-    {state:"NY",revenue:519.62,orders:15,customers:3},
-    {state:"NV",revenue:513.11,orders:24,customers:3},
-    {state:"OH",revenue:512.34,orders:23,customers:2},
-    {state:"IA",revenue:489.52,orders:13,customers:1},
-    {state:"MN",revenue:468.00,orders:17,customers:5},
-  ];
-
-  const displayStates=states.length>0?states:preloadedStates;
-  const maxRev=Math.max(...displayStates.map(s=>s.revenue));
-
-  const preloadedCustomers=[
-    {username:"TygerPZ",name:"",state:"NJ",total:2276.06,plants:68},
-    {username:"WillRunForPlants69",name:"",state:"MA",total:1934.12,plants:52},
-    {username:"DobbyTheGreenhouseElf",name:"",state:"",total:1088.26,plants:28},
-    {username:"Goldens",name:"",state:"",total:870.60,plants:24},
-    {username:"ToledoBend318",name:"",state:"",total:844.32,plants:22},
-    {username:"Dr.Zany_pod",name:"",state:"",total:680.19,plants:18},
-    {username:"mi44e4694",name:"",state:"",total:677.28,plants:19},
-    {username:"sunny_pebble_frond4",name:"",state:"",total:662.08,plants:17},
-    {username:"Adiamond4eva",name:"",state:"IL",total:626.68,plants:16},
-    {username:"Mrs.Jones",name:"",state:"",total:606.37,plants:15},
-  ];
-  const displayCustomers=customers.length>0?customers:preloadedCustomers;
-
-  const TABS=[{id:"customers",l:"👥 Top Customers"},{id:"states",l:"🗺️ By State"}];
-
-  return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}>
-    <SHdr icon="👥" title="Customer Analytics" sub="Your best customers · Where you sell the most · April 2026 data loaded"/>
-
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-      <KPI label="Total Customers" value={displayCustomers.length} color={C.g600}/>
-      <KPI label="April Revenue" value="$24,299" color={C.gold}/>
-      <KPI label="Top State" value="TX" sub="$3,347 revenue" color={C.blue}/>
-      <KPI label="Top Customer" value="TygerPZ" sub="$2,276 spent" color={C.purple}/>
-    </div>
-
-    <div style={{display:"flex",gap:0,marginBottom:16,borderBottom:`1px solid ${C.bd}`}}>
-      {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",fontSize:13,fontWeight:tab===t.id?700:500,background:"transparent",border:"none",borderBottom:tab===t.id?`2.5px solid ${C.g700}`:"2.5px solid transparent",color:tab===t.id?C.g800:C.tx3,cursor:"pointer",fontFamily:F.body}}>{t.l}</button>)}
-    </div>
-
-    {tab==="customers"&&<div>
-      <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:12}}>Your Best Customers (April 2026)</div>
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {displayCustomers.map((c,i)=><Card key={c.username} style={{padding:"12px 16px"}}>
-          <Row between center>
-            <Row gap={12} center>
-              <div style={{width:36,height:36,borderRadius:"50%",background:i===0?C.gold+"22":i===1?"#aaa22":i===2?C.amber+"22":C.g100,border:`2px solid ${i===0?C.gold:i===1?"#aaa":i===2?C.amber:C.bd}`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,color:i===0?C.gold:i===1?"#777":i===2?C.amber:C.tx3}}>
-                {i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`}
-              </div>
-              <div>
-                <div style={{fontWeight:700,fontSize:14,color:C.g900}}>@{c.username}</div>
-                <div style={{fontSize:11,color:C.tx3}}>{c.plants} items{c.state?` · ${c.state}`:""}{c.name?` · ${c.name}`:""}</div>
-              </div>
-            </Row>
-            <span style={{fontWeight:700,color:C.gold,fontSize:16,fontFamily:F.display}}>{$(c.total)}</span>
-          </Row>
-        </Card>)}
-      </div>
-    </div>}
-
-    {tab==="states"&&<div>
-      <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:12}}>Revenue by State (April 2026)</div>
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {displayStates.map((s,i)=><Card key={s.state} style={{padding:"12px 16px"}}>
-          <Row between style={{marginBottom:6}}>
-            <div>
-              <Row gap={8} center>
-                <span style={{fontWeight:700,fontSize:16,color:C.g900}}>{s.state}</span>
-                <Tag text={`${s.customers} customers`} color={C.blue} sm/>
-                <Tag text={`${s.orders} orders`} color={C.g600} sm/>
-              </Row>
-            </div>
-            <span style={{fontWeight:700,color:C.gold,fontSize:16,fontFamily:F.display}}>{$(s.revenue)}</span>
-          </Row>
-          <div style={{height:10,background:C.g100,borderRadius:5,overflow:"hidden"}}>
-            <div style={{width:`${(s.revenue/maxRev)*100}%`,height:"100%",background:i===0?C.gold:i===1?C.g600:C.g400,borderRadius:5}}/>
           </div>
         </Card>)}
       </div>
