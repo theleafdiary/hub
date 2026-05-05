@@ -13,16 +13,15 @@
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
     body{margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif;overscroll-behavior:none;}
     #root{min-height:100vh;}
-    input,select,textarea{font-size:16px!important;} /* prevent iOS zoom */
+    input,select,textarea{font-size:16px!important;}
   </style>
-  <!-- React + Babel for JSX -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.23.3/babel.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-presets="react">
+  <script type="text/babel">
     const { useState, useRef, useEffect, useCallback } = React;
 
 /* ═══════════════════════════════════════════════════════════
@@ -90,7 +89,8 @@ const DEFAULT_PERMS = {
   canExportReports:false,canViewNurseryFinancials:false,
 };
 
-/* ── HELPERS ─────────────────────────────────────────────── */
+const ANTHROPIC_API_KEY = "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";
+const AI_HEADERS = {"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"};
 const uid   = () => Math.random().toString(36).slice(2,9);
 const $     = n  => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(+n||0);
 const pct   = n  => `${Math.round(+n||0)}%`;
@@ -471,7 +471,7 @@ function InvoiceUpload({plants,setPlants,nurseries,addAudit,user}){
     setLoading(true);setErr(null);setStep("scanning");
     try{
       const b64=img.split(",")[1],mime=img.split(";")[0].split(":")[1];
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2500,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:`Read this plant nursery invoice and return ONLY valid JSON:\n{"nurseryName":null,"invoiceNumber":null,"invoiceDate":null,"paymentMethod":null,"subtotal":0,"tax":0,"shipping":0,"total":0,"plants":[{"name":"","botanicalName":null,"potSize":null,"quantity":1,"costPerPlant":0}]}`}]}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:AI_HEADERS,body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2500,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:`Read this plant nursery invoice and return ONLY valid JSON:\n{"nurseryName":null,"invoiceNumber":null,"invoiceDate":null,"paymentMethod":null,"subtotal":0,"tax":0,"shipping":0,"total":0,"plants":[{"name":"","botanicalName":null,"potSize":null,"quantity":1,"costPerPlant":0}]}`}]}]})});
       const d=await res.json();
       const result=JSON.parse((d.content?.map(c=>c.text||"").join("")||"").replace(/```json|```/g,"").trim());
       setParsed(result);
@@ -837,7 +837,7 @@ async function runLabelResearch(plants,onProg,onDone){
   for(let i=0;i<plants.length;i++){
     const p=plants[i];onProg({current:i+1,total:plants.length,name:p.name});
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:`For rare houseplant "${p.name}" (${p.potSize||'4"'} pot) typical USA resale on Palmstreet/Whatnot, reply ONLY JSON: {"low":number,"avg":number,"high":number,"rec":number}`}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:AI_HEADERS,body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:`For rare houseplant "${p.name}" (${p.potSize||'4"'} pot) typical USA resale on Palmstreet/Whatnot, reply ONLY JSON: {"low":number,"avg":number,"high":number,"rec":number}`}]})});
       const d=await res.json();
       const txt=d.content?.map(c=>c.text||"").join("")||"{}";
       results.push({...p,...JSON.parse(txt.replace(/```json|```/g,"").trim())});
@@ -875,26 +875,15 @@ function Labels({plants,setPlants,user}){
   const printLabels=()=>{
     const list=avail.filter(p=>sel.has(p.id));
     const w=window.open("","_blank");if(!w)return;
-    w.document.write(`<!DOCTYPE html><html><head><title>Leaf Diary Labels</title>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Mono&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#fff;padding:10px}
-.grid{display:flex;flex-wrap:wrap;gap:8px}
-.label{width:190px;border:1.5px solid #236B42;border-radius:8px;padding:11px;break-inside:avoid}
-.name{font-family:'Playfair Display',serif;font-size:12px;font-weight:700;color:#0D2B1A;line-height:1.3;margin-bottom:2px}
-.pot{font-size:10px;color:#6A8C76;margin-bottom:5px}
-.id{font-family:'DM Mono',monospace;font-size:9px;color:#3FAD6A;border-top:1px solid #E3F7EB;padding-top:5px;margin-top:4px}
-.row{display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px solid #E3F7EB}
-.cost{font-size:9px;color:#6A8C76}.price{font-size:15px;font-weight:700;color:#0D2B1A}
-.mkt{font-size:9px;color:#9DDEB4;margin-top:3px}.logo{font-size:7px;color:#C5EFD5;text-align:center;margin-top:5px;letter-spacing:2px}
-.margin-hi{border-left:3px solid #3FAD6A}.margin-lo{border-left:3px solid #BE3535}.margin-ok{border-left:3px solid #B07D10}
-@media print{body{padding:2px}}</style></head><body>
-<div class="grid">${list.map(p=>{const m=+p.margin||0;const mc=m>=65?"margin-hi":m>=45?"margin-ok":"margin-lo";return`<div class="label ${mc}">
-<div class="name">${toTC(p.name)}</div><div class="pot">${p.potSize||""}</div>
-<div class="id">🌿 ${p.plantId}</div>
-<div class="row">${showCost?`<span class="cost">Cost $${(+p.cost||0).toFixed(2)}</span>`:"<span></span>"}<span class="price">$${(+p.suggestedPrice||0).toFixed(2)}</span></div>
-${p.marketAvg?`<div class="mkt">Market avg $${p.marketAvg}</div>`:""}
-<div class="logo">LEAF DIARY</div></div>`;}).join("")}
-</div><script>window.onload=()=>window.print()</script></body></html>`);markPrinted();
+    const labelHTML=list.map(p=>{
+      const m=+p.margin||0;
+      const mc=m>=65?"margin-hi":m>=45?"margin-ok":"margin-lo";
+      const costSpan=showCost?'<span class="cost">Cost $'+(+p.cost||0).toFixed(2)+'</span>':'<span></span>';
+      const mktDiv=p.marketAvg?'<div class="mkt">Market avg $'+p.marketAvg+'</div>':"";
+      return '<div class="label '+mc+'"><div class="name">'+toTC(p.name)+'</div><div class="pot">'+(p.potSize||"")+'</div><div class="id">🌿 '+p.plantId+'</div><div class="row">'+costSpan+'<span class="price">$'+(+p.suggestedPrice||0).toFixed(2)+'</span></div>'+mktDiv+'<div class="logo">LEAF DIARY</div></div>';
+    }).join("");
+    w.document.write('<!DOCTYPE html><html><head><title>Leaf Diary Labels</title><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Mono&display=swap" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#fff;padding:10px}.grid{display:flex;flex-wrap:wrap;gap:8px}.label{width:190px;border:1.5px solid #236B42;border-radius:8px;padding:11px;break-inside:avoid}.name{font-family:"Playfair Display",serif;font-size:12px;font-weight:700;color:#0D2B1A;line-height:1.3;margin-bottom:2px}.pot{font-size:10px;color:#6A8C76;margin-bottom:5px}.id{font-family:"DM Mono",monospace;font-size:9px;color:#3FAD6A;border-top:1px solid #E3F7EB;padding-top:5px;margin-top:4px}.row{display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px solid #E3F7EB}.cost{font-size:9px;color:#6A8C76}.price{font-size:15px;font-weight:700;color:#0D2B1A}.mkt{font-size:9px;color:#9DDEB4;margin-top:3px}.logo{font-size:7px;color:#C5EFD5;text-align:center;margin-top:5px;letter-spacing:2px}.margin-hi{border-left:3px solid #3FAD6A}.margin-lo{border-left:3px solid #BE3535}.margin-ok{border-left:3px solid #B07D10}@media print{body{padding:2px}}</style></head><body><div class="grid">'+labelHTML+'</div><script>window.onload=function(){window.print();}<\/script></body></html>');
+    markPrinted();
   };
   return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}>
     <SHdr icon="🏷️" title="Labels" sub="Color-coded by margin · AI market research · Batch print"
@@ -1178,6 +1167,8 @@ function SellThrough({plants,nurseries,setPage}){
 }
 
 /* ══════════════════════════════════════════════════════════
+   BILLS TRACKER
+══════════════════════════════════════════════════════════ */
 function Bills({bills,setBills}){
   const blank={name:"",amount:"",dueDate:"",category:BILL_CATS[0],frequency:BILL_FREQ[2],payMethod:"",vendor:"",notes:"",status:"Unpaid",autoRenew:false};
   const [form,setForm]=useState(blank);
@@ -1417,7 +1408,7 @@ function BuyIntel({plants}){
     setLoading(true);
     try{
       const summary=genera.map(g=>`${g.name}: ${g.total} plants, ${g.sold} sold (${g.sellThru}% sell-through), avg margin ${g.avgM}%, profit $${g.profit.toFixed(0)}`).join("\n");
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:700,messages:[{role:"user",content:`You are a plant business advisor for Leaf Diary, a Florida rare plant reseller on Palmstreet and Whatnot. Give specific buying advice using this data:\n${summary}\n\nBe direct with bullet points: what to buy more of, what to avoid, what's making money.`}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:AI_HEADERS,body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:700,messages:[{role:"user",content:`You are a plant business advisor for Leaf Diary, a Florida rare plant reseller on Palmstreet and Whatnot. Give specific buying advice using this data:\n${summary}\n\nBe direct with bullet points: what to buy more of, what to avoid, what's making money.`}]})});
       const d=await res.json();setAi(d.content?.map(c=>c.text||"").join("")||"");
     }catch(e){setAi("Error: "+e.message);}finally{setLoading(false);}
   };
@@ -1885,8 +1876,6 @@ function App(){
     </div>
   </div>;
 }
-
-    // Mount the app
     const container = document.getElementById('root');
     const root = ReactDOM.createRoot(container);
     root.render(React.createElement(App));
