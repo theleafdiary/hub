@@ -233,7 +233,8 @@ function Nav({page,setPage,user,onLogout,plantCount,billAlerts}){
     {id:"dash",icon:"🏠",l:"Dashboard"},{id:"upload",icon:"📸",l:"Upload Invoice"},
     {id:"manual",icon:"✏️",l:"Add Plants"},{id:"history",icon:"📋",l:"Past Invoices"},
     {id:"inv",icon:"🌿",l:"Inventory"},{id:"labels",icon:"🏷️",l:"Labels"},
-    {id:"sellthru",icon:"📊",l:"Sell-Through"},{id:"nursery",icon:"🏪",l:"Nurseries"},
+    {id:"sellthru",icon:"📊",l:"Sell-Through"},{id:"showimport",icon:"📦",l:"Post-Show"},
+    {id:"customers",icon:"👥",l:"Customers"},{id:"nursery",icon:"🏪",l:"Nurseries"},
     {id:"bills",icon:"📅",l:"Bills"},{id:"expense",icon:"💳",l:"Expenses"},
     {id:"timecard",icon:"⏱️",l:"Timecard"},{id:"payroll",icon:"👥",l:"Payroll"},
     {id:"intel",icon:"💡",l:"Buy Intel"},{id:"reports",icon:"📈",l:"Reports"},
@@ -1739,8 +1740,519 @@ function AdminPanel({users,setUsers,settings,setSettings}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   LOCAL STORAGE HELPERS
+   POST-SHOW IMPORT — paste Palmstreet/Whatnot CSV
 ══════════════════════════════════════════════════════════ */
+function ShowImport({plants,setPlants,addAudit,user}){
+  const [raw,setRaw]=useState("");
+  const [parsed,setParsed]=useState([]);
+  const [matched,setMatched]=useState([]);
+  const [step,setStep]=useState("paste");
+  const [platform,setPlatform]=useState("Palmstreet");
+  const fileRef=useRef();
+
+  const parseCSV=text=>{
+    const lines=text.trim().split("\n");
+    const headers=lines[0].split(",").map(h=>h.replace(/"/g,"").trim());
+    return lines.slice(1).map(line=>{
+      const vals=line.match(/(".*?"|[^,]+)(?=,|$)/g)||[];
+      const row={};
+      headers.forEach((h,i)=>row[h]=(vals[i]||"").replace(/"/g,"").trim());
+      return row;
+    }).filter(r=>r["Item Title"]&&r["Item Price"]&&!r["Item Title"].match(/processing|fee|2DAY|Heat Pack|Insulation/i));
+  };
+
+  const loadFile=f=>{
+    if(!f)return;
+    const r=new FileReader();
+    r.onload=e=>{setRaw(e.target.result);};
+    r.readAsText(f);
+  };
+
+  const runMatch=()=>{
+    if(!raw.trim())return;
+    const rows=parseCSV(raw);
+    const results=rows.map(r=>{
+      const title=(r["Item Title"]||"").toLowerCase();
+      const price=+r["Item Price"]||0;
+      const customer=r["Palmstreet UserName"]||r["Username"]||r["Buyer"]||"";
+      const recipientName=r["Recipient Name"]||"";
+      const state=r["State"]||"";
+      const orderNum=r["Order number"]||r["Order Number"]||"";
+      const orderDate=r["Order Date(PDT)"]||r["Order Date"]||"";
+      const shipping=+r["Shipping Fee"]||0;
+      const status=r["Order Status"]||"";
+
+      // Try to match to inventory
+      const match=plants.find(p=>
+        p.status==="In Stock"&&(
+          p.name.toLowerCase().includes(title.slice(0,6))||
+          title.includes(p.name.toLowerCase().slice(0,6))||
+          (p.plantId&&title.includes(p.plantId.toLowerCase()))
+        )
+      );
+
+      return{_id:Math.random().toString(36).slice(2),title:r["Item Title"],price,customer,recipientName,state,orderNum,orderDate,shipping,status,matched:match||null,apply:!!match};
+    });
+    setMatched(results);
+    setParsed(rows);
+    setStep("review");
+  };
+
+  const toggleApply=id=>setMatched(p=>p.map(r=>r._id===id?{...r,apply:!r.apply}:r));
+  const setMatch=(id,plantId)=>setMatched(p=>p.map(r=>{
+    if(r._id!==id)return r;
+    const plant=plants.find(p=>p.id===plantId);
+    return{...r,matched:plant||null,apply:!!plant};
+  }));
+
+  const applyImport=()=>{
+    const toApply=matched.filter(r=>r.apply&&r.matched);
+    setPlants(prev=>prev.map(p=>{
+      const sale=toApply.find(r=>r.matched?.id===p.id);
+      if(!sale)return p;
+      return{...p,status:"Sold",salePrice:sale.price,platform,shippingCost:sale.shipping,
+        customerUsername:sale.customer,customerName:sale.recipientName,
+        customerState:sale.state,orderNumber:sale.orderNum,
+        soldDate:sale.orderDate?.split(" ")[0]||today(),
+        margin:marg(+p.cost,sale.price)};
+    }));
+    addAudit({action:`Show import: ${toApply.length} sales applied from ${platform}`,user:user.name,page:"Show Import"});
+    setStep("done");
+  };
+
+  const totalRev=matched.filter(r=>r.apply).reduce((s,r)=>s+r.price,0);
+  const matched_count=matched.filter(r=>r.apply&&r.matched).length;
+
+  return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}>
+    <SHdr icon="📦" title="Post-Show Import" sub="Paste your Palmstreet or Whatnot sales — AI matches to your inventory"/>
+
+    {step==="paste"&&<div>
+      <Card style={{marginBottom:14}}>
+        <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:10}}>Platform</div>
+        <Row gap={8} style={{marginBottom:16}}>
+          {["Palmstreet","Whatnot"].map(p=><button key={p} onClick={()=>setPlatform(p)} style={{padding:"10px 20px",borderRadius:9,cursor:"pointer",fontFamily:F.body,fontSize:14,fontWeight:600,background:platform===p?C.g700:C.cardAlt,color:platform===p?"#fff":C.tx1,border:`1.5px solid ${platform===p?C.g700:C.bd}`}}>{p}</button>)}
+        </Row>
+        <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:8}}>Upload your orders CSV</div>
+        <div style={{fontSize:13,color:C.tx3,marginBottom:12}}>
+          In Palmstreet → Orders → Export CSV. Then upload it here.
+        </div>
+        <div style={{border:`2px dashed ${C.g300}`,borderRadius:12,padding:"30px",textAlign:"center",background:C.card,marginBottom:12}} onClick={()=>fileRef.current.click()}>
+          <div style={{fontSize:36,marginBottom:8}}>📄</div>
+          <div style={{fontWeight:700,color:C.g900,marginBottom:6}}>Upload CSV file</div>
+          <div style={{fontSize:12,color:C.tx3,marginBottom:12}}>From Palmstreet Orders export</div>
+          <Btn onClick={e=>{e.stopPropagation();fileRef.current.click();}}>Choose File</Btn>
+        </div>
+        <input ref={fileRef} type="file" accept=".csv,.xlsx" style={{display:"none"}} onChange={e=>loadFile(e.target.files[0])}/>
+        <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:14,marginBottom:6}}>Or paste CSV text directly</div>
+        <textarea value={raw} onChange={e=>setRaw(e.target.value)}
+          style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${C.bd}`,borderRadius:9,fontSize:12,fontFamily:F.mono,minHeight:100,boxSizing:"border-box",resize:"vertical"}}
+          placeholder="Paste CSV data here…"/>
+        <Btn full onClick={runMatch} style={{marginTop:12}} disabled={!raw.trim()}>Match to Inventory →</Btn>
+      </Card>
+    </div>}
+
+    {step==="review"&&<div>
+      <div style={{background:C.g800,borderRadius:14,padding:"16px",marginBottom:14,color:"#fff"}}>
+        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",opacity:.7,marginBottom:4}}>Import Summary</div>
+        <div style={{fontSize:28,fontWeight:700,fontFamily:F.display}}>{$(totalRev)}</div>
+        <div style={{fontSize:13,opacity:.8,marginTop:4}}>{matched.length} orders · {matched_count} matched to inventory · {matched.filter(r=>!r.matched).length} unmatched</div>
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+        {matched.map(r=><Card key={r._id} style={{padding:"12px 14px",border:`1px solid ${r.matched?C.g200:C.bd}`,background:r.matched?C.g50:"#fff"}}>
+          <Row between center style={{marginBottom:r.matched?6:0}}>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:14,color:C.g900}}>{r.title}</div>
+              <div style={{fontSize:12,color:C.tx3}}>{r.customer} · {r.state} · {r.orderDate?.slice(0,10)}</div>
+              {r.matched&&<div style={{fontSize:11,color:C.g600,marginTop:2}}>✅ Matched → {r.matched.name} ({r.matched.plantId})</div>}
+              {!r.matched&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>⚠️ No match found — select plant below</div>}
+            </div>
+            <Row gap={8} center>
+              <span style={{fontWeight:700,color:C.g700,fontSize:16}}>{$(r.price)}</span>
+              <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}>
+                <input type="checkbox" checked={!!r.apply} onChange={()=>toggleApply(r._id)} style={{width:18,height:18,accentColor:C.g700}}/>
+                <span style={{fontSize:11,color:C.tx3}}>Apply</span>
+              </label>
+            </Row>
+          </Row>
+          {!r.matched&&<select onChange={e=>setMatch(r._id,e.target.value)} style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.bd}`,borderRadius:7,fontSize:13,fontFamily:F.body,marginTop:6}}>
+            <option value="">— Select plant from inventory —</option>
+            {plants.filter(p=>p.status==="In Stock").map(p=><option key={p.id} value={p.id}>{p.name} · {p.plantId} · {$(p.suggestedPrice)}</option>)}
+          </select>}
+        </Card>)}
+      </div>
+
+      <Row gap={8}>
+        <Btn onClick={applyImport} disabled={matched_count===0}>✅ Apply {matched_count} Sales to Inventory</Btn>
+        <Btn v="ghost" onClick={()=>setStep("paste")}>Back</Btn>
+      </Row>
+    </div>}
+
+    {step==="done"&&<div style={{textAlign:"center",padding:"60px 20px"}}>
+      <div style={{fontSize:56,marginBottom:16}}>🎉</div>
+      <h2 style={{fontFamily:F.display,color:C.g900,marginBottom:8}}>Show Imported!</h2>
+      <p style={{color:C.tx3,marginBottom:6}}>{matched_count} plants marked as sold</p>
+      <p style={{color:C.gold,fontWeight:700,fontSize:18,marginBottom:22}}>{$(totalRev)} in sales recorded</p>
+      <Row gap={10} style={{justifyContent:"center"}}>
+        <Btn onClick={()=>setStep("paste")}>Import Another Show</Btn>
+      </Row>
+    </div>}
+  </div>;
+}
+
+/* ══════════════════════════════════════════════════════════
+   CUSTOMERS — full reporting, repeat buyers, state map
+══════════════════════════════════════════════════════════ */
+function Customers({plants}){
+  const [tab,setTab]=useState("customers");
+  const [search,setSearch]=useState("");
+
+  // Build customer list from sold plants
+  const soldPlants=plants.filter(p=>p.status==="Sold"&&p.customerUsername);
+  const custMap={};
+  soldPlants.forEach(p=>{
+    const u=p.customerUsername;
+    if(!custMap[u])custMap[u]={username:u,name:p.customerName||"",state:p.customerState||"",orders:[],total:0,plants:0,firstOrder:"",lastOrder:""};
+    custMap[u].orders.push(p);
+    custMap[u].total+=(+p.salePrice||0);
+    custMap[u].plants++;
+    const d=p.soldDate||p.dateAdded||"";
+    if(!custMap[u].firstOrder||d<custMap[u].firstOrder)custMap[u].firstOrder=d;
+    if(!custMap[u].lastOrder||d>custMap[u].lastOrder)custMap[u].lastOrder=d;
+  });
+  const liveCustomers=Object.values(custMap).sort((a,b)=>b.total-a.total);
+
+  // State breakdown
+  const stateMap={};
+  plants.filter(p=>p.status==="Sold"&&p.customerState).forEach(p=>{
+    const s=p.customerState;
+    if(!stateMap[s])stateMap[s]={state:s,revenue:0,orders:0,customers:new Set()};
+    stateMap[s].revenue+=(+p.salePrice||0);
+    stateMap[s].orders++;
+    stateMap[s].customers.add(p.customerUsername||"?");
+  });
+  const liveStates=Object.values(stateMap).map(s=>({...s,customers:s.customers.size})).sort((a,b)=>b.revenue-a.revenue);
+
+  // Pre-loaded April 2026 Palmstreet data
+  const aprilCustomers=[
+    {username:"TygerPZ",name:"",state:"NJ",total:2276.06,plants:68,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"WillRunForPlants69",name:"",state:"MA",total:1934.12,plants:52,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"DobbyTheGreenhouseElf",name:"",state:"",total:1088.26,plants:28,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"Goldens",name:"",state:"",total:870.60,plants:24,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"ToledoBend318",name:"",state:"",total:844.32,plants:22,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"Dr.Zany_pod",name:"",state:"",total:680.19,plants:18,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"mi44e4694",name:"",state:"",total:677.28,plants:19,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"sunny_pebble_frond4",name:"",state:"",total:662.08,plants:17,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"Adiamond4eva",name:"",state:"IL",total:626.68,plants:16,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"Mrs.Jones",name:"",state:"",total:606.37,plants:15,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"Absbromeliadlover",name:"Abigail Loving",state:"IL",total:489.52,plants:13,firstOrder:"2026-04-26",lastOrder:"2026-04-26"},
+    {username:"ToledoBend318",name:"",state:"IA",total:489.52,plants:13,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"Plantcrazyinky",name:"",state:"LA",total:467.20,plants:12,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"Orchid_obsessed",name:"",state:"TX",total:445.80,plants:11,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+    {username:"GreenThumbGal",name:"",state:"CA",total:421.50,plants:10,firstOrder:"2026-04-01",lastOrder:"2026-04-30"},
+  ];
+  const aprilStates=[
+    {state:"TX",revenue:3347.86,orders:121,customers:13},
+    {state:"CA",revenue:3235.06,orders:102,customers:18},
+    {state:"NJ",revenue:2276.06,orders:68,customers:1},
+    {state:"MA",revenue:1934.12,orders:52,customers:1},
+    {state:"IL",revenue:1228.11,orders:29,customers:4},
+    {state:"LA",revenue:1192.48,orders:32,customers:3},
+    {state:"GA",revenue:1139.41,orders:36,customers:3},
+    {state:"SC",revenue:989.00,orders:35,customers:4},
+    {state:"MI",revenue:781.00,orders:26,customers:2},
+    {state:"WA",revenue:740.71,orders:20,customers:4},
+    {state:"WI",revenue:623.88,orders:31,customers:2},
+    {state:"MD",revenue:607.13,orders:19,customers:4},
+    {state:"NC",revenue:603.04,orders:22,customers:4},
+    {state:"HI",revenue:559.81,orders:13,customers:2},
+    {state:"FL",revenue:544.92,orders:24,customers:6},
+    {state:"NY",revenue:519.62,orders:15,customers:3},
+    {state:"NV",revenue:513.11,orders:24,customers:3},
+    {state:"OH",revenue:512.34,orders:23,customers:2},
+    {state:"IA",revenue:489.52,orders:13,customers:1},
+    {state:"MN",revenue:468.00,orders:17,customers:5},
+    {state:"OR",revenue:297.19,orders:16,customers:2},
+    {state:"PA",revenue:284.76,orders:6,customers:3},
+    {state:"AZ",revenue:163.76,orders:5,customers:2},
+    {state:"UT",revenue:163.10,orders:5,customers:2},
+    {state:"VA",revenue:162.52,orders:10,customers:2},
+    {state:"KS",revenue:145.64,orders:5,customers:2},
+    {state:"AR",revenue:141.28,orders:10,customers:1},
+    {state:"TN",revenue:114.00,orders:4,customers:3},
+    {state:"NE",revenue:98.64,orders:8,customers:1},
+    {state:"RI",revenue:89.00,orders:2,customers:1},
+    {state:"KY",revenue:83.52,orders:5,customers:1},
+    {state:"OK",revenue:75.64,orders:3,customers:1},
+    {state:"NH",revenue:70.00,orders:1,customers:1},
+    {state:"AL",revenue:66.39,orders:4,customers:1},
+    {state:"WV",revenue:22.00,orders:1,customers:1},
+    {state:"MO",revenue:16.88,orders:4,customers:1},
+  ];
+
+  // Merge live + april data
+  const mergeCustomers=(live,april)=>{
+    if(live.length===0)return april;
+    const merged={};
+    [...april,...live].forEach(c=>{
+      if(!merged[c.username])merged[c.username]={...c};
+      else{merged[c.username].total+=c.total;merged[c.username].plants+=c.plants;}
+    });
+    return Object.values(merged).sort((a,b)=>b.total-a.total);
+  };
+  const mergeStates=(live,april)=>{
+    if(live.length===0)return april;
+    const merged={};
+    [...april,...live].forEach(s=>{
+      if(!merged[s.state])merged[s.state]={...s};
+      else{merged[s.state].revenue+=s.revenue;merged[s.state].orders+=s.orders;merged[s.state].customers+=s.customers;}
+    });
+    return Object.values(merged).sort((a,b)=>b.revenue-a.revenue);
+  };
+
+  const allCustomers=mergeCustomers(liveCustomers,aprilCustomers);
+  const allStates=mergeStates(liveStates,aprilStates);
+  const maxRev=Math.max(...allStates.map(s=>s.revenue));
+
+  const filteredCustomers=allCustomers.filter(c=>!search||c.username.toLowerCase().includes(search.toLowerCase())||c.name.toLowerCase().includes(search.toLowerCase()));
+  const totalRevenue=allCustomers.reduce((s,c)=>s+c.total,0);
+  const repeatBuyers=allCustomers.filter(c=>c.plants>=5);
+  const vipBuyers=allCustomers.filter(c=>c.total>=500);
+
+  const exportCSV=()=>{
+    const hdr=["Username","Name","State","Total Spent","Plants Bought","First Order","Last Order"].join(",")+"\n";
+    const rows=allCustomers.map(c=>[`"${c.username}"`,`"${c.name||""}"`,c.state||"",c.total.toFixed(2),c.plants,c.firstOrder||"",c.lastOrder||""].join(",")).join("\n");
+    const a=Object.assign(document.createElement("a"),{href:URL.createObjectURL(new Blob([hdr+rows],{type:"text/csv"})),download:`leafdiary-customers-${today()}.csv`});
+    a.click();
+  };
+
+  const TABS=[{id:"customers",l:"👥 All Customers"},{id:"vip",l:"⭐ VIP"},{id:"states",l:"🗺️ By State"}];
+
+  return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}>
+    <SHdr icon="👥" title="Customer Reports" sub="Biggest spenders · Repeat buyers · Where you ship"
+      right={<Btn v="outline" sz="sm" onClick={exportCSV}>📥 Export CSV</Btn>}/>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+      <KPI label="Total Revenue" value={$(totalRevenue)} color={C.gold}/>
+      <KPI label="Total Customers" value={allCustomers.length} color={C.g600}/>
+      <KPI label="VIP ($500+)" value={vipBuyers.length} sub="top spenders" color={C.purple}/>
+      <KPI label="Repeat Buyers (5+)" value={repeatBuyers.length} sub="loyal customers" color={C.blue}/>
+    </div>
+
+    <div style={{display:"flex",gap:0,marginBottom:14,borderBottom:`1px solid ${C.bd}`}}>
+      {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"10px 16px",fontSize:13,fontWeight:tab===t.id?700:500,background:"transparent",border:"none",borderBottom:tab===t.id?`2.5px solid ${C.g700}`:"2.5px solid transparent",color:tab===t.id?C.g800:C.tx3,cursor:"pointer",fontFamily:F.body}}>{t.l}</button>)}
+    </div>
+
+    {tab==="customers"&&<div>
+      <input placeholder="Search by username or name…" value={search} onChange={e=>setSearch(e.target.value)}
+        style={{width:"100%",padding:"12px 14px",border:`1.5px solid ${C.bd}`,borderRadius:10,fontSize:15,fontFamily:F.body,marginBottom:12,boxSizing:"border-box",outline:"none"}}/>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {filteredCustomers.map((c,i)=>{
+          const isVIP=c.total>=500;
+          const isRepeat=c.plants>=5;
+          return <Card key={c.username} style={{padding:"13px 16px",border:`1px solid ${isVIP?C.purple+"44":C.bd}`,background:isVIP?C.purpleBg:"#fff"}}>
+            <Row between center>
+              <Row gap={12} center style={{flex:1}}>
+                <div style={{width:38,height:38,borderRadius:"50%",background:i===0?C.gold+"22":i===1?"#aaa22":i===2?C.amber+"22":C.g100,border:`2px solid ${i===0?C.gold:i===1?"#aaa":i===2?C.amber:C.bd}`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,color:i===0?C.gold:i===1?"#777":i===2?C.amber:C.tx3,flexShrink:0}}>
+                  {i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <Row gap={6} center style={{marginBottom:2,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:700,fontSize:14,color:C.g900}}>@{c.username}</span>
+                    {isVIP&&<Tag text="⭐ VIP" color={C.purple} sm/>}
+                    {isRepeat&&<Tag text="🔁 Repeat" color={C.blue} sm/>}
+                  </Row>
+                  <div style={{fontSize:12,color:C.tx3}}>
+                    {c.plants} plants{c.state?` · ${c.state}`:""}{c.name?` · ${c.name}`:""}
+                  </div>
+                  {c.firstOrder&&<div style={{fontSize:10,color:C.tx4}}>First: {c.firstOrder} · Last: {c.lastOrder}</div>}
+                </div>
+              </Row>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontWeight:700,color:C.gold,fontSize:18,fontFamily:F.display}}>{$(c.total)}</div>
+                <div style={{fontSize:11,color:C.tx3}}>{c.plants} items</div>
+              </div>
+            </Row>
+          </Card>;
+        })}
+      </div>
+    </div>}
+
+    {tab==="vip"&&<div>
+      <div style={{background:C.purpleBg,border:`1px solid ${C.purple}44`,borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+        <div style={{fontWeight:700,color:C.purple,marginBottom:4,fontSize:14}}>⭐ VIP Customers — $500+ spent</div>
+        <div style={{fontSize:13,color:C.tx2}}>These are your most valuable customers. Give them early access, discounts, or personal thank-you notes.</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {vipBuyers.map((c,i)=><Card key={c.username} style={{padding:"14px 16px",border:`1.5px solid ${C.purple}44`}}>
+          <Row between center>
+            <div>
+              <Row gap={8} center style={{marginBottom:4}}>
+                <span style={{fontWeight:700,fontSize:16,color:C.g900}}>@{c.username}</span>
+                <Tag text="⭐ VIP" color={C.purple} sm/>
+              </Row>
+              <div style={{fontSize:12,color:C.tx3}}>{c.plants} plants bought{c.state?` · ${c.state}`:""}</div>
+              {c.name&&<div style={{fontSize:12,color:C.tx3}}>{c.name}</div>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontWeight:700,color:C.purple,fontSize:22,fontFamily:F.display}}>{$(c.total)}</div>
+              <div style={{fontSize:11,color:C.tx3}}>lifetime value</div>
+            </div>
+          </Row>
+        </Card>)}
+      </div>
+    </div>}
+
+    {tab==="states"&&<div>
+      <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:12}}>Revenue by State — You sell to {allStates.length} states 🇺🇸</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {allStates.map((s,i)=><Card key={s.state} style={{padding:"12px 16px"}}>
+          <Row between style={{marginBottom:6}}>
+            <div>
+              <Row gap={8} center style={{flexWrap:"wrap"}}>
+                <span style={{fontWeight:700,fontSize:18,color:C.g900}}>{s.state}</span>
+                <Tag text={`${s.customers} customers`} color={C.blue} sm/>
+                <Tag text={`${s.orders} orders`} color={C.g600} sm/>
+                {i===0&&<Tag text="🏆 #1 State" color={C.gold} sm/>}
+              </Row>
+            </div>
+            <span style={{fontWeight:700,color:C.gold,fontSize:18,fontFamily:F.display}}>{$(s.revenue)}</span>
+          </Row>
+          <div style={{height:10,background:C.g100,borderRadius:5,overflow:"hidden"}}>
+            <div style={{width:`${(s.revenue/maxRev)*100}%`,height:"100%",background:i===0?C.gold:i<=2?C.g600:C.g400,borderRadius:5,transition:"width .4s"}}/>
+          </div>
+        </Card>)}
+      </div>
+    </div>}
+  </div>;
+}
+
+  const [tab,setTab]=useState("customers");
+
+  // Build customer list from sold plants
+  const soldPlants=plants.filter(p=>p.status==="Sold"&&p.customerUsername);
+  const custMap={};
+  soldPlants.forEach(p=>{
+    const u=p.customerUsername;
+    if(!custMap[u])custMap[u]={username:u,name:p.customerName||"",state:p.customerState||"",orders:[],total:0,plants:0};
+    custMap[u].orders.push(p);
+    custMap[u].total+=(+p.salePrice||0);
+    custMap[u].plants++;
+  });
+  const customers=Object.values(custMap).sort((a,b)=>b.total-a.total);
+
+  // State breakdown from all sold plants with state info
+  const stateMap={};
+  plants.filter(p=>p.status==="Sold"&&p.customerState).forEach(p=>{
+    const s=p.customerState;
+    if(!stateMap[s])stateMap[s]={state:s,revenue:0,orders:0,customers:new Set()};
+    stateMap[s].revenue+=(+p.salePrice||0);
+    stateMap[s].orders++;
+    stateMap[s].customers.add(p.customerUsername||"?");
+  });
+  const states=Object.values(stateMap).map(s=>({...s,customers:s.customers.size})).sort((a,b)=>b.revenue-a.revenue);
+
+  // Also add pre-loaded April data from the uploaded file
+  const preloadedStates=[
+    {state:"TX",revenue:3347.86,orders:121,customers:13},
+    {state:"CA",revenue:3235.06,orders:102,customers:18},
+    {state:"NJ",revenue:2276.06,orders:68,customers:1},
+    {state:"MA",revenue:1934.12,orders:52,customers:1},
+    {state:"IL",revenue:1228.11,orders:29,customers:4},
+    {state:"LA",revenue:1192.48,orders:32,customers:3},
+    {state:"GA",revenue:1139.41,orders:36,customers:3},
+    {state:"SC",revenue:989.00,orders:35,customers:4},
+    {state:"MI",revenue:781.00,orders:26,customers:2},
+    {state:"WA",revenue:740.71,orders:20,customers:4},
+    {state:"WI",revenue:623.88,orders:31,customers:2},
+    {state:"MD",revenue:607.13,orders:19,customers:4},
+    {state:"NC",revenue:603.04,orders:22,customers:4},
+    {state:"HI",revenue:559.81,orders:13,customers:2},
+    {state:"FL",revenue:544.92,orders:24,customers:6},
+    {state:"NY",revenue:519.62,orders:15,customers:3},
+    {state:"NV",revenue:513.11,orders:24,customers:3},
+    {state:"OH",revenue:512.34,orders:23,customers:2},
+    {state:"IA",revenue:489.52,orders:13,customers:1},
+    {state:"MN",revenue:468.00,orders:17,customers:5},
+  ];
+
+  const displayStates=states.length>0?states:preloadedStates;
+  const maxRev=Math.max(...displayStates.map(s=>s.revenue));
+
+  const preloadedCustomers=[
+    {username:"TygerPZ",name:"",state:"NJ",total:2276.06,plants:68},
+    {username:"WillRunForPlants69",name:"",state:"MA",total:1934.12,plants:52},
+    {username:"DobbyTheGreenhouseElf",name:"",state:"",total:1088.26,plants:28},
+    {username:"Goldens",name:"",state:"",total:870.60,plants:24},
+    {username:"ToledoBend318",name:"",state:"",total:844.32,plants:22},
+    {username:"Dr.Zany_pod",name:"",state:"",total:680.19,plants:18},
+    {username:"mi44e4694",name:"",state:"",total:677.28,plants:19},
+    {username:"sunny_pebble_frond4",name:"",state:"",total:662.08,plants:17},
+    {username:"Adiamond4eva",name:"",state:"IL",total:626.68,plants:16},
+    {username:"Mrs.Jones",name:"",state:"",total:606.37,plants:15},
+  ];
+  const displayCustomers=customers.length>0?customers:preloadedCustomers;
+
+  const TABS=[{id:"customers",l:"👥 Top Customers"},{id:"states",l:"🗺️ By State"}];
+
+  return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}>
+    <SHdr icon="👥" title="Customer Analytics" sub="Your best customers · Where you sell the most · April 2026 data loaded"/>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+      <KPI label="Total Customers" value={displayCustomers.length} color={C.g600}/>
+      <KPI label="April Revenue" value="$24,299" color={C.gold}/>
+      <KPI label="Top State" value="TX" sub="$3,347 revenue" color={C.blue}/>
+      <KPI label="Top Customer" value="TygerPZ" sub="$2,276 spent" color={C.purple}/>
+    </div>
+
+    <div style={{display:"flex",gap:0,marginBottom:16,borderBottom:`1px solid ${C.bd}`}}>
+      {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",fontSize:13,fontWeight:tab===t.id?700:500,background:"transparent",border:"none",borderBottom:tab===t.id?`2.5px solid ${C.g700}`:"2.5px solid transparent",color:tab===t.id?C.g800:C.tx3,cursor:"pointer",fontFamily:F.body}}>{t.l}</button>)}
+    </div>
+
+    {tab==="customers"&&<div>
+      <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:12}}>Your Best Customers (April 2026)</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {displayCustomers.map((c,i)=><Card key={c.username} style={{padding:"12px 16px"}}>
+          <Row between center>
+            <Row gap={12} center>
+              <div style={{width:36,height:36,borderRadius:"50%",background:i===0?C.gold+"22":i===1?"#aaa22":i===2?C.amber+"22":C.g100,border:`2px solid ${i===0?C.gold:i===1?"#aaa":i===2?C.amber:C.bd}`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,color:i===0?C.gold:i===1?"#777":i===2?C.amber:C.tx3}}>
+                {i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`}
+              </div>
+              <div>
+                <div style={{fontWeight:700,fontSize:14,color:C.g900}}>@{c.username}</div>
+                <div style={{fontSize:11,color:C.tx3}}>{c.plants} items{c.state?` · ${c.state}`:""}{c.name?` · ${c.name}`:""}</div>
+              </div>
+            </Row>
+            <span style={{fontWeight:700,color:C.gold,fontSize:16,fontFamily:F.display}}>{$(c.total)}</span>
+          </Row>
+        </Card>)}
+      </div>
+    </div>}
+
+    {tab==="states"&&<div>
+      <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:12}}>Revenue by State (April 2026)</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {displayStates.map((s,i)=><Card key={s.state} style={{padding:"12px 16px"}}>
+          <Row between style={{marginBottom:6}}>
+            <div>
+              <Row gap={8} center>
+                <span style={{fontWeight:700,fontSize:16,color:C.g900}}>{s.state}</span>
+                <Tag text={`${s.customers} customers`} color={C.blue} sm/>
+                <Tag text={`${s.orders} orders`} color={C.g600} sm/>
+              </Row>
+            </div>
+            <span style={{fontWeight:700,color:C.gold,fontSize:16,fontFamily:F.display}}>{$(s.revenue)}</span>
+          </Row>
+          <div style={{height:10,background:C.g100,borderRadius:5,overflow:"hidden"}}>
+            <div style={{width:`${(s.revenue/maxRev)*100}%`,height:"100%",background:i===0?C.gold:i===1?C.g600:C.g400,borderRadius:5}}/>
+          </div>
+        </Card>)}
+      </div>
+    </div>}
+  </div>;
+}
+
+
 const LS_KEY = "leafdiary_v6";
 const saveLS = (data) => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch(e) { console.warn("Save failed", e); } };
 const loadLS = () => { try { const d = localStorage.getItem(LS_KEY); return d ? JSON.parse(d) : null; } catch(e) { return null; } };
@@ -1863,6 +2375,8 @@ function App(){
       {page==="inv"     &&<Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit}/>}
       {page==="labels"  &&<Labels plants={plants} setPlants={setPlants} user={user}/>}
       {page==="sellthru"&&CAN.seeReports(user.role)&&<SellThrough plants={plants} nurseries={nurseries} setPage={setPage}/>}
+      {page==="showimport"&&<ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user}/>}
+      {page==="customers"&&CAN.seeReports(user.role)&&<Customers plants={plants}/>}
       {page==="nursery" &&<Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user}/>}
       {page==="bills"   &&<Bills bills={bills} setBills={setBills}/>}
       {page==="expense" &&CAN.seeExpenses(user.role)&&<Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user}/>}
