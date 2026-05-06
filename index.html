@@ -123,7 +123,7 @@
     const sprice = (cost, m = 0.62) => cost > 0 ? Math.ceil(cost / (1 - m) / 5) * 5 : 0;
     const marg = (cost, price) => price > 0 ? Math.round(((price - cost) / price) * 100) : 0;
     const pid = (code, n) => `${code}-${String(n).padStart(3, "0")}`;
-    const getNextId = (plants, code) => Math.max(999, ...plants.filter(p => p.nurseryCode === code).map(p => { const m = (p.plantId || "").match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }));
+    const getNextId = (plants, code) => Math.max(999, ...plants.map(p => { const m = (p.plantId || "").match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }));
     const dHeld = d => d ? Math.floor((Date.now() - new Date(d)) / (864e5)) : null;
     const fDays = d => d === null ? "—" : d === 0 ? "Today" : d === 1 ? "1 day" : `${d}d`;
     const platFee = (platform, price) => {
@@ -1020,7 +1020,7 @@
       </div>;
     }
 
-    function Inventory({ plants, setPlants, user, addAudit, nurseries }) {
+    function Inventory({ plants, setPlants, user, addAudit, nurseries, setPage }) {
       const [search, setSearch] = useState("");
       const [fs, setFs] = useState("All");
       const [fn, setFn] = useState("All");
@@ -1060,7 +1060,7 @@
         addAudit && addAudit({ action: `Exported Master Inventory CSV — ${list.length} plants`, user: user.name, page: 'Inventory' });
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🌿" title="Plant Inventory" sub={`${list.length} of ${plants.length} plants`} right={<Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn>} />
+        <SHdr icon="🌿" title="Plant Inventory" sub={`${list.length} of ${plants.length} plants`} right={<Row gap={8}><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
         <Row gap={8} wrap style={{ marginBottom: 14 }}>
           <div style={{ flex: 1, minWidth: 200 }}><input placeholder="Search name, ID…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${C.bd}`, borderRadius: 9, fontSize: 13, fontFamily: F.body, boxSizing: "border-box", outline: "none" }} /></div>
           {[["Status", fs, setFs, ["All", ...STATUSES]], ["Nursery", fn, setFn, ["All", ...filterNurseries]], ["Genus", fg, setFg, ["All", ...genera]], ["Age", fAge, setFAge, ["All", "fresh", "30+", "60+"]]].map(([l, v, set, opts]) => (
@@ -2480,6 +2480,22 @@
     }
 
 
+    /* Auto-heal duplicate plant IDs at startup. Keeps the first occurrence, assigns
+       new globally-unique IDs to any duplicates. */
+    const deduplicatePlants = (arr) => {
+      const seen = new Set();
+      let globalMax = Math.max(999, ...(arr || []).map(p => { const m = (p.plantId || "").match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }));
+      return (arr || []).map(p => {
+        const key = (p.plantId || "").toUpperCase();
+        if (!key || !seen.has(key)) { seen.add(key); return p; }
+        // Duplicate found — assign next available global ID
+        globalMax++;
+        const newId = pid(p.nurseryCode || "XX", globalMax);
+        seen.add(newId.toUpperCase());
+        return { ...p, plantId: newId, plantCode: newId, barcodeValue: newId };
+      });
+    };
+
     const LS_KEY = "leafdiary_v6";
     const saveLS = (data) => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) { console.warn("Save failed", e); } };
     const loadLS = () => { try { const d = localStorage.getItem(LS_KEY); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
@@ -2660,7 +2676,7 @@
 
       const [user, setUser] = useState(null);
       const [page, setPage] = useState("dash");
-      const [plants, setPlantsRaw] = useState(saved?.plants || []);
+      const [plants, setPlantsRaw] = useState(deduplicatePlants(saved?.plants || []));
       const [expenses, setExpensesRaw] = useState(saved?.expenses || []);
       const [timecards, setTimecardsRaw] = useState(saved?.timecards || []);
       const [auditLog, setAuditLogRaw] = useState(saved?.auditLog || []);
@@ -2945,7 +2961,7 @@
           {page === "upload" && <InvoiceUpload {...P} />}
           {page === "manual" && <ManualEntry {...P} />}
           {page === "history" && <PastInvoices {...P} />}
-          {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} />}
+          {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} setPage={setPage} />}
           {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={setPage} settings={settings} />}
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={setPage} />}
           {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
