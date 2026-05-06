@@ -469,7 +469,31 @@ function InvoiceUpload({plants,setPlants,nurseries,addAudit,user}){
   const [selN,setSelN]=useState(null);
   const fRef=useRef(),cRef=useRef();
   useEffect(()=>{if(nurseries.length&&!selN)setSelN(nurseries[0]);},[nurseries]);
-  const load=f=>{if(!f)return;const r=new FileReader();r.onload=e=>{setImg(e.target.result);setStep("preview");};r.readAsDataURL(f);setErr(null);};
+  const load = f => {
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = e => {
+      const imgObj = new Image();
+      imgObj.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_DIM = 1600;
+        let w = imgObj.width, h = imgObj.height;
+        if (w > MAX_DIM || h > MAX_DIM) {
+          if (w > h) { h *= MAX_DIM / w; w = MAX_DIM; }
+          else { w *= MAX_DIM / h; h = MAX_DIM; }
+        }
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(imgObj, 0, 0, w, h);
+        const resizedB64 = canvas.toDataURL("image/jpeg", 0.7);
+        setImg(resizedB64);
+        setStep("preview");
+      };
+      imgObj.src = e.target.result;
+    };
+    r.readAsDataURL(f);
+    setErr(null);
+  };
   const scan=async()=>{
     if(!selN){setErr("Select a nursery first.");return;}
     setLoading(true);setErr(null);setStep("scanning");
@@ -479,6 +503,7 @@ function InvoiceUpload({plants,setPlants,nurseries,addAudit,user}){
         body: { imageBase64: b64 }
       });
       if (error) throw error;
+      if (data && data._serverError) throw new Error(data._serverError);
       const result = data;
       setParsed(result);
       const existing=plants.filter(p=>p.nurseryCode===selN.code).length;
