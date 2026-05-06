@@ -2580,6 +2580,16 @@ function App(){
   const setUsers     = cloudStateSetter("users", setUsersRaw);
   const setSettings  = cloudStateSetter("settings", setSettingsRaw);
 
+  /* Migration: remove LD- from old plant IDs */
+  useEffect(()=>{
+    if(plants.some(p=>p.plantId&&p.plantId.startsWith("LD-"))){
+      setPlants(prev=>prev.map(p=>{
+        if(p.plantId&&p.plantId.startsWith("LD-")) return {...p,plantId:p.plantId.replace(/^LD-/, "")};
+        return p;
+      }));
+    }
+  },[plants, setPlants]);
+
   /* Always keep a local backup on this device too */
   useEffect(()=>{
     saveLS({plants,expenses,timecards,auditLog,bills,nurseries,users,settings});
