@@ -1182,16 +1182,15 @@
     /* ══════════════════════════════════════════════════════════
        LABELS
     ══════════════════════════════════════════════════════════ */
-    async function runLabelResearch(plants, onProg, onDone, settings) {
-      if (!settings?.anthropicKey) { alert("Please add your Anthropic API Key in the Admin panel to use Market Research."); onDone([]); return; }
-      const headers = { "Content-Type": "application/json", "x-api-key": settings.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-dangerously-allow-browser": "true" };
+    async function runLabelResearch(plants, onProg, onDone) {
+      const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${OLLAMA_CLOUD_API_KEY}` };
       const results = [];
       for (let i = 0; i < plants.length; i++) {
         const p = plants[i]; onProg({ current: i + 1, total: plants.length, name: p.name });
         try {
-          const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 200, messages: [{ role: "user", content: `For rare houseplant "${p.name}" (${p.potSize || '4"'} pot) typical USA resale on Palmstreet/Whatnot, reply ONLY JSON: {"low":number,"avg":number,"high":number,"rec":number}` }] }) });
+          const res = await fetch("https://ollama.com/v1/chat/completions", { method: "POST", headers, body: JSON.stringify({ model: "glm-5.1:cloud", max_tokens: 200, messages: [{ role: "user", content: `For rare houseplant "${p.name}" (${p.potSize || '4"'} pot) typical USA resale on Palmstreet/Whatnot, reply ONLY valid JSON with no markdown: {"low":number,"avg":number,"high":number,"rec":number}` }] }) });
           const d = await res.json();
-          const txt = d.content?.map(c => c.text || "").join("") || "{}";
+          const txt = d.choices?.[0]?.message?.content || "{}";
           results.push({ ...p, ...JSON.parse(txt.replace(/```json|```/g, "").trim()) });
         } catch { results.push({ ...p }); }
         await new Promise(r => setTimeout(r, 200));
@@ -1384,7 +1383,7 @@
               </Row>}
             </Row>
             {isOwner && <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
-              {[["Plants", np.length, C.g600], ["Spent", $(spent), C.red], ["Revenue", $(rev), C.gold], ["Profit", $(profit), profit >= 0 ? C.g600 : C.red], ["Avg Margin", pct(avgM), avgM >= 60 ? C.g600 : avgM >= 40 ? C.gold : C.red]].map(([l, v, c]) => (
+              {[["Plants", np.length, C.g600], ["Spent", $(spent), C.red], ["Revenue", $(rev), C.gold], ["Profit", $(profit), profit >= 0 ? C.g600 : C.red], ["Avg Margin", `${avgM}%`, avgM >= 60 ? C.g600 : avgM >= 40 ? C.gold : C.red]].map(([l, v, c]) => (
                 <div key={l} style={{ background: C.cardAlt, borderRadius: 8, padding: "9px 12px" }}>
                   <div style={{ fontSize: 9, fontWeight: 700, color: C.tx3, textTransform: "uppercase", letterSpacing: .5, marginBottom: 3 }}>{l}</div>
                   <div style={{ fontWeight: 700, color: c, fontSize: 14, fontFamily: F.display }}>{v}</div>
@@ -1780,13 +1779,12 @@
       const sc = s => s >= 75 ? C.g600 : s >= 50 ? C.gold : s >= 25 ? C.amber : C.red;
       const getAI = async () => {
         if (!plants.length) { setAi("Add plants first."); return; }
-        if (!settings?.anthropicKey) { setAi("Please add your Anthropic API Key in the Admin panel to use AI Intelligence."); return; }
         setLoading(true); setAi("");
         try {
           const summary = genera.map(g => `${g.name}: ${g.total} plants, ${g.sold} sold (${g.sellThru}% sell-through), avg margin ${g.avgM}%, profit $${g.profit.toFixed(0)}`).join("\n");
-          const headers = { "Content-Type": "application/json", "x-api-key": settings.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-dangerously-allow-browser": "true" };
-          const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 700, messages: [{ role: "user", content: `You are a plant business advisor for Leaf Diary, a Florida rare plant reseller on Palmstreet and Whatnot. Give specific buying advice using this data:\n${summary}\n\nBe direct with bullet points: what to buy more of, what to avoid, what's making money.` }] }) });
-          const d = await res.json(); setAi(d.content?.map(c => c.text || "").join("") || "");
+          const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${OLLAMA_CLOUD_API_KEY}` };
+          const res = await fetch("https://ollama.com/v1/chat/completions", { method: "POST", headers, body: JSON.stringify({ model: "glm-5.1:cloud", max_tokens: 700, messages: [{ role: "user", content: `You are a plant business advisor for Leaf Diary, a Florida rare plant reseller on Palmstreet and Whatnot. Give specific buying advice using this data:\n${summary}\n\nBe direct with bullet points: what to buy more of, what to avoid, what's making money.` }] }) });
+          const d = await res.json(); setAi(d.choices?.[0]?.message?.content || "");
         } catch (e) { setAi("Error: " + e.message); } finally { setLoading(false); }
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
@@ -2498,7 +2496,7 @@
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", anthropicKey: "" };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "" };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -2507,6 +2505,7 @@
     ══════════════════════════════════════════════════════════ */
     const SUPABASE_URL = "https://yyklidmefiguzrbvrnmp.supabase.co";
     const SUPABASE_KEY = "sb_publishable_8vyVQt8Ay3S8kJ4cI9U5YA_eB6l2CUu";
+    const OLLAMA_CLOUD_API_KEY = "46e3b2b6adfd453d9a28b3b603e61779._NV46l5jOgktR7y3cc-bjQZI";
     const CLOUD_TABLES = ["plants", "bills", "nurseries", "expenses", "timecards"];
 
     const cloudHeaders = (extra = {}) => {
