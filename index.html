@@ -90,8 +90,6 @@ const DEFAULT_PERMS = {
   canExportReports:false,canViewNurseryFinancials:false,
 };
 
-const ANTHROPIC_API_KEY = "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";
-const AI_HEADERS = {"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"};
 const uid   = () => Math.random().toString(36).slice(2,9);
 const $     = n  => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(+n||0);
 const pct   = n  => `${Math.round(+n||0)}%`;
@@ -469,23 +467,7 @@ function InvoiceUpload({plants,setPlants,nurseries,addAudit,user}){
   useEffect(()=>{if(nurseries.length&&!selN)setSelN(nurseries[0]);},[nurseries]);
   const load=f=>{if(!f)return;const r=new FileReader();r.onload=e=>{setImg(e.target.result);setStep("preview");};r.readAsDataURL(f);setErr(null);};
   const scan=async()=>{
-    if(!selN){setErr("Select a nursery first.");return;}
-    setLoading(true);setErr(null);setStep("scanning");
-    try{
-      const b64=img.split(",")[1],mime=img.split(";")[0].split(":")[1];
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:AI_HEADERS,body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2500,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:`Read this plant nursery invoice and return ONLY valid JSON:\n{"nurseryName":null,"invoiceNumber":null,"invoiceDate":null,"paymentMethod":null,"subtotal":0,"tax":0,"shipping":0,"total":0,"plants":[{"name":"","botanicalName":null,"potSize":null,"quantity":1,"costPerPlant":0}]}`}]}]})});
-      const d=await res.json();
-      const result=JSON.parse((d.content?.map(c=>c.text||"").join("")||"").replace(/```json|```/g,"").trim());
-      setParsed(result);
-      const existing=plants.filter(p=>p.nurseryCode===selN.code).length;
-      let ctr=existing;
-      const mapped=(result.plants||[]).flatMap((p,li)=>Array.from({length:Math.max(1,+p.quantity||1)},(_,qi)=>{
-        ctr++;const cost=+p.costPerPlant||0,sp=sprice(cost);
-        return{_k:`${li}-${qi}`,plantId:pid(selN.code,ctr),nurseryCode:selN.code,name:toTC(p.name||""),botanicalName:p.botanicalName||"",potSize:p.potSize||"",cost,suggestedPrice:sp,salePrice:"",shippingCost:"",margin:marg(cost,sp),status:"In Stock",invoiceNumber:result.invoiceNumber||"",invoiceDate:result.invoiceDate||"",dateAdded:today(),platform:"",rack:"",shelf:"",notes:"",labelPrinted:false,addedBy:user.name};
-      }));
-      setRows(mapped);setStep("review");
-    }catch(e){setErr("Scan failed: "+e.message);setStep("preview");}
-    finally{setLoading(false);}
+    setErr("AI scanning is temporarily disabled for security upgrades.");
   };
   const updR=(k,f,v)=>setRows(pr=>pr.map(r=>{if(r._k!==k)return r;const u={...r,[f]:v};if(f==="cost"||f==="suggestedPrice")u.margin=marg(f==="cost"?+v:+r.cost,f==="suggestedPrice"?+v:+r.suggestedPrice);return u;}));
   const save=()=>{setPlants(p=>[...p,...rows.map(({_k,...r})=>({...r,id:uid()}))]);addAudit({action:`Invoice uploaded — ${rows.length} plants from ${selN?.name}`,user:user.name,page:"Invoice Upload"});setStep("done");};
