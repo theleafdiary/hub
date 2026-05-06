@@ -4,16 +4,18 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
   <meta name="apple-mobile-web-app-title" content="Leaf Diary"/>
-  <meta name="theme-color" content="#174D2F"/>
-  <title>The Leaf Diary Business Hub</title>
+  <meta name="theme-color" content="#111111"/>
+  <title>Leaf Diary Hub</title>
   <link rel="apple-touch-icon" href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-    body{margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif;overscroll-behavior:none;}
+    body{margin:0;padding:0;font-family:"DM Sans",system-ui,sans-serif;font-size:16px;overscroll-behavior:none;background:#F9F9F9;-webkit-font-smoothing:antialiased;}
     #root{min-height:100vh;}
     input,select,textarea{font-size:16px!important;}
+    button{-webkit-appearance:none;appearance:none;}
   </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -21,7 +23,7 @@
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-presets="react" data-type="module">
+  <script type="text/babel" data-presets="react">
     const { useState, useRef, useEffect, useCallback } = React;
 
 /* ═══════════════════════════════════════════════════════════
@@ -2157,182 +2159,140 @@ function Customers({plants}){
 }
 
 
-/* ══════════════════════════════════════════════════════════
-   SUPABASE REAL-TIME CLOUD SYNC
-══════════════════════════════════════════════════════════ */
-const SB_URL="https://yyklidmefiguzrbvrnmp.supabase.co";
-const SB_KEY="sb_publishable_8vyVQt8Ay3S8kJ4cI9U5YA_eB6l2CUu";
-const SB_HDR={"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
+const LS_KEY = "leafdiary_v6";
+const saveLS = (data) => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch(e) { console.warn("Save failed", e); } };
+const loadLS = () => { try { const d = localStorage.getItem(LS_KEY); return d ? JSON.parse(d) : null; } catch(e) { return null; } };
 
-const sbList=async(t)=>{try{const r=await fetch(SB_URL+"/rest/v1/"+t+"?select=*",{headers:SB_HDR});const d=await r.json();return Array.isArray(d)?d.map(x=>x.data):[];}catch(e){return[];}};
-const sbSave=async(t,id,data)=>{try{await fetch(SB_URL+"/rest/v1/"+t,{method:"POST",headers:{...SB_HDR,"Prefer":"resolution=merge-duplicates"},body:JSON.stringify({id,data,updated_at:new Date().toISOString()})});}catch(e){}};
-const sbDel=async(t,id)=>{try{await fetch(SB_URL+"/rest/v1/"+t+"?id=eq."+id,{method:"DELETE",headers:SB_HDR});}catch(e){}};
-const sbGetState=async(k)=>{try{const r=await fetch(SB_URL+"/rest/v1/app_state?key=eq."+k+"&select=*",{headers:SB_HDR});const d=await r.json();return d?.[0]?.data||null;}catch(e){return null;}};
-const sbSetState=async(k,data)=>{try{await fetch(SB_URL+"/rest/v1/app_state",{method:"POST",headers:{...SB_HDR,"Prefer":"resolution=merge-duplicates"},body:JSON.stringify({key:k,data,updated_at:new Date().toISOString()})});}catch(e){}};
-
-const LS_KEY="leafdiary_v6";
-const saveLS=(data)=>{try{localStorage.setItem(LS_KEY,JSON.stringify(data));}catch(e){}};
-const loadLS=()=>{try{const d=localStorage.getItem(LS_KEY);return d?JSON.parse(d):null;}catch(e){return null;}};
-
-const DEFAULT_NURSERIES=[
+const DEFAULT_NURSERIES = [
   {id:"n1",code:"PC001",name:"Perfect Choice Nursery",phone:"(305) 555-0100",email:"info@perfectchoicenursery.com",address:"12345 SW 216th St, Miami, FL 33170",website:"https://perfectchoicenursery.com",contact:"Maria Santos",paymentMethods:"Cash, Credit Card",hasAccount:true,accountNotes:"Account #PC-4421, net-30 terms",notes:"Great Aroids. Tuesdays best for fresh stock."},
   {id:"n2",code:"SK001",name:"Silver Krome Gardens",phone:"(786) 555-0200",email:"",address:"21045 SW 177th Ave, Miami, FL 33187",website:"",contact:"",paymentMethods:"Cash, Check",hasAccount:false,accountNotes:"",notes:"Best Philodendrons in South FL."},
   {id:"n3",code:"LP001",name:"LP Premium Plants",phone:"(954) 555-0300",email:"sales@lppremiumplants.com",address:"5500 Griffin Rd, Davie, FL 33314",website:"",contact:"Luis Perez",paymentMethods:"Credit Card, PayPal",hasAccount:true,accountNotes:"Account #LP-7890",notes:"Tissue culture specialist. Call ahead."},
 ];
-const DEFAULT_USERS=[
+const DEFAULT_USERS = [
   {id:"owner",name:"Eric",role:"owner",pin:"1234",email:"eric@theleafdiary.com",permissions:null},
   {id:"mgr1",name:"Manager",role:"manager",pin:"5678",email:"manager@theleafdiary.com",permissions:{...DEFAULT_PERMS,canSeeCost:true,canSeeProfit:true,canChangePrices:true,canExportReports:true,canViewNurseryFinancials:true}},
   {id:"emp1",name:"Employee",role:"employee",pin:"9012",email:"emp@theleafdiary.com",permissions:{...DEFAULT_PERMS}},
 ];
-const DEFAULT_BILLS=[
+const DEFAULT_BILLS = [
   {id:"b1",name:"Shopify Monthly",amount:39,dueDate:new Date(Date.now()+5*864e5).toISOString().split("T")[0],category:"Platform Fee",frequency:"Monthly",vendor:"Shopify",payMethod:"Credit Card",notes:"Basic plan",status:"Unpaid",autoRenew:true},
   {id:"b2",name:"Palmstreet Subscription",amount:29,dueDate:new Date(Date.now()+12*864e5).toISOString().split("T")[0],category:"Platform Fee",frequency:"Monthly",vendor:"Palmstreet",payMethod:"Credit Card",notes:"",status:"Unpaid",autoRenew:true},
   {id:"b3",name:"Storage Unit Rent",amount:180,dueDate:new Date(Date.now()+3*864e5).toISOString().split("T")[0],category:"Rent",frequency:"Monthly",vendor:"Public Storage",payMethod:"Credit Card",notes:"Unit #42B - climate controlled",status:"Unpaid",autoRenew:false},
 ];
-const DEFAULT_SETTINGS={marginTarget:62,minProfit:10,roundTo:5,showCostOnLabels:false,empCanSeeSuggestedPrice:true,resellerCertData:null,resellerCertName:""};
+const DEFAULT_SETTINGS = {marginTarget:62,minProfit:10,roundTo:5,showCostOnLabels:false,empCanSeeSuggestedPrice:true,resellerCertData:null,resellerCertName:""};
 
+/* ══════════════════════════════════════════════════════════
+   ROOT APP — with full localStorage persistence
+══════════════════════════════════════════════════════════ */
 function App(){
-  const saved=loadLS();
-  const [user,setUser]=useState(null);
-  const [page,setPage]=useState("dash");
-  const [plants,setPlants]=useState(saved?.plants||[]);
-  const [expenses,setExpenses]=useState(saved?.expenses||[]);
-  const [timecards,setTimecards]=useState(saved?.timecards||[]);
-  const [auditLog,setAuditLog]=useState(saved?.auditLog||[]);
-  const [bills,setBills]=useState(saved?.bills||DEFAULT_BILLS);
-  const [nurseries,setNurseries]=useState(saved?.nurseries||DEFAULT_NURSERIES);
-  const [users,setUsers]=useState(saved?.users||DEFAULT_USERS);
-  const [settings,setSettings]=useState(saved?.settings||DEFAULT_SETTINGS);
-  const [syncStatus,setSyncStatus]=useState("loading");
-  const [saveMsg,setSaveMsg]=useState("");
-  const backupRef=useRef();
-  const pollRef=useRef();
+  const saved = loadLS();
 
-  useEffect(()=>{
-    const load=async()=>{
-      setSyncStatus("syncing");
-      try{
-        const [p,e,t,b,n]=await Promise.all([sbList("plants"),sbList("expenses"),sbList("timecards"),sbList("bills"),sbList("nurseries")]);
-        const st=await sbGetState("settings");
-        const u=await sbGetState("users");
-        const al=await sbGetState("auditlog");
-        if(p.length>0)setPlants(p);
-        if(e.length>0)setExpenses(e);
-        if(t.length>0)setTimecards(t);
-        if(b.length>0)setBills(b);
-        if(n.length>0)setNurseries(n);
-        if(st)setSettings(st);
-        if(u)setUsers(u);
-        if(al)setAuditLog(al);
-        setSyncStatus("online");
-      }catch(err){setSyncStatus("offline");}
-    };
-    load();
-    pollRef.current=setInterval(load,20000);
-    return()=>clearInterval(pollRef.current);
-  },[]);
+  const [user,setUser]       = useState(null);
+  const [page,setPage]       = useState("dash");
+  const [plants,setPlants]   = useState(saved?.plants    || []);
+  const [expenses,setExpenses] = useState(saved?.expenses || []);
+  const [timecards,setTimecards] = useState(saved?.timecards || []);
+  const [auditLog,setAuditLog]   = useState(saved?.auditLog  || []);
+  const [bills,setBills]     = useState(saved?.bills     || DEFAULT_BILLS);
+  const [nurseries,setNurseries] = useState(saved?.nurseries || DEFAULT_NURSERIES);
+  const [users,setUsers]     = useState(saved?.users     || DEFAULT_USERS);
+  const [settings,setSettings]   = useState(saved?.settings  || DEFAULT_SETTINGS);
+  const [saveMsg,setSaveMsg] = useState("");
 
-  const wrapPlants=(fn)=>{
-    setPlants(prev=>{
-      const next=typeof fn==="function"?fn(prev):fn;
-      next.forEach(p=>{const old=prev.find(x=>x.id===p.id);if(!old||JSON.stringify(old)!==JSON.stringify(p))sbSave("plants",p.id,p);});
-      prev.forEach(p=>{if(!next.find(x=>x.id===p.id))sbDel("plants",p.id);});
-      return next;
-    });
-  };
-  const wrapBills=(fn)=>{setBills(prev=>{const next=typeof fn==="function"?fn(prev):fn;next.forEach(b=>sbSave("bills",b.id,b));prev.forEach(b=>{if(!next.find(x=>x.id===b.id))sbDel("bills",b.id);});return next;});};
-  const wrapNurseries=(fn)=>{setNurseries(prev=>{const next=typeof fn==="function"?fn(prev):fn;next.forEach(n=>sbSave("nurseries",n.id,n));prev.forEach(n=>{if(!next.find(x=>x.id===n.id))sbDel("nurseries",n.id);});return next;});};
-  const wrapExpenses=(fn)=>{setExpenses(prev=>{const next=typeof fn==="function"?fn(prev):fn;next.forEach(e=>sbSave("expenses",e.id,e));prev.forEach(e=>{if(!next.find(x=>x.id===e.id))sbDel("expenses",e.id);});return next;});};
-  const wrapTimecards=(fn)=>{setTimecards(prev=>{const next=typeof fn==="function"?fn(prev):fn;next.forEach(t=>sbSave("timecards",t.id,t));prev.forEach(t=>{if(!next.find(x=>x.id===t.id))sbDel("timecards",t.id);});return next;});};
-  const wrapUsers=(fn)=>{setUsers(prev=>{const next=typeof fn==="function"?fn(prev):fn;sbSetState("users",next);return next;});};
-  const wrapSettings=(fn)=>{setSettings(prev=>{const next=typeof fn==="function"?fn(prev):fn;sbSetState("settings",next);return next;});};
-
+  /* Auto-save everything to localStorage whenever any data changes */
   useEffect(()=>{
     saveLS({plants,expenses,timecards,auditLog,bills,nurseries,users,settings});
   },[plants,expenses,timecards,auditLog,bills,nurseries,users,settings]);
 
+  /* Load fonts */
   useEffect(()=>{
-    const l=document.createElement("link");l.rel="stylesheet";
+    const l=document.createElement("link");
+    l.rel="stylesheet";
     l.href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;600;700&family=DM+Mono&display=swap";
     document.head.appendChild(l);
   },[]);
 
-  const exportBackup=()=>{
-    const data={plants,expenses,timecards,bills,nurseries,users,settings,exportDate:new Date().toISOString()};
-    const a=Object.assign(document.createElement("a"),{href:URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"})),download:"leafdiary-backup-"+today()+".json"});
-    a.click();setSaveMsg("✅ Backup downloaded!");setTimeout(()=>setSaveMsg(""),3000);
+  /* Manual backup — exports all data as JSON file */
+  const exportBackup = () => {
+    const data = {plants,expenses,timecards,bills,nurseries,users,settings,exportDate:new Date().toISOString()};
+    const a = Object.assign(document.createElement("a"),{
+      href: URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"})),
+      download: `leafdiary-backup-${today()}.json`
+    });
+    a.click();
+    setSaveMsg("✅ Backup downloaded!");
+    setTimeout(()=>setSaveMsg(""),3000);
   };
 
-  const importBackup=(file)=>{
-    if(!file)return;
-    const r=new FileReader();
-    r.onload=e=>{
-      try{
-        const d=JSON.parse(e.target.result);
-        if(d.plants)wrapPlants(d.plants);
-        if(d.expenses)wrapExpenses(d.expenses);
-        if(d.timecards)wrapTimecards(d.timecards);
-        if(d.bills)wrapBills(d.bills);
-        if(d.nurseries)wrapNurseries(d.nurseries);
-        if(d.users)wrapUsers(d.users);
-        if(d.settings)wrapSettings(d.settings);
-        setSaveMsg("✅ Restored to cloud!");setTimeout(()=>setSaveMsg(""),3000);
-      }catch(err){setSaveMsg("❌ Invalid backup file");setTimeout(()=>setSaveMsg(""),3000);}
+  /* Restore from backup JSON file */
+  const importBackup = (file) => {
+    if(!file) return;
+    const r = new FileReader();
+    r.onload = e => {
+      try {
+        const d = JSON.parse(e.target.result);
+        if(d.plants)    setPlants(d.plants);
+        if(d.expenses)  setExpenses(d.expenses);
+        if(d.timecards) setTimecards(d.timecards);
+        if(d.bills)     setBills(d.bills);
+        if(d.nurseries) setNurseries(d.nurseries);
+        if(d.users)     setUsers(d.users);
+        if(d.settings)  setSettings(d.settings);
+        setSaveMsg("✅ Backup restored!");
+        setTimeout(()=>setSaveMsg(""),3000);
+      } catch(err) { setSaveMsg("❌ Invalid backup file"); setTimeout(()=>setSaveMsg(""),3000); }
     };
     r.readAsText(file);
   };
 
-  const addAudit=useCallback(entry=>{
-    setAuditLog(p=>{const next=[...p,{...entry,timestamp:new Date().toLocaleString(),id:uid()}];sbSetState("auditlog",next.slice(-200));return next;});
-  },[]);
+  const backupRef = useRef();
+  const addAudit  = useCallback(entry=>{setAuditLog(p=>[...p,{...entry,timestamp:new Date().toLocaleString(),id:uid()}]);},[]);
+  const handleLogin  = u=>{setUser(u);setPage(u.role==="employee"?"emp_dash":"dash");addAudit({action:"Logged in",user:u.name,page:"Login"});};
+  const handleLogout = ()=>{addAudit({action:"Logged out",user:user.name,page:"System"});setUser(null);setPage("dash");};
+  const billAlerts   = bills.filter(b=>{const d=Math.ceil((new Date(b.dueDate)-Date.now())/864e5);return d<=7&&d>=0&&b.status==="Unpaid";}).length;
 
-  const handleLogin=u=>{setUser(u);setPage(u.role==="employee"?"emp_dash":"dash");addAudit({action:"Logged in",user:u.name,page:"Login"});};
-  const handleLogout=()=>{addAudit({action:"Logged out",user:user.name,page:"System"});setUser(null);setPage("dash");};
-  const billAlerts=bills.filter(b=>{const d=Math.ceil((new Date(b.dueDate)-Date.now())/864e5);return d<=7&&d>=0&&b.status==="Unpaid";}).length;
+  if(!user) return <LoginScreen onLogin={handleLogin} users={users}/>;
 
-  const syncColor=syncStatus==="online"?C.g500:syncStatus==="offline"?C.amber:C.gold;
-  const syncLabel=syncStatus==="online"?"☁️ Synced":syncStatus==="offline"?"⚠️ Offline":"🔄 Syncing...";
-
-  if(!user)return <LoginScreen onLogin={handleLogin} users={users}/>;
-
-  const P={plants,setPlants:wrapPlants,nurseries,setNurseries:wrapNurseries,expenses,setExpenses:wrapExpenses,timecards,setTimecards:wrapTimecards,bills,setBills:wrapBills,user,addAudit};
+  const P={plants,setPlants,nurseries,setNurseries,expenses,setExpenses,timecards,setTimecards,bills,setBills,user,addAudit};
 
   return <div style={{fontFamily:F.body,background:C.bg,minHeight:"100vh",color:C.tx1,paddingBottom:80}}>
     <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={plants.length} billAlerts={billAlerts}/>
-    <div style={{background:"#111",padding:"6px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div style={{display:"flex",alignItems:"center",gap:8}}>
-        <div style={{width:8,height:8,borderRadius:"50%",background:syncColor}}/>
-        <span style={{fontSize:12,color:"rgba(255,255,255,.7)",fontWeight:600}}>{syncLabel}</span>
+
+    {/* Save indicator strip */}
+    <div style={{background:C.g900,padding:"6px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <div style={{width:7,height:7,borderRadius:"50%",background:C.g400}}/>
+        <span style={{fontSize:11,color:"rgba(255,255,255,.6)",fontWeight:600}}>Data saved to this device</span>
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         {saveMsg&&<span style={{fontSize:11,color:C.g400,fontWeight:700}}>{saveMsg}</span>}
-        <button onClick={exportBackup} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"5px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>📥 Backup</button>
-        <button onClick={()=>backupRef.current.click()} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"5px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>📤 Restore</button>
+        <button onClick={exportBackup} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>📥 Backup</button>
+        <button onClick={()=>backupRef.current.click()} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>📤 Restore</button>
         <input ref={backupRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>importBackup(e.target.files[0])}/>
       </div>
     </div>
+
     <div>
-      {page==="dash"&&user.role!=="employee"&&<OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage}/>}
+      {page==="dash"    &&user.role!=="employee"&&<OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage}/>}
       {page==="emp_dash"&&<EmpDash plants={plants} user={user} timecards={timecards}/>}
-      {page==="dash"&&user.role==="employee"&&<EmpDash plants={plants} user={user} timecards={timecards}/>}
-      {page==="upload"&&<InvoiceUpload {...P}/>}
-      {page==="manual"&&<ManualEntry {...P}/>}
-      {page==="history"&&<PastInvoices {...P}/>}
-      {page==="inv"&&<Inventory plants={plants} setPlants={wrapPlants} user={user} addAudit={addAudit}/>}
-      {page==="labels"&&<Labels plants={plants} setPlants={wrapPlants} user={user}/>}
+      {page==="dash"    &&user.role==="employee"&&<EmpDash plants={plants} user={user} timecards={timecards}/>}
+      {page==="upload"  &&<InvoiceUpload {...P}/>}
+      {page==="manual"  &&<ManualEntry {...P}/>}
+      {page==="history" &&<PastInvoices {...P}/>}
+      {page==="inv"     &&<Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit}/>}
+      {page==="labels"  &&<Labels plants={plants} setPlants={setPlants} user={user}/>}
       {page==="sellthru"&&CAN.seeReports(user.role)&&<SellThrough plants={plants} nurseries={nurseries} setPage={setPage}/>}
-      {page==="showimport"&&<ShowImport plants={plants} setPlants={wrapPlants} addAudit={addAudit} user={user}/>}
+      {page==="showimport"&&<ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user}/>}
       {page==="customers"&&CAN.seeReports(user.role)&&<Customers plants={plants}/>}
-      {page==="nursery"&&<Nurseries nurseries={nurseries} setNurseries={wrapNurseries} plants={plants} user={user}/>}
-      {page==="bills"&&<Bills bills={bills} setBills={wrapBills}/>}
-      {page==="expense"&&CAN.seeExpenses(user.role)&&<Expenses expenses={expenses} setExpenses={wrapExpenses} addAudit={addAudit} user={user}/>}
-      {page==="timecard"&&<Timecard timecards={timecards} setTimecards={wrapTimecards} user={user} employees={users}/>}
-      {page==="payroll"&&CAN.seePayroll(user.role)&&<Payroll timecards={timecards} employees={users}/>}
-      {page==="intel"&&CAN.seeReports(user.role)&&<BuyIntel plants={plants}/>}
-      {page==="reports"&&CAN.seeReports(user.role)&&<Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries}/>}
-      {page==="tax"&&CAN.seeTax(user.role)&&<TaxCenter plants={plants} expenses={expenses} timecards={timecards}/>}
-      {page==="audit"&&CAN.seeAudit(user.role)&&<AuditLog auditLog={auditLog}/>}
-      {page==="admin"&&CAN.editSettings(user.role)&&<AdminPanel users={users} setUsers={wrapUsers} settings={settings} setSettings={wrapSettings}/>}
+      {page==="nursery" &&<Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user}/>}
+      {page==="bills"   &&<Bills bills={bills} setBills={setBills}/>}
+      {page==="expense" &&CAN.seeExpenses(user.role)&&<Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user}/>}
+      {page==="timecard"&&<Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users}/>}
+      {page==="payroll" &&CAN.seePayroll(user.role)&&<Payroll timecards={timecards} employees={users}/>}
+      {page==="intel"   &&CAN.seeReports(user.role)&&<BuyIntel plants={plants}/>}
+      {page==="reports" &&CAN.seeReports(user.role)&&<Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries}/>}
+      {page==="tax"     &&CAN.seeTax(user.role)&&<TaxCenter plants={plants} expenses={expenses} timecards={timecards}/>}
+      {page==="audit"   &&CAN.seeAudit(user.role)&&<AuditLog auditLog={auditLog}/>}
+      {page==="admin"   &&CAN.editSettings(user.role)&&<AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings}/>}
     </div>
   </div>;
 }
