@@ -333,13 +333,21 @@
         setLoading(true); setErr(""); setMsg("");
         
         if (isSignup) {
-          const { error } = await supabase.auth.signUp({ email, password });
+          const { error } = await window.supabase.auth.signUp({ email, password });
           if (error) setErr(error.message);
-          else { setMsg("Account created! Logging you in..."); setIsSignup(false); await supabase.auth.signInWithPassword({ email, password }); }
+          else { setMsg("Account created! Logging you in..."); setIsSignup(false); await window.supabase.auth.signInWithPassword({ email, password }); }
         } else {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          const { error } = await window.supabase.auth.signInWithPassword({ email, password });
           if (error) setErr(error.message);
         }
+        setLoading(false);
+      };
+
+      const handleForgot = async () => {
+        if (!email) { setErr("Enter your email address first."); return; }
+        setLoading(true); setErr(""); setMsg("");
+        const { error } = await window.supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+        if (error) setErr(error.message); else setMsg("Password reset email sent! Check your inbox.");
         setLoading(false);
       };
 
@@ -361,8 +369,9 @@
           
           <Btn full v="fill" sz="lg" onClick={handleSubmit} disabled={loading} style={{ marginTop: 14 }}>{loading ? "Please wait..." : isSignup ? "Create Account →" : "Sign In →"}</Btn>
           
-          <div style={{ textAlign: "center", marginTop: 20 }}>
-            <button onClick={() => { setIsSignup(!isSignup); setErr(""); setMsg(""); }} style={{ background: "none", border: "none", color: C.tx3, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}>
+          <div style={{ textAlign: "center", marginTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+            {!isSignup && <button onClick={handleForgot} style={{ background: "none", border: "none", color: C.g600, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Forgot your password?</button>}
+            <button onClick={() => { setIsSignup(!isSignup); setErr(""); setMsg(""); }} style={{ background: "none", border: "none", color: C.tx3, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
               {isSignup ? "Already have an account? Sign in" : "Need an account? Sign up"}
             </button>
           </div>
@@ -2563,22 +2572,44 @@
       return (prev || []).map(x => x && x.id).filter(Boolean).map(String).filter(id => !n.has(id));
     }
 
-    function ChangePasswordModal({ onClose }) {
+    function ChangePasswordModal({ onClose, user }) {
+      const [oldPassword, setOldPassword] = useState("");
       const [newPassword, setNewPassword] = useState("");
       const [msg, setMsg] = useState("");
       const [err, setErr] = useState("");
       const [loading, setLoading] = useState(false);
+      const isOwner = user?.role === "owner";
+
       const handleUpdate = async () => {
-        if (newPassword.length < 6) { setErr("Password must be at least 6 characters"); return; }
+        if (newPassword.length < 6) { setErr("New password must be at least 6 characters"); return; }
+        if (!isOwner && !oldPassword) { setErr("You must enter your current password"); return; }
+        
         setLoading(true); setErr(""); setMsg("");
+        
+        if (!isOwner) {
+          const { data: { session } } = await window.supabase.auth.getSession();
+          if (session) {
+            const { error: signInError } = await window.supabase.auth.signInWithPassword({ email: session.user.email, password: oldPassword });
+            if (signInError) {
+              setErr("Incorrect current password.");
+              setLoading(false);
+              return;
+            }
+          }
+        }
+        
         const { error } = await window.supabase.auth.updateUser({ password: newPassword });
         if (error) setErr(error.message); else { setMsg("Password updated successfully!"); setTimeout(onClose, 1500); }
         setLoading(false);
       };
+      
       return <div style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ width: 340, background: C.card, borderRadius: 16, padding: "24px", boxShadow: "0 10px 40px rgba(0,0,0,.2)", fontFamily: F.body }}>
           <div style={{ fontFamily: F.display, fontWeight: 700, fontSize: 18, color: C.g900, marginBottom: 16 }}>Change Password</div>
-          <Inp label="New Password" type="password" value={newPassword} onChange={setNewPassword} placeholder="••••••••" onKeyDown={e => e.key === "Enter" && handleUpdate()} />
+          {!isOwner && <Inp label="Current Password" type="password" value={oldPassword} onChange={setOldPassword} placeholder="••••••••" />}
+          <div style={{ marginTop: !isOwner ? 10 : 0 }}>
+            <Inp label="New Password" type="password" value={newPassword} onChange={setNewPassword} placeholder="••••••••" onKeyDown={e => e.key === "Enter" && handleUpdate()} />
+          </div>
           {err && <div style={{ color: C.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
           {msg && <div style={{ color: C.g700, fontSize: 12, marginTop: 8 }}>{msg}</div>}
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
@@ -2862,7 +2893,7 @@
       const cloudLabel = cloudStatus === "synced" ? "☁️ Supabase cloud synced" : cloudStatus === "syncing" ? "🔄 Saving to Supabase..." : cloudStatus === "loading" ? "🔄 Loading cloud..." : `⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
-        {showPwdModal && <ChangePasswordModal onClose={() => setShowPwdModal(false)} />}
+        {showPwdModal && <ChangePasswordModal onClose={() => setShowPwdModal(false)} user={user} />}
         <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={plants.length} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} />
 
         {/* Cloud sync indicator strip */}
