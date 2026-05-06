@@ -1048,6 +1048,14 @@
         setPlants(prev => prev.map(x => x.id === plant.id ? { ...x, plantId: newPlantId, plantCode: newPlantId, barcodeValue: newPlantId } : x));
         addAudit && addAudit({ action: `Reassigned duplicate: ${plant.plantId} → ${newPlantId}`, user: user.name, page: 'Inventory' });
       };
+      const resolveDeleteAll = () => {
+        const totalDupes = dupeGroups.reduce((s, g) => s + g.length - 1, 0);
+        if (!window.confirm(`Delete ${totalDupes} duplicate entr${totalDupes === 1 ? 'y' : 'ies'}? The first entry of each ID will be kept. This cannot be undone.`)) return;
+        const idsToDelete = new Set(dupeGroups.flatMap(g => g.slice(1).map(p => p.id)));
+        setPlants(prev => prev.filter(x => !idsToDelete.has(x.id)));
+        addAudit && addAudit({ action: `Bulk deleted ${idsToDelete.size} duplicate plant entr${idsToDelete.size === 1 ? 'y' : 'ies'}`, user: user.name, page: 'Inventory' });
+        setShowDupes(false);
+      };
       const list = plants.filter(p => {
         const q = search.toLowerCase(), days = dHeld(p.dateAdded);
         const ageOk = fAge === "All" || (fAge === "30+" && days >= 30) || (fAge === "60+" && days >= 60) || (fAge === "fresh" && days < 30);
@@ -1086,7 +1094,10 @@
                 <div style={{ fontSize: 11, color: '#B45309' }}>Review each one — is it the same plant entered twice, or two different plants?</div>
               </div>
             </Row>
-            <Btn sz="sm" onClick={() => setShowDupes(p => !p)} style={{ background: '#F59E0B', color: '#fff', border: 'none' }}>{showDupes ? 'Hide' : 'Review →'}</Btn>
+            <Row gap={6}>
+              <Btn sz="sm" v="danger" onClick={resolveDeleteAll}>🗑 Delete All Duplicates</Btn>
+              <Btn sz="sm" onClick={() => setShowDupes(p => !p)} style={{ background: '#F59E0B', color: '#fff', border: 'none' }}>{showDupes ? 'Hide' : 'Review →'}</Btn>
+            </Row>
           </Row>
           {showDupes && dupeGroups.map(group => (
             <div key={group[0].plantId} style={{ marginTop: 14, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FCD34D', padding: 12 }}>
