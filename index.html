@@ -2579,15 +2579,28 @@ function App(){
   const setUsers     = cloudStateSetter("users", setUsersRaw);
   const setSettings  = cloudStateSetter("settings", setSettingsRaw);
 
-  /* Migration: remove LD- from old plant IDs */
+  /* Migration: clean IDs and bump to 1000+ */
   useEffect(()=>{
-    if(plants.some(p=>p.plantId&&p.plantId.startsWith("LD-"))){
-      setPlants(prev=>prev.map(p=>{
-        if(p.plantId&&p.plantId.startsWith("LD-")) return {...p,plantId:p.plantId.replace(/^LD-/, "")};
-        return p;
+    const needsMigration = plants.some(p => {
+      if(!p.plantId) return false;
+      if(p.plantId.startsWith("LD-")) return true;
+      const m = p.plantId.match(/^(.*-)(\d+)$/);
+      return m && parseInt(m[2], 10) < 1000;
+    });
+
+    if(needsMigration){
+      setPlants(prev => prev.map(p => {
+        if(!p.plantId) return p;
+        let newId = p.plantId.startsWith("LD-") ? p.plantId.replace(/^LD-/, "") : p.plantId;
+        const m = newId.match(/^(.*-)(\d+)$/);
+        if(m && parseInt(m[2], 10) < 1000) {
+          const bumped = parseInt(m[2], 10) + 1000;
+          newId = `${m[1]}${String(bumped).padStart(4, "0")}`;
+        }
+        return newId !== p.plantId ? { ...p, plantId: newId } : p;
       }));
     }
-  },[plants, setPlants]);
+  }, [plants, setPlants]);
 
   /* One-Time Nuke Inventory */
   useEffect(()=>{
