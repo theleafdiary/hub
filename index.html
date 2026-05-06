@@ -1351,7 +1351,7 @@
           right={isOwner && <Btn onClick={() => setShowNew(p => !p)}>{showNew ? "Cancel" : "+ Add Nursery"}</Btn>} />
         {showNew && <NForm f={newForm} setter={setNewForm} title="Add New Nursery" onSave={addN} onCancel={() => setShowNew(false)} />}
         {!nurseries.length && !showNew && <Card style={{ textAlign: "center", padding: "50px" }}><div style={{ fontSize: 36, marginBottom: 10 }}>🏪</div><h2 style={{ fontFamily: F.display, color: C.g900, fontSize: 18 }}>No nurseries yet</h2><Btn onClick={() => setShowNew(true)} style={{ marginTop: 14 }}>+ Add Nursery</Btn></Card>}
-        {nurseries.map(n => {
+        {migrateNurseries(nurseries).map(n => {
           const np = plants.filter(p => p.nurseryCode === n.code); const ns = np.filter(p => p.status === "Sold");
           const spent = np.reduce((s, p) => s + (+p.cost || 0), 0); const rev = ns.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0);
           const profit = rev - ns.reduce((s, p) => s + (+p.cost || 0), 0); const avgM = np.length ? Math.round(np.reduce((s, p) => s + (+p.margin || 0), 0) / np.length) : 0;
@@ -2481,6 +2481,15 @@
     const saveLS = (data) => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) { console.warn("Save failed", e); } };
     const loadLS = () => { try { const d = localStorage.getItem(LS_KEY); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
 
+    /* Normalise legacy string nurseries → objects. Safe to call multiple times. */
+    const migrateNurseries = (arr) => (arr || []).map(n => {
+      if (!n) return null;
+      if (typeof n === "string") return { id: "mig-" + n, code: n.replace(/001$/, "").replace(/-$/, ""), name: n + " Nursery", phone: "", email: "", address: "", website: "", contact: "", paymentMethods: "", hasAccount: false, accountNotes: "", notes: "" };
+      if (!n.id) return null;
+      const code = (n.code || "").replace(/001$/, "").replace(/-$/, "");
+      return code !== n.code ? { ...n, code } : n;
+    }).filter(Boolean);
+
     const DEFAULT_NURSERIES = [
       { id: "n1", code: "PC", name: "Perfect Choice Nursery", phone: "(305) 555-0100", email: "info@perfectchoicenursery.com", address: "12345 SW 216th St, Miami, FL 33170", website: "https://perfectchoicenursery.com", contact: "Maria Santos", paymentMethods: "Cash, Credit Card", hasAccount: true, accountNotes: "Account #PC-4421, net-30 terms", notes: "Great Aroids. Tuesdays best for fresh stock." },
       { id: "n2", code: "SK", name: "Silver Krome Gardens", phone: "(786) 555-0200", email: "", address: "21045 SW 177th Ave, Miami, FL 33187", website: "", contact: "", paymentMethods: "Cash, Check", hasAccount: false, accountNotes: "", notes: "Best Philodendrons in South FL." },
@@ -2654,7 +2663,7 @@
       const [timecards, setTimecardsRaw] = useState(saved?.timecards || []);
       const [auditLog, setAuditLogRaw] = useState(saved?.auditLog || []);
       const [bills, setBillsRaw] = useState(saved?.bills || DEFAULT_BILLS);
-      const [nurseries, setNurseriesRaw] = useState(saved?.nurseries || DEFAULT_NURSERIES);
+      const [nurseries, setNurseriesRaw] = useState(migrateNurseries(saved?.nurseries || DEFAULT_NURSERIES));
       const [users, setUsersRaw] = useState(saved?.users || DEFAULT_USERS);
       const [settings, setSettingsRaw] = useState(saved?.settings || DEFAULT_SETTINGS);
       const [saveMsg, setSaveMsg] = useState("");
@@ -2806,7 +2815,7 @@
           suppressCloudSaveRef.current = true;
           if (cloudPlants.length) setPlantsRaw(cloudPlants);
           if (cloudBills.length) setBillsRaw(cloudBills); else if (!saved?.bills) setBillsRaw(DEFAULT_BILLS);
-          if (cloudNurseries.length) setNurseriesRaw(cloudNurseries); else if (!saved?.nurseries) setNurseriesRaw(DEFAULT_NURSERIES);
+          if (cloudNurseries.length) setNurseriesRaw(migrateNurseries(cloudNurseries)); else if (!saved?.nurseries) setNurseriesRaw(DEFAULT_NURSERIES);
           if (cloudExpenses.length) setExpensesRaw(cloudExpenses);
           if (cloudTimecards.length) setTimecardsRaw(cloudTimecards);
           if (cloudUsers) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
