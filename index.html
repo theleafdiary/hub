@@ -2411,9 +2411,9 @@ const saveLS = (data) => { try { localStorage.setItem(LS_KEY, JSON.stringify(dat
 const loadLS = () => { try { const d = localStorage.getItem(LS_KEY); return d ? JSON.parse(d) : null; } catch(e) { return null; } };
 
 const DEFAULT_NURSERIES = [
-  {id:"n1",code:"PC001",name:"Perfect Choice Nursery",phone:"(305) 555-0100",email:"info@perfectchoicenursery.com",address:"12345 SW 216th St, Miami, FL 33170",website:"https://perfectchoicenursery.com",contact:"Maria Santos",paymentMethods:"Cash, Credit Card",hasAccount:true,accountNotes:"Account #PC-4421, net-30 terms",notes:"Great Aroids. Tuesdays best for fresh stock."},
-  {id:"n2",code:"SK001",name:"Silver Krome Gardens",phone:"(786) 555-0200",email:"",address:"21045 SW 177th Ave, Miami, FL 33187",website:"",contact:"",paymentMethods:"Cash, Check",hasAccount:false,accountNotes:"",notes:"Best Philodendrons in South FL."},
-  {id:"n3",code:"LP001",name:"LP Premium Plants",phone:"(954) 555-0300",email:"sales@lppremiumplants.com",address:"5500 Griffin Rd, Davie, FL 33314",website:"",contact:"Luis Perez",paymentMethods:"Credit Card, PayPal",hasAccount:true,accountNotes:"Account #LP-7890",notes:"Tissue culture specialist. Call ahead."},
+  {id:"n1",code:"PC",name:"Perfect Choice Nursery",phone:"(305) 555-0100",email:"info@perfectchoicenursery.com",address:"12345 SW 216th St, Miami, FL 33170",website:"https://perfectchoicenursery.com",contact:"Maria Santos",paymentMethods:"Cash, Credit Card",hasAccount:true,accountNotes:"Account #PC-4421, net-30 terms",notes:"Great Aroids. Tuesdays best for fresh stock."},
+  {id:"n2",code:"SK",name:"Silver Krome Gardens",phone:"(786) 555-0200",email:"",address:"21045 SW 177th Ave, Miami, FL 33187",website:"",contact:"",paymentMethods:"Cash, Check",hasAccount:false,accountNotes:"",notes:"Best Philodendrons in South FL."},
+  {id:"n3",code:"LP",name:"LP Premium Plants",phone:"(954) 555-0300",email:"sales@lppremiumplants.com",address:"5500 Griffin Rd, Davie, FL 33314",website:"",contact:"Luis Perez",paymentMethods:"Credit Card, PayPal",hasAccount:true,accountNotes:"Account #LP-7890",notes:"Tissue culture specialist. Call ahead."},
 ];
 const DEFAULT_USERS = [
   {id:"owner",name:"Eric",role:"owner",pin:"1234",email:"eric@theleafdiary.com",permissions:null},
@@ -2585,6 +2585,8 @@ function App(){
     const needsMigration = plants.some(p => {
       if(!p.plantId) return false;
       if(p.plantId.startsWith("LD-")) return true;
+      if(p.plantId.includes("001-")) return true;
+      if(p.plantId.includes("--")) return true;
       const m = p.plantId.match(/^(.*-)(\d+)$/);
       return m && parseInt(m[2], 10) < 1000;
     });
@@ -2593,15 +2595,32 @@ function App(){
       setPlants(prev => prev.map(p => {
         if(!p.plantId) return p;
         let newId = p.plantId.startsWith("LD-") ? p.plantId.replace(/^LD-/, "") : p.plantId;
+        newId = newId.replace(/001-/, "-").replace(/--/g, "-");
         const m = newId.match(/^(.*-)(\d+)$/);
         if(m && parseInt(m[2], 10) < 1000) {
           const bumped = parseInt(m[2], 10) + 1000;
           newId = `${m[1]}${String(bumped).padStart(4, "0")}`;
         }
-        return newId !== p.plantId ? { ...p, plantId: newId } : p;
+        let newCode = p.nurseryCode;
+        if(newCode) {
+          newCode = newCode.replace(/001$/, "").replace(/-$/, "");
+        }
+        return newId !== p.plantId || newCode !== p.nurseryCode ? { ...p, plantId: newId, nurseryCode: newCode } : p;
       }));
     }
   }, [plants, setPlants]);
+
+  /* Migration: clean nursery codes */
+  useEffect(()=>{
+    const needsNurseryMigration = nurseries.some(n => n.code && (n.code.endsWith("001") || n.code.endsWith("-")));
+    if (needsNurseryMigration) {
+      setNurseries(prev => prev.map(n => {
+        if (!n.code) return n;
+        let c = n.code.replace(/001$/, "").replace(/-$/, "");
+        return c !== n.code ? { ...n, code: c } : n;
+      }));
+    }
+  }, [nurseries, setNurseries]);
 
   /* One-Time Nuke Inventory */
   useEffect(()=>{
