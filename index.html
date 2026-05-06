@@ -1188,9 +1188,9 @@
       for (let i = 0; i < plants.length; i++) {
         const p = plants[i]; onProg({ current: i + 1, total: plants.length, name: p.name });
         try {
-          const res = await fetch("https://ollama.com/v1/chat/completions", { method: "POST", headers, body: JSON.stringify({ model: "glm-5.1:cloud", max_tokens: 200, messages: [{ role: "user", content: `For rare houseplant "${p.name}" (${p.potSize || '4"'} pot) typical USA resale on Palmstreet/Whatnot, reply ONLY valid JSON with no markdown: {"low":number,"avg":number,"high":number,"rec":number}` }] }) });
+          const res = await fetch("https://ollama.com/api/chat", { method: "POST", headers, body: JSON.stringify({ model: "glm-5.1:cloud", stream: false, messages: [{ role: "user", content: `For rare houseplant "${p.name}" (${p.potSize || '4"'} pot) typical USA resale on Palmstreet/Whatnot, reply ONLY valid JSON with no markdown: {"low":number,"avg":number,"high":number,"rec":number}` }] }) });
           const d = await res.json();
-          const txt = d.choices?.[0]?.message?.content || "{}";
+          const txt = d.message?.content || "{}";
           results.push({ ...p, ...JSON.parse(txt.replace(/```json|```/g, "").trim()) });
         } catch { results.push({ ...p }); }
         await new Promise(r => setTimeout(r, 200));
@@ -1783,8 +1783,8 @@
         try {
           const summary = genera.map(g => `${g.name}: ${g.total} plants, ${g.sold} sold (${g.sellThru}% sell-through), avg margin ${g.avgM}%, profit $${g.profit.toFixed(0)}`).join("\n");
           const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${OLLAMA_CLOUD_API_KEY}` };
-          const res = await fetch("https://ollama.com/v1/chat/completions", { method: "POST", headers, body: JSON.stringify({ model: "glm-5.1:cloud", max_tokens: 700, messages: [{ role: "user", content: `You are a plant business advisor for Leaf Diary, a Florida rare plant reseller on Palmstreet and Whatnot. Give specific buying advice using this data:\n${summary}\n\nBe direct with bullet points: what to buy more of, what to avoid, what's making money.` }] }) });
-          const d = await res.json(); setAi(d.choices?.[0]?.message?.content || "");
+          const res = await fetch("https://ollama.com/api/chat", { method: "POST", headers, body: JSON.stringify({ model: "glm-5.1:cloud", stream: false, messages: [{ role: "user", content: `You are a plant business advisor for Leaf Diary, a Florida rare plant reseller on Palmstreet and Whatnot. Give specific buying advice using this data:\n${summary}\n\nBe direct with bullet points: what to buy more of, what to avoid, what's making money.` }] }) });
+          const d = await res.json(); setAi(d.message?.content || "");
         } catch (e) { setAi("Error: " + e.message); } finally { setLoading(false); }
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
