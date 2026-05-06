@@ -20,6 +20,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -469,30 +470,71 @@ function InvoiceUpload({plants,setPlants,nurseries,addAudit,user}){
   const [selN,setSelN]=useState(null);
   const fRef=useRef(),cRef=useRef();
   useEffect(()=>{if(nurseries.length&&!selN)setSelN(nurseries[0]);},[nurseries]);
-  const load = f => {
+  const load = async f => {
     if (!f) return;
-    const r = new FileReader();
-    r.onload = e => {
-      const imgObj = new Image();
-      imgObj.onload = () => {
-        const canvas = document.createElement("canvas");
-        const MAX_DIM = 1600;
-        let w = imgObj.width, h = imgObj.height;
-        if (w > MAX_DIM || h > MAX_DIM) {
-          if (w > h) { h *= MAX_DIM / w; w = MAX_DIM; }
-          else { w *= MAX_DIM / h; h = MAX_DIM; }
-        }
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(imgObj, 0, 0, w, h);
-        const resizedB64 = canvas.toDataURL("image/jpeg", 0.7);
-        setImg(resizedB64);
-        setStep("preview");
-      };
-      imgObj.src = e.target.result;
-    };
-    r.readAsDataURL(f);
     setErr(null);
+    if (f.type === "application/pdf") {
+      try {
+        const r = new FileReader();
+        r.onload = async function() {
+          try {
+            const typedarray = new Uint8Array(this.result);
+            const pdfjsLib = window['pdfjs-dist/build/pdf'];
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 2.0 });
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+            
+            // Downscale if still too large
+            const MAX_DIM = 1600;
+            let w = canvas.width, h = canvas.height;
+            if (w > MAX_DIM || h > MAX_DIM) {
+              const scale = Math.min(MAX_DIM/w, MAX_DIM/h);
+              const smallCanvas = document.createElement("canvas");
+              smallCanvas.width = w * scale;
+              smallCanvas.height = h * scale;
+              smallCanvas.getContext("2d").drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
+              setImg(smallCanvas.toDataURL("image/jpeg", 0.8));
+            } else {
+              setImg(canvas.toDataURL("image/jpeg", 0.8));
+            }
+            setStep("preview");
+          } catch(err) {
+            setErr("Failed to parse PDF: " + err.message);
+          }
+        };
+        r.readAsArrayBuffer(f);
+      } catch (err) {
+        setErr("Error reading file.");
+      }
+    } else {
+      const r = new FileReader();
+      r.onload = e => {
+        const imgObj = new Image();
+        imgObj.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_DIM = 1600;
+          let w = imgObj.width, h = imgObj.height;
+          if (w > MAX_DIM || h > MAX_DIM) {
+            if (w > h) { h *= MAX_DIM / w; w = MAX_DIM; }
+            else { w *= MAX_DIM / h; h = MAX_DIM; }
+          }
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(imgObj, 0, 0, w, h);
+          const resizedB64 = canvas.toDataURL("image/jpeg", 0.7);
+          setImg(resizedB64);
+          setStep("preview");
+        };
+        imgObj.src = e.target.result;
+      };
+      r.readAsDataURL(f);
+    }
   };
   const scan=async()=>{
     if(!selN){setErr("Select a nursery first.");return;}
