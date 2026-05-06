@@ -1183,15 +1183,16 @@
        LABELS
     ══════════════════════════════════════════════════════════ */
     async function runLabelResearch(plants, onProg, onDone) {
-      const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${OLLAMA_CLOUD_API_KEY}` };
       const results = [];
       for (let i = 0; i < plants.length; i++) {
         const p = plants[i]; onProg({ current: i + 1, total: plants.length, name: p.name });
         try {
-          const res = await fetch("https://ollama.com/api/chat", { method: "POST", headers, body: JSON.stringify({ model: "glm-5.1:cloud", stream: false, messages: [{ role: "user", content: `For rare houseplant "${p.name}" (${p.potSize || '4"'} pot) typical USA resale on Palmstreet/Whatnot, reply ONLY valid JSON with no markdown: {"low":number,"avg":number,"high":number,"rec":number}` }] }) });
-          const d = await res.json();
-          const txt = d.message?.content || "{}";
-          results.push({ ...p, ...JSON.parse(txt.replace(/```json|```/g, "").trim()) });
+          const { data: aiData, error: aiErr } = await supabase.functions.invoke('ai-chat', {
+            body: { model: 'glm-5.1:cloud', messages: [{ role: 'user', content: `For rare houseplant "${p.name}" (${p.potSize || '4"'} pot) typical USA resale on Palmstreet/Whatnot, reply ONLY valid JSON with no markdown: {"low":number,"avg":number,"high":number,"rec":number}` }] }
+          });
+          if (aiErr || aiData?.error) throw new Error(aiErr?.message || aiData?.error);
+          const txt = aiData?.content || '{}';
+          results.push({ ...p, ...JSON.parse(txt.replace(/```json|```/g, '').trim()) });
         } catch { results.push({ ...p }); }
         await new Promise(r => setTimeout(r, 200));
       }
@@ -1782,9 +1783,11 @@
         setLoading(true); setAi("");
         try {
           const summary = genera.map(g => `${g.name}: ${g.total} plants, ${g.sold} sold (${g.sellThru}% sell-through), avg margin ${g.avgM}%, profit $${g.profit.toFixed(0)}`).join("\n");
-          const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${OLLAMA_CLOUD_API_KEY}` };
-          const res = await fetch("https://ollama.com/api/chat", { method: "POST", headers, body: JSON.stringify({ model: "glm-5.1:cloud", stream: false, messages: [{ role: "user", content: `You are a plant business advisor for Leaf Diary, a Florida rare plant reseller on Palmstreet and Whatnot. Give specific buying advice using this data:\n${summary}\n\nBe direct with bullet points: what to buy more of, what to avoid, what's making money.` }] }) });
-          const d = await res.json(); setAi(d.message?.content || "");
+          const { data: aiData, error: aiErr } = await supabase.functions.invoke('ai-chat', {
+            body: { model: 'glm-5.1:cloud', messages: [{ role: 'user', content: `You are a plant business advisor for Leaf Diary, a Florida rare plant reseller on Palmstreet and Whatnot. Give specific buying advice using this data:\n${summary}\n\nBe direct with bullet points: what to buy more of, what to avoid, what's making money.` }] }
+          });
+          if (aiErr || aiData?.error) { setAi('Error: ' + (aiErr?.message || aiData?.error)); return; }
+          setAi(aiData?.content || '');
         } catch (e) { setAi("Error: " + e.message); } finally { setLoading(false); }
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
@@ -2514,7 +2517,6 @@
     ══════════════════════════════════════════════════════════ */
     const SUPABASE_URL = "https://yyklidmefiguzrbvrnmp.supabase.co";
     const SUPABASE_KEY = "sb_publishable_8vyVQt8Ay3S8kJ4cI9U5YA_eB6l2CUu";
-    const OLLAMA_CLOUD_API_KEY = "46e3b2b6adfd453d9a28b3b603e61779._NV46l5jOgktR7y3cc-bjQZI";
     const CLOUD_TABLES = ["plants", "bills", "nurseries", "expenses", "timecards"];
 
     const cloudHeaders = (extra = {}) => {
