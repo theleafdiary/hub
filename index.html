@@ -122,8 +122,8 @@
     const gOf = name => { const n = (name || "").toLowerCase(); for (const g of GENERA.slice(0, -1)) if (n.includes(g.toLowerCase())) return g; return "Other"; };
     const sprice = (cost, m = 0.62) => cost > 0 ? Math.ceil(cost / (1 - m) / 5) * 5 : 0;
     const marg = (cost, price) => price > 0 ? Math.round(((price - cost) / price) * 100) : 0;
-    const pid = (code, n) => `${code}-${String(n).padStart(4, "0")}`;
-    const getNextId = (plants, code) => Math.max(1000, ...plants.filter(p => p.nurseryCode === code).map(p => { const m = (p.plantId || "").match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }));
+    const pid = (code, n) => `${code}-${String(n).padStart(3, "0")}`;
+    const getNextId = (plants, code) => Math.max(0, ...plants.filter(p => p.nurseryCode === code).map(p => { const m = (p.plantId || "").match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }));
     const dHeld = d => d ? Math.floor((Date.now() - new Date(d)) / (864e5)) : null;
     const fDays = d => d === null ? "—" : d === 0 ? "Today" : d === 1 ? "1 day" : `${d}d`;
     const platFee = (platform, price) => {
@@ -606,7 +606,7 @@
           let ctr = getNextId(plants, selN.code);
           const mapped = (result.plants || []).flatMap((p, li) => Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
             ctr++; const cost = +p.costPerPlant || 0, sp = sprice(cost);
-            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), nurseryCode: selN.code, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: p.potSize || "", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: "", labelPrinted: false, addedBy: user.name };
+            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: p.potSize || "", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: "", labelPrinted: false, addedBy: user.name };
           }));
           setRows(mapped); setStep("review");
         } catch (e) { setErr("Scan failed: " + e.message); setStep("preview"); }
@@ -700,7 +700,7 @@
         const newPlants = Array.from({ length: Math.max(1, +qty || 1) }, (_, i) => {
           ctr++;
           const idx = ctr, cost = +form.cost || 0, sp = +form.suggestedPrice || sprice(cost);
-          return { id: uid(), plantId: pid(form.nurseryCode, idx), ...form, name: toTC(form.name), cost, suggestedPrice: sp, margin: marg(cost, sp), labelPrinted: false, addedBy: user.name };
+          return { id: uid(), plantId: pid(form.nurseryCode, idx), plantCode: pid(form.nurseryCode, idx), barcodeValue: pid(form.nurseryCode, idx), barcodeType: "CODE128", ...form, name: toTC(form.name), cost, suggestedPrice: sp, margin: marg(cost, sp), labelPrinted: false, addedBy: user.name };
         });
         setPlants(p => [...p, ...newPlants]);
         addAudit({ action: `Manually added ${newPlants.length}× ${form.name}`, user: user.name, page: "Manual Entry" });
@@ -806,7 +806,7 @@
       const save = () => {
         if (!selN || !rows.some(r => r.name.trim())) return;
         let ctr = getNextId(plants, selN.code);
-        const newP = rows.filter(r => r.name.trim()).flatMap(r => Array.from({ length: Math.max(1, +r.qty || 1) }, () => { ctr++; const cost = +r.cost || 0, sp = +r.salePrice || sprice(cost); return { id: uid(), plantId: pid(selN.code, ctr), nurseryCode: selN.code, name: toTC(r.name), botanicalName: "", potSize: r.pot, cost, suggestedPrice: sp, salePrice: r.salePrice || "", shippingCost: "", margin: marg(cost, sp), status: r.status, invoiceNumber: inv.number, invoiceDate: inv.date, dateAdded: inv.date || today(), platform: r.platform, rack: "", shelf: "", notes: "", labelPrinted: false, historical: true, addedBy: user.name }; }));
+        const newP = rows.filter(r => r.name.trim()).flatMap(r => Array.from({ length: Math.max(1, +r.qty || 1) }, () => { ctr++; const cost = +r.cost || 0, sp = +r.salePrice || sprice(cost); return { id: uid(), plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, name: toTC(r.name), botanicalName: "", potSize: r.pot, cost, suggestedPrice: sp, salePrice: r.salePrice || "", shippingCost: "", margin: marg(cost, sp), status: r.status, invoiceNumber: inv.number, invoiceDate: inv.date, dateAdded: inv.date || today(), platform: r.platform, rack: "", shelf: "", notes: "", labelPrinted: false, historical: true, addedBy: user.name }; }));
         setPlants(p => [...p, ...newP]); addAudit({ action: `Logged ${newP.length} historical plants from ${selN.name}`, user: user.name, page: "Past Invoices" });
         setSaved(p => [...p, { ...inv, nursery: selN.name, count: newP.length, id: uid() }]);
         setShow(false); setInv({ number: "", date: "", payMethod: "Cash", total: "", notes: "" }); setRows([{ id: uid(), name: "", pot: "", qty: 1, cost: "", salePrice: "", status: "Sold", platform: "Palmstreet" }]);
@@ -1020,7 +1020,7 @@
       </div>;
     }
 
-    function Inventory({ plants, setPlants, user, addAudit }) {
+    function Inventory({ plants, setPlants, user, addAudit, nurseries }) {
       const [search, setSearch] = useState("");
       const [fs, setFs] = useState("All");
       const [fn, setFn] = useState("All");
@@ -1030,7 +1030,7 @@
       const [sortF, setSortF] = useState("dateAdded");
       const [sortD, setSortD] = useState("desc");
       const isOwner = CAN.seeCost(user.role);
-      const nurseries = [...new Set(plants.map(p => p.nurseryCode))];
+      const filterNurseries = [...new Set(plants.map(p => p.nurseryCode))];
       const genera = [...new Set(plants.map(p => gOf(p.name)))].sort();
       const list = plants.filter(p => {
         const q = search.toLowerCase(), days = dHeld(p.dateAdded);
@@ -1050,11 +1050,20 @@
           onBack={() => setDetail(null)}
         />;
       }
+      const exportMasterInventory = () => {
+        const headers = ['Plant Code', 'Barcode Value', 'Barcode Type', 'Nursery Code', 'Nursery Name', 'Plant Name', 'Pot Size', 'Cost', 'Suggested Price', 'Status', 'Rack', 'Shelf', 'Date Added'];
+        const rows = list.map(p => {
+          const nur = (nurseries || []).find(n => n.code === p.nurseryCode)?.name || p.nurseryCode;
+          return [p.plantCode || safePlantId(p), p.barcodeValue || safePlantId(p), p.barcodeType || 'CODE128', p.nurseryCode || '', nur || '', toTC(p.name), p.potSize || '', p.cost || '', p.suggestedPrice || '', p.status || '', p.rack || '', p.shelf || '', p.dateAdded || ''].map(csvCell).join(',');
+        });
+        downloadCSVFile(`master-inventory-${today()}.csv`, headers.map(csvCell).join(',') + '\n' + rows.join('\n'));
+        addAudit && addAudit({ action: `Exported Master Inventory CSV — ${list.length} plants`, user: user.name, page: 'Inventory' });
+      };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🌿" title="Plant Inventory" sub={`${list.length} of ${plants.length} plants`} />
+        <SHdr icon="🌿" title="Plant Inventory" sub={`${list.length} of ${plants.length} plants`} right={<Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn>} />
         <Row gap={8} wrap style={{ marginBottom: 14 }}>
           <div style={{ flex: 1, minWidth: 200 }}><input placeholder="Search name, ID…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${C.bd}`, borderRadius: 9, fontSize: 13, fontFamily: F.body, boxSizing: "border-box", outline: "none" }} /></div>
-          {[["Status", fs, setFs, ["All", ...STATUSES]], ["Nursery", fn, setFn, ["All", ...nurseries]], ["Genus", fg, setFg, ["All", ...genera]], ["Age", fAge, setFAge, ["All", "fresh", "30+", "60+"]]].map(([l, v, set, opts]) => (
+          {[["Status", fs, setFs, ["All", ...STATUSES]], ["Nursery", fn, setFn, ["All", ...filterNurseries]], ["Genus", fg, setFg, ["All", ...genera]], ["Age", fAge, setFAge, ["All", "fresh", "30+", "60+"]]].map(([l, v, set, opts]) => (
             <select key={l} value={v} onChange={e => set(e.target.value)} style={{ padding: "9px 11px", border: `1.5px solid ${C.bd}`, borderRadius: 9, fontSize: 13, fontFamily: F.body, background: C.card, outline: "none" }}><option value="All">All {l}s</option>{opts.filter(o => o !== "All").map(o => <option key={o}>{o}</option>)}</select>
           ))}
         </Row>
@@ -2919,7 +2928,7 @@
           {page === "upload" && <InvoiceUpload {...P} />}
           {page === "manual" && <ManualEntry {...P} />}
           {page === "history" && <PastInvoices {...P} />}
-          {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
+          {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} />}
           {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={setPage} />}
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={setPage} />}
           {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
