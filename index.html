@@ -1029,9 +1029,25 @@
       const [detail, setDetail] = useState(null);
       const [sortF, setSortF] = useState("dateAdded");
       const [sortD, setSortD] = useState("desc");
+      const [showDupes, setShowDupes] = useState(false);
       const isOwner = CAN.seeCost(user.role);
       const filterNurseries = [...new Set(plants.map(p => p.nurseryCode))];
       const genera = [...new Set(plants.map(p => gOf(p.name)))].sort();
+      // Detect duplicate plantIds
+      const dupeGroups = Object.values(plants.reduce((acc, p) => {
+        const key = (p.plantId || '').toUpperCase(); if (!key) return acc;
+        if (!acc[key]) acc[key] = []; acc[key].push(p); return acc;
+      }, {})).filter(g => g.length > 1);
+      const resolveDelete = (internalId, plantIdStr) => {
+        setPlants(prev => prev.filter(x => x.id !== internalId));
+        addAudit && addAudit({ action: `Deleted duplicate plant entry ${plantIdStr}`, user: user.name, page: 'Inventory' });
+      };
+      const resolveNewId = (plant) => {
+        const nextSeq = getNextId(plants, plant.nurseryCode) + 1;
+        const newPlantId = pid(plant.nurseryCode || 'XX', nextSeq);
+        setPlants(prev => prev.map(x => x.id === plant.id ? { ...x, plantId: newPlantId, plantCode: newPlantId, barcodeValue: newPlantId } : x));
+        addAudit && addAudit({ action: `Reassigned duplicate: ${plant.plantId} → ${newPlantId}`, user: user.name, page: 'Inventory' });
+      };
       const list = plants.filter(p => {
         const q = search.toLowerCase(), days = dHeld(p.dateAdded);
         const ageOk = fAge === "All" || (fAge === "30+" && days >= 30) || (fAge === "60+" && days >= 60) || (fAge === "fresh" && days < 30);
@@ -1061,6 +1077,42 @@
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="🌿" title="Plant Inventory" sub={`${list.length} of ${plants.length} plants`} right={<Row gap={8}><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
+        {dupeGroups.length > 0 && <div style={{ background: '#FEF3C7', border: '1.5px solid #F59E0B', borderRadius: 10, padding: '12px 16px', marginBottom: 14 }}>
+          <Row between center>
+            <Row gap={8} center>
+              <span style={{ fontSize: 18 }}>⚠️</span>
+              <div>
+                <div style={{ fontFamily: F.display, fontWeight: 700, color: '#92400E', fontSize: 13 }}>{dupeGroups.length} duplicate plant ID{dupeGroups.length > 1 ? 's' : ''} detected</div>
+                <div style={{ fontSize: 11, color: '#B45309' }}>Review each one — is it the same plant entered twice, or two different plants?</div>
+              </div>
+            </Row>
+            <Btn sz="sm" onClick={() => setShowDupes(p => !p)} style={{ background: '#F59E0B', color: '#fff', border: 'none' }}>{showDupes ? 'Hide' : 'Review →'}</Btn>
+          </Row>
+          {showDupes && dupeGroups.map(group => (
+            <div key={group[0].plantId} style={{ marginTop: 14, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FCD34D', padding: 12 }}>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: '#92400E', fontSize: 12, marginBottom: 8 }}>🔑 Duplicate ID: {group[0].plantId}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${group.length}, 1fr)`, gap: 8 }}>
+                {group.map((p, i) => (
+                  <div key={p.id} style={{ background: C.card, borderRadius: 8, padding: '10px 12px', border: `2px solid ${i === 0 ? C.g600 : C.amber}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: i === 0 ? C.g600 : C.amber, marginBottom: 6, textTransform: 'uppercase', letterSpacing: .5 }}>{i === 0 ? '✓ First Entry — kept' : `⚠️ Entry ${i + 1} — resolve below`}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.g900, fontFamily: F.display, marginBottom: 4 }}>{toTC(p.name)}</div>
+                    <div style={{ fontSize: 11, color: C.tx3, marginBottom: 2 }}>📅 Added: {p.dateAdded || 'Unknown date'}</div>
+                    <div style={{ fontSize: 11, color: C.tx3, marginBottom: 2 }}>📦 {p.potSize || '—'} pot · {p.nurseryCode || '—'}</div>
+                    {isOwner && <div style={{ fontSize: 11, color: C.tx3, marginBottom: 2 }}>💰 Cost: {$(+p.cost || 0)} · Price: {$(+p.suggestedPrice || 0)}</div>}
+                    <div style={{ fontSize: 11, color: C.tx3, marginBottom: 10 }}>🔖 Status: {p.status || 'Unknown'}</div>
+                    {i === 0
+                      ? <div style={{ fontSize: 11, color: C.tx3, fontStyle: 'italic' }}>This entry stays unchanged.</div>
+                      : <Row gap={6} wrap>
+                          <Btn sz="sm" v="danger" onClick={() => resolveDelete(p.id, p.plantId)}>🗑 Delete — same plant</Btn>
+                          <Btn sz="sm" v="soft" onClick={() => resolveNewId(p)}>🔢 New ID — different plant</Btn>
+                        </Row>
+                    }
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>}
         <Row gap={8} wrap style={{ marginBottom: 14 }}>
           <div style={{ flex: 1, minWidth: 200 }}><input placeholder="Search name, ID…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${C.bd}`, borderRadius: 9, fontSize: 13, fontFamily: F.body, boxSizing: "border-box", outline: "none" }} /></div>
           {[["Status", fs, setFs, ["All", ...STATUSES]], ["Nursery", fn, setFn, ["All", ...filterNurseries]], ["Genus", fg, setFg, ["All", ...genera]], ["Age", fAge, setFAge, ["All", "fresh", "30+", "60+"]]].map(([l, v, set, opts]) => (
@@ -2676,7 +2728,7 @@
 
       const [user, setUser] = useState(null);
       const [page, setPage] = useState("dash");
-      const [plants, setPlantsRaw] = useState(deduplicatePlants(saved?.plants || []));
+      const [plants, setPlantsRaw] = useState(saved?.plants || []);
       const [expenses, setExpensesRaw] = useState(saved?.expenses || []);
       const [timecards, setTimecardsRaw] = useState(saved?.timecards || []);
       const [auditLog, setAuditLogRaw] = useState(saved?.auditLog || []);
