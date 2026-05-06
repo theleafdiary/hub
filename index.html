@@ -104,6 +104,7 @@ const gOf   = name => { const n=(name||"").toLowerCase(); for(const g of GENERA.
 const sprice= (cost,m=0.62) => cost>0 ? Math.ceil(cost/(1-m)/5)*5 : 0;
 const marg  = (cost,price)  => price>0 ? Math.round(((price-cost)/price)*100) : 0;
 const pid   = (code,n)      => `${code}-${String(n).padStart(4,"0")}`;
+const getNextId = (plants, code) => Math.max(1000, ...plants.filter(p=>p.nurseryCode===code).map(p=>{const m=(p.plantId||"").match(/-(\d+)$/);return m?parseInt(m[1],10):0;}));
 const dHeld = d => d ? Math.floor((Date.now()-new Date(d))/(864e5)) : null;
 const fDays = d => d===null?"—":d===0?"Today":d===1?"1 day":`${d}d`;
 const platFee = (platform,price) => {
@@ -548,8 +549,7 @@ function InvoiceUpload({plants,setPlants,nurseries,addAudit,user}){
       if (data && data._serverError) throw new Error(data._serverError);
       const result = data;
       setParsed(result);
-      const existing=plants.filter(p=>p.nurseryCode===selN.code).length;
-      let ctr=existing;
+      let ctr = getNextId(plants, selN.code);
       const mapped=(result.plants||[]).flatMap((p,li)=>Array.from({length:Math.max(1,+p.quantity||1)},(_,qi)=>{
         ctr++;const cost=+p.costPerPlant||0,sp=sprice(cost);
         return{_k:`${li}-${qi}`,plantId:pid(selN.code,ctr),nurseryCode:selN.code,name:toTC(p.name||""),botanicalName:p.botanicalName||"",potSize:p.potSize||"",cost,suggestedPrice:sp,salePrice:"",shippingCost:"",margin:marg(cost,sp),status:"In Stock",invoiceNumber:result.invoiceNumber||"",invoiceDate:result.invoiceDate||"",dateAdded:today(),platform:"",rack:"",shelf:"",notes:"",labelPrinted:false,addedBy:user.name};
@@ -643,9 +643,10 @@ function ManualEntry({plants,setPlants,nurseries,addAudit,user}){
   const upd=f=>v=>{setForm(p=>{const u={...p,[f]:v};if(f==="cost"){const sp=sprice(+v);u.suggestedPrice=sp;u.margin=marg(+v,sp);}if(f==="suggestedPrice")u.margin=marg(+p.cost,+v);return u;});};
   const save=()=>{
     if(!form.name.trim()||!form.nurseryCode)return;
-    const existing=plants.filter(p=>p.nurseryCode===form.nurseryCode).length;
+    let ctr = getNextId(plants, form.nurseryCode);
     const newPlants=Array.from({length:Math.max(1,+qty||1)},(_,i)=>{
-      const idx=existing+i+1,cost=+form.cost||0,sp=+form.suggestedPrice||sprice(cost);
+      ctr++;
+      const idx=ctr,cost=+form.cost||0,sp=+form.suggestedPrice||sprice(cost);
       return{id:uid(),plantId:pid(form.nurseryCode,idx),...form,name:toTC(form.name),cost,suggestedPrice:sp,margin:marg(cost,sp),labelPrinted:false,addedBy:user.name};
     });
     setPlants(p=>[...p,...newPlants]);
@@ -751,7 +752,7 @@ function PastInvoices({plants,setPlants,nurseries,addAudit,user}){
   const updR=(id,f,v)=>setRows(p=>p.map(r=>r.id===id?{...r,[f]:v}:r));
   const save=()=>{
     if(!selN||!rows.some(r=>r.name.trim()))return;
-    const existing=plants.filter(p=>p.nurseryCode===selN.code).length;let ctr=existing;
+    let ctr = getNextId(plants, selN.code);
     const newP=rows.filter(r=>r.name.trim()).flatMap(r=>Array.from({length:Math.max(1,+r.qty||1)},()=>{ctr++;const cost=+r.cost||0,sp=+r.salePrice||sprice(cost);return{id:uid(),plantId:pid(selN.code,ctr),nurseryCode:selN.code,name:toTC(r.name),botanicalName:"",potSize:r.pot,cost,suggestedPrice:sp,salePrice:r.salePrice||"",shippingCost:"",margin:marg(cost,sp),status:r.status,invoiceNumber:inv.number,invoiceDate:inv.date,dateAdded:inv.date||today(),platform:r.platform,rack:"",shelf:"",notes:"",labelPrinted:false,historical:true,addedBy:user.name};}));
     setPlants(p=>[...p,...newP]);addAudit({action:`Logged ${newP.length} historical plants from ${selN.name}`,user:user.name,page:"Past Invoices"});
     setSaved(p=>[...p,{...inv,nursery:selN.name,count:newP.length,id:uid()}]);
