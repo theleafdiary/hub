@@ -19,6 +19,7 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -91,6 +92,9 @@ const DEFAULT_PERMS = {
 };
 
 const uid   = () => Math.random().toString(36).slice(2,9);
+const supabaseUrl = 'https://yyklidmefiguzrbvrnmp.supabase.co';
+const supabaseKey = 'sb_publishable_8vyVQt8Ay3S8kJ4cI9U5YA_eB6l2CUu';
+const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 const $     = n  => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(+n||0);
 const pct   = n  => `${Math.round(+n||0)}%`;
 const today = () => new Date().toISOString().split("T")[0];
@@ -467,7 +471,25 @@ function InvoiceUpload({plants,setPlants,nurseries,addAudit,user}){
   useEffect(()=>{if(nurseries.length&&!selN)setSelN(nurseries[0]);},[nurseries]);
   const load=f=>{if(!f)return;const r=new FileReader();r.onload=e=>{setImg(e.target.result);setStep("preview");};r.readAsDataURL(f);setErr(null);};
   const scan=async()=>{
-    setErr("AI scanning is temporarily disabled for security upgrades.");
+    if(!selN){setErr("Select a nursery first.");return;}
+    setLoading(true);setErr(null);setStep("scanning");
+    try{
+      const b64=img.split(",")[1];
+      const { data, error } = await supabase.functions.invoke('process-invoice', {
+        body: { imageBase64: b64 }
+      });
+      if (error) throw error;
+      const result = data;
+      setParsed(result);
+      const existing=plants.filter(p=>p.nurseryCode===selN.code).length;
+      let ctr=existing;
+      const mapped=(result.plants||[]).flatMap((p,li)=>Array.from({length:Math.max(1,+p.quantity||1)},(_,qi)=>{
+        ctr++;const cost=+p.costPerPlant||0,sp=sprice(cost);
+        return{_k:`${li}-${qi}`,plantId:pid(selN.code,ctr),nurseryCode:selN.code,name:toTC(p.name||""),botanicalName:p.botanicalName||"",potSize:p.potSize||"",cost,suggestedPrice:sp,salePrice:"",shippingCost:"",margin:marg(cost,sp),status:"In Stock",invoiceNumber:result.invoiceNumber||"",invoiceDate:result.invoiceDate||"",dateAdded:today(),platform:"",rack:"",shelf:"",notes:"",labelPrinted:false,addedBy:user.name};
+      }));
+      setRows(mapped);setStep("review");
+    }catch(e){setErr("Scan failed: "+e.message);setStep("preview");}
+    finally{setLoading(false);}
   };
   const updR=(k,f,v)=>setRows(pr=>pr.map(r=>{if(r._k!==k)return r;const u={...r,[f]:v};if(f==="cost"||f==="suggestedPrice")u.margin=marg(f==="cost"?+v:+r.cost,f==="suggestedPrice"?+v:+r.suggestedPrice);return u;}));
   const save=()=>{setPlants(p=>[...p,...rows.map(({_k,...r})=>({...r,id:uid()}))]);addAudit({action:`Invoice uploaded — ${rows.length} plants from ${selN?.name}`,user:user.name,page:"Invoice Upload"});setStep("done");};
