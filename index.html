@@ -710,6 +710,173 @@ function PastInvoices({plants,setPlants,nurseries,addAudit,user}){
 /* ══════════════════════════════════════════════════════════
    INVENTORY
 ══════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════
+   PLANT EDIT DETAIL — Full edit form for any plant
+══════════════════════════════════════════════════════════ */
+function PlantEditDetail({plantId, plants, setPlants, user, addAudit, onBack}){
+  const p = plants.find(x=>x.id===plantId);
+  if(!p){ onBack(); return null; }
+
+  const [edit, setEdit] = useState({...p});
+  const updE = f => v => setEdit(prev=>({...prev,[f]:v}));
+  const updCost = v => {
+    const cost = +v||0;
+    const sp = sprice(cost);
+    setEdit(prev=>{
+      const ep = prev.suggestedPrice;
+      const np2 = (ep!==undefined&&ep!==null&&String(ep).trim()!=="") ? ep : sp;
+      return {...prev, cost:v, suggestedPrice:np2, margin:marg(cost, +np2||0)};
+    });
+  };
+  const updPrice = v => setEdit(prev=>({...prev, suggestedPrice:v, margin:marg(+prev.cost||0, +v||0)}));
+  const saveEdit = () => {
+    const saved = {...edit, margin:marg(+edit.cost||0, +edit.suggestedPrice||0)};
+    setPlants(pp=>pp.map(x=>x.id===plantId?saved:x));
+    addAudit({action:`Edited ${edit.name} — cost $${edit.cost}, price $${edit.suggestedPrice}, status: ${edit.status}`, user:user.name, page:"Inventory"});
+    onBack();
+  };
+
+  const isOwner = CAN.seeCost(user.role);
+  const tp = trueProfit(edit);
+  const fee = platFee(edit.platform||"", +edit.salePrice||+edit.suggestedPrice||0);
+  const mc = edit.margin>=65?C.g600:edit.margin>=45?C.gold:C.red;
+  const priceLow = +edit.cost>0 && +edit.suggestedPrice < +edit.cost*2;
+  const days = dHeld(edit.dateAdded);
+
+  return <div style={{padding:"14px 14px 90px", background:C.bg, minHeight:"100vh"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:10}}>
+      <Row gap={10} center>
+        <button onClick={onBack} style={{background:"none",border:`1px solid ${C.bd}`,color:C.g700,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:F.body,borderRadius:8,padding:"7px 13px"}}>{"← Back"}</button>
+        <div>
+          <div style={{fontFamily:F.mono,fontSize:11,color:C.g500}}>{edit.plantId}</div>
+          <h1 style={{fontFamily:F.display,fontSize:20,color:C.g900,margin:0}}>{edit.name}</h1>
+        </div>
+      </Row>
+      <Row gap={8}>
+        <Btn v="ghost" onClick={onBack}>Cancel</Btn>
+        <Btn onClick={saveEdit}>{"💾 Save Changes"}</Btn>
+      </Row>
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.4fr) minmax(0,1fr)",gap:14,maxWidth:960}}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+
+        <Card>
+          <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:14,marginBottom:12}}>{"🌿 Plant Identity"}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <Inp label="Plant Name" value={edit.name} onChange={updE("name")} required/>
+            <Inp label="Botanical Name" value={edit.botanicalName||""} onChange={updE("botanicalName")} placeholder="optional"/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+            <Sel label="Pot Size" value={edit.potSize||""} onChange={updE("potSize")} options={["", ...POT_SIZES]}/>
+            <Inp label="Date Added" type="date" value={edit.dateAdded||""} onChange={updE("dateAdded")}/>
+            <Inp label="Invoice #" value={edit.invoiceNumber||""} onChange={updE("invoiceNumber")} placeholder="optional"/>
+          </div>
+        </Card>
+
+        {isOwner&&<Card style={{background:C.g50, border:`1px solid ${C.g200}`}}>
+          <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:14,marginBottom:12}}>{"💰 Cost & Pricing"}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <label style={{fontSize:13,fontWeight:600,color:C.tx2}}>Your Cost</label>
+              <input type="number" value={edit.cost||""} onChange={e=>updCost(e.target.value)}
+                style={{padding:"11px 12px",border:`1.5px solid ${C.bd}`,borderRadius:9,fontSize:15,fontFamily:F.body,background:C.card,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+              {+edit.cost>0&&<span style={{fontSize:10,color:C.tx3}}>{"Min sell: $"+(+edit.cost*2).toFixed(2)}</span>}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <label style={{fontSize:13,fontWeight:600,color:C.tx2}}>Sell Price (suggested)</label>
+              <input type="number" value={edit.suggestedPrice||""} onChange={e=>updPrice(e.target.value)}
+                style={{padding:"11px 12px",border:`1.5px solid ${priceLow?C.red:C.bd}`,borderRadius:9,fontSize:15,color:C.g600,fontWeight:700,fontFamily:F.body,background:C.card,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+              {priceLow&&<span style={{fontSize:10,color:C.red}}>{"Below 2x cost — raise price"}</span>}
+            </div>
+            <Inp label="Actual Sale Price" type="number" value={edit.salePrice||""} onChange={updE("salePrice")} placeholder="0.00"/>
+          </div>
+          {+edit.cost>0&&+edit.suggestedPrice>0&&<div style={{background:C.card,border:`1px solid ${mc}33`,borderRadius:9,padding:"10px 14px",marginBottom:10}}>
+            <Row between style={{marginBottom:6}}>
+              <span style={{fontSize:12,color:C.tx3}}>Margin</span>
+              <span style={{fontWeight:700,color:mc,fontSize:18,fontFamily:F.display}}>{edit.margin+"%"}</span>
+            </Row>
+            <div style={{height:8,background:C.g100,borderRadius:4,overflow:"hidden"}}>
+              <div style={{width:`${Math.min(100,Math.max(0,+edit.margin||0))}%`,height:"100%",background:mc,borderRadius:4,transition:"width .3s"}}/>
+            </div>
+            <Row gap={16} style={{marginTop:8,flexWrap:"wrap"}}>
+              {fee>0&&edit.platform&&<span style={{fontSize:11,color:C.tx3}}>{edit.platform+" fee: "}<b style={{color:C.red}}>{"$"+fee.toFixed(2)}</b></span>}
+              <span style={{fontSize:11,color:C.tx3}}>{"True profit: "}<b style={{color:tp>0?C.g600:C.red}}>{"$"+tp.toFixed(2)}</b></span>
+            </Row>
+          </div>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Shipping Cost" type="number" value={edit.shippingCost||""} onChange={updE("shippingCost")} placeholder="0.00"/>
+            <Sel label="Platform" value={edit.platform||""} onChange={updE("platform")} options={["", ...PLATFORMS]}/>
+          </div>
+        </Card>}
+
+        <Card>
+          <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:14,marginBottom:8}}>{"📝 Notes"}</div>
+          <textarea value={edit.notes||""} onChange={e=>updE("notes")(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${C.bd}`,borderRadius:9,fontSize:13,fontFamily:F.body,minHeight:90,boxSizing:"border-box",resize:"vertical"}}
+            placeholder="Care notes, condition, source details..."/>
+        </Card>
+
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+
+        <Card>
+          <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:14,marginBottom:12}}>{"📍 Status & Location"}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <Sel label="Status" value={edit.status} onChange={updE("status")} options={STATUSES}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <Inp label="Rack" value={edit.rack||""} onChange={updE("rack")} placeholder="R1"/>
+              <Inp label="Shelf" value={edit.shelf||""} onChange={updE("shelf")} placeholder="S2"/>
+            </div>
+            <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,padding:"6px 0"}}>
+              <input type="checkbox" checked={!!edit.labelPrinted} onChange={e=>updE("labelPrinted")(e.target.checked)} style={{width:16,height:16,accentColor:C.g700}}/>
+              <span style={{fontWeight:600}}>Label Printed</span>
+            </label>
+          </div>
+        </Card>
+
+        <Card style={{background:C.g50,border:`1px solid ${C.g200}`}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.tx3,letterSpacing:.5,textTransform:"uppercase",marginBottom:10}}>Label Preview</div>
+          <div style={{background:C.card,border:`1.5px solid ${C.g700}`,borderRadius:9,padding:"13px 15px"}}>
+            <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:13,lineHeight:1.3,marginBottom:2}}>{toTC(edit.name)||"Plant Name"}</div>
+            <div style={{fontSize:10,color:C.tx3,marginBottom:5}}>{edit.potSize||"—"}</div>
+            <div style={{fontFamily:F.mono,fontSize:10,color:C.g500,borderTop:`1px solid ${C.g100}`,paddingTop:5,marginBottom:6}}>{"🌿 "+edit.plantId}</div>
+            <Row between>
+              {isOwner&&<span style={{fontSize:10,color:C.tx3}}>{"Cost $"+(+edit.cost||0).toFixed(2)}</span>}
+              <span style={{fontWeight:700,color:C.g900,fontSize:15}}>{"$"+(+edit.suggestedPrice||0).toFixed(2)}</span>
+            </Row>
+            <div style={{fontSize:8,color:C.g300,textAlign:"center",marginTop:5,letterSpacing:2,textTransform:"uppercase"}}>Leaf Diary</div>
+          </div>
+        </Card>
+
+        <Card>
+          <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:14,marginBottom:10}}>Plant Info</div>
+          {[["Plant ID",edit.plantId||"—"],["Nursery",edit.nurseryCode||"—"],["Days Held",fDays(days)],["Added By",edit.addedBy||"—"],["Invoice #",edit.invoiceNumber||"—"]].map(([l,v])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.bdS}`}}>
+              <span style={{fontSize:11,color:C.tx3}}>{l}</span>
+              <span style={{fontSize:12,fontWeight:600,color:C.tx1}}>{v}</span>
+            </div>
+          ))}
+        </Card>
+
+        {CAN.deleteRec(user.role)&&<Card style={{background:C.redBg,border:`1px solid ${C.red}44`}}>
+          <div style={{fontWeight:700,color:C.red,marginBottom:4,fontSize:13}}>Danger Zone</div>
+          <p style={{fontSize:12,color:C.tx3,marginBottom:10}}>Permanently removes this plant from inventory.</p>
+          <Btn v="danger" sz="sm" onClick={()=>{setPlants(pp=>pp.filter(x=>x.id!==plantId));onBack();}}>{"🗑️ Delete Plant"}</Btn>
+        </Card>}
+
+      </div>
+    </div>
+
+    <div style={{marginTop:16,display:"flex",justifyContent:"flex-end",gap:10,maxWidth:960}}>
+      <Btn v="ghost" onClick={onBack}>Cancel</Btn>
+      <Btn sz="lg" onClick={saveEdit}>{"💾 Save Changes"}</Btn>
+    </div>
+  </div>;
+}
+
 function Inventory({plants,setPlants,user,addAudit}){
   const [search,setSearch]=useState("");
   const [fs,setFs]=useState("All");
@@ -730,47 +897,15 @@ function Inventory({plants,setPlants,user,addAudit}){
   const upd=(id,f,v)=>{setPlants(p=>p.map(x=>x.id===id?{...x,[f]:v}:x));addAudit({action:`Updated ${f}`,user:user.name,page:"Inventory"});};
   const tog=f=>{if(sortF===f)setSortD(d=>d==="asc"?"desc":"asc");else{setSortF(f);setSortD("asc");}};
   const TH=({f,l})=><th onClick={()=>tog(f)} style={{padding:"8px 10px",textAlign:"left",color:C.tx3,fontWeight:700,fontSize:10,letterSpacing:.4,textTransform:"uppercase",borderBottom:`1px solid ${C.bd}`,cursor:"pointer",whiteSpace:"nowrap"}}>{l}{sortF===f?(sortD==="asc"?" ↑":" ↓"):""}</th>;
-  if(detail){
-    const p=plants.find(x=>x.id===detail);
-    if(!p){setDetail(null);return null;}
-    const tp=trueProfit(p);
-    return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}>
-      <button onClick={()=>setDetail(null)} style={{background:"none",border:"none",color:C.g600,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:F.body,marginBottom:16}}>← Back to Inventory</button>
-      <div style={{maxWidth:700}}>
-        <Card>
-          <Row between style={{marginBottom:16}}>
-            <div><h2 style={{fontFamily:F.display,fontSize:20,color:C.g900,margin:0}}>{p.name}</h2>{p.botanicalName&&<p style={{fontStyle:"italic",color:C.tx3,fontSize:12,margin:"2px 0 0"}}>{p.botanicalName}</p>}<div style={{fontFamily:F.mono,color:C.g500,fontSize:12,marginTop:4}}>{p.plantId}</div></div>
-            <SBadge s={p.status}/>
-          </Row>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
-            {[["Nursery",p.nurseryCode],["Pot Size",p.potSize||"—"],["Date Added",p.dateAdded],["Days Held",fDays(dHeld(p.dateAdded))],
-              ...(isOwner?[["Cost",$(p.cost)],["Sell Price",$(p.suggestedPrice)],["Sale Price",p.salePrice?$(p.salePrice):"—"],["Platform Fee",$(platFee(p.platform||"",+p.salePrice||+p.suggestedPrice||0))],["True Profit",$(tp)],["Margin",pct(p.margin)]]:
-                [["Sell Price",$(p.suggestedPrice)]]),
-              ["Rack",p.rack||"—"],["Shelf",p.shelf||"—"],["Label",p.labelPrinted?"✅ Printed":"❌ Not printed"],["Invoice #",p.invoiceNumber||"—"]].map(([l,v])=>(
-              <div key={l} style={{background:C.cardAlt,borderRadius:7,padding:"8px 11px"}}>
-                <div style={{fontSize:10,fontWeight:700,color:C.tx3,textTransform:"uppercase",letterSpacing:.4,marginBottom:2}}>{l}</div>
-                <div style={{fontWeight:600,color:C.tx1,fontSize:13}}>{v}</div>
-              </div>
-            ))}
-          </div>
-          {isOwner&&tp>0&&<div style={{background:C.g50,border:`1px solid ${C.g200}`,borderRadius:8,padding:"10px 14px",marginBottom:12}}>
-            <span style={{fontSize:12,color:C.tx3}}>True Profit after fees: </span><span style={{fontWeight:700,color:C.g700,fontSize:14}}>{$(tp)}</span>
-          </div>}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:12}}>
-            <Sel label="Status" value={p.status} onChange={v=>upd(p.id,"status",v)} options={STATUSES}/>
-            <Sel label="Platform" value={p.platform||""} onChange={v=>upd(p.id,"platform",v)} options={["", ...PLATFORMS]}/>
-            {isOwner&&<Inp label="Sale Price" type="number" value={p.salePrice||""} onChange={v=>upd(p.id,"salePrice",v)} placeholder="0.00"/>}
-            {isOwner&&<Inp label="Shipping Cost" type="number" value={p.shippingCost||""} onChange={v=>upd(p.id,"shippingCost",v)} placeholder="0.00"/>}
-            <Inp label="Rack" value={p.rack||""} onChange={v=>upd(p.id,"rack",v)} placeholder="R1"/>
-            <Inp label="Shelf" value={p.shelf||""} onChange={v=>upd(p.id,"shelf",v)} placeholder="S2"/>
-          </div>
-          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,marginBottom:10}}><input type="checkbox" checked={!!p.labelPrinted} onChange={e=>upd(p.id,"labelPrinted",e.target.checked)}/> Label Printed</label>
-          <label style={{fontSize:11,fontWeight:600,color:C.tx3,display:"block",marginBottom:4}}>Notes</label>
-          <textarea value={p.notes||""} onChange={e=>upd(p.id,"notes",e.target.value)} style={{width:"100%",padding:"9px 11px",border:`1.5px solid ${C.bd}`,borderRadius:8,fontSize:12,fontFamily:F.body,minHeight:68,boxSizing:"border-box",resize:"vertical"}}/>
-          {CAN.deleteRec(user.role)&&<div style={{marginTop:12}}><Btn v="danger" sz="sm" onClick={()=>{setPlants(p=>p.filter(x=>x.id!==detail));setDetail(null);}}>🗑️ Delete Plant</Btn></div>}
-        </Card>
-      </div>
-    </div>;
+    if(detail){
+    return <PlantEditDetail
+      plantId={detail}
+      plants={plants}
+      setPlants={setPlants}
+      user={user}
+      addAudit={addAudit}
+      onBack={()=>setDetail(null)}
+    />;
   }
   return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}>
     <SHdr icon="🌿" title="Plant Inventory" sub={`${list.length} of ${plants.length} plants`}/>
