@@ -2229,12 +2229,23 @@ const SUPABASE_URL = "https://yyklidmefiguzrbvrnmp.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8vyVQt8Ay3S8kJ4cI9U5YA_eB6l2CUu7";
 const CLOUD_TABLES = ["plants","bills","nurseries","expenses","timecards"];
 
-const cloudHeaders = (extra={}) => ({
-  apikey: SUPABASE_KEY,
-  "Content-Type": "application/json",
-  Accept: "application/json",
-  ...extra
-});
+const cloudHeaders = (extra={}) => {
+  const headers = {
+    apikey: SUPABASE_KEY,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    ...extra
+  };
+
+  // IMPORTANT:
+  // Supabase's new sb_publishable_ keys are NOT JWTs.
+  // Do not send them as Authorization: Bearer tokens or Supabase can reject the request.
+  // Only legacy anon keys that start with eyJ are JWTs and may be used as Bearer tokens.
+  if (SUPABASE_KEY && SUPABASE_KEY.startsWith("eyJ")) {
+    headers.Authorization = `Bearer ${SUPABASE_KEY}`;
+  }
+  return headers;
+};
 
 async function cloudRequest(path, options={}){
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -2416,8 +2427,9 @@ function App(){
     }catch(err){
       console.error("Supabase load failed", err);
       cloudReadyRef.current = false;
+      const msg = err && err.message ? err.message : String(err);
       setCloudStatus("offline");
-      setCloudMsg("Supabase offline or setup issue — using local backup");
+      setCloudMsg("Supabase error: " + msg);
     }
   },[]);
 
@@ -2487,7 +2499,7 @@ function App(){
 
   const P={plants,setPlants,nurseries,setNurseries,expenses,setExpenses,timecards,setTimecards,bills,setBills,user,addAudit};
   const cloudDot = cloudStatus==="synced"?C.g400:cloudStatus==="syncing"||cloudStatus==="loading"?C.gold:C.amber;
-  const cloudLabel = cloudStatus==="synced"?"☁️ Supabase cloud synced":cloudStatus==="syncing"?"🔄 Saving to Supabase...":cloudStatus==="loading"?"🔄 Loading cloud...":"⚠️ Cloud offline — local backup active";
+  const cloudLabel = cloudStatus==="synced"?"☁️ Supabase cloud synced":cloudStatus==="syncing"?"🔄 Saving to Supabase...":cloudStatus==="loading"?"🔄 Loading cloud...":`⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
 
   return <div style={{fontFamily:F.body,background:C.bg,minHeight:"100vh",color:C.tx1,paddingBottom:80}}>
     <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={plants.length} billAlerts={billAlerts}/>
@@ -2501,6 +2513,7 @@ function App(){
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         {saveMsg&&<span style={{fontSize:11,color:C.g400,fontWeight:700}}>{saveMsg}</span>}
         <button onClick={()=>loadFromCloud()} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>🔄 Sync Now</button>
+        <button onClick={async()=>{try{setCloudStatus("loading");setCloudMsg("Testing Supabase connection...");await cloudRequest("plants?select=id&limit=1",{method:"GET"});setCloudStatus("synced");setCloudMsg("Supabase test passed");alert("Supabase test passed. Cloud connection is working.");}catch(err){const msg=err&&err.message?err.message:String(err);setCloudStatus("offline");setCloudMsg("Supabase test failed: "+msg);alert("Supabase test failed: "+msg);}}} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>🧪 Test Cloud</button>
         <button onClick={exportBackup} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>📥 Backup</button>
         <button onClick={()=>backupRef.current.click()} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>📤 Restore</button>
         <input ref={backupRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>importBackup(e.target.files[0])}/>
