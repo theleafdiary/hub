@@ -118,7 +118,6 @@
     const $ = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(+n || 0);
     const today = () => new Date().toISOString().split("T")[0];
     const fDate = d => { if (!d) return ""; const [y, m, day] = d.split("-"); return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }); };
-    const hashPin = async p => { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(p)); return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, "0")).join(""); };
     const toTC = s => (s || "").replace(/\w\S*/g, t => t[0].toUpperCase() + t.slice(1).toLowerCase());
     const gOf = name => { const n = (name || "").toLowerCase(); for (const g of GENERA.slice(0, -1)) if (n.includes(g.toLowerCase())) return g; return "Other"; };
     const sprice = (cost, m = 0.62) => cost > 0 ? Math.ceil(cost / (1 - m) / 5) * 5 : 0;
@@ -1990,12 +1989,12 @@
       const [tab, setTab] = useState("users");
       const [editId, setEditId] = useState(null);
       const [showAdd, setShowAdd] = useState(false);
-      const blank = { id: "", name: "", role: "employee", pin: "", email: "", permissions: { ...DEFAULT_PERMS } };
+      const blank = { id: "", name: "", role: "employee", email: "", permissions: { ...DEFAULT_PERMS } };
       const [form, setForm] = useState({ ...blank });
       const certRef = useRef();
-      const startEdit = u => { setEditId(u.id); setForm({ ...u, pin: "", permissions: { ...DEFAULT_PERMS, ...(u.permissions || {}) } }); setShowAdd(false); };
-      const saveEdit = async () => { let p = form.pin; if (p) p = await hashPin(p); setUsers(pr => pr.map(u => u.id === editId ? { ...form, pin: p || u.pin } : u)); setEditId(null); };
-      const saveNew = async () => { if (!form.name.trim() || !form.pin.trim()) return; const p = await hashPin(form.pin); setUsers(pr => [...pr, { ...form, pin: p, id: uid() }]); setForm({ ...blank }); setShowAdd(false); };
+      const startEdit = u => { setEditId(u.id); setForm({ ...u, permissions: { ...DEFAULT_PERMS, ...(u.permissions || {}) } }); setShowAdd(false); };
+      const saveEdit = async () => { setUsers(pr => pr.map(u => u.id === editId ? { ...form } : u)); setEditId(null); };
+      const saveNew = async () => { if (!form.name.trim() || !form.email.trim()) return; setUsers(pr => [...pr, { ...form, id: uid() }]); setForm({ ...blank }); setShowAdd(false); };
       const updF = f => v => setForm(p => ({ ...p, [f]: v }));
       const updP = f => v => setForm(p => ({ ...p, permissions: { ...p.permissions, [f]: v } }));
       const loadCert = file => { if (!file) return; const r = new FileReader(); r.onload = e => setSettings(p => ({ ...p, resellerCertData: e.target.result, resellerCertName: file.name })); r.readAsDataURL(file); };
@@ -2003,8 +2002,7 @@
         <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 14 }}>{isNew ? "Add New Employee" : "Edit User"}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginBottom: 14 }}>
           <Inp label="Full Name *" value={form.name} onChange={updF("name")} required />
-          <Inp label={isNew ? "PIN (4–6 digits) *" : "New PIN (leave blank to keep)"} value={form.pin} onChange={updF("pin")} placeholder={isNew ? "e.g. 4291" : "..."} required={isNew} type="password" />
-          <Inp label="Email" value={form.email} onChange={updF("email")} placeholder="emp@email.com" />
+          <Inp label="Email *" value={form.email} onChange={updF("email")} placeholder="emp@email.com" required={isNew} type="email" />
           <Sel label="Role" value={form.role} onChange={updF("role")} options={["employee", "manager", "owner"]} />
         </div>
         {form.role !== "owner" && <div>
@@ -2677,23 +2675,23 @@
         }
       }, [nurseries, setNurseries]);
 
-      /* Migration: hash existing plain-text PINs */
+      /* User mapping */
       useEffect(() => {
-        const needsPinMigration = users.some(u => u.pin && u.pin.length < 64);
-        if (needsPinMigration) {
-          (async () => {
-            const newUsers = await Promise.all(users.map(async u => {
-              if (u.pin && u.pin.length < 64) {
-                const hashed = await hashPin(u.pin);
-                return { ...u, pin: hashed };
-              }
-              return u;
-            }));
-            setUsersRaw(newUsers);
-            cloudCollectionSetter("users")(newUsers);
-          })();
+        if (session && session.user && session.user.email && cloudStatus !== "loading") {
+          const email = session.user.email.toLowerCase();
+          let u = users.find(x => x.email && x.email.toLowerCase() === email);
+          if (!u) {
+            u = { id: uid(), name: email.split("@")[0], role: "employee", email: email, permissions: { ...DEFAULT_PERMS } };
+            setUsersRaw(p => [...p, u]);
+            if (cloudStatus === "synced") cloudCollectionSetter("users")([...users, u]);
+          }
+          if (!user || user.id !== u.id) {
+            setUser(u);
+            setPage(u.role === "employee" ? "emp_dash" : "dash");
+            addAudit({ action: "Logged in via Auth", user: u.name, page: "System" });
+          }
         }
-      }, [users]);
+      }, [session, users, cloudStatus, user, addAudit, cloudCollectionSetter]);
 
       /* One-Time Nuke Inventory */
       useEffect(() => {
