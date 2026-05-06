@@ -2221,24 +2221,148 @@ const DEFAULT_BILLS = [
 const DEFAULT_SETTINGS = {marginTarget:62,minProfit:10,roundTo:5,showCostOnLabels:false,empCanSeeSuggestedPrice:true,resellerCertData:null,resellerCertName:""};
 
 /* ══════════════════════════════════════════════════════════
-   ROOT APP — with full localStorage persistence
+   SUPABASE CLOUD SYNC
+   Project: yyklidmefiguzrbvrnmp
+   This keeps localStorage as a backup, but Supabase becomes the shared cloud.
+══════════════════════════════════════════════════════════ */
+const SUPABASE_URL = "https://yyklidmefiguzrbvrnmp.supabase.co";
+const SUPABASE_KEY = "sb_publishable_8vyVQt8Ay3S8kJ4cI9U5YA_eB6l2CUu7";
+const CLOUD_TABLES = ["plants","bills","nurseries","expenses","timecards"];
+
+const cloudHeaders = (extra={}) => ({
+  apikey: SUPABASE_KEY,
+  Authorization: `Bearer ${SUPABASE_KEY}`,
+  "Content-Type": "application/json",
+  ...extra
+});
+
+async function cloudRequest(path, options={}){
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: cloudHeaders(options.headers || {})
+  });
+  if(!res.ok){
+    const txt = await res.text().catch(()=>"");
+    throw new Error(`${res.status} ${res.statusText} ${txt}`);
+  }
+  if(res.status === 204) return null;
+  const txt = await res.text();
+  return txt ? JSON.parse(txt) : null;
+}
+
+async function cloudFetchRows(table){
+  const rows = await cloudRequest(`${table}?select=id,data,updated_at&order=updated_at.desc`, {method:"GET"});
+  return (rows || []).map(r => ({...(r.data || {}), id: (r.data && r.data.id) ? r.data.id : r.id}));
+}
+
+async function cloudUpsertRows(table, rows){
+  if(!Array.isArray(rows) || rows.length === 0) return;
+  const payload = rows
+    .filter(r => r && r.id)
+    .map(r => ({id:String(r.id), data:r, updated_at:new Date().toISOString()}));
+  if(!payload.length) return;
+  return cloudRequest(`${table}?on_conflict=id`, {
+    method:"POST",
+    headers:{Prefer:"resolution=merge-duplicates"},
+    body:JSON.stringify(payload)
+  });
+}
+
+async function cloudDeleteRows(table, ids){
+  const clean = [...new Set((ids||[]).filter(Boolean).map(String))];
+  if(!clean.length) return;
+  const quoted = clean.map(id => `"${id.replace(/"/g,'\\"')}"`).join(",");
+  return cloudRequest(`${table}?id=in.(${quoted})`, {method:"DELETE"});
+}
+
+async function cloudFetchState(key){
+  const rows = await cloudRequest(`app_state?select=key,data,updated_at&key=eq.${encodeURIComponent(key)}&limit=1`, {method:"GET"});
+  return rows && rows[0] ? rows[0].data : null;
+}
+
+async function cloudUpsertState(key, data){
+  return cloudRequest(`app_state?on_conflict=key`, {
+    method:"POST",
+    headers:{Prefer:"resolution=merge-duplicates"},
+    body:JSON.stringify([{key, data, updated_at:new Date().toISOString()}])
+  });
+}
+
+function applyUpdater(updater, prev){
+  return typeof updater === "function" ? updater(prev) : updater;
+}
+function missingIds(prev=[], next=[]){
+  const n = new Set((next||[]).map(x=>x && x.id).filter(Boolean).map(String));
+  return (prev||[]).map(x=>x && x.id).filter(Boolean).map(String).filter(id=>!n.has(id));
+}
+
+/* ══════════════════════════════════════════════════════════
+   ROOT APP — Supabase cloud sync + localStorage backup
 ══════════════════════════════════════════════════════════ */
 function App(){
   const saved = loadLS();
 
   const [user,setUser]       = useState(null);
   const [page,setPage]       = useState("dash");
-  const [plants,setPlants]   = useState(saved?.plants    || []);
-  const [expenses,setExpenses] = useState(saved?.expenses || []);
-  const [timecards,setTimecards] = useState(saved?.timecards || []);
-  const [auditLog,setAuditLog]   = useState(saved?.auditLog  || []);
-  const [bills,setBills]     = useState(saved?.bills     || DEFAULT_BILLS);
-  const [nurseries,setNurseries] = useState(saved?.nurseries || DEFAULT_NURSERIES);
-  const [users,setUsers]     = useState(saved?.users     || DEFAULT_USERS);
-  const [settings,setSettings]   = useState(saved?.settings  || DEFAULT_SETTINGS);
+  const [plants,setPlantsRaw]   = useState(saved?.plants    || []);
+  const [expenses,setExpensesRaw] = useState(saved?.expenses || []);
+  const [timecards,setTimecardsRaw] = useState(saved?.timecards || []);
+  const [auditLog,setAuditLogRaw]   = useState(saved?.auditLog  || []);
+  const [bills,setBillsRaw]     = useState(saved?.bills     || DEFAULT_BILLS);
+  const [nurseries,setNurseriesRaw] = useState(saved?.nurseries || DEFAULT_NURSERIES);
+  const [users,setUsersRaw]     = useState(saved?.users     || DEFAULT_USERS);
+  const [settings,setSettingsRaw]   = useState(saved?.settings  || DEFAULT_SETTINGS);
   const [saveMsg,setSaveMsg] = useState("");
+  const [cloudStatus,setCloudStatus] = useState("loading");
+  const [cloudMsg,setCloudMsg] = useState("Connecting to Supabase cloud...");
 
-  /* Auto-save everything to localStorage whenever any data changes */
+  const cloudReadyRef = useRef(false);
+  const suppressCloudSaveRef = useRef(false);
+  const backupRef = useRef();
+
+  const cloudCollectionSetter = useCallback((table, rawSetter) => (updater) => {
+    rawSetter(prev => {
+      const next = applyUpdater(updater, prev) || [];
+      if(cloudReadyRef.current && !suppressCloudSaveRef.current){
+        const removed = missingIds(prev, next);
+        setCloudStatus("syncing");
+        setCloudMsg("Saving to Supabase cloud...");
+        Promise.resolve()
+          .then(async()=>{
+            if(removed.length) await cloudDeleteRows(table, removed);
+            await cloudUpsertRows(table, next);
+          })
+          .then(()=>{setCloudStatus("synced");setCloudMsg("Supabase cloud synced");})
+          .catch(err=>{console.error(`Supabase save failed for ${table}`, err);setCloudStatus("offline");setCloudMsg("Cloud save failed — local backup still saved");});
+      }
+      return next;
+    });
+  },[]);
+
+  const cloudStateSetter = useCallback((key, rawSetter) => (updater) => {
+    rawSetter(prev => {
+      const next = applyUpdater(updater, prev);
+      if(cloudReadyRef.current && !suppressCloudSaveRef.current){
+        setCloudStatus("syncing");
+        setCloudMsg("Saving settings to Supabase...");
+        cloudUpsertState(key, next)
+          .then(()=>{setCloudStatus("synced");setCloudMsg("Supabase cloud synced");})
+          .catch(err=>{console.error(`Supabase app_state save failed for ${key}`, err);setCloudStatus("offline");setCloudMsg("Cloud save failed — local backup still saved");});
+      }
+      return next;
+    });
+  },[]);
+
+  const setPlants    = cloudCollectionSetter("plants", setPlantsRaw);
+  const setExpenses  = cloudCollectionSetter("expenses", setExpensesRaw);
+  const setTimecards = cloudCollectionSetter("timecards", setTimecardsRaw);
+  const setBills     = cloudCollectionSetter("bills", setBillsRaw);
+  const setNurseries = cloudCollectionSetter("nurseries", setNurseriesRaw);
+  const setAuditLog  = cloudStateSetter("auditLog", setAuditLogRaw);
+  const setUsers     = cloudStateSetter("users", setUsersRaw);
+  const setSettings  = cloudStateSetter("settings", setSettingsRaw);
+
+  /* Always keep a local backup on this device too */
   useEffect(()=>{
     saveLS({plants,expenses,timecards,auditLog,bills,nurseries,users,settings});
   },[plants,expenses,timecards,auditLog,bills,nurseries,users,settings]);
@@ -2251,9 +2375,61 @@ function App(){
     document.head.appendChild(l);
   },[]);
 
+  const loadFromCloud = useCallback(async({silent=false}={})=>{
+    if(!silent){ setCloudStatus("loading"); setCloudMsg("Loading Supabase cloud data..."); }
+    try{
+      const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudTimecards, cloudUsers, cloudSettings, cloudAudit] = await Promise.all([
+        cloudFetchRows("plants"),
+        cloudFetchRows("bills"),
+        cloudFetchRows("nurseries"),
+        cloudFetchRows("expenses"),
+        cloudFetchRows("timecards"),
+        cloudFetchState("users"),
+        cloudFetchState("settings"),
+        cloudFetchState("auditLog"),
+      ]);
+
+      suppressCloudSaveRef.current = true;
+      if(cloudPlants.length) setPlantsRaw(cloudPlants);
+      if(cloudBills.length) setBillsRaw(cloudBills); else if(!saved?.bills) setBillsRaw(DEFAULT_BILLS);
+      if(cloudNurseries.length) setNurseriesRaw(cloudNurseries); else if(!saved?.nurseries) setNurseriesRaw(DEFAULT_NURSERIES);
+      if(cloudExpenses.length) setExpensesRaw(cloudExpenses);
+      if(cloudTimecards.length) setTimecardsRaw(cloudTimecards);
+      if(cloudUsers) setUsersRaw(cloudUsers); else if(!saved?.users) setUsersRaw(DEFAULT_USERS);
+      if(cloudSettings) setSettingsRaw(cloudSettings); else if(!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
+      if(cloudAudit) setAuditLogRaw(cloudAudit);
+      setTimeout(()=>{suppressCloudSaveRef.current=false;},0);
+
+      cloudReadyRef.current = true;
+      setCloudStatus("synced");
+      setCloudMsg("Supabase cloud synced");
+
+      /* First-time migration: if Supabase is empty but this device has data, seed the cloud */
+      if(!cloudPlants.length && saved?.plants?.length) await cloudUpsertRows("plants", saved.plants);
+      if(!cloudBills.length && saved?.bills?.length) await cloudUpsertRows("bills", saved.bills);
+      if(!cloudNurseries.length && saved?.nurseries?.length) await cloudUpsertRows("nurseries", saved.nurseries);
+      if(!cloudExpenses.length && saved?.expenses?.length) await cloudUpsertRows("expenses", saved.expenses);
+      if(!cloudTimecards.length && saved?.timecards?.length) await cloudUpsertRows("timecards", saved.timecards);
+      if(!cloudUsers && saved?.users) await cloudUpsertState("users", saved.users);
+      if(!cloudSettings && saved?.settings) await cloudUpsertState("settings", saved.settings);
+      if(!cloudAudit && saved?.auditLog) await cloudUpsertState("auditLog", saved.auditLog);
+    }catch(err){
+      console.error("Supabase load failed", err);
+      cloudReadyRef.current = false;
+      setCloudStatus("offline");
+      setCloudMsg("Supabase offline or setup issue — using local backup");
+    }
+  },[]);
+
+  useEffect(()=>{
+    loadFromCloud();
+    const timer = setInterval(()=>loadFromCloud({silent:true}), 20000);
+    return ()=>clearInterval(timer);
+  },[loadFromCloud]);
+
   /* Manual backup — exports all data as JSON file */
   const exportBackup = () => {
-    const data = {plants,expenses,timecards,bills,nurseries,users,settings,exportDate:new Date().toISOString()};
+    const data = {plants,expenses,timecards,bills,nurseries,users,settings,auditLog,exportDate:new Date().toISOString()};
     const a = Object.assign(document.createElement("a"),{
       href: URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"})),
       download: `leafdiary-backup-${today()}.json`
@@ -2263,29 +2439,46 @@ function App(){
     setTimeout(()=>setSaveMsg(""),3000);
   };
 
-  /* Restore from backup JSON file */
+  /* Restore from backup JSON file and push restored data to Supabase */
   const importBackup = (file) => {
     if(!file) return;
     const r = new FileReader();
-    r.onload = e => {
+    r.onload = async e => {
       try {
         const d = JSON.parse(e.target.result);
-        if(d.plants)    setPlants(d.plants);
-        if(d.expenses)  setExpenses(d.expenses);
-        if(d.timecards) setTimecards(d.timecards);
-        if(d.bills)     setBills(d.bills);
-        if(d.nurseries) setNurseries(d.nurseries);
-        if(d.users)     setUsers(d.users);
-        if(d.settings)  setSettings(d.settings);
-        setSaveMsg("✅ Backup restored!");
+        suppressCloudSaveRef.current = true;
+        if(d.plants)    setPlantsRaw(d.plants);
+        if(d.expenses)  setExpensesRaw(d.expenses);
+        if(d.timecards) setTimecardsRaw(d.timecards);
+        if(d.bills)     setBillsRaw(d.bills);
+        if(d.nurseries) setNurseriesRaw(d.nurseries);
+        if(d.users)     setUsersRaw(d.users);
+        if(d.settings)  setSettingsRaw(d.settings);
+        if(d.auditLog)  setAuditLogRaw(d.auditLog);
+        setTimeout(()=>{suppressCloudSaveRef.current=false;},0);
+        setCloudStatus("syncing");
+        setCloudMsg("Uploading restored backup to Supabase...");
+        await Promise.all([
+          d.plants ? cloudUpsertRows("plants", d.plants) : null,
+          d.expenses ? cloudUpsertRows("expenses", d.expenses) : null,
+          d.timecards ? cloudUpsertRows("timecards", d.timecards) : null,
+          d.bills ? cloudUpsertRows("bills", d.bills) : null,
+          d.nurseries ? cloudUpsertRows("nurseries", d.nurseries) : null,
+          d.users ? cloudUpsertState("users", d.users) : null,
+          d.settings ? cloudUpsertState("settings", d.settings) : null,
+          d.auditLog ? cloudUpsertState("auditLog", d.auditLog) : null,
+        ]);
+        cloudReadyRef.current = true;
+        setCloudStatus("synced");
+        setCloudMsg("Backup restored and synced to Supabase");
+        setSaveMsg("✅ Backup restored + cloud synced!");
         setTimeout(()=>setSaveMsg(""),3000);
-      } catch(err) { setSaveMsg("❌ Invalid backup file"); setTimeout(()=>setSaveMsg(""),3000); }
+      } catch(err) { console.error(err); setSaveMsg("❌ Invalid backup file or cloud upload failed"); setTimeout(()=>setSaveMsg(""),3000); }
     };
     r.readAsText(file);
   };
 
-  const backupRef = useRef();
-  const addAudit  = useCallback(entry=>{setAuditLog(p=>[...p,{...entry,timestamp:new Date().toLocaleString(),id:uid()}]);},[]);
+  const addAudit  = useCallback(entry=>{setAuditLog(p=>[...p,{...entry,timestamp:new Date().toLocaleString(),id:uid()}]);},[setAuditLog]);
   const handleLogin  = u=>{setUser(u);setPage(u.role==="employee"?"emp_dash":"dash");addAudit({action:"Logged in",user:u.name,page:"Login"});};
   const handleLogout = ()=>{addAudit({action:"Logged out",user:user.name,page:"System"});setUser(null);setPage("dash");};
   const billAlerts   = bills.filter(b=>{const d=Math.ceil((new Date(b.dueDate)-Date.now())/864e5);return d<=7&&d>=0&&b.status==="Unpaid";}).length;
@@ -2293,18 +2486,21 @@ function App(){
   if(!user) return <LoginScreen onLogin={handleLogin} users={users}/>;
 
   const P={plants,setPlants,nurseries,setNurseries,expenses,setExpenses,timecards,setTimecards,bills,setBills,user,addAudit};
+  const cloudDot = cloudStatus==="synced"?C.g400:cloudStatus==="syncing"||cloudStatus==="loading"?C.gold:C.amber;
+  const cloudLabel = cloudStatus==="synced"?"☁️ Supabase cloud synced":cloudStatus==="syncing"?"🔄 Saving to Supabase...":cloudStatus==="loading"?"🔄 Loading cloud...":"⚠️ Cloud offline — local backup active";
 
   return <div style={{fontFamily:F.body,background:C.bg,minHeight:"100vh",color:C.tx1,paddingBottom:80}}>
     <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={plants.length} billAlerts={billAlerts}/>
 
-    {/* Save indicator strip */}
-    <div style={{background:C.g900,padding:"6px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div style={{display:"flex",alignItems:"center",gap:6}}>
-        <div style={{width:7,height:7,borderRadius:"50%",background:C.g400}}/>
-        <span style={{fontSize:11,color:"rgba(255,255,255,.6)",fontWeight:600}}>Data saved to this device</span>
+    {/* Cloud sync indicator strip */}
+    <div style={{background:C.g900,padding:"6px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <div title={cloudMsg} style={{display:"flex",alignItems:"center",gap:6}}>
+        <div style={{width:7,height:7,borderRadius:"50%",background:cloudDot}}/>
+        <span style={{fontSize:11,color:"rgba(255,255,255,.72)",fontWeight:600}}>{cloudLabel}</span>
       </div>
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         {saveMsg&&<span style={{fontSize:11,color:C.g400,fontWeight:700}}>{saveMsg}</span>}
+        <button onClick={()=>loadFromCloud()} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>🔄 Sync Now</button>
         <button onClick={exportBackup} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>📥 Backup</button>
         <button onClick={()=>backupRef.current.click()} style={{background:"rgba(255,255,255,.12)",border:"none",borderRadius:6,padding:"4px 10px",color:"rgba(255,255,255,.8)",fontSize:11,cursor:"pointer",fontFamily:F.body,fontWeight:600}}>📤 Restore</button>
         <input ref={backupRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>importBackup(e.target.files[0])}/>
@@ -2312,28 +2508,28 @@ function App(){
     </div>
 
     <div>
-      {page==="dash"    &&user.role!=="employee"&&<OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage}/>}
-      {page==="emp_dash"&&<EmpDash plants={plants} user={user} timecards={timecards}/>}
-      {page==="dash"    &&user.role==="employee"&&<EmpDash plants={plants} user={user} timecards={timecards}/>}
-      {page==="upload"  &&<InvoiceUpload {...P}/>}
-      {page==="manual"  &&<ManualEntry {...P}/>}
-      {page==="history" &&<PastInvoices {...P}/>}
-      {page==="inv"     &&<Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit}/>}
-      {page==="labels"  &&<Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={setPage}/>}
-      {page==="sellthru"&&CAN.seeReports(user.role)&&<SellThrough plants={plants} nurseries={nurseries} setPage={setPage}/>}
-      {page==="showbuilder"&&<ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user}/>}
-      {page==="showimport"&&<ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user}/>}
-      {page==="customers"&&CAN.seeReports(user.role)&&<Customers plants={plants}/>}
-      {page==="nursery" &&<Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user}/>}
-      {page==="bills"   &&<Bills bills={bills} setBills={setBills}/>}
-      {page==="expense" &&CAN.seeExpenses(user.role)&&<Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user}/>}
-      {page==="timecard"&&<Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users}/>}
-      {page==="payroll" &&CAN.seePayroll(user.role)&&<Payroll timecards={timecards} employees={users}/>}
-      {page==="intel"   &&CAN.seeReports(user.role)&&<BuyIntel plants={plants}/>}
-      {page==="reports" &&CAN.seeReports(user.role)&&<Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries}/>}
-      {page==="tax"     &&CAN.seeTax(user.role)&&<TaxCenter plants={plants} expenses={expenses} timecards={timecards}/>}
-      {page==="audit"   &&CAN.seeAudit(user.role)&&<AuditLog auditLog={auditLog}/>}
-      {page==="admin"   &&CAN.editSettings(user.role)&&<AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings}/>}
+      {page==="dash"    &&user.role!=="employee"&&<OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage}/>} 
+      {page==="emp_dash"&&<EmpDash plants={plants} user={user} timecards={timecards}/>} 
+      {page==="dash"    &&user.role==="employee"&&<EmpDash plants={plants} user={user} timecards={timecards}/>} 
+      {page==="upload"  &&<InvoiceUpload {...P}/>} 
+      {page==="manual"  &&<ManualEntry {...P}/>} 
+      {page==="history" &&<PastInvoices {...P}/>} 
+      {page==="inv"     &&<Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit}/>} 
+      {page==="labels"  &&<Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={setPage}/>} 
+      {page==="sellthru"&&CAN.seeReports(user.role)&&<SellThrough plants={plants} nurseries={nurseries} setPage={setPage}/>} 
+      {page==="showbuilder"&&<ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user}/>} 
+      {page==="showimport"&&<ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user}/>} 
+      {page==="customers"&&CAN.seeReports(user.role)&&<Customers plants={plants}/>} 
+      {page==="nursery" &&<Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user}/>} 
+      {page==="bills"   &&<Bills bills={bills} setBills={setBills}/>} 
+      {page==="expense" &&CAN.seeExpenses(user.role)&&<Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user}/>} 
+      {page==="timecard"&&<Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users}/>} 
+      {page==="payroll" &&CAN.seePayroll(user.role)&&<Payroll timecards={timecards} employees={users}/>} 
+      {page==="intel"   &&CAN.seeReports(user.role)&&<BuyIntel plants={plants}/>} 
+      {page==="reports" &&CAN.seeReports(user.role)&&<Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries}/>} 
+      {page==="tax"     &&CAN.seeTax(user.role)&&<TaxCenter plants={plants} expenses={expenses} timecards={timecards}/>} 
+      {page==="audit"   &&CAN.seeAudit(user.role)&&<AuditLog auditLog={auditLog}/>} 
+      {page==="admin"   &&CAN.editSettings(user.role)&&<AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings}/>} 
     </div>
   </div>;
 }
