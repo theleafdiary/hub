@@ -1098,7 +1098,13 @@
             {CAN.deleteRec(user.role) && <Card style={{ background: C.redBg, border: `1px solid ${C.red}44` }}>
               <div style={{ fontWeight: 700, color: C.red, marginBottom: 4, fontSize: 13 }}>Danger Zone</div>
               <p style={{ fontSize: 12, color: C.tx3, marginBottom: 10 }}>Permanently removes this plant from inventory.</p>
-              <Btn v="danger" sz="sm" onClick={() => { setPlants(pp => pp.filter(x => x.id !== plantId)); onBack(); }}>{"🗑️ Delete Plant"}</Btn>
+              <Btn v="danger" sz="sm" onClick={() => {
+                const plantName = edit?.name || edit?.plantId || "this plant";
+                if (!window.confirm(`Delete ${plantName}? This removes it from inventory and prevents it from coming back from backup.`)) return;
+                setPlants(pp => pp.filter(x => x.id !== plantId));
+                addAudit && addAudit({ action: `Deleted plant ${edit?.plantId || plantId}`, user: user.name, page: "Plant Detail" });
+                onBack();
+              }}>{"🗑️ Delete Plant"}</Btn>
             </Card>}
 
           </div>
@@ -2662,6 +2668,10 @@
           const plantIdsToDelete = nextPlants.map(p => p && p.id).filter(Boolean);
           try {
             if (plantIdsToDelete.length) await cloudDeleteRows("plants", plantIdsToDelete);
+            const deletedSet = markDeletedPlantIds(plantIdsToDelete);
+            await cloudUpsertState("deletedPlantIds", { ids: [...deletedSet], updatedAt: new Date().toISOString() });
+            const deletedSet = markDeletedPlantIds(plantIdsToDelete);
+            await cloudUpsertState("deletedPlantIds", { ids: [...deletedSet], updatedAt: new Date().toISOString() });
             await cloudUpsertState("inventoryResetAt", { at: new Date().toISOString(), by: user?.name || "Owner", rowsDeleted: totalDeleted });
           } catch (err) {
             console.error("Inventory cloud delete failed", err);
@@ -3434,13 +3444,45 @@
 
     const LS_KEY = "leafdiary_v6";
     const RESET_KEY = "leafdiary_inventory_reset_at";
+    const DELETED_PLANTS_KEY = "leafdiary_deleted_plant_ids_v1";
     const saveLS = (data) => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) { console.warn("Save failed", e); } };
     const loadLS = () => { try { const d = localStorage.getItem(LS_KEY); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
     const markLocalInventoryReset = () => { try { localStorage.setItem(RESET_KEY, new Date().toISOString()); } catch (e) {} };
     const localInventoryWasReset = () => { try { return !!localStorage.getItem(RESET_KEY); } catch (e) { return false; } };
+
+    /* Tombstones stop deleted plants from coming back if Supabase delete is blocked or slow. */
+    const loadDeletedPlantIds = () => {
+      try {
+        const raw = localStorage.getItem(DELETED_PLANTS_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return new Set((Array.isArray(arr) ? arr : []).map(String));
+      } catch (e) { return new Set(); }
+    };
+    const saveDeletedPlantIds = (idsSet) => {
+      try { localStorage.setItem(DELETED_PLANTS_KEY, JSON.stringify([...idsSet].map(String))); } catch (e) {}
+    };
+    const markDeletedPlantIds = (ids) => {
+      const set = loadDeletedPlantIds();
+      (ids || []).filter(Boolean).map(String).forEach(id => set.add(id));
+      saveDeletedPlantIds(set);
+      return set;
+    };
+    const unmarkDeletedPlantIds = (ids) => {
+      const set = loadDeletedPlantIds();
+      (ids || []).filter(Boolean).map(String).forEach(id => set.delete(id));
+      saveDeletedPlantIds(set);
+      return set;
+    };
+    const filterDeletedPlants = (arr, extraDeleted = []) => {
+      const del = loadDeletedPlantIds();
+      (extraDeleted || []).filter(Boolean).map(String).forEach(id => del.add(id));
+      return (arr || []).filter(p => p && !del.has(String(p.id)));
+    };
     const forceLocalPlantsEmpty = () => {
       try {
         const current = loadLS() || {};
+        const ids = (current.plants || []).map(p => p && p.id).filter(Boolean);
+        markDeletedPlantIds(ids);
         saveLS({ ...current, plants: [] });
         markLocalInventoryReset();
         localStorage.removeItem("ld_show_builder_ids");
@@ -3673,15 +3715,25 @@
           const next = applyUpdater(updater, prev) || [];
           if (cloudReadyRef.current && !suppressCloudSaveRef.current) {
             const removed = missingIds(prev, next);
+            if (table === "plants" && removed.length) {
+              /* Immediately remember deleted plant IDs so they cannot be reloaded/reseeded. */
+              const deletedSet = markDeletedPlantIds(removed);
+              cloudUpsertState("deletedPlantIds", { ids: [...deletedSet], updatedAt: new Date().toISOString() }).catch(console.warn);
+            }
             setCloudStatus("syncing");
             setCloudMsg("Saving to Supabase cloud...");
             Promise.resolve()
               .then(async () => {
                 if (removed.length) await cloudDeleteRows(table, removed);
-                await cloudUpsertRows(table, next);
+                await cloudUpsertRows(table, table === "plants" ? filterDeletedPlants(next) : next);
               })
               .then(() => { setCloudStatus("synced"); setCloudMsg("Supabase cloud synced"); })
-              .catch(err => { console.error(`Supabase save failed for ${table}`, err); setCloudStatus("offline"); setCloudMsg("Cloud save failed — local backup still saved"); });
+              .catch(err => {
+                console.error(`Supabase save failed for ${table}`, err);
+                /* Even if delete is blocked by Supabase RLS, local tombstones keep deleted plants hidden. */
+                setCloudStatus("offline");
+                setCloudMsg("Cloud save failed — deleted items are hidden locally, check Supabase delete policy");
+              });
           }
           return next;
         });
@@ -3757,7 +3809,7 @@
 
       /* Always keep a local backup on this device too */
       useEffect(() => {
-        saveLS({ plants, expenses, timecards, auditLog, bills, nurseries, users, settings });
+        saveLS({ plants: filterDeletedPlants(plants), expenses, timecards, auditLog, bills, nurseries, users, settings });
       }, [plants, expenses, timecards, auditLog, bills, nurseries, users, settings]);
 
       /* Load fonts */
@@ -3771,7 +3823,7 @@
       const loadFromCloud = useCallback(async ({ silent = false } = {}) => {
         if (!silent) { setCloudStatus("loading"); setCloudMsg("Loading Supabase cloud data..."); }
         try {
-          const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudTimecards, cloudUsers, cloudSettings, cloudAudit, cloudInventoryReset] = await Promise.all([
+          const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudTimecards, cloudUsers, cloudSettings, cloudAudit, cloudInventoryReset, cloudDeletedPlantIds] = await Promise.all([
             cloudFetchRows("plants"),
             cloudFetchRows("bills"),
             cloudFetchRows("nurseries"),
@@ -3781,12 +3833,16 @@
             cloudFetchState("settings"),
             cloudFetchState("auditLog"),
             cloudFetchState("inventoryResetAt"),
+            cloudFetchState("deletedPlantIds"),
           ]);
 
           suppressCloudSaveRef.current = true;
           /* If inventory was intentionally reset, an empty cloud table must stay empty. Do NOT repopulate from old localStorage. */
           const resetWasRequested = !!cloudInventoryReset || localInventoryWasReset();
-          if (cloudPlants.length || resetWasRequested) setPlantsRaw(cloudPlants);
+          const cloudDeletedIds = Array.isArray(cloudDeletedPlantIds?.ids) ? cloudDeletedPlantIds.ids : [];
+          if (cloudDeletedIds.length) markDeletedPlantIds(cloudDeletedIds);
+          const cloudPlantsVisible = resetWasRequested ? [] : filterDeletedPlants(cloudPlants, cloudDeletedIds);
+          if (cloudPlants.length || resetWasRequested || cloudDeletedIds.length) setPlantsRaw(cloudPlantsVisible);
           if (cloudBills.length) setBillsRaw(cloudBills); else if (!saved?.bills) setBillsRaw(DEFAULT_BILLS);
           if (cloudNurseries.length) setNurseriesRaw(migrateNurseries(cloudNurseries)); else if (!saved?.nurseries) setNurseriesRaw(DEFAULT_NURSERIES);
           if (cloudExpenses.length) setExpensesRaw(cloudExpenses);
@@ -3801,7 +3857,7 @@
           setCloudMsg("Supabase cloud synced");
 
           /* First-time migration: if Supabase is empty but this device has data, seed the cloud */
-          if (!cloudPlants.length && saved?.plants?.length && !cloudInventoryReset && !localInventoryWasReset()) await cloudUpsertRows("plants", saved.plants);
+          if (!cloudPlants.length && saved?.plants?.length && !cloudInventoryReset && !localInventoryWasReset()) await cloudUpsertRows("plants", filterDeletedPlants(saved.plants, cloudDeletedIds));
           if (!cloudBills.length && saved?.bills?.length) await cloudUpsertRows("bills", saved.bills);
           if (!cloudNurseries.length && saved?.nurseries?.length) await cloudUpsertRows("nurseries", saved.nurseries);
           if (!cloudExpenses.length && saved?.expenses?.length) await cloudUpsertRows("expenses", saved.expenses);
