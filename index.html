@@ -2084,10 +2084,12 @@
     /* ══════════════════════════════════════════════════════════
        ADMIN PANEL
     ══════════════════════════════════════════════════════════ */
-    function AdminPanel({ users, setUsers, settings, setSettings }) {
+    function AdminPanel({ users, setUsers, settings, setSettings, plants, setPlants, addAudit, user }) {
       const [tab, setTab] = useState("users");
       const [editId, setEditId] = useState(null);
       const [showAdd, setShowAdd] = useState(false);
+      const [confirmText, setConfirmText] = useState("");
+      const [actionMsg, setActionMsg] = useState("");
       const blank = { id: "", name: "", role: "employee", email: "", permissions: { ...DEFAULT_PERMS } };
       const [form, setForm] = useState({ ...blank });
       const certRef = useRef();
@@ -2099,6 +2101,117 @@
       const updS = f => v => setSettings(p => ({ ...p, [f]: v }));
       const save = () => { /* save settings */ };
       const loadCert = file => { if (!file) return; const r = new FileReader(); r.onload = e => setSettings(p => ({ ...p, resellerCertData: e.target.result, resellerCertName: file.name })); r.readAsDataURL(file); };
+
+      const isSaleRecord = p =>
+        p?.status === "Sold" ||
+        !!p?.saleImportKey ||
+        !!p?.saleLegacyKey ||
+        !!p?.orderNumber ||
+        !!p?.soldDate ||
+        !!p?.historicalImport ||
+        String(p?.nurseryCode || "").toUpperCase() === "HIST";
+
+      const isHistoricalSale = p =>
+        !!p?.historicalImport ||
+        String(p?.nurseryCode || "").toUpperCase() === "HIST" ||
+        String(p?.plantId || "").toUpperCase().startsWith("HIST-");
+
+      const customerKey = p =>
+        (p?.customerUsername || p?.customerName || p?.buyerName || p?.recipientName || p?.customerState || p?.orderNumber || "").trim().toLowerCase();
+
+      const customerCount = new Set((plants || []).filter(isSaleRecord).map(customerKey).filter(Boolean)).size;
+      const saleCount = (plants || []).filter(isSaleRecord).length;
+      const historicalCount = (plants || []).filter(isHistoricalSale).length;
+      const matchedSaleCount = Math.max(0, saleCount - historicalCount);
+
+      const clearSaleFields = p => ({
+        ...p,
+        status: p.status === "Sold" ? "In Stock" : p.status,
+        salePrice: "",
+        soldDate: "",
+        platform: "",
+        shippingCost: "",
+        customerUsername: "",
+        customerName: "",
+        customerState: "",
+        buyerName: "",
+        recipientName: "",
+        orderNumber: "",
+        orderNo: "",
+        saleImportKey: "",
+        saleLegacyKey: "",
+        sourceFileName: "",
+        importedAt: "",
+        paymentFee: 0,
+        palmstreetFee: 0,
+        taxAmount: 0,
+        sellerIncome: 0,
+        refundAmount: 0,
+        historicalImport: false,
+        matchStatus: "",
+        rawProductVariant: ""
+      });
+
+      const clearCustomerFields = p => ({
+        ...p,
+        customerUsername: "",
+        customerName: "",
+        customerState: "",
+        buyerName: "",
+        recipientName: ""
+      });
+
+      const requireDeleteConfirm = () => {
+        if (confirmText !== "DELETE") {
+          setActionMsg("Type DELETE exactly before using bulk delete tools.");
+          return false;
+        }
+        return true;
+      };
+
+      const runBulkDelete = (kind) => {
+        if (!requireDeleteConfirm()) return;
+        const labelMap = {
+          customers: "delete all customer names/info from sales",
+          sales: "delete all sales/history while keeping real inventory",
+          historical: "delete historical imported Palmstreet/Whatnot sales only",
+          all: "delete all customers and sales/history while keeping real inventory"
+        };
+        if (!confirm(`Are you sure you want to ${labelMap[kind]}? This will sync to Supabase. Make a backup first.`)) return;
+
+        let nextPlants = [...(plants || [])];
+        let message = "";
+
+        if (kind === "customers") {
+          nextPlants = nextPlants.map(clearCustomerFields);
+          message = `Deleted customer info from ${saleCount} sale records.`;
+        }
+
+        if (kind === "historical") {
+          nextPlants = nextPlants.filter(p => !isHistoricalSale(p));
+          message = `Deleted ${historicalCount} historical imported sale records.`;
+        }
+
+        if (kind === "sales") {
+          nextPlants = nextPlants
+            .filter(p => !isHistoricalSale(p))
+            .map(p => isSaleRecord(p) ? clearSaleFields(p) : p);
+          message = `Deleted ${saleCount} sales records. Kept inventory and reset ${matchedSaleCount} sold inventory plants back to In Stock.`;
+        }
+
+        if (kind === "all") {
+          nextPlants = nextPlants
+            .filter(p => !isHistoricalSale(p))
+            .map(p => isSaleRecord(p) ? clearCustomerFields(clearSaleFields(p)) : clearCustomerFields(p));
+          message = `Deleted ${saleCount} sales records and cleared customer info. Inventory was kept.`;
+        }
+
+        setPlants(nextPlants);
+        addAudit && addAudit({ action: `Admin bulk cleanup: ${message}`, user: user?.name || "Owner", page: "Admin Data Tools" });
+        setActionMsg("✅ " + message);
+        setConfirmText("");
+      };
+
       const UForm = ({ isNew }) => <Card style={{ marginBottom: 16, border: `1.5px solid ${C.g200}` }}>
         <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 14 }}>{isNew ? "Add New Employee" : "Edit User"}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginBottom: 14 }}>
@@ -2120,7 +2233,7 @@
         {form.role === "owner" && <div style={{ background: C.g50, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: C.tx2, marginBottom: 14 }}>Owners have full access to everything — no restrictions.</div>}
         <Row gap={8}><Btn onClick={isNew ? saveNew : saveEdit}>{isNew ? "Add Employee" : "Save Changes"}</Btn><Btn v="ghost" onClick={() => { isNew ? setShowAdd(false) : setEditId(null); setForm({ ...blank }); }}>Cancel</Btn></Row>
       </Card>;
-      const TABS = [{ id: "users", l: "👥 Users & Permissions" }, { id: "settings", l: "⚙️ Pricing Settings" }, { id: "cert", l: "📄 Reseller Certificate" }];
+      const TABS = [{ id: "users", l: "👥 Users & Permissions" }, { id: "settings", l: "⚙️ Pricing Settings" }, { id: "cert", l: "📄 Reseller Certificate" }, { id: "data", l: "🧹 Bulk Delete / Reset" }];
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="⚙️" title="Admin Panel" sub="Manage users, permissions, pricing rules, and business documents" />
         <div style={{ display: "flex", gap: 0, marginBottom: 22, borderBottom: `1px solid ${C.bd}`, flexWrap: "wrap" }}>
@@ -2186,6 +2299,51 @@
               <input ref={certRef} type="file" accept=".pdf,image/*" style={{ display: "none" }} onChange={e => loadCert(e.target.files[0])} />
             </div>}
           </Card>
+        </div>}
+        {tab === "data" && <div style={{ maxWidth: 920 }}>
+          <Card style={{ marginBottom: 14, border: `1.5px solid ${C.red}33` }}>
+            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 17, marginBottom: 8 }}>🧹 Bulk Delete / Reset Tools</div>
+            <p style={{ fontSize: 13, color: C.tx3, lineHeight: 1.6, margin: "0 0 14px" }}>
+              Use this when you imported test data, duplicate Palmstreet files, or want to start customers/sales over. This keeps your real inventory unless you choose otherwise.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 14 }}>
+              <KPI label="Total Sale Records" value={saleCount} color={C.gold} />
+              <KPI label="Historical Imports" value={historicalCount} color={C.purple} />
+              <KPI label="Matched Inventory Sales" value={matchedSaleCount} color={C.blue} />
+              <KPI label="Customers Found" value={customerCount} color={C.g600} />
+            </div>
+            <div style={{ background: C.redBg, border: `1px solid ${C.red}44`, borderRadius: 10, padding: "12px 14px", fontSize: 13, color: C.tx2, lineHeight: 1.65, marginBottom: 14 }}>
+              <b style={{ color: C.red }}>Important:</b> Click <b>Backup</b> in the top cloud bar before running these. Bulk delete syncs to Supabase and affects every device.
+            </div>
+            <Inp label="Type DELETE to unlock bulk delete buttons" value={confirmText} onChange={setConfirmText} placeholder="DELETE" />
+            {actionMsg && <div style={{ marginTop: 10, background: actionMsg.startsWith("✅") ? C.g50 : C.goldBg, border: `1px solid ${actionMsg.startsWith("✅") ? C.g200 : C.gold}55`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: C.tx2 }}>{actionMsg}</div>}
+          </Card>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 8 }}>Delete Customers Only</div>
+              <p style={{ fontSize: 12, color: C.tx3, lineHeight: 1.6, marginBottom: 12 }}>Clears customer names, usernames, and states from sale records. It does not delete sales totals or inventory.</p>
+              <Btn v="danger" full disabled={confirmText !== "DELETE"} onClick={() => runBulkDelete("customers")}>Delete All Customers</Btn>
+            </Card>
+
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 8 }}>Delete Sales, Keep Inventory</div>
+              <p style={{ fontSize: 12, color: C.tx3, lineHeight: 1.6, marginBottom: 12 }}>Removes historical imported sales and resets matched sold inventory back to In Stock with sale fields cleared.</p>
+              <Btn v="danger" full disabled={confirmText !== "DELETE"} onClick={() => runBulkDelete("sales")}>Delete All Sales</Btn>
+            </Card>
+
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 8 }}>Delete Historical Imports Only</div>
+              <p style={{ fontSize: 12, color: C.tx3, lineHeight: 1.6, marginBottom: 12 }}>Deletes old unmatched Palmstreet/Whatnot rows that were saved as HIST records. Real inventory is not touched.</p>
+              <Btn v="danger" full disabled={confirmText !== "DELETE"} onClick={() => runBulkDelete("historical")}>Delete Historical Imports</Btn>
+            </Card>
+
+            <Card style={{ border: `1.5px solid ${C.red}66` }}>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.red, fontSize: 15, marginBottom: 8 }}>Start Customers & Sales Over</div>
+              <p style={{ fontSize: 12, color: C.tx3, lineHeight: 1.6, marginBottom: 12 }}>Best option if you want to re-import Palmstreet clean. Keeps inventory, deletes sales history, clears customers, and resets sold inventory.</p>
+              <Btn v="danger" full disabled={confirmText !== "DELETE"} onClick={() => runBulkDelete("all")}>Reset Customers + Sales</Btn>
+            </Card>
+          </div>
         </div>}
       </div>;
     }
@@ -3335,7 +3493,7 @@
           {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} />}
           {page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
           {page === "audit" && CAN.seeAudit(user.role) && <AuditLog auditLog={auditLog} />}
-          {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} />}
+          {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
         </div>
       </div>;
     }
