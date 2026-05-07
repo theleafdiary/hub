@@ -4470,6 +4470,7 @@
     }
 
     const CASD_COUNTER_KEY = "leafdiary_casd_last_cert_number";
+    const CASD_ARCHIVE_BACKUP_KEY = "leafdiary_state_docs_legal_archive_v1";
 
     function casdMaxNum(certs) {
       const nums = (certs || [])
@@ -4612,12 +4613,26 @@
     }
 
 
+    function loadCasdCertsFromLocalBackup() {
+      /* State Docs get their own legal archive backup key so app sync cannot wipe them. */
+      try {
+        const dedicated = JSON.parse(localStorage.getItem(CASD_ARCHIVE_BACKUP_KEY) || "[]");
+        const current = loadLS() || {};
+        return mergeCasdCertLists(current.casdCerts || [], Array.isArray(dedicated) ? dedicated : []);
+      } catch (e) {
+        try { return (loadLS() || {}).casdCerts || []; } catch (_) { return []; }
+      }
+    }
+
     function saveCasdCertsToLocalBackup(certs) {
-      /* Immediate local backup for legal 3-year retention. This runs before/alongside cloud sync,
-         so a refresh cannot wipe a document that was just created. */
+      /* Immediate legal backup for 3-year retention. This writes to TWO local places:
+         1) the normal app backup object
+         2) a dedicated State Docs archive key that cloud reloads never overwrite */
       try {
         const current = loadLS() || {};
-        const merged = mergeCasdCertLists(certs || [], current.casdCerts || []);
+        const existing = loadCasdCertsFromLocalBackup();
+        const merged = mergeCasdCertLists(certs || [], existing || []);
+        localStorage.setItem(CASD_ARCHIVE_BACKUP_KEY, JSON.stringify(merged));
         saveLS({ ...current, casdCerts: merged });
       } catch (e) {
         console.warn("CASD local backup save failed", e);
@@ -4629,7 +4644,9 @@
          1) casd_certs row table for normal archive listing
          2) app_state.casdCerts backup so refresh still restores records even if the table/bucket is missing
          Also saves localStorage immediately. */
-      const merged = mergeCasdCertLists(certs || [], []);
+      const existingLocal = loadCasdCertsFromLocalBackup();
+      const liveSnapshot = window.__casdCertsSnapshot || [];
+      const merged = mergeCasdCertLists(certs || [], [...existingLocal, ...liveSnapshot]);
       saveCasdCertsToLocalBackup(merged);
       const errors = [];
       try { await cloudUpsertRows("casd_certs", merged); } catch (e) { errors.push("casd_certs: " + (e?.message || String(e))); console.error("CASD table save failed", e); }
@@ -4816,7 +4833,7 @@
       const [nurseries, setNurseriesRaw] = useState(migrateNurseries(saved?.nurseries || DEFAULT_NURSERIES));
       const [users, setUsersRaw] = useState(saved?.users || DEFAULT_USERS);
       const [settings, setSettingsRaw] = useState(saved?.settings || DEFAULT_SETTINGS);
-      const [casdCerts, setCasdCertsRaw] = useState(saved?.casdCerts || []);
+      const [casdCerts, setCasdCertsRaw] = useState(mergeCasdCertLists(saved?.casdCerts || [], loadCasdCertsFromLocalBackup()));
       const [saveMsg, setSaveMsg] = useState("");
       const [cloudStatus, setCloudStatus] = useState("loading");
       const [cloudMsg, setCloudMsg] = useState("Connecting to Supabase cloud...");
@@ -4864,9 +4881,23 @@
       const setTimecards = cloudCollectionSetter("timecards", setTimecardsRaw);
       const setBills = cloudCollectionSetter("bills", setBillsRaw);
       const setNurseries = cloudCollectionSetter("nurseries", setNurseriesRaw);
-      const setCasdCerts = cloudCollectionSetter("casd_certs", setCasdCertsRaw);
+      const setCasdCerts = useCallback((updater) => {
+        setCasdCertsRaw(prev => {
+          const proposed = applyUpdater(updater, prev) || [];
+          const next = mergeCasdCertLists(proposed, [...(prev || []), ...loadCasdCertsFromLocalBackup(), ...(window.__casdCertsSnapshot || [])]);
+          saveCasdCertsToLocalBackup(next);
+          if (cloudReadyRef.current && !suppressCloudSaveRef.current) {
+            setCloudStatus("syncing");
+            setCloudMsg("Saving State Docs legal archive to Supabase...");
+            persistCasdCertArchive(next)
+              .then(() => { setCloudStatus("synced"); setCloudMsg("State Docs archive saved to cloud"); })
+              .catch(err => { console.error("State Docs archive cloud save failed", err); setCloudStatus("offline"); setCloudMsg("State Docs cloud save failed — local legal backup kept"); });
+          }
+          return next;
+        });
+      }, []);
       /* Expose casdCerts to window so ShowImport auto-gen can read current count */
-      React.useEffect(() => { window.__casdCertsSnapshot = casdCerts; }, [casdCerts]);
+      React.useEffect(() => { window.__casdCertsSnapshot = casdCerts; saveCasdCertsToLocalBackup(casdCerts); }, [casdCerts]);
       const setAuditLog = cloudStateSetter("auditLog", setAuditLogRaw);
       const setUsers = cloudStateSetter("users", setUsersRaw);
       const setSettings = cloudStateSetter("settings", setSettingsRaw);
@@ -4957,7 +4988,12 @@
           if (cloudUsers) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
           if (cloudSettings) setSettingsRaw(cloudSettings); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
           if (cloudAudit) setAuditLogRaw(cloudAudit);
-          const restoredCasdCerts = mergeCasdCertLists(saved?.casdCerts || [], [ ...(Array.isArray(cloudCasdState) ? cloudCasdState : []), ...(cloudCasdCerts || []) ]);
+          const liveCasdCerts = window.__casdCertsSnapshot || [];
+          const localCasdCerts = loadCasdCertsFromLocalBackup();
+          const restoredCasdCerts = mergeCasdCertLists(
+            [...localCasdCerts, ...liveCasdCerts],
+            [ ...(Array.isArray(cloudCasdState) ? cloudCasdState : []), ...(cloudCasdCerts || []) ]
+          );
           if (restoredCasdCerts.length) {
             setCasdCertsRaw(restoredCasdCerts);
             saveCasdCertsToLocalBackup(restoredCasdCerts);
