@@ -3289,129 +3289,264 @@
     /* ══════════════════════════════════════════════════════════
        CUSTOMERS — from Palmstreet sales data
     ══════════════════════════════════════════════════════════ */
-    function Customers({ plants }) {
+    function Customers({ plants, setPlants, addAudit, user }) {
       const [tab, setTab] = useState("customers");
+      const [detail, setDetail] = useState(null);
+      const [draft, setDraft] = useState({ status: "green", notes: "" });
 
-      // Build customer list from sold plants
-      const soldPlants = plants.filter(p => p.status === "Sold" && p.customerUsername);
+      const customerStatusInfo = (status) => {
+        const s = status || "green";
+        if (s === "red") return { label: "Blocked", color: C.red, bg: C.redBg, icon: "⛔" };
+        if (s === "yellow") return { label: "Issue", color: C.amber, bg: C.amberBg, icon: "⚠️" };
+        return { label: "Good", color: C.g600, bg: C.g50, icon: "✅" };
+      };
+
+      const saleLike = p =>
+        p?.status === "Sold" ||
+        !!p?.historicalImport ||
+        !!p?.saleImportKey ||
+        !!p?.saleLegacyKey ||
+        !!p?.orderNumber ||
+        !!p?.orderNo ||
+        String(p?.nurseryCode || "").toUpperCase() === "HIST";
+
+      const getCustomerKey = p => String(
+        p?.customerUsername ||
+        p?.customerName ||
+        p?.buyerName ||
+        p?.recipientName ||
+        p?.customerEmail ||
+        p?.orderNumber ||
+        p?.orderNo ||
+        ""
+      ).trim().toLowerCase();
+
+      const getCustomerDisplay = p => String(
+        p?.customerUsername ||
+        p?.customerName ||
+        p?.buyerName ||
+        p?.recipientName ||
+        "Unknown Customer"
+      ).trim();
+
+      const saleRecords = (plants || []).filter(p => saleLike(p) && getCustomerKey(p));
       const custMap = {};
-      soldPlants.forEach(p => {
-        const u = p.customerUsername;
-        if (!custMap[u]) custMap[u] = { username: u, name: p.customerName || "", state: p.customerState || "", orders: [], total: 0, plants: 0 };
-        custMap[u].orders.push(p);
-        custMap[u].total += (+p.salePrice || 0);
-        custMap[u].plants++;
-      });
-      const customers = Object.values(custMap).sort((a, b) => b.total - a.total);
 
-      // State breakdown from all sold plants with state info
+      saleRecords.forEach(p => {
+        const key = getCustomerKey(p);
+        if (!custMap[key]) {
+          custMap[key] = {
+            key,
+            username: p.customerUsername || p.customer || "",
+            displayName: getCustomerDisplay(p),
+            name: p.customerName || p.buyerName || p.recipientName || "",
+            recipientName: p.recipientName || "",
+            email: p.customerEmail || p.email || "",
+            phone: p.customerPhone || p.phone || "",
+            address1: p.customerAddress1 || p.address1 || "",
+            address2: p.customerAddress2 || p.address2 || "",
+            city: p.customerCity || p.city || "",
+            state: p.customerState || p.buyerState || p.state || "",
+            zip: p.customerZip || p.zip || "",
+            orders: [],
+            total: 0,
+            plants: 0,
+            uniqueOrders: new Set(),
+            status: p.customerStatus || "green",
+            notes: p.customerNotes || "",
+            firstOrder: p.soldDate || p.saleDate || p.orderDate || p.dateAdded || "",
+            lastOrder: p.soldDate || p.saleDate || p.orderDate || p.dateAdded || ""
+          };
+        }
+        const c = custMap[key];
+        c.orders.push(p);
+        c.total += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || +p.suggestedPrice || 0);
+        c.plants++;
+        if (p.orderNumber || p.orderNo) c.uniqueOrders.add(p.orderNumber || p.orderNo);
+        if (!c.notes && p.customerNotes) c.notes = p.customerNotes;
+        if (p.customerStatus && p.customerStatus !== "green") c.status = p.customerStatus;
+        const d = p.soldDate || p.saleDate || p.orderDate || p.dateAdded || "";
+        if (d && (!c.firstOrder || new Date(d) < new Date(c.firstOrder))) c.firstOrder = d;
+        if (d && (!c.lastOrder || new Date(d) > new Date(c.lastOrder))) c.lastOrder = d;
+      });
+
+      const customers = Object.values(custMap).map(c => ({ ...c, orderCount: c.uniqueOrders.size || c.orders.length })).sort((a, b) => {
+        const priority = { red: 0, yellow: 1, green: 2 };
+        const pa = priority[a.status || "green"] ?? 2;
+        const pb = priority[b.status || "green"] ?? 2;
+        if (pa !== pb) return pa - pb;
+        return b.total - a.total;
+      });
+
+      const counts = {
+        green: customers.filter(c => (c.status || "green") === "green").length,
+        yellow: customers.filter(c => c.status === "yellow").length,
+        red: customers.filter(c => c.status === "red").length,
+      };
+
       const stateMap = {};
-      plants.filter(p => p.status === "Sold" && p.customerState).forEach(p => {
-        const s = p.customerState;
+      saleRecords.filter(p => p.customerState || p.buyerState || p.state).forEach(p => {
+        const s = p.customerState || p.buyerState || p.state;
         if (!stateMap[s]) stateMap[s] = { state: s, revenue: 0, orders: 0, customers: new Set() };
-        stateMap[s].revenue += (+p.salePrice || 0);
+        stateMap[s].revenue += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || 0);
         stateMap[s].orders++;
-        stateMap[s].customers.add(p.customerUsername || "?");
+        stateMap[s].customers.add(getCustomerKey(p) || "?");
       });
       const states = Object.values(stateMap).map(s => ({ ...s, customers: s.customers.size })).sort((a, b) => b.revenue - a.revenue);
+      const maxRev = Math.max(...states.map(s => s.revenue), 1);
 
-      // Also add pre-loaded April data from the uploaded file
-      const preloadedStates = [
-        { state: "TX", revenue: 3347.86, orders: 121, customers: 13 },
-        { state: "CA", revenue: 3235.06, orders: 102, customers: 18 },
-        { state: "NJ", revenue: 2276.06, orders: 68, customers: 1 },
-        { state: "MA", revenue: 1934.12, orders: 52, customers: 1 },
-        { state: "IL", revenue: 1228.11, orders: 29, customers: 4 },
-        { state: "LA", revenue: 1192.48, orders: 32, customers: 3 },
-        { state: "GA", revenue: 1139.41, orders: 36, customers: 3 },
-        { state: "SC", revenue: 989.00, orders: 35, customers: 4 },
-        { state: "MI", revenue: 781.00, orders: 26, customers: 2 },
-        { state: "WA", revenue: 740.71, orders: 20, customers: 4 },
-        { state: "WI", revenue: 623.88, orders: 31, customers: 2 },
-        { state: "MD", revenue: 607.13, orders: 19, customers: 4 },
-        { state: "NC", revenue: 603.04, orders: 22, customers: 4 },
-        { state: "HI", revenue: 559.81, orders: 13, customers: 2 },
-        { state: "FL", revenue: 544.92, orders: 24, customers: 6 },
-        { state: "NY", revenue: 519.62, orders: 15, customers: 3 },
-        { state: "NV", revenue: 513.11, orders: 24, customers: 3 },
-        { state: "OH", revenue: 512.34, orders: 23, customers: 2 },
-        { state: "IA", revenue: 489.52, orders: 13, customers: 1 },
-        { state: "MN", revenue: 468.00, orders: 17, customers: 5 },
+      const openCustomer = c => {
+        setDetail(c);
+        setDraft({ status: c.status || "green", notes: c.notes || "" });
+      };
+
+      const saveCustomerFlags = () => {
+        if (!detail) return;
+        const key = detail.key;
+        setPlants(prev => (prev || []).map(p => getCustomerKey(p) === key ? { ...p, customerStatus: draft.status, customerNotes: draft.notes } : p));
+        addAudit && addAudit({ action: `Updated customer status: ${detail.displayName} → ${customerStatusInfo(draft.status).label}`, user: user?.name || "Owner", page: "Customers" });
+        setDetail({ ...detail, status: draft.status, notes: draft.notes });
+        alert("Customer status and notes saved.");
+      };
+
+      const exportCustomers = () => {
+        const rows = customers.map(c => ({
+          status: customerStatusInfo(c.status).label,
+          username: c.username || c.displayName,
+          name: c.name,
+          email: c.email,
+          phone: c.phone,
+          address1: c.address1,
+          address2: c.address2,
+          city: c.city,
+          state: c.state,
+          zip: c.zip,
+          orders: c.orderCount,
+          items: c.plants,
+          total: c.total.toFixed(2),
+          notes: c.notes || ""
+        }));
+        const headers = Object.keys(rows[0] || { status: "", username: "", name: "", total: "" });
+        const csv = [headers.join(","), ...rows.map(r => headers.map(h => `"${String(r[h] ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
+        const blob = new Blob([csv], { type: "text/csv" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `leaf-diary-customers-${today()}.csv`;
+        a.click();
+      };
+
+      const TABS = [
+        { id: "customers", l: "👥 Customers" },
+        { id: "blocked", l: "⛔ Blocked / Issues" },
+        { id: "states", l: "🗺️ By State" }
       ];
 
-      const displayStates = states;
-      const maxRev = Math.max(...displayStates.map(s => s.revenue), 1);
-
-      const preloadedCustomers = [
-        { username: "TygerPZ", name: "", state: "NJ", total: 2276.06, plants: 68 },
-        { username: "WillRunForPlants69", name: "", state: "MA", total: 1934.12, plants: 52 },
-        { username: "DobbyTheGreenhouseElf", name: "", state: "", total: 1088.26, plants: 28 },
-        { username: "Goldens", name: "", state: "", total: 870.60, plants: 24 },
-        { username: "ToledoBend318", name: "", state: "", total: 844.32, plants: 22 },
-        { username: "Dr.Zany_pod", name: "", state: "", total: 680.19, plants: 18 },
-        { username: "mi44e4694", name: "", state: "", total: 677.28, plants: 19 },
-        { username: "sunny_pebble_frond4", name: "", state: "", total: 662.08, plants: 17 },
-        { username: "Adiamond4eva", name: "", state: "IL", total: 626.68, plants: 16 },
-        { username: "Mrs.Jones", name: "", state: "", total: 606.37, plants: 15 },
-      ];
-      const displayCustomers = customers;
-
-      const TABS = [{ id: "customers", l: "👥 Top Customers" }, { id: "states", l: "🗺️ By State" }];
+      const shownCustomers = tab === "blocked" ? customers.filter(c => ["red", "yellow"].includes(c.status)) : customers;
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="👥" title="Customer Analytics" sub="Your best customers · Where you sell the most · April 2026 data loaded" />
+        <SHdr icon="👥" title="Customer Hub" sub="Palmstreet buyers · notes · blocked customers · full purchase history"
+          right={<Btn v="outline" sz="sm" onClick={exportCustomers}>Export Customers</Btn>} />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-          <KPI label="Total Customers" value={displayCustomers.length} color={C.g600} />
-          <KPI label="April Revenue" value="$24,299" color={C.gold} />
-          <KPI label="Top State" value="TX" sub="$3,347 revenue" color={C.blue} />
-          <KPI label="Top Customer" value="TygerPZ" sub="$2,276 spent" color={C.purple} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
+          <KPI label="Total Customers" value={customers.length} color={C.g600} />
+          <KPI label="Good" value={counts.green} color={C.g600} />
+          <KPI label="Issues" value={counts.yellow} color={C.amber} />
+          <KPI label="Blocked" value={counts.red} color={C.red} />
         </div>
 
-        <div style={{ display: "flex", gap: 0, marginBottom: 16, borderBottom: `1px solid ${C.bd}` }}>
-          {TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, background: "transparent", border: "none", borderBottom: tab === t.id ? `2.5px solid ${C.g700}` : "2.5px solid transparent", color: tab === t.id ? C.g800 : C.tx3, cursor: "pointer", fontFamily: F.body }}>{t.l}</button>)}
+        <div style={{ display: "flex", gap: 0, marginBottom: 16, borderBottom: `1px solid ${C.bd}`, overflowX: "auto" }}>
+          {TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, background: "transparent", border: "none", borderBottom: tab === t.id ? `2.5px solid ${C.g700}` : "2.5px solid transparent", color: tab === t.id ? C.g800 : C.tx3, cursor: "pointer", fontFamily: F.body, whiteSpace: "nowrap" }}>{t.l}</button>)}
         </div>
 
-        {tab === "customers" && <div>
-          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>Your Best Customers (April 2026)</div>
+        {(tab === "customers" || tab === "blocked") && <div>
+          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>
+            {tab === "blocked" ? "Customers To Watch / Blocked" : "Customer List"}
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {displayCustomers.map((c, i) => <Card key={c.username} style={{ padding: "12px 16px" }}>
-              <Row between center>
-                <Row gap={12} center>
-                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: i === 0 ? C.gold + "22" : i === 1 ? "#aaa22" : i === 2 ? C.amber + "22" : C.g100, border: `2px solid ${i === 0 ? C.gold : i === 1 ? "#aaa" : i === 2 ? C.amber : C.bd}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, color: i === 0 ? C.gold : i === 1 ? "#777" : i === 2 ? C.amber : C.tx3 }}>
-                    {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: C.g900 }}>@{c.username}</div>
-                    <div style={{ fontSize: 11, color: C.tx3 }}>{c.plants} items{c.state ? ` · ${c.state}` : ""}{c.name ? ` · ${c.name}` : ""}</div>
+            {shownCustomers.length === 0 && <Card><p style={{ color: C.tx3, margin: 0 }}>No customers in this section yet.</p></Card>}
+            {shownCustomers.map((c, i) => {
+              const st = customerStatusInfo(c.status);
+              return <Card key={c.key} onClick={() => openCustomer(c)} style={{ padding: "12px 16px", borderLeft: `6px solid ${st.color}`, background: c.status === "red" ? C.redBg : c.status === "yellow" ? C.amberBg : C.card }}>
+                <Row between center wrap gap={10}>
+                  <Row gap={12} center>
+                    <div style={{ width: 38, height: 38, borderRadius: "50%", background: st.bg, border: `2px solid ${st.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: st.color }}>
+                      {st.icon}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: C.g900 }}>@{c.username || c.displayName}</div>
+                      <div style={{ fontSize: 11, color: C.tx3 }}>{c.plants} items · {c.orderCount} orders{c.state ? ` · ${c.state}` : ""}{c.name ? ` · ${c.name}` : ""}</div>
+                      {c.notes && <div style={{ fontSize: 11, color: st.color, fontWeight: 700, marginTop: 3 }}>Note: {c.notes.slice(0, 90)}{c.notes.length > 90 ? "..." : ""}</div>}
+                    </div>
+                  </Row>
+                  <div style={{ textAlign: "right" }}>
+                    <Tag text={st.label} color={st.color} />
+                    <div style={{ fontWeight: 800, color: C.gold, fontSize: 16, fontFamily: F.display, marginTop: 5 }}>{$(c.total)}</div>
                   </div>
                 </Row>
-                <span style={{ fontWeight: 700, color: C.gold, fontSize: 16, fontFamily: F.display }}>{$(c.total)}</span>
-              </Row>
-            </Card>)}
+              </Card>;
+            })}
           </div>
         </div>}
 
         {tab === "states" && <div>
-          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>Revenue by State (April 2026)</div>
+          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>Revenue by State</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {displayStates.map((s, i) => <Card key={s.state} style={{ padding: "12px 16px" }}>
+            {states.length === 0 && <Card><p style={{ color: C.tx3, margin: 0 }}>No state data imported yet.</p></Card>}
+            {states.map((s, i) => <Card key={s.state} style={{ padding: "12px 16px" }}>
               <Row between style={{ marginBottom: 6 }}>
-                <div>
-                  <Row gap={8} center>
-                    <span style={{ fontWeight: 700, fontSize: 16, color: C.g900 }}>{s.state}</span>
-                    <Tag text={`${s.customers} customers`} color={C.blue} sm />
-                    <Tag text={`${s.orders} orders`} color={C.g600} sm />
-                  </Row>
-                </div>
+                <Row gap={8} center><span style={{ fontWeight: 700, fontSize: 16, color: C.g900 }}>{s.state}</span><Tag text={`${s.customers} customers`} color={C.blue} sm /><Tag text={`${s.orders} orders`} color={C.g600} sm /></Row>
                 <span style={{ fontWeight: 700, color: C.gold, fontSize: 16, fontFamily: F.display }}>{$(s.revenue)}</span>
               </Row>
-              <div style={{ height: 10, background: C.g100, borderRadius: 5, overflow: "hidden" }}>
-                <div style={{ width: `${(s.revenue / maxRev) * 100}%`, height: "100%", background: i === 0 ? C.gold : i === 1 ? C.g600 : C.g400, borderRadius: 5 }} />
-              </div>
+              <div style={{ height: 10, background: C.g100, borderRadius: 5, overflow: "hidden" }}><div style={{ width: `${(s.revenue / maxRev) * 100}%`, height: "100%", background: i === 0 ? C.gold : i === 1 ? C.g600 : C.g400, borderRadius: 5 }} /></div>
             </Card>)}
           </div>
         </div>}
+
+        {detail && <Modal title={`Customer: @${detail.username || detail.displayName}`} onClose={() => setDetail(null)} wide>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+            <Card style={{ background: customerStatusInfo(draft.status).bg, border: `1px solid ${customerStatusInfo(draft.status).color}55` }}>
+              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 8 }}>Customer Status</div>
+              <Sel label="Color / Status" value={draft.status} onChange={v => setDraft(d => ({ ...d, status: v }))} options={[{ v: "green", l: "🟢 Good Customer" }, { v: "yellow", l: "🟡 Issue / Watch" }, { v: "red", l: "🔴 Blocked / Do Not Sell" }]} />
+              <div style={{ marginTop: 10 }}>
+                <label style={{ fontSize: 13, fontWeight: 700, color: C.tx2 }}>Customer Notes</label>
+                <textarea value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))} placeholder="Example: refund issue, chargeback risk, rude messages, good repeat buyer, shipping warning..." style={{ width: "100%", minHeight: 120, marginTop: 5, padding: 12, borderRadius: 10, border: `1.5px solid ${C.bd}`, fontFamily: F.body }} />
+              </div>
+              <Btn full v={draft.status === "red" ? "danger" : draft.status === "yellow" ? "gold" : "fill"} onClick={saveCustomerFlags} style={{ marginTop: 10 }}>Save Customer Status</Btn>
+            </Card>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 8 }}>Customer Details</div>
+              {[
+                ["Palmstreet Username", detail.username || detail.displayName],
+                ["Name", detail.name || detail.recipientName || "—"],
+                ["Email", detail.email || "—"],
+                ["Phone", detail.phone || "—"],
+                ["Address", [detail.address1, detail.address2].filter(Boolean).join(" ") || "—"],
+                ["City / State / Zip", [detail.city, detail.state, detail.zip].filter(Boolean).join(", ") || "—"],
+                ["Total Spent", $(detail.total)],
+                ["Orders / Items", `${detail.orderCount} orders · ${detail.plants} items`],
+                ["First / Last Order", `${detail.firstOrder || "—"} → ${detail.lastOrder || "—"}`]
+              ].map(([l, v]) => <Row key={l} between style={{ padding: "5px 0", borderBottom: `1px solid ${C.bdS}` }}><span style={{ color: C.tx3, fontSize: 12 }}>{l}</span><span style={{ fontWeight: 700, fontSize: 12, color: C.tx1, textAlign: "right" }}>{v}</span></Row>)}
+            </Card>
+          </div>
+
+          <Card>
+            <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 10 }}>Every Plant / Item Purchased</div>
+            <Tbl cols={[
+              { k: "date", l: "Date" }, { k: "item", l: "Plant / Item" }, { k: "order", l: "Order" }, { k: "amount", l: "Amount", right: true }, { k: "state", l: "State" }
+            ]} rows={(detail.orders || []).slice().sort((a, b) => new Date(b.soldDate || b.saleDate || b.orderDate || 0) - new Date(a.soldDate || a.saleDate || a.orderDate || 0)).map(o => ({
+              date: o.soldDate || o.saleDate || o.orderDate || o.dateAdded || "—",
+              item: o.name || o.title || o.rawProductVariant || o.productVariant || "Plant",
+              order: o.orderNumber || o.orderNo || "—",
+              amount: $(+o.salePrice || +o.productAmount || +o.orderAmount || +o.sellerIncome || +o.suggestedPrice || 0),
+              state: o.customerState || o.buyerState || o.state || "—"
+            }))} empty="No purchases found." />
+          </Card>
+        </Modal>}
+
+        <style>{`@media(max-width:760px){
+          div[style*="grid-template-columns: repeat(4,1fr)"],
+          div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}
+        }`}</style>
       </div>;
     }
 
@@ -3921,7 +4056,7 @@
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={setPage} />}
           {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
-          {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} />}
+          {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
           {page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
