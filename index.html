@@ -39,6 +39,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 
 <body>
@@ -123,7 +124,16 @@
     const sprice = (cost, m = 0.62) => cost > 0 ? Math.ceil(cost / (1 - m) / 5) * 5 : 0;
     const marg = (cost, price) => price > 0 ? Math.round(((price - cost) / price) * 100) : 0;
     const pid = (code, n) => `${code}-${String(n).padStart(3, "0")}`;
-    const getNextId = (plants, code) => Math.max(999, ...plants.map(p => { const m = (p.plantId || "").match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }));
+    const getNextId = (plants, code) => {
+      const nums = (plants || [])
+        .filter(p => String(p.nurseryCode || "").toUpperCase() === String(code || "").toUpperCase())
+        .map(p => {
+          const m = String(p.plantId || p.plantCode || "").match(/-(\d+)$/);
+          return m ? parseInt(m[1], 10) : 0;
+        })
+        .filter(n => Number.isFinite(n));
+      return nums.length ? Math.max(...nums) : 0;
+    };
     const dHeld = d => d ? Math.floor((Date.now() - new Date(d)) / (864e5)) : null;
     const fDays = d => d === null ? "—" : d === 0 ? "Today" : d === 1 ? "1 day" : `${d}d`;
     const platFee = (platform, price) => {
@@ -333,11 +343,11 @@
         setLoading(true); setErr(""); setMsg("");
         
         if (isSignup) {
-          const { error } = await window.supabase.auth.signUp({ email, password });
+          const { error } = await supabase.auth.signUp({ email, password });
           if (error) setErr(error.message);
-          else { setMsg("Account created! Logging you in..."); setIsSignup(false); await window.supabase.auth.signInWithPassword({ email, password }); }
+          else { setMsg("Account created! Logging you in..."); setIsSignup(false); await supabase.auth.signInWithPassword({ email, password }); }
         } else {
-          const { error } = await window.supabase.auth.signInWithPassword({ email, password });
+          const { error } = await supabase.auth.signInWithPassword({ email, password });
           if (error) setErr(error.message);
         }
         setLoading(false);
@@ -346,7 +356,7 @@
       const handleForgot = async () => {
         if (!email) { setErr("Enter your email address first."); return; }
         setLoading(true); setErr(""); setMsg("");
-        const { error } = await window.supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
         if (error) setErr(error.message); else setMsg("Password reset email sent! Check your inbox.");
         setLoading(false);
       };
@@ -2257,55 +2267,183 @@
       const [raw, setRaw] = useState("");
       const [parsed, setParsed] = useState([]);
       const [matched, setMatched] = useState([]);
+      const [skipped, setSkipped] = useState([]);
       const [step, setStep] = useState("paste");
       const [platform, setPlatform] = useState("Palmstreet");
+      const [importMode, setImportMode] = useState("historical");
+      const [fileName, setFileName] = useState("");
+      const [importMsg, setImportMsg] = useState("");
       const fileRef = useRef();
 
-      const parseCSV = text => {
-        const lines = text.trim().split("\n");
-        const headers = lines[0].split(",").map(h => h.replace(/"/g, "").trim());
-        return lines.slice(1).map(line => {
-          const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g) || [];
-          const row = {};
-          headers.forEach((h, i) => row[h] = (vals[i] || "").replace(/"/g, "").trim());
-          return row;
-        }).filter(r => r["Item Title"] && r["Item Price"] && !r["Item Title"].match(/processing|fee|2DAY|Heat Pack|Insulation/i));
+      const money = v => {
+        if (v === null || v === undefined || v === "") return 0;
+        if (typeof v === "number") return v;
+        const cleaned = String(v).replace(/[$,]/g, "").trim();
+        const n = parseFloat(cleaned);
+        return Number.isFinite(n) ? n : 0;
       };
+      const cleanText = v => String(v ?? "").replace(/\s+/g, " ").trim();
+      const normKey = k => String(k || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const rowVal = (row, names) => {
+        const map = {};
+        Object.keys(row || {}).forEach(k => map[normKey(k)] = row[k]);
+        for (const n of names) {
+          const v = map[normKey(n)];
+          if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+        }
+        return "";
+      };
+      const parseDateValue = v => {
+        if (!v) return "";
+        if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
+        const s = String(v).trim();
+        if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(s)) return s.replace(/\//g, "-").slice(0, 10);
+        const d = new Date(s);
+        return isNaN(d) ? s : d.toISOString().slice(0, 10);
+      };
+      const isNonPlantVariant = text => {
+        const t = String(text || "").toLowerCase();
+        return !t ||
+          t.includes("processing fee") ||
+          t.includes("payment fee") ||
+          t.includes("stripe") ||
+          t.includes("bnpl") ||
+          t.includes("1day") ||
+          t.includes("2day") ||
+          t.includes("heat pack") ||
+          t.includes("insulation") ||
+          t.includes("shipping") ||
+          t.includes("ship") ||
+          t.includes("label") ||
+          t.includes("bundle protection");
+      };
+      const extractPlantCode = text => {
+        if (!text) return null;
+        const cleaned = String(text).toUpperCase().replace(/[_#]/g, " ");
+        const match = cleaned.match(/\b([A-Z]{1,4})\s*-?\s*(\d{1,4})\b/);
+        if (!match) return null;
+        return `${match[1]}-${String(parseInt(match[2], 10)).padStart(3, "0")}`;
+      };
+      const safeLower = v => String(v || "").toLowerCase();
+      const findInventoryMatch = sale => {
+        const code = sale.extractedPlantCode;
+        if (code) {
+          const byCode = plants.find(p =>
+            safeLower(p.plantId) === safeLower(code) ||
+            safeLower(p.plantCode) === safeLower(code) ||
+            safeLower(p.barcodeValue) === safeLower(code)
+          );
+          if (byCode) return byCode;
+        }
+        const title = safeLower(sale.productVariant);
+        if (!title || importMode === "historical") return null;
+        return plants.find(p => p.status === "In Stock" && (
+          title.includes(safeLower(p.plantId)) ||
+          title.includes(safeLower(p.plantCode)) ||
+          title.includes(safeLower(p.barcodeValue)) ||
+          (p.name && (safeLower(p.name).includes(title.slice(0, 8)) || title.includes(safeLower(p.name).slice(0, 8))))
+        )) || null;
+      };
+      const parseCSVRows = text => {
+        const rows = [];
+        let row = [], val = "", quoted = false;
+        const pushVal = () => { row.push(val); val = ""; };
+        const pushRow = () => { rows.push(row); row = []; };
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i], next = text[i + 1];
+          if (ch === '"' && quoted && next === '"') { val += '"'; i++; }
+          else if (ch === '"') quoted = !quoted;
+          else if (ch === ',' && !quoted) pushVal();
+          else if ((ch === '\n' || ch === '\r') && !quoted) {
+            if (ch === '\r' && next === '\n') i++;
+            pushVal(); pushRow();
+          } else val += ch;
+        }
+        if (val || row.length) { pushVal(); pushRow(); }
+        const nonEmpty = rows.filter(r => r.some(c => String(c || "").trim() !== ""));
+        const headerIndex = nonEmpty.findIndex(r => r.some(c => /order|item|product|variant/i.test(String(c || ""))));
+        const headers = (nonEmpty[headerIndex >= 0 ? headerIndex : 0] || []).map(h => cleanText(h));
+        return nonEmpty.slice((headerIndex >= 0 ? headerIndex : 0) + 1).map(r => {
+          const obj = {};
+          headers.forEach((h, i) => { if (h) obj[h] = cleanText(r[i]); });
+          return obj;
+        });
+      };
+      const normalizeSalesRows = rows => {
+        const good = [], bad = [];
+        (rows || []).forEach((r, idx) => {
+          const productVariant = cleanText(rowVal(r, ["Product Variants", "Product Variant", "Item Title", "Item", "Title", "Product", "Listing Title", "Name"]));
+          if (isNonPlantVariant(productVariant)) { bad.push({ row: idx + 1, productVariant, reason: "non-plant row" }); return; }
+          const orderNo = cleanText(rowVal(r, ["Order No", "Order number", "Order Number", "Order ID", "Order"]));
+          const saleDate = parseDateValue(rowVal(r, ["Order Created Time(EST)", "Order Date(PDT)", "Order Date", "Date", "Created Time"]));
+          const productAmount = money(rowVal(r, ["Product Amount", "Product ", "Item Price", "Price", "Subtotal"]));
+          const orderAmount = money(rowVal(r, ["Order Amount", "Order Total", "Total"]));
+          const sellerIncome = money(rowVal(r, ["Seller Income", "Payout", "Net"]));
+          const price = productAmount || orderAmount || sellerIncome;
+          if (!productVariant || !price) { bad.push({ row: idx + 1, productVariant, reason: "missing product or price" }); return; }
+          const extractedPlantCode = extractPlantCode(productVariant);
+          const sale = {
+            _id: uid(),
+            orderNo,
+            orderStatus: cleanText(rowVal(r, ["Order Status", "Status"])),
+            saleDate,
+            buyerState: cleanText(rowVal(r, ["Buyer State", "State"])),
+            orderAmount,
+            productAmount,
+            shippingFee: money(rowVal(r, ["Shipping Fee Amount", "Shipping Fee", "Shipping"])),
+            paymentFee: money(rowVal(r, ["Payment Fee", "Stripe and BNPL Fee", "Stripe Fee"])),
+            palmstreetFee: money(rowVal(r, ["Palmstreet Selling Fee", "PlantStory Selling Fee", "Selling Fee"])),
+            sellingFeeDeductions: money(rowVal(r, ["Selling Fee Deductions"])),
+            taxAmount: money(rowVal(r, ["Tax Amount", "Sales Tax Collected", "Tax"])),
+            sellerIncome,
+            refundAmount: money(rowVal(r, ["Refund Amount", "Refund"])),
+            productVariant,
+            extractedPlantCode,
+            customer: cleanText(rowVal(r, ["Palmstreet UserName", "Username", "Buyer", "Buyer Username", "Customer"])),
+            recipientName: cleanText(rowVal(r, ["Recipient Name", "Customer Name", "Name"])),
+            raw: r,
+          };
+          const match = findInventoryMatch(sale);
+          good.push({ ...sale, title: productVariant, price, state: sale.buyerState, orderNum: orderNo, orderDate: saleDate, shipping: sale.shippingFee, matched: match, matchStatus: match ? "matched" : "unmatched", apply: true, historicalImport: !match });
+        });
+        return { good, bad };
+      };
+
+      const parseCSV = text => normalizeSalesRows(parseCSVRows(text));
 
       const loadFile = f => {
         if (!f) return;
+        setFileName(f.name || ""); setImportMsg("");
+        const isXlsx = /\.xlsx?$/i.test(f.name || "");
         const r = new FileReader();
-        r.onload = e => { setRaw(e.target.result); };
-        r.readAsText(f);
+        r.onload = e => {
+          try {
+            if (isXlsx) {
+              if (!window.XLSX) throw new Error("Excel parser did not load. Refresh the page and try again.");
+              const wb = window.XLSX.read(new Uint8Array(e.target.result), { type: "array", cellDates: true });
+              const sheetName = wb.SheetNames.includes("Order Details") ? "Order Details" : wb.SheetNames[0];
+              const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "", raw: false });
+              const { good, bad } = normalizeSalesRows(rows);
+              setParsed(rows); setMatched(good); setSkipped(bad); setStep("review");
+            } else {
+              const text = e.target.result;
+              setRaw(text);
+              const { good, bad } = parseCSV(text);
+              setParsed(good); setMatched(good); setSkipped(bad); setStep("review");
+            }
+          } catch (err) {
+            setImportMsg("Import failed: " + (err.message || String(err)));
+          }
+        };
+        if (isXlsx) r.readAsArrayBuffer(f); else r.readAsText(f);
       };
 
       const runMatch = () => {
         if (!raw.trim()) return;
-        const rows = parseCSV(raw);
-        const results = rows.map(r => {
-          const title = (r["Item Title"] || "").toLowerCase();
-          const price = +r["Item Price"] || 0;
-          const customer = r["Palmstreet UserName"] || r["Username"] || r["Buyer"] || "";
-          const recipientName = r["Recipient Name"] || "";
-          const state = r["State"] || "";
-          const orderNum = r["Order number"] || r["Order Number"] || "";
-          const orderDate = r["Order Date(PDT)"] || r["Order Date"] || "";
-          const shipping = +r["Shipping Fee"] || 0;
-          const status = r["Order Status"] || "";
-
-          // Try to match to inventory
-          const match = plants.find(p =>
-            p.status === "In Stock" && (
-              p.name.toLowerCase().includes(title.slice(0, 6)) ||
-              title.includes(p.name.toLowerCase().slice(0, 6)) ||
-              (p.plantId && title.includes(p.plantId.toLowerCase()))
-            )
-          );
-
-          return { _id: Math.random().toString(36).slice(2), title: r["Item Title"], price, customer, recipientName, state, orderNum, orderDate, shipping, status, matched: match || null, apply: !!match };
-        });
-        setMatched(results);
-        setParsed(rows);
+        const { good, bad } = parseCSV(raw);
+        setMatched(good);
+        setParsed(good);
+        setSkipped(bad);
         setStep("review");
       };
 
@@ -2313,31 +2451,96 @@
       const setMatch = (id, plantId) => setMatched(p => p.map(r => {
         if (r._id !== id) return r;
         const plant = plants.find(p => p.id === plantId);
-        return { ...r, matched: plant || null, apply: !!plant };
+        return { ...r, matched: plant || null, apply: true, matchStatus: plant ? "matched" : "unmatched", historicalImport: !plant };
       }));
+      const makeHistoricalSalePlant = (sale, idx) => {
+        const fallbackId = `HIST-${String(idx + 1).padStart(4, "0")}`;
+        const code = sale.extractedPlantCode || `${fallbackId}-${uid().toUpperCase()}`;
+        return {
+          id: uid(),
+          plantId: code,
+          plantCode: code,
+          barcodeValue: code,
+          barcodeType: "CODE128",
+          nurseryCode: "HIST",
+          name: toTC(sale.productVariant || sale.title || "Historical Palmstreet Sale"),
+          botanicalName: "",
+          potSize: "",
+          cost: 0,
+          costSource: "unknown historical import",
+          verifiedCost: false,
+          suggestedPrice: sale.price,
+          salePrice: sale.price,
+          shippingCost: sale.shippingFee || sale.shipping || 0,
+          platform,
+          status: "Sold",
+          soldDate: sale.saleDate || sale.orderDate || today(),
+          dateAdded: sale.saleDate || sale.orderDate || today(),
+          customerUsername: sale.customer || "",
+          customerName: sale.recipientName || "",
+          customerState: sale.buyerState || sale.state || "",
+          orderNumber: sale.orderNo || sale.orderNum || "",
+          paymentFee: sale.paymentFee || 0,
+          palmstreetFee: sale.palmstreetFee || 0,
+          taxAmount: sale.taxAmount || 0,
+          sellerIncome: sale.sellerIncome || 0,
+          refundAmount: sale.refundAmount || 0,
+          historicalImport: true,
+          matchStatus: "unmatched",
+          rawProductVariant: sale.productVariant || sale.title || "",
+          notes: "Imported from historical Palmstreet/Whatnot sales file. No inventory match found.",
+          labelPrinted: true,
+          addedBy: user.name,
+          margin: 0
+        };
+      };
 
       const applyImport = () => {
-        const toApply = matched.filter(r => r.apply && r.matched);
-        setPlants(prev => prev.map(p => {
-          const sale = toApply.find(r => r.matched?.id === p.id);
-          if (!sale) return p;
-          return {
-            ...p, status: "Sold", salePrice: sale.price, platform, shippingCost: sale.shipping,
-            customerUsername: sale.customer, customerName: sale.recipientName,
-            customerState: sale.state, orderNumber: sale.orderNum,
-            soldDate: sale.orderDate?.split(" ")[0] || today(),
-            margin: marg(+p.cost, sale.price)
-          };
-        }));
-        addAudit({ action: `Show import: ${toApply.length} sales applied from ${platform}`, user: user.name, page: "Show Import" });
+        const toApply = matched.filter(r => r.apply);
+        const matchedSales = toApply.filter(r => r.matched);
+        const unmatchedSales = toApply.filter(r => !r.matched);
+        setPlants(prev => {
+          const soldInventory = prev.map(p => {
+            const sale = matchedSales.find(r => r.matched?.id === p.id);
+            if (!sale) return p;
+            return {
+              ...p,
+              status: "Sold",
+              salePrice: sale.price,
+              platform,
+              shippingCost: sale.shippingFee || sale.shipping || 0,
+              customerUsername: sale.customer || "",
+              customerName: sale.recipientName || "",
+              customerState: sale.buyerState || sale.state || "",
+              orderNumber: sale.orderNo || sale.orderNum || "",
+              soldDate: sale.saleDate || sale.orderDate || today(),
+              paymentFee: sale.paymentFee || 0,
+              palmstreetFee: sale.palmstreetFee || 0,
+              taxAmount: sale.taxAmount || 0,
+              sellerIncome: sale.sellerIncome || 0,
+              historicalImport: false,
+              matchStatus: "matched",
+              rawProductVariant: sale.productVariant || sale.title || "",
+              margin: marg(+p.cost, sale.price)
+            };
+          });
+          const existingHistoricalKeys = new Set(soldInventory.filter(p => p.historicalImport).map(p => `${p.orderNumber || ""}|${p.rawProductVariant || p.name || ""}|${p.salePrice || ""}`));
+          const historicalRows = unmatchedSales
+            .filter(sale => !existingHistoricalKeys.has(`${sale.orderNo || sale.orderNum || ""}|${sale.productVariant || sale.title || ""}|${sale.price || ""}`))
+            .map(makeHistoricalSalePlant);
+          return [...soldInventory, ...historicalRows];
+        });
+        addAudit({ action: `Sales import: ${matchedSales.length} matched inventory + ${unmatchedSales.length} historical unmatched from ${platform}`, user: user.name, page: "Show Import" });
         setStep("done");
       };
 
-      const totalRev = matched.filter(r => r.apply).reduce((s, r) => s + r.price, 0);
+      const totalRev = matched.filter(r => r.apply).reduce((s, r) => s + (+r.price || 0), 0);
       const matched_count = matched.filter(r => r.apply && r.matched).length;
+      const unmatched_count = matched.filter(r => r.apply && !r.matched).length;
+      const applied_count = matched.filter(r => r.apply).length;
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="📦" title="Post-Show Import" sub="Paste your Palmstreet or Whatnot sales — AI matches to your inventory" />
+        <SHdr icon="📦" title="Post-Show Import" sub="Upload Palmstreet/Whatnot sales. Old files can import as historical sales even without inventory matches." />
 
         {step === "paste" && <div>
           <Card style={{ marginBottom: 14 }}>
@@ -2345,22 +2548,30 @@
             <Row gap={8} style={{ marginBottom: 16 }}>
               {["Palmstreet", "Whatnot"].map(p => <button key={p} onClick={() => setPlatform(p)} style={{ padding: "10px 20px", borderRadius: 9, cursor: "pointer", fontFamily: F.body, fontSize: 14, fontWeight: 600, background: platform === p ? C.g700 : C.cardAlt, color: platform === p ? "#fff" : C.tx1, border: `1.5px solid ${platform === p ? C.g700 : C.bd}` }}>{p}</button>)}
             </Row>
-            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 8 }}>Upload your orders CSV</div>
-            <div style={{ fontSize: 13, color: C.tx3, marginBottom: 12 }}>
-              In Palmstreet → Orders → Export CSV. Then upload it here.
+            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 8 }}>Import Mode</div>
+            <Row gap={8} style={{ marginBottom: 16 }}>
+              {[{ v: "historical", l: "Historical Import - Save Unmatched" }, { v: "exact", l: "Exact Inventory Match Only" }].map(o => <button key={o.v} onClick={() => setImportMode(o.v)} style={{ padding: "10px 14px", borderRadius: 9, cursor: "pointer", fontFamily: F.body, fontSize: 13, fontWeight: 600, background: importMode === o.v ? C.g700 : C.cardAlt, color: importMode === o.v ? "#fff" : C.tx1, border: `1.5px solid ${importMode === o.v ? C.g700 : C.bd}` }}>{o.l}</button>)}
+            </Row>
+            <div style={{ background: C.goldBg, border: `1px solid ${C.gold}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.tx2, marginBottom: 14, lineHeight: 1.6 }}>
+              Use <b>Historical Import</b> for old Palmstreet analytics files that do not have Leaf Diary plant codes. It will still save the sales for analytics, pricing, customers, and revenue history.
             </div>
-            <div style={{ border: `2px dashed ${C.g300}`, borderRadius: 12, padding: "30px", textAlign: "center", background: C.card, marginBottom: 12 }} onClick={() => fileRef.current.click()}>
+            {importMsg && <div style={{ background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.red, marginBottom: 12 }}>{importMsg}</div>}
+            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 8 }}>Upload Palmstreet Excel or CSV</div>
+            <div style={{ fontSize: 13, color: C.tx3, marginBottom: 12 }}>
+              Supports Palmstreet Analytics Excel files with an <b>Order Details</b> tab, or normal CSV order exports.
+            </div>
+            <div style={{ border: `2px dashed ${C.g300}`, borderRadius: 12, padding: "30px", textAlign: "center", background: C.card, marginBottom: 12, cursor: "pointer" }} onClick={() => fileRef.current.click()}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>📄</div>
-              <div style={{ fontWeight: 700, color: C.g900, marginBottom: 6 }}>Upload CSV file</div>
-              <div style={{ fontSize: 12, color: C.tx3, marginBottom: 12 }}>From Palmstreet Orders export</div>
+              <div style={{ fontWeight: 700, color: C.g900, marginBottom: 6 }}>{fileName || "Upload XLSX or CSV file"}</div>
+              <div style={{ fontSize: 12, color: C.tx3, marginBottom: 12 }}>Palmstreet analytics export or orders export</div>
               <Btn onClick={e => { e.stopPropagation(); fileRef.current.click(); }}>Choose File</Btn>
             </div>
-            <input ref={fileRef} type="file" accept=".csv,.xlsx" style={{ display: "none" }} onChange={e => loadFile(e.target.files[0])} />
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={e => loadFile(e.target.files[0])} />
             <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 6 }}>Or paste CSV text directly</div>
             <textarea value={raw} onChange={e => setRaw(e.target.value)}
               style={{ width: "100%", padding: "10px 12px", border: `1.5px solid ${C.bd}`, borderRadius: 9, fontSize: 12, fontFamily: F.mono, minHeight: 100, boxSizing: "border-box", resize: "vertical" }}
               placeholder="Paste CSV data here…" />
-            <Btn full onClick={runMatch} style={{ marginTop: 12 }} disabled={!raw.trim()}>Match to Inventory →</Btn>
+            <Btn full onClick={runMatch} style={{ marginTop: 12 }} disabled={!raw.trim()}>Import / Match Sales →</Btn>
           </Card>
         </div>}
 
@@ -2368,50 +2579,54 @@
           <div style={{ background: C.g800, borderRadius: 14, padding: "16px", marginBottom: 14, color: "#fff" }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 4 }}>Import Summary</div>
             <div style={{ fontSize: 28, fontWeight: 700, fontFamily: F.display }}>{$(totalRev)}</div>
-            <div style={{ fontSize: 13, opacity: .8, marginTop: 4 }}>{matched.length} orders · {matched_count} matched to inventory · {matched.filter(r => !r.matched).length} unmatched</div>
+            <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>{matched.length} plant sales found · {matched_count} matched to inventory · {unmatched_count} historical unmatched · {skipped.length} skipped non-plant/bad rows</div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-            {matched.map(r => <Card key={r._id} style={{ padding: "12px 14px", border: `1px solid ${r.matched ? C.g200 : C.bd}`, background: r.matched ? C.g50 : "#fff" }}>
-              <Row between center style={{ marginBottom: r.matched ? 6 : 0 }}>
+            {matched.slice(0, 350).map(r => <Card key={r._id} style={{ padding: "12px 14px", border: `1px solid ${r.matched ? C.g200 : C.gold}55`, background: r.matched ? C.g50 : C.goldBg }}>
+              <Row between center style={{ marginBottom: 6 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.g900 }}>{r.title}</div>
-                  <div style={{ fontSize: 12, color: C.tx3 }}>{r.customer} · {r.state} · {r.orderDate?.slice(0, 10)}</div>
+                  <div style={{ fontSize: 12, color: C.tx3 }}>Order {r.orderNo || "—"} · {r.state || "No state"} · {String(r.orderDate || "").slice(0, 10)}</div>
+                  {r.extractedPlantCode && <div style={{ fontSize: 11, color: C.blue, marginTop: 2 }}>Code found: {r.extractedPlantCode}</div>}
                   {r.matched && <div style={{ fontSize: 11, color: C.g600, marginTop: 2 }}>✅ Matched → {r.matched.name} ({r.matched.plantId})</div>}
-                  {!r.matched && <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>⚠️ No match found — select plant below</div>}
+                  {!r.matched && <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>⚠️ No inventory match — will import as historical sale unless you select a plant.</div>}
                 </div>
                 <Row gap={8} center>
                   <span style={{ fontWeight: 700, color: C.g700, fontSize: 16 }}>{$(r.price)}</span>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                     <input type="checkbox" checked={!!r.apply} onChange={() => toggleApply(r._id)} style={{ width: 18, height: 18, accentColor: C.g700 }} />
-                    <span style={{ fontSize: 11, color: C.tx3 }}>Apply</span>
+                    <span style={{ fontSize: 11, color: C.tx3 }}>Import</span>
                   </label>
                 </Row>
               </Row>
               {!r.matched && <select onChange={e => setMatch(r._id, e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.bd}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, marginTop: 6 }}>
-                <option value="">— Select plant from inventory —</option>
+                <option value="">— Leave unmatched as historical sale —</option>
                 {plants.filter(p => p.status === "In Stock").map(p => <option key={p.id} value={p.id}>{p.name} · {p.plantId} · {$(p.suggestedPrice)}</option>)}
               </select>}
             </Card>)}
+            {matched.length > 350 && <div style={{ textAlign: "center", color: C.tx3, fontSize: 13, padding: 12 }}>Showing first 350 rows for speed. All {matched.length} rows will import if checked.</div>}
           </div>
 
-          <Row gap={8}>
-            <Btn onClick={applyImport} disabled={matched_count === 0}>✅ Apply {matched_count} Sales to Inventory</Btn>
+          <Row gap={8} wrap>
+            <Btn onClick={applyImport} disabled={applied_count === 0}>✅ Import {applied_count} Sales</Btn>
+            <Btn v="outline" onClick={() => downloadCSVFile(`leaf-diary-import-preview-${today()}.csv`, ["Status","Order No","Plant Code","Product","Price","State","Date"].join(',') + '\n' + matched.map(r => [r.matched ? "matched" : "historical", r.orderNo || "", r.extractedPlantCode || "", r.title || "", r.price || 0, r.state || "", r.orderDate || ""].map(csvCell).join(',')).join('\n'))}>📥 Export Preview</Btn>
             <Btn v="ghost" onClick={() => setStep("paste")}>Back</Btn>
           </Row>
         </div>}
 
         {step === "done" && <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
-          <h2 style={{ fontFamily: F.display, color: C.g900, marginBottom: 8 }}>Show Imported!</h2>
-          <p style={{ color: C.tx3, marginBottom: 6 }}>{matched_count} plants marked as sold</p>
+          <h2 style={{ fontFamily: F.display, color: C.g900, marginBottom: 8 }}>Sales Imported!</h2>
+          <p style={{ color: C.tx3, marginBottom: 6 }}>{matched_count} inventory plants marked sold · {unmatched_count} historical sales saved</p>
           <p style={{ color: C.gold, fontWeight: 700, fontSize: 18, marginBottom: 22 }}>{$(totalRev)} in sales recorded</p>
           <Row gap={10} style={{ justifyContent: "center" }}>
-            <Btn onClick={() => setStep("paste")}>Import Another Show</Btn>
+            <Btn onClick={() => { setRaw(""); setMatched([]); setSkipped([]); setStep("paste"); }}>Import Another File</Btn>
           </Row>
         </div>}
       </div>;
     }
+
 
     /* ══════════════════════════════════════════════════════════
        CUSTOMERS — from Palmstreet sales data
@@ -2691,9 +2906,9 @@
         setLoading(true); setErr(""); setMsg("");
         
         if (!isOwner) {
-          const { data: { session } } = await window.supabase.auth.getSession();
+          const { data: { session } } = await supabase.auth.getSession();
           if (session) {
-            const { error: signInError } = await window.supabase.auth.signInWithPassword({ email: session.user.email, password: oldPassword });
+            const { error: signInError } = await supabase.auth.signInWithPassword({ email: session.user.email, password: oldPassword });
             if (signInError) {
               setErr("Incorrect current password.");
               setLoading(false);
@@ -2702,7 +2917,7 @@
           }
         }
         
-        const { error } = await window.supabase.auth.updateUser({ password: newPassword });
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) setErr(error.message); else { setMsg("Password updated successfully!"); setTimeout(onClose, 1500); }
         setLoading(false);
       };
@@ -2848,7 +3063,7 @@
           if (!u) {
             u = { id: uid(), name: email.split("@")[0], role: "employee", email: email, permissions: { ...DEFAULT_PERMS } };
             setUsersRaw(p => [...p, u]);
-            if (cloudStatus === "synced") cloudCollectionSetter("users")([...users, u]);
+            if (cloudStatus === "synced") cloudUpsertState("users", [...users, u]);
           }
           if (!user || user.id !== u.id) {
             setUser(u);
