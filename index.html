@@ -2273,6 +2273,8 @@
       const [importMode, setImportMode] = useState("historical");
       const [fileName, setFileName] = useState("");
       const [importMsg, setImportMsg] = useState("");
+      const [duplicateInfo, setDuplicateInfo] = useState(null);
+      const [lastImportResult, setLastImportResult] = useState(null);
       const fileRef = useRef();
 
       const money = v => {
@@ -2323,6 +2325,36 @@
         const match = cleaned.match(/\b([A-Z]{1,4})\s*-?\s*(\d{1,4})\b/);
         if (!match) return null;
         return `${match[1]}-${String(parseInt(match[2], 10)).padStart(3, "0")}`;
+      };
+      const compactKey = v => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+      const saleImportKey = sale => [
+        platform,
+        sale.orderNo || sale.orderNum || "NO_ORDER",
+        sale.productVariant || sale.title || "NO_PRODUCT",
+        sale.price || sale.productAmount || sale.orderAmount || sale.sellerIncome || 0,
+        sale.saleDate || sale.orderDate || "NO_DATE"
+      ].map(compactKey).join("|");
+      const saleLegacyKey = sale => [
+        sale.orderNo || sale.orderNum || "NO_ORDER",
+        sale.productVariant || sale.title || "NO_PRODUCT",
+        sale.price || sale.productAmount || sale.orderAmount || sale.sellerIncome || 0
+      ].map(compactKey).join("|");
+      const existingImportedSaleKeys = (inventory = plants) => {
+        const keys = new Set();
+        (inventory || []).forEach(p => {
+          if (!p) return;
+          if (p.saleImportKey) keys.add(compactKey(p.saleImportKey));
+          if (p.saleLegacyKey) keys.add(compactKey(p.saleLegacyKey));
+          if (p.orderNumber || p.rawProductVariant || p.salePrice) {
+            keys.add([p.platform || platform, p.orderNumber || "NO_ORDER", p.rawProductVariant || p.name || "NO_PRODUCT", p.salePrice || 0, p.soldDate || "NO_DATE"].map(compactKey).join("|"));
+            keys.add([p.orderNumber || "NO_ORDER", p.rawProductVariant || p.name || "NO_PRODUCT", p.salePrice || 0].map(compactKey).join("|"));
+          }
+        });
+        return keys;
+      };
+      const isDuplicateSale = sale => {
+        const keys = existingImportedSaleKeys(plants);
+        return keys.has(saleImportKey(sale)) || keys.has(saleLegacyKey(sale));
       };
       const safeLower = v => String(v || "").toLowerCase();
       const findInventoryMatch = sale => {
@@ -2403,8 +2435,20 @@
             recipientName: cleanText(rowVal(r, ["Recipient Name", "Customer Name", "Name"])),
             raw: r,
           };
-          const match = findInventoryMatch(sale);
-          good.push({ ...sale, title: productVariant, price, state: sale.buyerState, orderNum: orderNo, orderDate: saleDate, shipping: sale.shippingFee, matched: match, matchStatus: match ? "matched" : "unmatched", apply: true, historicalImport: !match });
+          const enrichedSale = { ...sale, title: productVariant, price, state: sale.buyerState, orderNum: orderNo, orderDate: saleDate, shipping: sale.shippingFee };
+          const duplicate = isDuplicateSale(enrichedSale);
+          const match = findInventoryMatch(enrichedSale);
+          good.push({
+            ...enrichedSale,
+            matched: match,
+            matchStatus: duplicate ? "duplicate" : match ? "matched" : "unmatched",
+            duplicate,
+            duplicateReason: duplicate ? "Already imported from a previous Palmstreet/Whatnot upload" : "",
+            saleImportKey: saleImportKey(enrichedSale),
+            saleLegacyKey: saleLegacyKey(enrichedSale),
+            apply: !duplicate,
+            historicalImport: !match
+          });
         });
         return { good, bad };
       };
@@ -2413,7 +2457,7 @@
 
       const loadFile = f => {
         if (!f) return;
-        setFileName(f.name || ""); setImportMsg("");
+        setFileName(f.name || ""); setImportMsg(""); setDuplicateInfo(null); setLastImportResult(null);
         const isXlsx = /\.xlsx?$/i.test(f.name || "");
         const r = new FileReader();
         r.onload = e => {
@@ -2440,6 +2484,7 @@
 
       const runMatch = () => {
         if (!raw.trim()) return;
+        setDuplicateInfo(null); setLastImportResult(null);
         const { good, bad } = parseCSV(raw);
         setMatched(good);
         setParsed(good);
@@ -2480,6 +2525,10 @@
           customerName: sale.recipientName || "",
           customerState: sale.buyerState || sale.state || "",
           orderNumber: sale.orderNo || sale.orderNum || "",
+          saleImportKey: sale.saleImportKey || saleImportKey(sale),
+          saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
+          sourceFileName: fileName || "",
+          importedAt: new Date().toISOString(),
           paymentFee: sale.paymentFee || 0,
           palmstreetFee: sale.palmstreetFee || 0,
           taxAmount: sale.taxAmount || 0,
@@ -2496,48 +2545,77 @@
       };
 
       const applyImport = () => {
-        const toApply = matched.filter(r => r.apply);
-        const matchedSales = toApply.filter(r => r.matched);
-        const unmatchedSales = toApply.filter(r => !r.matched);
-        setPlants(prev => {
-          const soldInventory = prev.map(p => {
-            const sale = matchedSales.find(r => r.matched?.id === p.id);
-            if (!sale) return p;
-            return {
-              ...p,
-              status: "Sold",
-              salePrice: sale.price,
-              platform,
-              shippingCost: sale.shippingFee || sale.shipping || 0,
-              customerUsername: sale.customer || "",
-              customerName: sale.recipientName || "",
-              customerState: sale.buyerState || sale.state || "",
-              orderNumber: sale.orderNo || sale.orderNum || "",
-              soldDate: sale.saleDate || sale.orderDate || today(),
-              paymentFee: sale.paymentFee || 0,
-              palmstreetFee: sale.palmstreetFee || 0,
-              taxAmount: sale.taxAmount || 0,
-              sellerIncome: sale.sellerIncome || 0,
-              historicalImport: false,
-              matchStatus: "matched",
-              rawProductVariant: sale.productVariant || sale.title || "",
-              margin: marg(+p.cost, sale.price)
-            };
-          });
-          const existingHistoricalKeys = new Set(soldInventory.filter(p => p.historicalImport).map(p => `${p.orderNumber || ""}|${p.rawProductVariant || p.name || ""}|${p.salePrice || ""}`));
-          const historicalRows = unmatchedSales
-            .filter(sale => !existingHistoricalKeys.has(`${sale.orderNo || sale.orderNum || ""}|${sale.productVariant || sale.title || ""}|${sale.price || ""}`))
-            .map(makeHistoricalSalePlant);
-          return [...soldInventory, ...historicalRows];
+        const allSelected = matched.filter(r => r.apply);
+        const existingKeys = existingImportedSaleKeys(plants);
+        const newKeys = new Set();
+        const selected = [];
+        const duplicates = [];
+
+        allSelected.forEach(sale => {
+          const k1 = sale.saleImportKey || saleImportKey(sale);
+          const k2 = sale.saleLegacyKey || saleLegacyKey(sale);
+          const dup = existingKeys.has(compactKey(k1)) || existingKeys.has(compactKey(k2)) || newKeys.has(compactKey(k1)) || newKeys.has(compactKey(k2));
+          if (dup) {
+            duplicates.push(sale);
+            return;
+          }
+          newKeys.add(compactKey(k1));
+          newKeys.add(compactKey(k2));
+          selected.push({ ...sale, saleImportKey: k1, saleLegacyKey: k2 });
         });
-        addAudit({ action: `Sales import: ${matchedSales.length} matched inventory + ${unmatchedSales.length} historical unmatched from ${platform}`, user: user.name, page: "Show Import" });
+
+        const matchedSales = selected.filter(r => r.matched);
+        const unmatchedSales = selected.filter(r => !r.matched);
+
+        const soldInventory = plants.map(p => {
+          const sale = matchedSales.find(r => r.matched?.id === p.id);
+          if (!sale) return p;
+          return {
+            ...p,
+            status: "Sold",
+            salePrice: sale.price,
+            platform,
+            shippingCost: sale.shippingFee || sale.shipping || 0,
+            customerUsername: sale.customer || "",
+            customerName: sale.recipientName || "",
+            customerState: sale.buyerState || sale.state || "",
+            orderNumber: sale.orderNo || sale.orderNum || "",
+            saleImportKey: sale.saleImportKey || saleImportKey(sale),
+            saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
+            sourceFileName: fileName || "",
+            importedAt: new Date().toISOString(),
+            soldDate: sale.saleDate || sale.orderDate || today(),
+            paymentFee: sale.paymentFee || 0,
+            palmstreetFee: sale.palmstreetFee || 0,
+            taxAmount: sale.taxAmount || 0,
+            sellerIncome: sale.sellerIncome || 0,
+            historicalImport: false,
+            matchStatus: "matched",
+            rawProductVariant: sale.productVariant || sale.title || "",
+            margin: marg(+p.cost, sale.price)
+          };
+        });
+
+        const historicalRows = unmatchedSales.map((sale, idx) => makeHistoricalSalePlant(sale, idx));
+        const result = {
+          matchedAdded: matchedSales.length,
+          historicalAdded: historicalRows.length,
+          duplicateSkipped: duplicates.length,
+          duplicateOrders: duplicates.slice(0, 25).map(d => d.orderNo || d.orderNum || d.productVariant || d.title || "Duplicate row")
+        };
+
+        setPlants([...soldInventory, ...historicalRows]);
+        setLastImportResult(result);
+        setDuplicateInfo(result.duplicateSkipped ? result : null);
+        addAudit({ action: `Sales import: ${result.matchedAdded} matched inventory + ${result.historicalAdded} historical unmatched + ${result.duplicateSkipped} duplicates skipped from ${platform}`, user: user.name, page: "Show Import" });
         setStep("done");
       };
 
-      const totalRev = matched.filter(r => r.apply).reduce((s, r) => s + (+r.price || 0), 0);
-      const matched_count = matched.filter(r => r.apply && r.matched).length;
-      const unmatched_count = matched.filter(r => r.apply && !r.matched).length;
-      const applied_count = matched.filter(r => r.apply).length;
+      const totalRev = matched.filter(r => r.apply && !r.duplicate).reduce((s, r) => s + (+r.price || 0), 0);
+      const matched_count = matched.filter(r => r.apply && !r.duplicate && r.matched).length;
+      const unmatched_count = matched.filter(r => r.apply && !r.duplicate && !r.matched).length;
+      const duplicate_count = matched.filter(r => r.duplicate).length;
+      const applied_count = matched.filter(r => r.apply && !r.duplicate).length;
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="📦" title="Post-Show Import" sub="Upload Palmstreet/Whatnot sales. Old files can import as historical sales even without inventory matches." />
@@ -2556,6 +2634,7 @@
               Use <b>Historical Import</b> for old Palmstreet analytics files that do not have Leaf Diary plant codes. It will still save the sales for analytics, pricing, customers, and revenue history.
             </div>
             {importMsg && <div style={{ background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.red, marginBottom: 12 }}>{importMsg}</div>}
+            {duplicateInfo && <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.amber, marginBottom: 12 }}><b>{duplicateInfo.duplicateSkipped} duplicate rows skipped.</b> These orders/rows were already imported and were not added again.</div>}
             <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 8 }}>Upload Palmstreet Excel or CSV</div>
             <div style={{ fontSize: 13, color: C.tx3, marginBottom: 12 }}>
               Supports Palmstreet Analytics Excel files with an <b>Order Details</b> tab, or normal CSV order exports.
@@ -2579,28 +2658,29 @@
           <div style={{ background: C.g800, borderRadius: 14, padding: "16px", marginBottom: 14, color: "#fff" }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 4 }}>Import Summary</div>
             <div style={{ fontSize: 28, fontWeight: 700, fontFamily: F.display }}>{$(totalRev)}</div>
-            <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>{matched.length} plant sales found · {matched_count} matched to inventory · {unmatched_count} historical unmatched · {skipped.length} skipped non-plant/bad rows</div>
+            <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>{matched.length} plant sales found · {matched_count} matched to inventory · {unmatched_count} historical unmatched · {duplicate_count} duplicates already imported · {skipped.length} skipped non-plant/bad rows</div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-            {matched.slice(0, 350).map(r => <Card key={r._id} style={{ padding: "12px 14px", border: `1px solid ${r.matched ? C.g200 : C.gold}55`, background: r.matched ? C.g50 : C.goldBg }}>
+            {matched.slice(0, 350).map(r => <Card key={r._id} style={{ padding: "12px 14px", border: `1px solid ${r.duplicate ? C.red : r.matched ? C.g200 : C.gold}55`, background: r.duplicate ? C.redBg : r.matched ? C.g50 : C.goldBg, opacity: r.duplicate ? .82 : 1 }}>
               <Row between center style={{ marginBottom: 6 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.g900 }}>{r.title}</div>
                   <div style={{ fontSize: 12, color: C.tx3 }}>Order {r.orderNo || "—"} · {r.state || "No state"} · {String(r.orderDate || "").slice(0, 10)}</div>
                   {r.extractedPlantCode && <div style={{ fontSize: 11, color: C.blue, marginTop: 2 }}>Code found: {r.extractedPlantCode}</div>}
-                  {r.matched && <div style={{ fontSize: 11, color: C.g600, marginTop: 2 }}>✅ Matched → {r.matched.name} ({r.matched.plantId})</div>}
-                  {!r.matched && <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>⚠️ No inventory match — will import as historical sale unless you select a plant.</div>}
+                  {r.duplicate && <div style={{ fontSize: 11, color: C.red, marginTop: 2 }}>🚫 Duplicate detected — this order row was already imported and will be skipped.</div>}
+                  {!r.duplicate && r.matched && <div style={{ fontSize: 11, color: C.g600, marginTop: 2 }}>✅ Matched → {r.matched.name} ({r.matched.plantId})</div>}
+                  {!r.duplicate && !r.matched && <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>⚠️ No inventory match — will import as historical sale unless you select a plant.</div>}
                 </div>
                 <Row gap={8} center>
                   <span style={{ fontWeight: 700, color: C.g700, fontSize: 16 }}>{$(r.price)}</span>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                    <input type="checkbox" checked={!!r.apply} onChange={() => toggleApply(r._id)} style={{ width: 18, height: 18, accentColor: C.g700 }} />
-                    <span style={{ fontSize: 11, color: C.tx3 }}>Import</span>
+                    <input type="checkbox" checked={!!r.apply} disabled={!!r.duplicate} onChange={() => toggleApply(r._id)} style={{ width: 18, height: 18, accentColor: C.g700 }} />
+                    <span style={{ fontSize: 11, color: r.duplicate ? C.red : C.tx3 }}>{r.duplicate ? "Skipped" : "Import"}</span>
                   </label>
                 </Row>
               </Row>
-              {!r.matched && <select onChange={e => setMatch(r._id, e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.bd}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, marginTop: 6 }}>
+              {!r.duplicate && !r.matched && <select onChange={e => setMatch(r._id, e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.bd}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, marginTop: 6 }}>
                 <option value="">— Leave unmatched as historical sale —</option>
                 {plants.filter(p => p.status === "In Stock").map(p => <option key={p.id} value={p.id}>{p.name} · {p.plantId} · {$(p.suggestedPrice)}</option>)}
               </select>}
@@ -2618,8 +2698,9 @@
         {step === "done" && <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
           <h2 style={{ fontFamily: F.display, color: C.g900, marginBottom: 8 }}>Sales Imported!</h2>
-          <p style={{ color: C.tx3, marginBottom: 6 }}>{matched_count} inventory plants marked sold · {unmatched_count} historical sales saved</p>
-          <p style={{ color: C.gold, fontWeight: 700, fontSize: 18, marginBottom: 22 }}>{$(totalRev)} in sales recorded</p>
+          <p style={{ color: C.tx3, marginBottom: 6 }}>{lastImportResult ? `${lastImportResult.matchedAdded} inventory plants marked sold · ${lastImportResult.historicalAdded} historical sales saved` : `${matched_count} inventory plants marked sold · ${unmatched_count} historical sales saved`}</p>
+          {lastImportResult?.duplicateSkipped > 0 && <p style={{ color: C.red, marginBottom: 6, fontWeight: 700 }}>{lastImportResult.duplicateSkipped} duplicate rows skipped — already imported before.</p>}
+          <p style={{ color: C.gold, fontWeight: 700, fontSize: 18, marginBottom: 22 }}>{$(totalRev)} in new selected sales reviewed</p>
           <Row gap={10} style={{ justifyContent: "center" }}>
             <Btn onClick={() => { setRaw(""); setMatched([]); setSkipped([]); setStep("paste"); }}>Import Another File</Btn>
           </Row>
