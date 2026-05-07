@@ -456,15 +456,6 @@
       const payrollCost = timecardsInRange.reduce((s, t) => s + (+t.totalPay || 0), 0);
       const netProfit = trueGross - totalExp;
       const stockVal = inStock.reduce((s, p) => s + (+p.suggestedPrice || 0), 0);
-      const stockCost = inStock.reduce((s, p) => s + (+p.cost || 0), 0);
-      const projectedInventoryProfit = stockVal - stockCost;
-      const avgInventoryCost = inStock.length ? stockCost / inStock.length : 0;
-      const byNurseryInventoryCost = nurseries.map(n => {
-        const np = inStock.filter(p => p.nurseryCode === n.code);
-        const cost = np.reduce((s, p) => s + (+p.cost || 0), 0);
-        const retail = np.reduce((s, p) => s + (+p.suggestedPrice || 0), 0);
-        return { ...n, count: np.length, cost, retail, projected: retail - cost };
-      }).filter(n => n.count > 0).sort((a,b)=>b.cost-a.cost);
       const lostVal = dead.reduce((s, p) => s + (+p.cost || 0), 0);
       const avgOrder = sold.length ? soldRev / sold.length : 0;
       const avgProfit = sold.length ? trueGross / sold.length : 0;
@@ -506,13 +497,7 @@
           </div>
           <KPI label="Revenue" value={$(soldRev)} sub={`${sold.length} plants sold`} color={C.gold} />
           <KPI label="Avg Sale" value={$(avgOrder)} sub={`Avg gross ${$(avgProfit)}`} color={C.blue} />
-          <KPI label="Inventory Cost" value={$(stockCost)} sub={`${inStock.length} plants at cost`} color={C.purple} />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 22 }}>
-          <KPI label="Retail Stock Value" value={$(stockVal)} sub="what inventory can sell for" color={C.g600} />
-          <KPI label="Projected Inventory Profit" value={$(projectedInventoryProfit)} sub="retail value minus cost" color={projectedInventoryProfit >= 0 ? C.gold : C.red} />
-          <KPI label="Avg Cost / Plant" value={$(avgInventoryCost)} sub="current in-stock average" color={C.blue} />
-          <KPI label="Top Nursery Cost" value={byNurseryInventoryCost[0] ? $(byNurseryInventoryCost[0].cost) : "$0.00"} sub={byNurseryInventoryCost[0] ? `${byNurseryInventoryCost[0].code} · ${byNurseryInventoryCost[0].count} plants` : "No inventory"} color={C.purple} />
+          <KPI label="Stock Value" value={$(stockVal)} sub={`${inStock.length} current in stock`} color={C.g600} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 22 }}>
           <KPI label="Platform Fees" value={$(soldFees)} color={C.red} />
@@ -533,13 +518,6 @@
               <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>💰 Revenue by Platform — {dateChip}</div>
               {platData.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales in this date range.</p>
                 : <BarLine data={platData} lk="pl" vk="rev" fmtV={$} colorFn={(_, i) => [C.g600, C.gold, C.blue, C.amber][i % 4]} />}
-            </Card>
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>🏪 Inventory Cost by Nursery</div>
-              {byNurseryInventoryCost.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No in-stock inventory with nursery costs yet.</p>
-                : <Tbl cols={[{ k: "nursery", l: "Nursery" }, { k: "plants", l: "Plants", right: true }, { k: "cost", l: "Cost", right: true }, { k: "retail", l: "Retail", right: true }, { k: "proj", l: "Projected", right: true }]}
-                  rows={byNurseryInventoryCost.slice(0, 8).map(n => ({ nursery: <b>{n.code} · {n.name}</b>, plants: n.count, cost: <span style={{ fontWeight: 700, color: C.purple }}>{$(n.cost)}</span>, retail: $(n.retail), proj: <span style={{ fontWeight: 700, color: n.projected >= 0 ? C.gold : C.red }}>{$(n.projected)}</span> }))}
-                  empty="No inventory cost data." />}
             </Card>
             <Card>
               <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>🏆 Top Genus by Profit — {dateChip}</div>
@@ -2021,15 +1999,10 @@
       const totalExp = expenses.reduce((s, e) => s + (+e.amount || 0), 0);
       const netProfit = trueGross - totalExp;
       const stockVal = inStock.reduce((s, p) => s + (+p.suggestedPrice || 0), 0);
-      const stockCost = inStock.reduce((s, p) => s + (+p.cost || 0), 0);
-      const projectedInventoryProfit = stockVal - stockCost;
-      const avgInventoryCost = inStock.length ? stockCost / inStock.length : 0;
       const lostVal = dead.reduce((s, p) => s + (+p.cost || 0), 0);
       const perPlant = sold.map(p => { const rev = +p.salePrice || +p.suggestedPrice || 0, cost = +p.cost || 0, fee = platFee(p.platform || "", rev), tp = rev - cost - fee - (+p.shippingCost || 0); return { ...p, rev, profit: rev - cost, truePro: tp, fee, roi: cost > 0 ? Math.round(((rev - cost) / cost) * 100) : 0 }; }).sort((a, b) => b.truePro - a.truePro);
       const byPlat = PLATFORMS.map(pl => { const pp = sold.filter(p => p.platform === pl); const rev = pp.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0); const cost = pp.reduce((s, p) => s + (+p.cost || 0), 0); const fee = pp.reduce((s, p) => s + platFee(pl, +p.salePrice || +p.suggestedPrice || 0), 0); return { pl, count: pp.length, rev, cost, fee, profit: rev - cost - fee, margin: rev > 0 ? Math.round(((rev - cost - fee) / rev) * 100) : 0 }; }).filter(p => p.count > 0).sort((a, b) => b.profit - a.profit);
-      const byNursery = nurseries.map(n => { const np = plants.filter(p => p.nurseryCode === n.code); const ns = np.filter(p => p.status === "Sold"); const current = np.filter(p => p.status === "In Stock"); const rev = ns.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0); const cost = ns.reduce((s, p) => s + (+p.cost || 0), 0); const spent = np.reduce((s, p) => s + (+p.cost || 0), 0); const currentCost = current.reduce((s, p) => s + (+p.cost || 0), 0); const currentRetail = current.reduce((s, p) => s + (+p.suggestedPrice || 0), 0); const avgM = np.length ? Math.round(np.reduce((s, p) => s + (+p.margin || 0), 0) / np.length) : 0; return { ...n, total: np.length, sold: ns.length, inStock: current.length, rev, cost, spent, currentCost, currentRetail, projected: currentRetail - currentCost, profit: rev - cost, avgM, roi: spent > 0 ? Math.round(((rev - cost) / spent) * 100) : 0, dead: np.filter(p => ["Dead", "Damaged"].includes(p.status)).length }; }).sort((a, b) => b.profit - a.profit);
-      const inventoryByNursery = [...byNursery].filter(n => n.inStock > 0).sort((a,b)=>b.currentCost-a.currentCost);
-      const currentInventoryRows = inStock.map(p => ({ ...p, retail: +p.suggestedPrice || 0, projected: (+p.suggestedPrice || 0) - (+p.cost || 0), nurseryName: nurseries.find(n => n.code === p.nurseryCode)?.name || p.nurseryCode || "—" })).sort((a,b)=>(+b.cost||0)-(+a.cost||0));
+      const byNursery = nurseries.map(n => { const np = plants.filter(p => p.nurseryCode === n.code); const ns = np.filter(p => p.status === "Sold"); const rev = ns.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0); const cost = ns.reduce((s, p) => s + (+p.cost || 0), 0); const spent = np.reduce((s, p) => s + (+p.cost || 0), 0); const avgM = np.length ? Math.round(np.reduce((s, p) => s + (+p.margin || 0), 0) / np.length) : 0; return { ...n, total: np.length, sold: ns.length, rev, cost, spent, profit: rev - cost, avgM, roi: spent > 0 ? Math.round(((rev - cost) / spent) * 100) : 0, dead: np.filter(p => ["Dead", "Damaged"].includes(p.status)).length }; }).sort((a, b) => b.profit - a.profit);
       const gMap = {}; plants.forEach(p => { const g = gOf(p.name); if (!gMap[g]) gMap[g] = { name: g, total: 0, sold: 0, rev: 0, cost: 0, margins: [], days: [] }; gMap[g].total++; if (p.status === "Sold") { gMap[g].sold++; gMap[g].rev += (+p.salePrice || +p.suggestedPrice || 0); gMap[g].cost += (+p.cost || 0); const d = dHeld(p.dateAdded); if (d !== null) gMap[g].days.push(d); } gMap[g].margins.push(+p.margin || 0); });
       const byGenus = Object.values(gMap).map(g => ({ ...g, profit: g.rev - g.cost, avgM: g.margins.length ? Math.round(g.margins.reduce((a, b) => a + b, 0) / g.margins.length) : 0, sellThru: g.total > 0 ? Math.round(g.sold / g.total * 100) : 0, avgDays: g.days.length ? Math.round(g.days.reduce((a, b) => a + b, 0) / g.days.length) : null, roi: g.cost > 0 ? Math.round(((g.rev - g.cost) / g.cost) * 100) : 0 })).sort((a, b) => b.profit - a.profit);
       const restockAlerts = byGenus.filter(g => g.sellThru >= 60 && g.total - g.sold <= 2).slice(0, 6);
@@ -2093,7 +2066,7 @@
       const bestDays = dayBuckets.filter(d => d.count > 0).sort((a, b) => b.revenue - a.revenue);
       const timeRevenue = timeSales.reduce((sum, p) => sum + (+p.salePrice || +p.suggestedPrice || 0), 0);
       const exportCSV = () => { const rows = [["LEAF DIARY P&L", today(), ""], ["Revenue", soldRev, ""], ["Fees", -soldFees, ""], ["COGS", -soldCogs, ""], ["True Gross", trueGross, ""], ["Expenses", -totalExp, ""], ["Net Profit", netProfit, ""], ["", "", ""], ["TOP PLANTS", "Cost", "True Profit"], ...perPlant.slice(0, 10).map(p => [toTC(p.name), $(p.cost), $(p.truePro)])]; const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([rows.map(r => r.join(",")).join("\n")], { type: "text/csv" })), download: `leaf-diary-${today()}.csv` }); a.click(); };
-      const TABS = [{ id: "overview", l: "📊 Overview" }, { id: "inventorycost", l: "💵 Inventory Cost" }, { id: "time", l: "⏰ Best Times" }, { id: "plants", l: "🌿 Per Plant" }, { id: "platform", l: "📱 Platform" }, { id: "nursery", l: "🏪 Nursery" }, { id: "genus", l: "🧬 Genus" }, { id: "alerts", l: "⚡ Alerts" }];
+      const TABS = [{ id: "overview", l: "📊 Overview" }, { id: "time", l: "⏰ Best Times" }, { id: "plants", l: "🌿 Per Plant" }, { id: "platform", l: "📱 Platform" }, { id: "nursery", l: "🏪 Nursery" }, { id: "genus", l: "🧬 Genus" }, { id: "alerts", l: "⚡ Alerts" }];
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="📈" title="Reports & Analytics" sub="True profit after fees · All calculations automatic"
           right={<Btn v="outline" onClick={exportCSV}>📥 Export CSV</Btn>} />
@@ -2108,8 +2081,8 @@
               <div style={{ fontSize: 12, opacity: .7 }}>{$(soldRev)} rev · {$(soldFees)} fees · {$(totalExp)} exp</div>
             </div>
             <KPI label="Revenue" value={$(soldRev)} sub={`${sold.length} sold`} color={C.gold} />
-            <KPI label="Inventory Cost" value={$(stockCost)} sub={`${inStock.length} current plants`} color={C.purple} />
-            <KPI label="Retail Stock Value" value={$(stockVal)} sub="what current stock can sell for" color={C.g600} />
+            <KPI label="Stock Value" value={$(stockVal)} sub={`${inStock.length} plants`} color={C.g600} />
+            <KPI label="Dead Losses" value={$(lostVal)} color={dead.length > 0 ? C.red : C.tx3} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 10 }}>
             <Card>
@@ -2126,28 +2099,6 @@
               {byPlat.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales yet.</p> : <BarLine data={byPlat} lk="pl" vk="rev" fmtV={$} colorFn={(_, i) => [C.g600, C.gold, C.blue, C.amber][i % 4]} />}
             </Card>
           </div>
-        </div>}
-
-        {tab === "inventorycost" && <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
-            <KPI label="Current Inventory Cost" value={$(stockCost)} sub={`${inStock.length} in-stock plants`} color={C.purple} />
-            <KPI label="Retail Stock Value" value={$(stockVal)} sub="suggested sale value" color={C.g600} />
-            <KPI label="Projected Gross Profit" value={$(projectedInventoryProfit)} sub="retail minus cost" color={projectedInventoryProfit >= 0 ? C.gold : C.red} />
-            <KPI label="Avg Cost / Plant" value={$(avgInventoryCost)} color={C.blue} />
-          </div>
-          <Card style={{ marginBottom: 14 }}>
-            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16, marginBottom: 12 }}>🏪 Current Inventory Cost by Nursery</div>
-            <Tbl cols={[{ k: "nursery", l: "Nursery" }, { k: "plants", l: "In Stock", right: true }, { k: "cost", l: "Current Cost", right: true }, { k: "retail", l: "Retail Value", right: true }, { k: "projected", l: "Projected Profit", right: true }, { k: "avg", l: "Avg Cost", right: true }]}
-              rows={inventoryByNursery.map(n => ({ nursery: <b>{n.code} · {n.name}</b>, plants: n.inStock, cost: <span style={{ fontWeight: 700, color: C.purple }}>{$(n.currentCost)}</span>, retail: <span style={{ fontWeight: 700, color: C.g600 }}>{$(n.currentRetail)}</span>, projected: <span style={{ fontWeight: 700, color: n.projected >= 0 ? C.gold : C.red }}>{$(n.projected)}</span>, avg: $(n.inStock ? n.currentCost / n.inStock : 0) }))}
-              empty="No current inventory cost by nursery yet." />
-          </Card>
-          <Card>
-            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16, marginBottom: 12 }}>🌿 Current Inventory Cost Detail</div>
-            <Tbl cols={[{ k: "id", l: "ID" }, { k: "plant", l: "Plant" }, { k: "nursery", l: "Nursery" }, { k: "cost", l: "Cost", right: true }, { k: "retail", l: "Retail", right: true }, { k: "projected", l: "Projected", right: true }, { k: "age", l: "Age", right: true }]}
-              rows={currentInventoryRows.map(p => ({ id: <span style={{ fontFamily: F.mono, color: C.g700, fontWeight: 700 }}>{p.plantId || p.plantCode}</span>, plant: toTC(p.name), nursery: `${p.nurseryCode || "—"} ${p.nurseryName && p.nurseryName !== p.nurseryCode ? "· " + p.nurseryName : ""}`, cost: <span style={{ fontWeight: 700, color: C.purple }}>{$(p.cost)}</span>, retail: $(p.retail), projected: <span style={{ fontWeight: 700, color: p.projected >= 0 ? C.gold : C.red }}>{$(p.projected)}</span>, age: fDays(dHeld(p.dateAdded)) }))}
-              empty="No in-stock inventory found." />
-          </Card>
-          <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
         </div>}
         {tab === "time" && <div>
           <Card style={{ marginBottom: 14, background: C.g50, border: `1px solid ${C.g200}` }}>
