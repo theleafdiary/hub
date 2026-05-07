@@ -3074,7 +3074,7 @@
         if (!ps.length) { setGenError("Add at least one plant."); return; }
         setGenerating(true); setGenError("");
         try {
-          const certNumber = nextNum();
+          const certNumber = reserveCasdNumber(casdCerts);
           const dateStr = new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"numeric"});
           const pdfBytes = await fillCasdPdf({ certNumber, date:dateStr, destination:dest, consignee, plants:ps });
           const docPrefix = ["TX","LA"].includes(dest) ? "TX-LA-FDACS-08270" : "CA-AZ-CASD";
@@ -3143,7 +3143,7 @@
               </div>
 
               <div style={{background:C.goldBg,border:`1px solid ${C.gold}55`,borderRadius:10,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.tx2,lineHeight:1.7}}>
-                <b style={{color:C.gold}}>⚖️ FDACS Compliance:</b> Keep all certs on file permanently.
+                <b style={{color:C.gold}}>⚖️ FDACS Compliance:</b> Keep every state document on file for at least 3 years.
                 Original with shipment · 1st copy here · 2nd copy to Plant Protection Specialist.
                 <b style={{color:C.red}}> Fraudulent use is a criminal offence.</b>
               </div>
@@ -3867,7 +3867,7 @@
             const today2 = new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"numeric"});
             const newCerts = [];
             for (const ship of shipments) {
-              const certNumber = casdNextNum([...(window.__casdCertsSnapshot||[]), ...newCerts]);
+              const certNumber = reserveCasdNumber([...(window.__casdCertsSnapshot||[]), ...newCerts]);
               const pdfBytes = await fillCasdPdf({ certNumber, date: today2, destination: ship.state, consignee: ship.consignee, plants: ship.plants });
               const docPrefix = ["TX","LA"].includes(ship.state) ? "TX-LA-FDACS-08270" : "CA-AZ-CASD";
               const filename = `${docPrefix}-No${certNumber}-${(ship.consignee.name||"Customer").replace(/\s+/g,"-")}-${today()}.pdf`;
@@ -4467,9 +4467,58 @@
       return await pdfDoc.save();
     }
 
+    const CASD_COUNTER_KEY = "leafdiary_casd_last_cert_number";
+
+    function casdMaxNum(certs) {
+      const nums = (certs || [])
+        .map(c => parseInt(String(c?.certNumber || "").replace(/\D/g, ""), 10))
+        .filter(n => Number.isFinite(n));
+      return nums.length ? Math.max(...nums) : 9;
+    }
+
+    function casdStoredLastNum() {
+      try {
+        const n = parseInt(localStorage.getItem(CASD_COUNTER_KEY) || "9", 10);
+        return Number.isFinite(n) ? n : 9;
+      } catch (e) {
+        return 9;
+      }
+    }
+
+    function casdSaveLastNum(n) {
+      try { localStorage.setItem(CASD_COUNTER_KEY, String(n)); } catch (e) {}
+    }
+
     function casdNextNum(certs) {
-      if (!certs||!certs.length) return 10;
-      return Math.max(...certs.map(c=>+c.certNumber||0))+1;
+      /* Preview only. The real document number is reserved by reserveCasdNumber()
+         at creation time so every PDF gets a unique legal archive number. */
+      return Math.max(9, casdMaxNum(certs), casdStoredLastNum()) + 1;
+    }
+
+    function reserveCasdNumber(certs) {
+      const next = casdNextNum(certs);
+      casdSaveLastNum(next);
+      return next;
+    }
+
+    function mergeCasdCertLists(localCerts = [], cloudCerts = []) {
+      /* Never let a cloud refresh delete certificates created on this device.
+         This keeps the required 3-year archive safe even if a cloud save is delayed/fails. */
+      const map = new Map();
+      [...(cloudCerts || []), ...(localCerts || [])].forEach(c => {
+        if (!c) return;
+        const key = String(c.id || c.certNumber || uid());
+        map.set(key, c);
+      });
+      const merged = Array.from(map.values()).sort((a, b) => {
+        const an = parseInt(a?.certNumber || 0, 10) || 0;
+        const bn = parseInt(b?.certNumber || 0, 10) || 0;
+        if (bn !== an) return bn - an;
+        return String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""));
+      });
+      const maxNum = casdMaxNum(merged);
+      if (maxNum >= casdStoredLastNum()) casdSaveLastNum(maxNum);
+      return merged;
     }
 
     /* Group sales by order then by state, merge plants per shipment */
@@ -4878,7 +4927,11 @@
           if (cloudUsers) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
           if (cloudSettings) setSettingsRaw(cloudSettings); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
           if (cloudAudit) setAuditLogRaw(cloudAudit);
-          if (cloudCasdCerts && cloudCasdCerts.length) setCasdCertsRaw(cloudCasdCerts);
+          if (cloudCasdCerts && cloudCasdCerts.length) {
+            setCasdCertsRaw(prev => mergeCasdCertLists(prev, cloudCasdCerts));
+          } else if (saved?.casdCerts?.length) {
+            setCasdCertsRaw(prev => mergeCasdCertLists(prev, saved.casdCerts));
+          }
           setTimeout(() => { suppressCloudSaveRef.current = false; }, 0);
 
           cloudReadyRef.current = true;
@@ -4894,6 +4947,7 @@
           if (!cloudUsers && saved?.users) await cloudUpsertState("users", saved.users);
           if (!cloudSettings && saved?.settings) await cloudUpsertState("settings", saved.settings);
           if (!cloudAudit && saved?.auditLog) await cloudUpsertState("auditLog", saved.auditLog);
+          if (!cloudCasdCerts.length && saved?.casdCerts?.length) await cloudUpsertRows("casd_certs", saved.casdCerts);
         } catch (err) {
           console.error("Supabase load failed", err);
           cloudReadyRef.current = false;
@@ -4912,7 +4966,7 @@
 
       /* Manual backup — exports all data as JSON file */
       const exportBackup = () => {
-        const data = { plants, expenses, timecards, bills, nurseries, users, settings, auditLog, exportDate: new Date().toISOString() };
+        const data = { plants, expenses, timecards, bills, nurseries, users, settings, auditLog, casdCerts, exportDate: new Date().toISOString() };
         const a = Object.assign(document.createElement("a"), {
           href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })),
           download: `leafdiary-backup-${today()}.json`
