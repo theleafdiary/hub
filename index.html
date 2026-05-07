@@ -838,32 +838,53 @@
           const buf = await file.arrayBuffer();
           const wb = XLSX.read(buf, { type: "array", cellDates: true });
           const ws = wb.Sheets[wb.SheetNames[0]];
-          const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+          /*
+            IMPORTANT FIX:
+            sheet_to_json with object headers can miss rows when Excel has odd formatting,
+            hidden table ranges, repeated formatting, or header punctuation like "sell price:".
+            This importer now reads the sheet as a raw row array and maps columns by position/header.
+            That prevents the upload from stopping around 198 rows when the file actually has more.
+          */
+          const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: false });
+          const headers = (aoa[0] || []).map(h => String(h || "").trim());
+          const hmap = headers.reduce((a, h, idx) => { a[cleanHeader(h)] = idx; return a; }, {});
+          const valAt = (arr, names, fallbackIndex = -1) => {
+            for (const n of names) {
+              const idx = hmap[cleanHeader(n)];
+              if (idx !== undefined) return arr[idx] ?? "";
+            }
+            return fallbackIndex >= 0 ? (arr[fallbackIndex] ?? "") : "";
+          };
+          const dataRows = aoa.slice(1)
+            .map((arr, i) => ({ arr, excelRow: i + 2 }))
+            .filter(x => (x.arr || []).some(v => String(v || "").trim() !== ""));
+
           const existingMap = new Map((plants || []).map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
-          const existingIds = new Set(existingMap.keys());
           const seen = new Set();
           const mapped = [];
           const skipped = [];
 
-          json.forEach((r, i) => {
-            const rawTitle = String(findCol(r, ["Title", "Plant Name", "Name", "Item", "Product", "Description"]) || "").trim();
-            if (!rawTitle) return;
-            const idMatch = rawTitle.match(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b\s*$/i) || rawTitle.match(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b/i);
-            if (!idMatch) { skipped.push(`Row ${i + 2}: no plant number found`); return; }
-            const plantNum = idMatch[1].toUpperCase().replace(/\s*-\s*/g, "-").replace(/\s+/g, "");
-            if (seen.has(plantNum)) { skipped.push(`Row ${i + 2}: duplicate inside upload file (${plantNum})`); return; }
+          dataRows.forEach(({ arr, excelRow }) => {
+            const rawTitle = String(valAt(arr, ["Title", "Plant Name", "Name", "Item", "Product", "Description"], 0) || "").trim();
+            const explicitId = String(valAt(arr, ["Plant #", "Plant Number", "Plant ID", "Plant Code", "Code", "SKU"], -1) || "").trim();
+            if (!rawTitle && !explicitId) return;
+            const idMatch = explicitId ? [null, explicitId] : (rawTitle.match(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b\s*$/i) || rawTitle.match(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b/i));
+            if (!idMatch) { skipped.push(`Row ${excelRow}: no plant number found`); return; }
+            const plantNum = String(idMatch[1]).toUpperCase().replace(/\s*-\s*/g, "-").replace(/\s+/g, "");
+            if (seen.has(plantNum)) { skipped.push(`Row ${excelRow}: duplicate plant number inside upload file (${plantNum}) — not imported because plant numbers must be unique`); return; }
             seen.add(plantNum);
             const existingPlant = existingMap.get(plantNum);
             const alreadyExists = !!existingPlant;
-            const name = toTC(rawTitle.replace(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b\s*$/i, "").trim());
-            const cost = cleanMoney(findCol(r, ["Cost Per Item", "Cost", "Your Cost", "Item Cost"]));
-            const suggestedPrice = cleanMoney(findCol(r, ["Price", "Sell Price", "Sell Price:", "Suggested Price", "Retail Price"]));
+            const name = toTC((rawTitle || explicitId).replace(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b\s*$/i, "").trim());
+            const cost = cleanMoney(valAt(arr, ["Cost Per Item", "Cost", "Your Cost", "Item Cost"], 1));
+            const suggestedPrice = cleanMoney(valAt(arr, ["Price", "Sell Price", "Sell Price:", "Suggested Price", "Retail Price"], 2));
             const prefix = ((plantNum.match(/^[A-Z]+/) || ["INV"])[0] || "INV").toUpperCase();
             mapped.push({
-              _k: `${plantNum}-${i}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists,
-              nurseryCode: prefix, name: name || rawTitle, botanicalName: "", potSize: normPot(findCol(r, ["Pot Size", "Size", "Pot"])),
+              _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists,
+              nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPot(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
               cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
-              status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDate(findCol(r, ["Date", "Date ", "Purchase Date", "Added Date"])),
+              status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDate(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
               platform: "", rack: "", shelf: "", notes: "Imported current inventory; kept original plant number.", labelPrinted: true, addedBy: user.name, importedExistingInventory: true
             });
           });
@@ -1292,32 +1313,50 @@
           const buf = await file.arrayBuffer();
           const wb = XLSX.read(buf, { type: "array", cellDates: true });
           const ws = wb.Sheets[wb.SheetNames[0]];
-          const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+          /*
+            IMPORTANT FIX:
+            Read Excel as raw rows instead of object-header JSON so rows after odd formatting/table
+            breaks do not get missed. This fixes uploads that only preview/import around 198 rows.
+          */
+          const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: false });
+          const headers = (aoa[0] || []).map(h => String(h || "").trim());
+          const hmap = headers.reduce((a, h, idx) => { a[cleanHeaderInv(h)] = idx; return a; }, {});
+          const valAt = (arr, names, fallbackIndex = -1) => {
+            for (const n of names) {
+              const idx = hmap[cleanHeaderInv(n)];
+              if (idx !== undefined) return arr[idx] ?? "";
+            }
+            return fallbackIndex >= 0 ? (arr[fallbackIndex] ?? "") : "";
+          };
+          const dataRows = aoa.slice(1)
+            .map((arr, i) => ({ arr, excelRow: i + 2 }))
+            .filter(x => (x.arr || []).some(v => String(v || "").trim() !== ""));
+
           const existingMap = new Map((plants || []).map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
-          const existingIds = new Set(existingMap.keys());
           const seen = new Set();
           const mapped = [];
           const skipped = [];
-          json.forEach((r, i) => {
-            const rawTitle = String(findColInv(r, ["Title", "Plant Name", "Name", "Item", "Product", "Description"]) || "").trim();
-            const explicitId = String(findColInv(r, ["Plant #", "Plant Number", "Plant ID", "Plant Code", "Code", "SKU"]) || "").trim();
+          dataRows.forEach(({ arr, excelRow }) => {
+            const rawTitle = String(valAt(arr, ["Title", "Plant Name", "Name", "Item", "Product", "Description"], 0) || "").trim();
+            const explicitId = String(valAt(arr, ["Plant #", "Plant Number", "Plant ID", "Plant Code", "Code", "SKU"], -1) || "").trim();
             if (!rawTitle && !explicitId) return;
             const idRaw = explicitId || extractExistingPlantNumber(rawTitle);
-            if (!idRaw) { skipped.push(`Row ${i + 2}: no plant number found`); return; }
+            if (!idRaw) { skipped.push(`Row ${excelRow}: no plant number found`); return; }
             const plantNum = String(idRaw).toUpperCase().replace(/\s*-\s*/g, "-").replace(/\s+/g, "");
-            if (seen.has(plantNum)) { skipped.push(`Row ${i + 2}: duplicate inside upload file (${plantNum})`); return; }
+            if (seen.has(plantNum)) { skipped.push(`Row ${excelRow}: duplicate plant number inside upload file (${plantNum}) — not imported because plant numbers must be unique`); return; }
             seen.add(plantNum);
             const existingPlant = existingMap.get(plantNum);
             const alreadyExists = !!existingPlant;
             const name = toTC((rawTitle || explicitId).replace(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b\s*$/i, "").trim());
-            const cost = cleanMoneyInv(findColInv(r, ["Cost Per Item", "Cost", "Your Cost", "Item Cost"]));
-            const suggestedPrice = cleanMoneyInv(findColInv(r, ["Price", "Sell Price", "Sell Price:", "Suggested Price", "Retail Price"]));
+            const cost = cleanMoneyInv(valAt(arr, ["Cost Per Item", "Cost", "Your Cost", "Item Cost"], 1));
+            const suggestedPrice = cleanMoneyInv(valAt(arr, ["Price", "Sell Price", "Sell Price:", "Suggested Price", "Retail Price"], 2));
             const prefix = ((plantNum.match(/^[A-Z]+/) || ["INV"])[0] || "INV").toUpperCase();
             mapped.push({
-              _k: `${plantNum}-${i}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists,
-              nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPotInv(findColInv(r, ["Pot Size", "Size", "Pot"])),
+              _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists,
+              nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPotInv(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
               cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
-              status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDateInv(findColInv(r, ["Date", "Date ", "Purchase Date", "Added Date"])),
+              status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDateInv(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
               platform: "", rack: "", shelf: "", notes: "Imported current inventory; kept original plant number.", labelPrinted: true, addedBy: user.name, importedExistingInventory: true
             });
           });
