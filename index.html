@@ -2983,6 +2983,7 @@
       };
 
       const applyImport = () => {
+        setImportMsg("Preparing full import. Large Palmstreet files may take a moment to save to Supabase in batches...");
         const allSelected = matched.filter(r => r.apply);
         const existingKeys = existingImportedSaleKeys(plants);
         const newKeys = new Set();
@@ -3046,6 +3047,7 @@
         setLastImportResult(result);
         setDuplicateInfo(result.duplicateSkipped ? result : null);
         addAudit({ action: `Sales import: ${result.matchedAdded} matched inventory + ${result.historicalAdded} historical unmatched + ${result.duplicateSkipped} duplicates skipped from ${platform}`, user: user.name, page: "Show Import" });
+        setImportMsg(`Saved ${result.matchedAdded + result.historicalAdded} new sales. ${result.duplicateSkipped} duplicates skipped. Syncing to Supabase in 500-row batches...`);
         setStep("done");
       };
 
@@ -3097,6 +3099,7 @@
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 4 }}>Import Summary</div>
             <div style={{ fontSize: 28, fontWeight: 700, fontFamily: F.display }}>{$(totalRev)}</div>
             <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>{matched.length} plant sales found · {matched_count} matched to inventory · {unmatched_count} historical unmatched · {duplicate_count} duplicates already imported · {skipped.length} skipped non-plant/bad rows</div>
+            {matched.length > 1000 && <div style={{ fontSize: 12, opacity: .9, marginTop: 6 }}>✅ Large file mode active: all {matched.length} rows will import/save. Preview only shows first 350 rows for speed.</div>}
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
@@ -3376,28 +3379,57 @@
     }
 
     async function cloudFetchRows(table) {
-      const rows = await cloudRequest(`${table}?select=id,data,updated_at&order=updated_at.desc`, { method: "GET" });
-      return (rows || []).map(r => ({ ...(r.data || {}), id: (r.data && r.data.id) ? r.data.id : r.id }));
+      /* Supabase/PostgREST only returns about 1000 rows by default.
+         This paginates every table so Palmstreet lifetime imports with 5,000+ rows load fully. */
+      const all = [];
+      const pageSize = 1000;
+      let from = 0;
+
+      while (true) {
+        const to = from + pageSize - 1;
+        const rows = await cloudRequest(`${table}?select=id,data,updated_at&order=updated_at.desc`, {
+          method: "GET",
+          headers: { Range: `${from}-${to}`, Prefer: "count=exact" }
+        });
+
+        if (!rows || rows.length === 0) break;
+        all.push(...rows);
+        if (rows.length < pageSize) break;
+        from += pageSize;
+      }
+
+      return all.map(r => ({ ...(r.data || {}), id: (r.data && r.data.id) ? r.data.id : r.id }));
     }
 
     async function cloudUpsertRows(table, rows) {
+      /* Insert/update in batches so large Palmstreet files do not fail or silently stop. */
       if (!Array.isArray(rows) || rows.length === 0) return;
       const payload = rows
         .filter(r => r && r.id)
         .map(r => ({ id: String(r.id), data: r, updated_at: new Date().toISOString() }));
       if (!payload.length) return;
-      return cloudRequest(`${table}?on_conflict=id`, {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates" },
-        body: JSON.stringify(payload)
-      });
+
+      const batchSize = 500;
+      for (let i = 0; i < payload.length; i += batchSize) {
+        const chunk = payload.slice(i, i + batchSize);
+        await cloudRequest(`${table}?on_conflict=id`, {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates" },
+          body: JSON.stringify(chunk)
+        });
+      }
     }
 
     async function cloudDeleteRows(table, ids) {
       const clean = [...new Set((ids || []).filter(Boolean).map(String))];
       if (!clean.length) return;
-      const quoted = clean.map(id => `"${id.replace(/"/g, '\\"')}"`).join(",");
-      return cloudRequest(`${table}?id=in.(${quoted})`, { method: "DELETE" });
+
+      const batchSize = 300;
+      for (let i = 0; i < clean.length; i += batchSize) {
+        const batch = clean.slice(i, i + batchSize);
+        const quoted = batch.map(id => `"${id.replace(/"/g, '\\"')}"`).join(",");
+        await cloudRequest(`${table}?id=in.(${quoted})`, { method: "DELETE" });
+      }
     }
 
     async function cloudFetchState(key) {
