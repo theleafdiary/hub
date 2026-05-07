@@ -276,6 +276,7 @@
         { id: "intel", icon: "💡", l: "Buy Intel" }, { id: "reports", icon: "📈", l: "Reports" },
         { id: "tax", icon: "🧾", l: "Tax Center" }, { id: "audit", icon: "🔍", l: "Audit Log" },
         { id: "admin", icon: "⚙️", l: "Admin" },
+        { id: "cleanup", icon: "🧹", l: "Data Cleanup" },
       ];
       const mgrTabs = ownerTabs.filter(t => !["payroll", "tax", "audit", "admin", "bills"].includes(t.id));
       const empTabs = [{ id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "upload", icon: "📸", l: "Upload Invoice" }, { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }];
@@ -2349,6 +2350,168 @@
     }
 
 
+
+    /* ══════════════════════════════════════════════════════════
+       OWNER DATA CLEANUP / BULK DELETE
+    ══════════════════════════════════════════════════════════ */
+    function DataCleanup({ plants, setPlants, addAudit, user, setPage }) {
+      const [confirmText, setConfirmText] = useState("");
+      const [msg, setMsg] = useState("");
+      const [busy, setBusy] = useState(false);
+
+      const isSaleRecord = p =>
+        p?.status === "Sold" ||
+        !!p?.saleImportKey ||
+        !!p?.saleLegacyKey ||
+        !!p?.orderNumber ||
+        !!p?.orderNo ||
+        !!p?.soldDate ||
+        !!p?.historicalImport ||
+        String(p?.nurseryCode || "").toUpperCase() === "HIST";
+
+      const isHistoricalSale = p =>
+        !!p?.historicalImport ||
+        String(p?.nurseryCode || "").toUpperCase() === "HIST" ||
+        String(p?.plantId || "").toUpperCase().startsWith("HIST-");
+
+      const hasCustomerInfo = p =>
+        !!(p?.customerUsername || p?.customerName || p?.buyerName || p?.recipientName || p?.customerState);
+
+      const customerKey = p =>
+        (p?.customerUsername || p?.customerName || p?.buyerName || p?.recipientName || p?.customerState || p?.orderNumber || "").trim().toLowerCase();
+
+      const saleRecords = (plants || []).filter(isSaleRecord);
+      const historicalRecords = (plants || []).filter(isHistoricalSale);
+      const matchedSales = saleRecords.filter(p => !isHistoricalSale(p));
+      const customerCount = new Set((plants || []).filter(hasCustomerInfo).map(customerKey).filter(Boolean)).size;
+
+      const clearCustomerFields = p => ({
+        ...p,
+        customerUsername: "",
+        customerName: "",
+        customerState: "",
+        buyerName: "",
+        recipientName: ""
+      });
+
+      const clearSaleFields = p => ({
+        ...p,
+        status: p.status === "Sold" ? "In Stock" : p.status,
+        salePrice: "",
+        soldDate: "",
+        platform: "",
+        shippingCost: "",
+        customerUsername: "",
+        customerName: "",
+        customerState: "",
+        buyerName: "",
+        recipientName: "",
+        orderNumber: "",
+        orderNo: "",
+        saleImportKey: "",
+        saleLegacyKey: "",
+        sourceFileName: "",
+        importedAt: "",
+        paymentFee: 0,
+        palmstreetFee: 0,
+        taxAmount: 0,
+        sellerIncome: 0,
+        refundAmount: 0,
+        historicalImport: false,
+        matchStatus: "",
+        rawProductVariant: ""
+      });
+
+      const unlocked = confirmText.trim().toUpperCase() === "DELETE";
+
+      const runCleanup = async (kind) => {
+        if (user?.role !== "owner") {
+          setMsg("Only the owner account can run bulk delete tools.");
+          return;
+        }
+        if (!unlocked) {
+          setMsg("Type DELETE first to unlock the cleanup buttons.");
+          return;
+        }
+        const labels = {
+          customers: "delete all customer information",
+          sales: "delete all sales while keeping inventory",
+          historical: "delete historical imported sales only",
+          all: "reset customers and sales while keeping inventory"
+        };
+        if (!confirm(`Are you sure you want to ${labels[kind]}? This cannot be undone unless you restore a backup.`)) return;
+        if (!confirm("Last warning: make sure you downloaded a backup first. Continue?")) return;
+
+        setBusy(true);
+        let nextPlants = [...(plants || [])];
+        let summary = "";
+
+        if (kind === "customers") {
+          nextPlants = nextPlants.map(clearCustomerFields);
+          summary = `Customer info cleared from ${customerCount} customer groups.`;
+        }
+        if (kind === "historical") {
+          nextPlants = nextPlants.filter(p => !isHistoricalSale(p));
+          summary = `${historicalRecords.length} historical imported sale rows deleted.`;
+        }
+        if (kind === "sales") {
+          nextPlants = nextPlants
+            .filter(p => !isHistoricalSale(p))
+            .map(p => isSaleRecord(p) ? clearSaleFields(p) : p);
+          summary = `${saleRecords.length} sale records deleted. ${matchedSales.length} matched sold inventory plants reset to In Stock.`;
+        }
+        if (kind === "all") {
+          nextPlants = nextPlants
+            .filter(p => !isHistoricalSale(p))
+            .map(p => isSaleRecord(p) ? clearCustomerFields(clearSaleFields(p)) : clearCustomerFields(p));
+          summary = `${saleRecords.length} sale records deleted and customer info cleared. Inventory kept.`;
+        }
+
+        setPlants(nextPlants);
+        addAudit && addAudit({ action: `Owner Data Cleanup: ${summary}`, user: user?.name || "Owner", page: "Data Cleanup" });
+        setMsg("✅ " + summary + " Supabase will sync this change automatically.");
+        setConfirmText("");
+        setBusy(false);
+      };
+
+      const dangerCard = (title, body, label, kind) => <Card style={{ border: kind === "all" ? `2px solid ${C.red}` : `1.5px solid ${C.red}44` }}>
+        <div style={{ fontFamily: F.display, fontWeight: 700, color: kind === "all" ? C.red : C.g900, fontSize: 16, marginBottom: 8 }}>{title}</div>
+        <p style={{ fontSize: 13, color: C.tx3, lineHeight: 1.6, margin: "0 0 14px" }}>{body}</p>
+        <Btn v="danger" full disabled={!unlocked || busy} onClick={() => runCleanup(kind)}>{busy ? "Working..." : label}</Btn>
+      </Card>;
+
+      return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
+        <SHdr icon="🧹" title="Data Cleanup" sub="Owner-only tools to delete customers and sales when you need to start over"
+          right={<Row gap={8}><Btn v="outline" onClick={() => setPage("showimport")}>Import Sales</Btn><Btn v="soft" onClick={() => setPage("customers")}>View Customers</Btn></Row>} />
+
+        <Card style={{ marginBottom: 14, background: C.goldBg, border: `1.5px solid ${C.gold}66` }}>
+          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 18, marginBottom: 8 }}>Backup First</div>
+          <p style={{ fontSize: 13, color: C.tx2, lineHeight: 1.65, margin: 0 }}>
+            These buttons are for real cleanup while you are logged in as owner. They update the app state and sync to Supabase. Download a backup from the cloud bar before deleting anything.
+          </p>
+        </Card>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 14 }}>
+          <KPI label="Sale Records" value={saleRecords.length} color={C.gold} />
+          <KPI label="Historical Imports" value={historicalRecords.length} color={C.purple} />
+          <KPI label="Matched Sales" value={matchedSales.length} color={C.blue} />
+          <KPI label="Customer Groups" value={customerCount} color={C.g600} />
+        </div>
+
+        <Card style={{ marginBottom: 14, border: `1.5px solid ${C.red}55` }}>
+          <Inp label="Type DELETE to unlock" value={confirmText} onChange={setConfirmText} placeholder="DELETE" />
+          {msg && <div style={{ marginTop: 10, background: msg.startsWith("✅") ? C.g50 : C.redBg, border: `1px solid ${msg.startsWith("✅") ? C.g200 : C.red}55`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: C.tx2 }}>{msg}</div>}
+        </Card>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
+          {dangerCard("Delete Customers Only", "Clears customer names, usernames, recipient names, and states from all records. Sales totals and inventory stay in place.", "Delete All Customers", "customers")}
+          {dangerCard("Delete Sales, Keep Inventory", "Deletes imported historical sale rows and resets matched sold inventory back to In Stock. Inventory plants stay in the app.", "Delete All Sales", "sales")}
+          {dangerCard("Delete Historical Imports Only", "Only removes old unmatched Palmstreet/Whatnot rows saved as HIST records. Matched inventory sales are not touched.", "Delete Historical Imports", "historical")}
+          {dangerCard("Start Customers & Sales Over", "Best option before a clean re-import. Clears customers, deletes sales history, removes historical imports, and keeps inventory.", "Reset Customers + Sales", "all")}
+        </div>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        SHOW BUILDER / PALMSTREET PREP EXPORT
     ══════════════════════════════════════════════════════════ */
@@ -2920,8 +3083,8 @@
         { state: "MN", revenue: 468.00, orders: 17, customers: 5 },
       ];
 
-      const displayStates = states.length > 0 ? states : preloadedStates;
-      const maxRev = Math.max(...displayStates.map(s => s.revenue));
+      const displayStates = states;
+      const maxRev = Math.max(...displayStates.map(s => s.revenue), 1);
 
       const preloadedCustomers = [
         { username: "TygerPZ", name: "", state: "NJ", total: 2276.06, plants: 68 },
@@ -2935,7 +3098,7 @@
         { username: "Adiamond4eva", name: "", state: "IL", total: 626.68, plants: 16 },
         { username: "Mrs.Jones", name: "", state: "", total: 606.37, plants: 15 },
       ];
-      const displayCustomers = customers.length > 0 ? customers : preloadedCustomers;
+      const displayCustomers = customers;
 
       const TABS = [{ id: "customers", l: "👥 Top Customers" }, { id: "states", l: "🗺️ By State" }];
 
@@ -3251,32 +3414,14 @@
       const setUsers = cloudStateSetter("users", setUsersRaw);
       const setSettings = cloudStateSetter("settings", setSettingsRaw);
 
-      /* Migration: clean IDs and bump to 1000+ */
+      /* Migration: clean legacy LD- prefixes only. Never bump or recycle short nursery codes like CF-001. */
       useEffect(() => {
-        const needsMigration = plants.some(p => {
-          if (!p.plantId) return false;
-          if (p.plantId.startsWith("LD-")) return true;
-          if (p.plantId.includes("001-")) return true;
-          if (p.plantId.includes("--")) return true;
-          const m = p.plantId.match(/^(.*-)(\d+)$/);
-          return m && parseInt(m[2], 10) < 1000;
-        });
-
+        const needsMigration = plants.some(p => p?.plantId && (String(p.plantId).startsWith("LD-") || String(p.plantId).includes("--")));
         if (needsMigration) {
           setPlants(prev => prev.map(p => {
             if (!p.plantId) return p;
-            let newId = p.plantId.startsWith("LD-") ? p.plantId.replace(/^LD-/, "") : p.plantId;
-            newId = newId.replace(/001-/, "-").replace(/--/g, "-");
-            const m = newId.match(/^(.*-)(\d+)$/);
-            if (m && parseInt(m[2], 10) < 1000) {
-              const bumped = parseInt(m[2], 10) + 1000;
-              newId = `${m[1]}${String(bumped).padStart(4, "0")}`;
-            }
-            let newCode = p.nurseryCode;
-            if (newCode) {
-              newCode = newCode.replace(/001$/, "").replace(/-$/, "");
-            }
-            return newId !== p.plantId || newCode !== p.nurseryCode ? { ...p, plantId: newId, nurseryCode: newCode } : p;
+            let newId = String(p.plantId).replace(/^LD-/, "").replace(/--/g, "-");
+            return newId !== p.plantId ? { ...p, plantId: newId, plantCode: p.plantCode || newId, barcodeValue: p.barcodeValue || newId } : p;
           }));
         }
       }, [plants, setPlants]);
@@ -3312,13 +3457,7 @@
         }
       }, [session, users, cloudStatus, user, addAudit, cloudCollectionSetter]);
 
-      /* One-Time Nuke Inventory */
-      useEffect(() => {
-        if (plants.length > 0 && localStorage.getItem('__NUKED_INVENTORY_ONCE') !== 'yes') {
-          setPlants([]);
-          localStorage.setItem('__NUKED_INVENTORY_ONCE', 'yes');
-        }
-      }, [plants, setPlants]);
+      /* Inventory is never auto-deleted. Use logged-in Data Cleanup tools only. */
 
       /* Always keep a local backup on this device too */
       useEffect(() => {
@@ -3494,6 +3633,7 @@
           {page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
           {page === "audit" && CAN.seeAudit(user.role) && <AuditLog auditLog={auditLog} />}
           {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
+          {page === "cleanup" && user.role === "owner" && <DataCleanup plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} />}
         </div>
       </div>;
     }
