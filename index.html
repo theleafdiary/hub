@@ -288,7 +288,7 @@
       return <>
         <div style={{ background: C.g800, position: "sticky", top: 0, zIndex: 300, padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 2px 12px rgba(0,0,0,.2)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height: 32, objectFit: "contain", filter: "brightness(0) invert(1)" }} onError={e => e.target.style.display = "none"} />
+            <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height: 38, width: 38, objectFit: "contain", borderRadius: "50%", background: "#000", padding: 1, boxShadow: "0 0 0 1px rgba(255,255,255,.25)" }} onError={e => { e.currentTarget.src = "https://cdn.shopify.com/s/files/1/0836/8723/7665/files/leaf_diary_logo_png.png?v=1768865207&width=200"; }} />
             <span style={{ fontSize: 15, color: "#fff", fontWeight: 700, fontFamily: `'Playfair Display',Georgia,serif`, letterSpacing: .5 }}>LEAF DIARY</span>
           </div>
           <Row gap={8} center>
@@ -1986,6 +1986,9 @@
     ══════════════════════════════════════════════════════════ */
     function Reports({ plants, expenses, timecards, nurseries }) {
       const [tab, setTab] = useState("overview");
+      const [timePreset, setTimePreset] = useState("all");
+      const [timeStart, setTimeStart] = useState(today());
+      const [timeEnd, setTimeEnd] = useState(today());
       const sold = plants.filter(p => p.status === "Sold");
       const inStock = plants.filter(p => p.status === "In Stock");
       const dead = plants.filter(p => ["Dead", "Damaged"].includes(p.status));
@@ -2005,8 +2008,65 @@
       const restockAlerts = byGenus.filter(g => g.sellThru >= 60 && g.total - g.sold <= 2).slice(0, 6);
       const slowMovers = inStock.filter(p => dHeld(p.dateAdded) >= 30).sort((a, b) => (dHeld(b.dateAdded) || 0) - (dHeld(a.dateAdded) || 0)).slice(0, 8);
       const underPriced = inStock.filter(p => +p.cost > 0 && +p.suggestedPrice < +p.cost * 2).slice(0, 8);
+
+      const timeRange = getDashDateRange(timePreset, timeStart, timeEnd);
+      const timeDateChip = timePreset === "all" ? "All Time" : timeRange.label;
+      const saleDateTimeOf = p => {
+        const fields = ["saleDateTime", "orderCreatedAt", "soldAt", "soldDate", "saleDate", "dateSold", "orderDate", "dateAdded"];
+        for (const f of fields) {
+          const v = p?.[f];
+          if (!v) continue;
+          const str = String(v).trim();
+          const d = new Date(str.includes("T") ? str : str + "T12:00:00");
+          if (!isNaN(d)) return d;
+        }
+        return null;
+      };
+      const hasRealTime = p => ["saleDateTime", "orderCreatedAt", "soldAt"].some(f => p?.[f] && String(p[f]).includes("T"));
+      const timeSales = (timePreset === "all" ? sold : sold.filter(p => {
+        const d = saleDateTimeOf(p);
+        return d && d >= timeRange.start && d <= timeRange.end;
+      })).filter(p => saleDateTimeOf(p));
+      const unknownTimeCount = timeSales.filter(p => !hasRealTime(p)).length;
+      const hourBuckets = Array.from({ length: 24 }, (_, h) => ({
+        hour: h,
+        label: new Date(2020, 0, 1, h).toLocaleTimeString("en-US", { hour: "numeric" }),
+        count: 0,
+        revenue: 0,
+        profit: 0,
+        avgSale: 0
+      }));
+      timeSales.forEach(p => {
+        const d = saleDateTimeOf(p);
+        if (!d) return;
+        const h = d.getHours();
+        const rev = +p.salePrice || +p.suggestedPrice || 0;
+        const cost = +p.cost || 0;
+        const fee = platFee(p.platform || "", rev);
+        hourBuckets[h].count += 1;
+        hourBuckets[h].revenue += rev;
+        hourBuckets[h].profit += rev - cost - fee - (+p.shippingCost || 0);
+      });
+      hourBuckets.forEach(h => h.avgSale = h.count ? h.revenue / h.count : 0);
+      const bestHours = hourBuckets.filter(h => h.count > 0).sort((a, b) => b.revenue - a.revenue);
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const dayBuckets = dayNames.map((name, day) => ({ day, name, count: 0, revenue: 0, profit: 0, avgSale: 0 }));
+      timeSales.forEach(p => {
+        const d = saleDateTimeOf(p);
+        if (!d) return;
+        const b = dayBuckets[d.getDay()];
+        const rev = +p.salePrice || +p.suggestedPrice || 0;
+        const cost = +p.cost || 0;
+        const fee = platFee(p.platform || "", rev);
+        b.count += 1;
+        b.revenue += rev;
+        b.profit += rev - cost - fee - (+p.shippingCost || 0);
+      });
+      dayBuckets.forEach(d => d.avgSale = d.count ? d.revenue / d.count : 0);
+      const bestDays = dayBuckets.filter(d => d.count > 0).sort((a, b) => b.revenue - a.revenue);
+      const timeRevenue = timeSales.reduce((sum, p) => sum + (+p.salePrice || +p.suggestedPrice || 0), 0);
       const exportCSV = () => { const rows = [["LEAF DIARY P&L", today(), ""], ["Revenue", soldRev, ""], ["Fees", -soldFees, ""], ["COGS", -soldCogs, ""], ["True Gross", trueGross, ""], ["Expenses", -totalExp, ""], ["Net Profit", netProfit, ""], ["", "", ""], ["TOP PLANTS", "Cost", "True Profit"], ...perPlant.slice(0, 10).map(p => [toTC(p.name), $(p.cost), $(p.truePro)])]; const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([rows.map(r => r.join(",")).join("\n")], { type: "text/csv" })), download: `leaf-diary-${today()}.csv` }); a.click(); };
-      const TABS = [{ id: "overview", l: "📊 Overview" }, { id: "plants", l: "🌿 Per Plant" }, { id: "platform", l: "📱 Platform" }, { id: "nursery", l: "🏪 Nursery" }, { id: "genus", l: "🧬 Genus" }, { id: "alerts", l: "⚡ Alerts" }];
+      const TABS = [{ id: "overview", l: "📊 Overview" }, { id: "time", l: "⏰ Best Times" }, { id: "plants", l: "🌿 Per Plant" }, { id: "platform", l: "📱 Platform" }, { id: "nursery", l: "🏪 Nursery" }, { id: "genus", l: "🧬 Genus" }, { id: "alerts", l: "⚡ Alerts" }];
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="📈" title="Reports & Analytics" sub="True profit after fees · All calculations automatic"
           right={<Btn v="outline" onClick={exportCSV}>📥 Export CSV</Btn>} />
@@ -2039,6 +2099,55 @@
               {byPlat.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales yet.</p> : <BarLine data={byPlat} lk="pl" vk="rev" fmtV={$} colorFn={(_, i) => [C.g600, C.gold, C.blue, C.amber][i % 4]} />}
             </Card>
           </div>
+        </div>}
+        {tab === "time" && <div>
+          <Card style={{ marginBottom: 14, background: C.g50, border: `1px solid ${C.g200}` }}>
+            <Row between wrap center gap={10}>
+              <div>
+                <div style={{ fontFamily: F.display, fontSize: 17, fontWeight: 700, color: C.g900 }}>⏰ Best Sales Times</div>
+                <div style={{ fontSize: 12, color: C.tx3, marginTop: 2 }}>Uses Palmstreet/Whatnot order date and time to show when your live sales make the most money.</div>
+              </div>
+              <Row gap={8} wrap center>
+                {[["today", "Today"], ["week", "This Week"], ["month", "This Month"], ["quarter", "Quarter"], ["year", "YTD"], ["all", "All Time"], ["custom", "Custom"]].map(([v, l]) => <button key={v} onClick={() => setTimePreset(v)} style={{ padding: "8px 11px", borderRadius: 8, border: `1.5px solid ${timePreset === v ? C.g700 : C.bd}`, background: timePreset === v ? C.g700 : C.card, color: timePreset === v ? "#fff" : C.tx2, fontFamily: F.body, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{l}</button>)}
+              </Row>
+            </Row>
+            {timePreset === "custom" && <Row gap={10} wrap style={{ marginTop: 12 }}>
+              <Inp label="Start Date" type="date" value={timeStart} onChange={setTimeStart} />
+              <Inp label="End Date" type="date" value={timeEnd} onChange={setTimeEnd} />
+            </Row>}
+          </Card>
+          {unknownTimeCount > 0 && <div style={{ background: C.amberBg, border: `1px solid ${C.amber}44`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: C.amber, fontWeight: 700 }}>
+            {unknownTimeCount} older imported sales only have a date, not a time. They are counted at noon. Re-importing Palmstreet files with this version will save the real sale time going forward.
+          </div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
+            <KPI label="Sales in Range" value={timeSales.length} color={C.g600} />
+            <KPI label="Revenue in Range" value={$(timeRevenue)} color={C.gold} />
+            <KPI label="Best Hour" value={bestHours[0]?.label || "—"} sub={bestHours[0] ? `${$(bestHours[0].revenue)} · ${bestHours[0].count} sales` : "No sales"} color={C.blue} />
+            <KPI label="Best Day" value={bestDays[0]?.name || "—"} sub={bestDays[0] ? `${$(bestDays[0].revenue)} · ${bestDays[0].count} sales` : "No sales"} color={C.purple} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr .8fr", gap: 14 }}>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>💸 Revenue by Hour — {timeDateChip}</div>
+              {bestHours.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales found for this range.</p> : <BarLine data={hourBuckets} lk="label" vk="revenue" fmtV={$} colorFn={(d) => d.revenue === bestHours[0]?.revenue ? C.gold : C.g600} />}
+            </Card>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>🏆 Top Hours</div>
+              <Tbl cols={[{ k: "hour_", l: "Hour" }, { k: "sales_", l: "Sales", right: true }, { k: "rev_", l: "Revenue", right: true }, { k: "avg_", l: "Avg Sale", right: true }]}
+                rows={bestHours.slice(0, 10).map(h => ({ hour_: <span style={{ fontWeight: 700 }}>{h.label}</span>, sales_: h.count, rev_: <span style={{ fontWeight: 700, color: C.gold }}>{$(h.revenue)}</span>, avg_: $(h.avgSale) }))}
+                empty="No sales found." />
+            </Card>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>📅 Revenue by Day of Week</div>
+              {bestDays.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales found for this range.</p> : <BarLine data={dayBuckets} lk="name" vk="revenue" fmtV={$} colorFn={(d) => d.revenue === bestDays[0]?.revenue ? C.gold : C.blue} />}
+            </Card>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>📊 Top Days</div>
+              <Tbl cols={[{ k: "day_", l: "Day" }, { k: "sales_", l: "Sales", right: true }, { k: "rev_", l: "Revenue", right: true }, { k: "avg_", l: "Avg Sale", right: true }]}
+                rows={bestDays.map(d => ({ day_: <span style={{ fontWeight: 700 }}>{d.name}</span>, sales_: d.count, rev_: <span style={{ fontWeight: 700, color: C.gold }}>{$(d.revenue)}</span>, avg_: $(d.avgSale) }))}
+                empty="No sales found." />
+            </Card>
+          </div>
+          <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 1.2fr .8fr"]{grid-template-columns:1fr!important;}}`}</style>
         </div>}
         {tab === "plants" && <div>
           <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>Top 10 Most Profitable Plants</div>
@@ -2733,13 +2842,30 @@
         }
         return "";
       };
-      const parseDateValue = v => {
+      const parseDateTimeValue = v => {
         if (!v) return "";
-        if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
+        if (v instanceof Date && !isNaN(v)) return v.toISOString();
         const s = String(v).trim();
-        if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(s)) return s.replace(/\//g, "-").slice(0, 10);
+        if (!s) return "";
         const d = new Date(s);
-        return isNaN(d) ? s : d.toISOString().slice(0, 10);
+        if (!isNaN(d)) return d.toISOString();
+        const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?/i);
+        if (m) {
+          let [, mo, da, yr, hh = "12", mm = "00", ss = "00", ap] = m;
+          let y = +yr < 100 ? 2000 + +yr : +yr;
+          let h = +hh;
+          if (ap && ap.toUpperCase() === "PM" && h < 12) h += 12;
+          if (ap && ap.toUpperCase() === "AM" && h === 12) h = 0;
+          const dt = new Date(y, +mo - 1, +da, h, +mm, +ss || 0);
+          return isNaN(dt) ? s : dt.toISOString();
+        }
+        return s;
+      };
+      const parseDateValue = v => {
+        const dt = parseDateTimeValue(v);
+        if (!dt) return "";
+        const d = new Date(dt);
+        return isNaN(d) ? String(dt).slice(0, 10) : d.toISOString().slice(0, 10);
       };
       const isNonPlantVariant = text => {
         const t = String(text || "").toLowerCase();
@@ -2845,7 +2971,9 @@
           const productVariant = cleanText(rowVal(r, ["Product Variants", "Product Variant", "Item Title", "Item", "Title", "Product", "Listing Title", "Name"]));
           if (isNonPlantVariant(productVariant)) { bad.push({ row: idx + 1, productVariant, reason: "non-plant row" }); return; }
           const orderNo = cleanText(rowVal(r, ["Order No", "Order number", "Order Number", "Order ID", "Order"]));
-          const saleDate = parseDateValue(rowVal(r, ["Order Created Time(EST)", "Order Date(PDT)", "Order Date", "Date", "Created Time"]));
+          const saleDateRaw = rowVal(r, ["Order Created Time(EST)", "Order Date(PDT)", "Order Date", "Date", "Created Time"]);
+          const saleDateTime = parseDateTimeValue(saleDateRaw);
+          const saleDate = parseDateValue(saleDateRaw);
           const productAmount = money(rowVal(r, ["Product Amount", "Product ", "Item Price", "Price", "Subtotal"]));
           const orderAmount = money(rowVal(r, ["Order Amount", "Order Total", "Total"]));
           const sellerIncome = money(rowVal(r, ["Seller Income", "Payout", "Net"]));
@@ -2857,6 +2985,8 @@
             orderNo,
             orderStatus: cleanText(rowVal(r, ["Order Status", "Status"])),
             saleDate,
+            saleDateTime,
+            orderCreatedAt: saleDateTime,
             buyerState: cleanText(rowVal(r, ["Buyer State", "State"])),
             orderAmount,
             productAmount,
@@ -2873,7 +3003,7 @@
             recipientName: cleanText(rowVal(r, ["Recipient Name", "Customer Name", "Name"])),
             raw: r,
           };
-          const enrichedSale = { ...sale, title: productVariant, price, state: sale.buyerState, orderNum: orderNo, orderDate: saleDate, shipping: sale.shippingFee };
+          const enrichedSale = { ...sale, title: productVariant, price, state: sale.buyerState, orderNum: orderNo, orderDate: saleDate, orderDateTime: saleDateTime, shipping: sale.shippingFee };
           const duplicate = isDuplicateSale(enrichedSale);
           const match = findInventoryMatch(enrichedSale);
           good.push({
@@ -2958,6 +3088,9 @@
           platform,
           status: "Sold",
           soldDate: sale.saleDate || sale.orderDate || today(),
+          soldAt: sale.saleDateTime || sale.orderDateTime || sale.orderCreatedAt || "",
+          saleDateTime: sale.saleDateTime || sale.orderDateTime || sale.orderCreatedAt || "",
+          orderCreatedAt: sale.orderCreatedAt || sale.orderDateTime || sale.saleDateTime || "",
           dateAdded: sale.saleDate || sale.orderDate || today(),
           customerUsername: sale.customer || "",
           customerName: sale.recipientName || "",
@@ -3024,6 +3157,9 @@
             sourceFileName: fileName || "",
             importedAt: new Date().toISOString(),
             soldDate: sale.saleDate || sale.orderDate || today(),
+            soldAt: sale.saleDateTime || sale.orderDateTime || sale.orderCreatedAt || "",
+            saleDateTime: sale.saleDateTime || sale.orderDateTime || sale.orderCreatedAt || "",
+            orderCreatedAt: sale.orderCreatedAt || sale.orderDateTime || sale.saleDateTime || "",
             paymentFee: sale.paymentFee || 0,
             palmstreetFee: sale.palmstreetFee || 0,
             taxAmount: sale.taxAmount || 0,
