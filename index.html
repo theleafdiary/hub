@@ -2999,8 +2999,18 @@
             refundAmount: money(rowVal(r, ["Refund Amount", "Refund"])),
             productVariant,
             extractedPlantCode,
-            customer: cleanText(rowVal(r, ["Palmstreet UserName", "Username", "Buyer", "Buyer Username", "Customer"])),
-            recipientName: cleanText(rowVal(r, ["Recipient Name", "Customer Name", "Name"])),
+            customer: cleanText(rowVal(r, ["Palmstreet UserName", "Palmstreet Username", "User Name", "Username", "Buyer", "Buyer Username", "Customer", "Customer Username"])),
+            customerUsername: cleanText(rowVal(r, ["Palmstreet UserName", "Palmstreet Username", "User Name", "Username", "Buyer", "Buyer Username", "Customer", "Customer Username"])),
+            recipientName: cleanText(rowVal(r, ["Recipient Name", "Recipient", "Ship To Name", "Customer Name", "Name"])),
+            customerName: cleanText(rowVal(r, ["Recipient Name", "Recipient", "Ship To Name", "Customer Name", "Name"])),
+            customerEmail: cleanText(rowVal(r, ["Email", "Customer Email", "Buyer Email"])),
+            customerPhone: cleanText(rowVal(r, ["Phone", "Customer Phone", "Buyer Phone"])),
+            customerAddress1: cleanText(rowVal(r, ["Street Line 1", "Address 1", "Address Line 1", "Ship Address 1", "Shipping Address 1"])),
+            customerAddress2: cleanText(rowVal(r, ["Street Line 2", "Address 2", "Address Line 2", "Ship Address 2", "Shipping Address 2"])),
+            customerCity: cleanText(rowVal(r, ["City", "Ship City", "Shipping City"])),
+            customerState: cleanText(rowVal(r, ["State", "Buyer State", "Ship State", "Shipping State"])),
+            customerCountry: cleanText(rowVal(r, ["Country", "Ship Country", "Shipping Country"])),
+            customerZip: cleanText(rowVal(r, ["Zip/Postal Code", "Zip", "Postal Code", "Customer Zip", "Shipping Zip"])),
             raw: r,
           };
           const enrichedSale = { ...sale, title: productVariant, price, state: sale.buyerState, orderNum: orderNo, orderDate: saleDate, orderDateTime: saleDateTime, shipping: sale.shippingFee };
@@ -3092,9 +3102,18 @@
           saleDateTime: sale.saleDateTime || sale.orderDateTime || sale.orderCreatedAt || "",
           orderCreatedAt: sale.orderCreatedAt || sale.orderDateTime || sale.saleDateTime || "",
           dateAdded: sale.saleDate || sale.orderDate || today(),
-          customerUsername: sale.customer || "",
-          customerName: sale.recipientName || "",
-          customerState: sale.buyerState || sale.state || "",
+          customerUsername: sale.customerUsername || sale.customer || "",
+          customerName: sale.customerName || sale.recipientName || "",
+          buyerName: sale.customerName || sale.recipientName || "",
+          recipientName: sale.recipientName || sale.customerName || "",
+          customerEmail: sale.customerEmail || "",
+          customerPhone: sale.customerPhone || "",
+          customerAddress1: sale.customerAddress1 || "",
+          customerAddress2: sale.customerAddress2 || "",
+          customerCity: sale.customerCity || "",
+          customerState: sale.customerState || sale.buyerState || sale.state || "",
+          customerCountry: sale.customerCountry || "",
+          customerZip: sale.customerZip || "",
           orderNumber: sale.orderNo || sale.orderNum || "",
           saleImportKey: sale.saleImportKey || saleImportKey(sale),
           saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
@@ -3113,6 +3132,35 @@
           addedBy: user.name,
           margin: 0
         };
+      };
+
+      const customerFieldsFromSale = sale => ({
+        customerUsername: sale.customerUsername || sale.customer || "",
+        customerName: sale.customerName || sale.recipientName || "",
+        buyerName: sale.customerName || sale.recipientName || "",
+        recipientName: sale.recipientName || sale.customerName || "",
+        customerEmail: sale.customerEmail || "",
+        customerPhone: sale.customerPhone || "",
+        customerAddress1: sale.customerAddress1 || "",
+        customerAddress2: sale.customerAddress2 || "",
+        customerCity: sale.customerCity || "",
+        customerState: sale.customerState || sale.buyerState || sale.state || "",
+        customerCountry: sale.customerCountry || "",
+        customerZip: sale.customerZip || "",
+      });
+
+      const keysForSale = sale => new Set([
+        compactKey(sale.saleImportKey || saleImportKey(sale)),
+        compactKey(sale.saleLegacyKey || saleLegacyKey(sale))
+      ]);
+
+      const existingPlantMatchesSale = (p, sale) => {
+        const keys = keysForSale(sale);
+        if (p.saleImportKey && keys.has(compactKey(p.saleImportKey))) return true;
+        if (p.saleLegacyKey && keys.has(compactKey(p.saleLegacyKey))) return true;
+        const built1 = [p.platform || platform, p.orderNumber || "NO_ORDER", p.rawProductVariant || p.name || "NO_PRODUCT", p.salePrice || 0, p.soldDate || "NO_DATE"].map(compactKey).join("|");
+        const built2 = [p.orderNumber || "NO_ORDER", p.rawProductVariant || p.name || "NO_PRODUCT", p.salePrice || 0].map(compactKey).join("|");
+        return keys.has(compactKey(built1)) || keys.has(compactKey(built2));
       };
 
       const applyImport = () => {
@@ -3139,8 +3187,18 @@
         const matchedSales = selected.filter(r => r.matched);
         const unmatchedSales = selected.filter(r => !r.matched);
 
-        const soldInventory = plants.map(p => {
+        let soldInventory = plants.map(p => {
+          const duplicateSale = duplicates.find(s => existingPlantMatchesSale(p, s));
           const sale = matchedSales.find(r => r.matched?.id === p.id);
+          if (!sale && duplicateSale) {
+            const cf = customerFieldsFromSale(duplicateSale);
+            return {
+              ...p,
+              ...Object.fromEntries(Object.entries(cf).filter(([k, v]) => v && !p[k])),
+              sourceFileName: p.sourceFileName || fileName || "",
+              importedAt: p.importedAt || new Date().toISOString()
+            };
+          }
           if (!sale) return p;
           return {
             ...p,
@@ -3148,9 +3206,18 @@
             salePrice: sale.price,
             platform,
             shippingCost: sale.shippingFee || sale.shipping || 0,
-            customerUsername: sale.customer || "",
-            customerName: sale.recipientName || "",
-            customerState: sale.buyerState || sale.state || "",
+            customerUsername: sale.customerUsername || sale.customer || "",
+            customerName: sale.customerName || sale.recipientName || "",
+            buyerName: sale.customerName || sale.recipientName || "",
+            recipientName: sale.recipientName || sale.customerName || "",
+            customerEmail: sale.customerEmail || "",
+            customerPhone: sale.customerPhone || "",
+            customerAddress1: sale.customerAddress1 || "",
+            customerAddress2: sale.customerAddress2 || "",
+            customerCity: sale.customerCity || "",
+            customerState: sale.customerState || sale.buyerState || sale.state || "",
+            customerCountry: sale.customerCountry || "",
+            customerZip: sale.customerZip || "",
             orderNumber: sale.orderNo || sale.orderNum || "",
             saleImportKey: sale.saleImportKey || saleImportKey(sale),
             saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
@@ -3315,24 +3382,27 @@
         !!p?.orderNo ||
         String(p?.nurseryCode || "").toUpperCase() === "HIST";
 
-      const getCustomerKey = p => String(
-        p?.customerUsername ||
-        p?.customerName ||
-        p?.buyerName ||
-        p?.recipientName ||
-        p?.customerEmail ||
-        p?.orderNumber ||
-        p?.orderNo ||
-        ""
-      ).trim().toLowerCase();
+      const cleanCustomerValue = v => String(v || "").replace(/^@+/, "").trim();
+      const getCustomerKey = p => {
+        const username = cleanCustomerValue(p?.customerUsername || p?.customer || p?.palmstreetUsername);
+        const name = cleanCustomerValue(p?.customerName || p?.buyerName || p?.recipientName);
+        const email = cleanCustomerValue(p?.customerEmail || p?.email);
+        const phone = cleanCustomerValue(p?.customerPhone || p?.phone);
+        const fallback = cleanCustomerValue(p?.orderNumber || p?.orderNo);
+        return (username || email || phone || name || fallback || "unknown").toLowerCase();
+      };
 
-      const getCustomerDisplay = p => String(
-        p?.customerUsername ||
-        p?.customerName ||
-        p?.buyerName ||
-        p?.recipientName ||
-        "Unknown Customer"
-      ).trim();
+      const getCustomerDisplay = p => {
+        const username = cleanCustomerValue(p?.customerUsername || p?.customer || p?.palmstreetUsername);
+        const name = cleanCustomerValue(p?.customerName || p?.buyerName || p?.recipientName);
+        const email = cleanCustomerValue(p?.customerEmail || p?.email);
+        const order = cleanCustomerValue(p?.orderNumber || p?.orderNo);
+        if (username) return username;
+        if (name) return name;
+        if (email) return email;
+        if (order) return `Unknown Customer ${order}`;
+        return "Unknown Customer";
+      };
 
       const rawSaleRecords = (plants || []).filter(p => saleLike(p) && getCustomerKey(p));
       const saleRecords = customerPreset === "all"
@@ -3345,17 +3415,17 @@
         if (!custMap[key]) {
           custMap[key] = {
             key,
-            username: p.customerUsername || p.customer || "",
+            username: cleanCustomerValue(p.customerUsername || p.customer || p.palmstreetUsername || ""),
             displayName: getCustomerDisplay(p),
-            name: p.customerName || p.buyerName || p.recipientName || "",
-            recipientName: p.recipientName || "",
-            email: p.customerEmail || p.email || "",
-            phone: p.customerPhone || p.phone || "",
-            address1: p.customerAddress1 || p.address1 || "",
-            address2: p.customerAddress2 || p.address2 || "",
-            city: p.customerCity || p.city || "",
-            state: p.customerState || p.buyerState || p.state || "",
-            zip: p.customerZip || p.zip || "",
+            name: cleanCustomerValue(p.customerName || p.buyerName || p.recipientName || ""),
+            recipientName: cleanCustomerValue(p.recipientName || p.customerName || ""),
+            email: cleanCustomerValue(p.customerEmail || p.email || ""),
+            phone: cleanCustomerValue(p.customerPhone || p.phone || ""),
+            address1: cleanCustomerValue(p.customerAddress1 || p.address1 || ""),
+            address2: cleanCustomerValue(p.customerAddress2 || p.address2 || ""),
+            city: cleanCustomerValue(p.customerCity || p.city || ""),
+            state: cleanCustomerValue(p.customerState || p.buyerState || p.state || ""),
+            zip: cleanCustomerValue(p.customerZip || p.zip || ""),
             orders: [],
             total: 0,
             plants: 0,
@@ -3499,7 +3569,7 @@
                       {st.icon}
                     </div>
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: 14, color: C.g900 }}>@{c.username || c.displayName}</div>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: C.g900 }}>{c.username ? `@${c.username}` : c.displayName}</div>
                       <div style={{ fontSize: 11, color: C.tx3 }}>{c.plants} items · {c.orderCount} orders{c.state ? ` · ${c.state}` : ""}{c.name ? ` · ${c.name}` : ""}</div>
                       {c.notes && <div style={{ fontSize: 11, color: st.color, fontWeight: 700, marginTop: 3 }}>Note: {c.notes.slice(0, 90)}{c.notes.length > 90 ? "..." : ""}</div>}
                     </div>
@@ -3528,7 +3598,7 @@
           </div>
         </div>}
 
-        {detail && <Modal title={`Customer: @${detail.username || detail.displayName}`} onClose={() => setDetail(null)} wide>
+        {detail && <Modal title={`Customer: ${detail.username ? `@${detail.username}` : detail.displayName}`} onClose={() => setDetail(null)} wide>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
             <Card style={{ background: customerStatusInfo(draft.status).bg, border: `1px solid ${customerStatusInfo(draft.status).color}55` }}>
               <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 8 }}>Customer Status</div>
