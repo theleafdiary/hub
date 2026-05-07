@@ -4893,6 +4893,7 @@
       const handleLogin = u => { setUser(u); setPage(u.role === "employee" ? "emp_dash" : "dash"); addAudit({ action: "Logged in", user: u.name, page: "Login" }); };
       const handleLogout = async () => { await supabase.auth.signOut(); addAudit({ action: "Logged out", user: user?.name || "Unknown", page: "System" }); setUser(null); setPage("dash"); };
       const billAlerts = bills.filter(b => { const d = Math.ceil((new Date(b.dueDate) - Date.now()) / 864e5); return d <= 7 && d >= 0 && b.status === "Unpaid"; }).length;
+      const inStockPlantCount = plants.filter(p => String(p.status || "").trim() === "In Stock").length;
 
       if (session === undefined) return <div style={{ height: "100vh", background: C.bg }}></div>;
       if (!session) return <AuthScreen />;
@@ -4904,7 +4905,7 @@
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
         {showPwdModal && <ChangePasswordModal onClose={() => setShowPwdModal(false)} user={user} />}
-        <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={plants.length} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} />
+        <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} />
 
         {/* Cloud sync indicator strip */}
         <div style={{ background: C.g900, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
