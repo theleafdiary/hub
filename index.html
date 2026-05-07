@@ -393,22 +393,73 @@
     /* ══════════════════════════════════════════════════════════
        OWNER DASHBOARD
     ══════════════════════════════════════════════════════════ */
+    function getDashDateRange(preset, customStart, customEnd) {
+      const now = new Date();
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      let start;
+      if (preset === "today") start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      else if (preset === "week") {
+        const day = now.getDay();
+        const diff = day === 0 ? 6 : day - 1;
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
+      }
+      else if (preset === "month") start = new Date(now.getFullYear(), now.getMonth(), 1);
+      else if (preset === "quarter") start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      else if (preset === "year") start = new Date(now.getFullYear(), 0, 1);
+      else if (preset === "custom") {
+        start = customStart ? new Date(customStart + "T00:00:00") : new Date(0);
+        const cEnd = customEnd ? new Date(customEnd + "T23:59:59") : end;
+        return { start, end: cEnd, label: `${customStart || "Start"} → ${customEnd || "Today"}` };
+      }
+      else return { start: new Date(0), end: new Date(8640000000000000), label: "All Time" };
+      return { start, end, label: start.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " → Today" };
+    }
+    function dashDateOf(obj, fields) {
+      for (const f of fields) {
+        if (obj && obj[f]) {
+          const d = new Date(String(obj[f]).includes("T") ? obj[f] : obj[f] + "T12:00:00");
+          if (!isNaN(d)) return d;
+        }
+      }
+      return null;
+    }
+    function inDashRange(obj, range, fields) {
+      const d = dashDateOf(obj, fields);
+      if (!d) return false;
+      return d >= range.start && d <= range.end;
+    }
     function OwnerDash({ plants, expenses, timecards, bills, setPage }) {
-      const sold = plants.filter(p => p.status === "Sold");
+      const [dashPreset, setDashPreset] = useState("month");
+      const [customStart, setCustomStart] = useState(today());
+      const [customEnd, setCustomEnd] = useState(today());
+      const range = getDashDateRange(dashPreset, customStart, customEnd);
+      const dateChip = dashPreset === "all" ? "All Time" : range.label;
+
+      const soldAll = plants.filter(p => p.status === "Sold");
+      const sold = dashPreset === "all" ? soldAll : soldAll.filter(p => inDashRange(p, range, ["saleDate", "soldDate", "dateSold", "soldAt", "updatedAt", "dateAdded"]));
+      const expensesInRange = dashPreset === "all" ? expenses : expenses.filter(e => inDashRange(e, range, ["date", "expenseDate", "paidDate", "createdAt"]));
+      const timecardsInRange = dashPreset === "all" ? timecards : timecards.filter(t => inDashRange(t, range, ["date", "createdAt"]));
+
       const inStock = plants.filter(p => p.status === "In Stock");
-      const dead = plants.filter(p => ["Dead", "Damaged"].includes(p.status));
+      const deadAll = plants.filter(p => ["Dead", "Damaged"].includes(p.status));
+      const dead = dashPreset === "all" ? deadAll : deadAll.filter(p => inDashRange(p, range, ["deadDate", "damagedDate", "updatedAt", "dateAdded"]));
       const aging30 = inStock.filter(p => dHeld(p.dateAdded) >= 30);
       const aging60 = inStock.filter(p => dHeld(p.dateAdded) >= 60);
       const needsLabel = inStock.filter(p => !p.labelPrinted);
+      const addedInRange = dashPreset === "all" ? plants : plants.filter(p => inDashRange(p, range, ["dateAdded", "createdAt", "invoiceDate"]));
 
       const soldRev = sold.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0);
       const soldFees = sold.reduce((s, p) => s + platFee(p.platform || "", +p.salePrice || +p.suggestedPrice || 0), 0);
       const soldCogs = sold.reduce((s, p) => s + (+p.cost || 0), 0);
       const trueGross = soldRev - soldCogs - soldFees;
-      const totalExp = expenses.reduce((s, e) => s + (+e.amount || 0), 0);
+      const totalExp = expensesInRange.reduce((s, e) => s + (+e.amount || 0), 0);
+      const payrollCost = timecardsInRange.reduce((s, t) => s + (+t.totalPay || 0), 0);
       const netProfit = trueGross - totalExp;
       const stockVal = inStock.reduce((s, p) => s + (+p.suggestedPrice || 0), 0);
       const lostVal = dead.reduce((s, p) => s + (+p.cost || 0), 0);
+      const avgOrder = sold.length ? soldRev / sold.length : 0;
+      const avgProfit = sold.length ? trueGross / sold.length : 0;
+      const sellThrough = addedInRange.length ? Math.round((sold.length / addedInRange.length) * 100) : 0;
 
       const upcoming = bills.filter(b => { const d = Math.ceil((new Date(b.dueDate) - Date.now()) / 864e5); return d <= 14 && d >= 0 && b.status === "Unpaid"; });
       const platData = PLATFORMS.map(pl => { const pp = sold.filter(p => p.platform === pl); return { pl, rev: pp.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0), cnt: pp.length }; }).filter(p => p.cnt > 0).sort((a, b) => b.rev - a.rev);
@@ -417,45 +468,68 @@
       const topGenus = Object.entries(gMap).map(([g, d]) => ({ g, profit: d.rev - d.cost, cnt: d.cnt })).sort((a, b) => b.profit - a.profit).slice(0, 4);
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🏠" title="Business Dashboard" sub={new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+        <SHdr icon="🏠" title="Business Dashboard" sub={`Showing ${dateChip}`}
           right={<Row gap={8}><Btn sz="sm" onClick={() => setPage("upload")}>📸 Upload Invoice</Btn><Btn sz="sm" v="soft" onClick={() => setPage("manual")}>✏️ Add Plant</Btn></Row>} />
 
-        {/* Hero row */}
+        <Card style={{ marginBottom: 14, background: C.g50, border: `1px solid ${C.g200}` }}>
+          <Row between wrap center gap={10}>
+            <div>
+              <div style={{ fontFamily: F.display, fontSize: 17, fontWeight: 700, color: C.g900 }}>📅 Dashboard Date Range</div>
+              <div style={{ fontSize: 12, color: C.tx3, marginTop: 2 }}>Sales, fees, expenses, payroll, tax estimate, profit, and sold plant charts follow this range.</div>
+            </div>
+            <Row gap={8} wrap center>
+              {[
+                ["today", "Today"], ["week", "This Week"], ["month", "This Month"], ["quarter", "Quarter"], ["year", "YTD"], ["all", "All Time"], ["custom", "Custom"]
+              ].map(([v, l]) => <button key={v} onClick={() => setDashPreset(v)} style={{ padding: "8px 11px", borderRadius: 8, border: `1.5px solid ${dashPreset === v ? C.g700 : C.bd}`, background: dashPreset === v ? C.g700 : C.card, color: dashPreset === v ? "#fff" : C.tx2, fontFamily: F.body, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{l}</button>)}
+            </Row>
+          </Row>
+          {dashPreset === "custom" && <Row gap={10} wrap style={{ marginTop: 12 }}>
+            <Inp label="Start Date" type="date" value={customStart} onChange={setCustomStart} />
+            <Inp label="End Date" type="date" value={customEnd} onChange={setCustomEnd} />
+          </Row>}
+        </Card>
+
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div style={{ background: C.g800, borderRadius: 14, padding: "18px 22px", color: "#fff" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 6 }}>True Net Profit (after all fees & expenses)</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 6 }}>Net Profit for Selected Range</div>
             <div style={{ fontSize: 32, fontWeight: 700, fontFamily: F.display, lineHeight: 1, marginBottom: 6 }}>{$(netProfit)}</div>
             <div style={{ fontSize: 12, opacity: .7 }}>{$(trueGross)} gross · {$(soldFees)} fees · {$(totalExp)} exp</div>
           </div>
-          <KPI label="Total Revenue" value={$(soldRev)} sub={`${sold.length} plants sold`} color={C.gold} />
-          <KPI label="Stock Value" value={$(stockVal)} sub={`${inStock.length} in stock`} color={C.g600} />
-          <KPI label="Dead Loss" value={$(lostVal)} sub={`${dead.length} plants`} color={dead.length > 0 ? C.red : C.tx3} />
+          <KPI label="Revenue" value={$(soldRev)} sub={`${sold.length} plants sold`} color={C.gold} />
+          <KPI label="Avg Sale" value={$(avgOrder)} sub={`Avg gross ${$(avgProfit)}`} color={C.blue} />
+          <KPI label="Stock Value" value={$(stockVal)} sub={`${inStock.length} current in stock`} color={C.g600} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 22 }}>
           <KPI label="Platform Fees" value={$(soldFees)} color={C.red} />
           <KPI label="Expenses" value={$(totalExp)} color={C.red} />
+          <KPI label="Payroll" value={$(payrollCost)} color={C.purple} />
+          <KPI label="Sell-Through" value={`${sellThrough}%`} sub={`${sold.length} sold / ${addedInRange.length} added`} color={sellThrough >= 60 ? C.g600 : sellThrough >= 30 ? C.gold : C.amber} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 22 }}>
           <KPI label="Aging 30+ days" value={aging30.length} color={aging30.length > 0 ? C.amber : C.tx3} onClick={() => setPage("inv")} />
+          <KPI label="Aging 60+ days" value={aging60.length} color={aging60.length > 0 ? C.red : C.tx3} onClick={() => setPage("inv")} />
           <KPI label="Needs Labels" value={needsLabel.length} color={needsLabel.length > 0 ? C.blue : C.tx3} onClick={() => setPage("labels")} />
+          <KPI label="Dead/Damaged Loss" value={$(lostVal)} sub={dashPreset === "all" ? `${dead.length} all-time` : `${dead.length} in range`} color={dead.length > 0 ? C.red : C.tx3} />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>💰 Revenue by Platform</div>
-              {platData.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales yet — add plants and mark them sold.</p>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>💰 Revenue by Platform — {dateChip}</div>
+              {platData.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales in this date range.</p>
                 : <BarLine data={platData} lk="pl" vk="rev" fmtV={$} colorFn={(_, i) => [C.g600, C.gold, C.blue, C.amber][i % 4]} />}
             </Card>
             <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>🏆 Top Genus by Profit</div>
-              {topGenus.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sold plants yet.</p>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>🏆 Top Genus by Profit — {dateChip}</div>
+              {topGenus.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sold plants in this date range.</p>
                 : topGenus.map(({ g, profit, cnt }) => <div key={g} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.bdS}` }}>
                   <div><span style={{ fontWeight: 600, fontSize: 13 }}>{g}</span><span style={{ fontSize: 11, color: C.tx3, marginLeft: 8 }}>{cnt} sold</span></div>
                   <span style={{ fontWeight: 700, color: C.gold, fontSize: 13 }}>{$(profit)}</span>
                 </div>)}
             </Card>
             <Card style={{ background: C.g50, border: `1px solid ${C.g200}` }}>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 13, marginBottom: 8 }}>🌴 Florida Tax Snapshot</div>
-              {[["Sales Tax Due (7%)", $(soldRev * FL_SALES_TAX)], ["Est. SE Tax (15.3%)", $(Math.max(0, netProfit) * FL_SE_TAX)], ["Est. Income Tax", $(estIncomeTax(Math.max(0, netProfit)))]].map(([l, v]) => (
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 13, marginBottom: 8 }}>🌴 Florida Tax Snapshot — {dateChip}</div>
+              {[["Sales Tax Due (7%)", $(soldRev * FL_SALES_TAX)], ["Est. SE Tax (15.3%)", $(Math.max(0, netProfit) * FL_SE_TAX)], ["Est. Income Tax", $(estIncomeTax(Math.max(0, netProfit)))], ["Payroll Cost", $(payrollCost)]].map(([l, v]) => (
                 <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
                   <span style={{ fontSize: 11, color: C.tx3 }}>{l}</span>
                   <span style={{ fontWeight: 700, color: C.g800, fontSize: 11 }}>{v}</span>
@@ -487,7 +561,7 @@
               <Btn v="ghost" sz="sm" onClick={() => setPage("labels")}>Print labels →</Btn>
             </div>}
             <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>📋 True P&L</div>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>📋 True P&L — {dateChip}</div>
               {[["Gross Revenue", soldRev, C.gold, false], ["− Fees", -soldFees, C.red, false], ["− COGS", -soldCogs, C.red, false], ["= True Gross", trueGross, trueGross >= 0 ? C.g600 : C.red, true], ["− Expenses", -totalExp, C.red, false], ["= Net Profit", netProfit, netProfit >= 0 ? C.g800 : C.red, true]].map(([l, v, c, bold]) => (
                 <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "5px 8px", background: bold ? C.g50 : "transparent", borderRadius: 5, marginBottom: 2 }}>
                   <span style={{ fontSize: 12, color: C.tx2, fontWeight: bold ? 700 : 400 }}>{l}</span>
@@ -497,6 +571,12 @@
             </Card>
           </div>
         </div>
+
+        <style>{`@media(max-width:760px){
+          div[style*="grid-template-columns: 2fr 1fr 1fr 1fr"],
+          div[style*="grid-template-columns: repeat(4,1fr)"],
+          div[style*="grid-template-columns: 1.4fr 1fr"]{grid-template-columns:1fr!important;}
+        }`}</style>
       </div>;
     }
 
