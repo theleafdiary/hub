@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Leaf Diary" />
   <meta name="theme-color" content="#174D2F" />
-  <title>Leaf Diary Business Hub</title>
+  <title>Leaf Diary Business Hub — AI Menu Scroll Fixed</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -21,7 +21,10 @@
       margin: 0;
       padding: 0;
       font-family: 'DM Sans', system-ui, sans-serif;
-      overscroll-behavior: none;
+      overscroll-behavior-x: none;
+      overscroll-behavior-y: auto;
+      overflow-y: auto !important;
+      position: static !important;
     }
 
     #root {
@@ -151,6 +154,54 @@
       div[style*="font-size: 32px"] { font-size: 26px !important; }
       div[style*="font-size: 48px"] { font-size: 38px !important; }
     }
+
+
+    /* DESKTOP + MOBILE SCROLL REPAIR — do not lock app pages */
+    html, body, #root {
+      min-height: 100% !important;
+      height: auto !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      position: static !important;
+    }
+
+    body {
+      overscroll-behavior-y: auto !important;
+      touch-action: auto !important;
+    }
+
+    #root > div {
+      min-height: 100vh;
+      height: auto !important;
+      overflow: visible !important;
+    }
+
+    .page-scroll-safe {
+      min-height: 100vh !important;
+      height: auto !important;
+      overflow-y: visible !important;
+      overflow-x: hidden !important;
+      padding-bottom: calc(150px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    @media (min-width: 761px) {
+      .page-scroll-safe {
+        overflow-y: visible !important;
+        padding-bottom: 150px !important;
+      }
+      body, html, #root { overflow-y: auto !important; }
+    }
+
+    @media (max-width: 760px) {
+      html, body, #root {
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+      }
+      .page-scroll-safe {
+        overflow-y: visible !important;
+      }
+    }
+
   </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -405,6 +456,43 @@
       a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 800);
     };
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       AI AUTOMATION HELPERS — works now with local business rules.
+       If you deploy Supabase Edge Function leaf-ai later, this screen
+       will automatically use it instead of the local fallback.
+    ══════════════════════════════════════════════════════════ */
+    const buildLeafDataSnapshot = ({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [] }) => ({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts, counts: { inStock: plants.filter(p => p.status === "In Stock").length, sold: plants.filter(p => p.status === "Sold").length, noPhoto: plants.filter(p => p.status === "In Stock" && !p.photoUrl && !p.photoBase64).length, needsLabel: plants.filter(p => p.status === "In Stock" && !p.labelPrinted).length, readyToShip: groupSalesIntoOrders(plants).filter(o => o.plants.some(x => !x.trackingNumber)).length, receiptsReview: receipts.filter(r => r.reviewStatus === "Needs Review" || r.review_status === "Needs Review").length, docs: casdCerts.length } });
+    const aiLine = (title, body, page = "command", severity = "info") => ({ id: uid(), title, body, page, severity });
+    function localLeafAI(task, snapshot = {}) {
+      const plants = snapshot.plants || [], expenses = snapshot.expenses || [], bills = snapshot.bills || [], timecards = snapshot.timecards || [], receipts = snapshot.receipts || [], settings = snapshot.settings || {}, casdCerts = snapshot.casdCerts || [];
+      const inStock = plants.filter(p => p.status === "In Stock"), readyOrders = groupSalesIntoOrders(plants).filter(o => o.plants.some(x => !x.trackingNumber));
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64), needsLabel = inStock.filter(p => !p.labelPrinted), aging = inStock.filter(p => dHeld(p.dateAdded) >= 45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
+      const month = monthKey(), soldMonth = plants.filter(p => p.status === "Sold" && monthKey(plantSaleDate(p)) === month), revenue = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0), cogs = soldMonth.reduce((s,p)=>s+(+p.cost||0),0), expMonth = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((s,e)=>s+(+e.amount||0),0), net = revenue - cogs - expMonth;
+      const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0), payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
+      const actions = [], warnings = [], recommendations = [];
+      if (readyOrders.length) actions.push(aiLine("Ship sold orders", `${readyOrders.length} order(s) are sold but missing tracking. Print slips and add tracking today.`, "ship", "warning"));
+      if (noPhoto.length) actions.push(aiLine("Add missing photos", `${noPhoto.length} in-stock plant(s) are missing photos. Photos help Palmstreet listings sell faster.`, "inv", "info"));
+      if (needsLabel.length) actions.push(aiLine("Print labels", `${needsLabel.length} plant(s) need labels before the next show.`, "labels", "info"));
+      if (aging.length) actions.push(aiLine("Move aging plants", `${aging.length} plant(s) are 45+ days old. Discount, bundle, or feature them in the next live show.`, "discounts", "warning"));
+      if (due14) warnings.push(aiLine("Bills due soon", `${$(due14)} in bills are due in the next 14 days.`, "bills", "warning"));
+      if ((+settings.currentBankBalance || 0) && (+settings.currentBankBalance || 0) < due14 + payrollWeek) warnings.push(aiLine("Cash risk", "Bank balance may not cover bills + payroll due soon. Open Cash Flow before buying inventory.", "cashflow", "critical"));
+      const deadLoss = plants.filter(p => ["Dead","Damaged"].includes(p.status)).reduce((s,p)=>s+(+p.cost||0),0); if (deadLoss) recommendations.push(aiLine("Reduce plant loss", `${$(deadLoss)} is tied to dead/damaged plants. Review nursery sources and care notes.`, "care", "warning"));
+      const genus = {}; plants.forEach(p => { const g = gOf(p.name); genus[g] = genus[g] || { g, stock:0, sold:0 }; if (p.status === "In Stock") genus[g].stock++; if (p.status === "Sold" && dateInLast(plantSaleDate(p), 45)) genus[g].sold++; });
+      Object.values(genus).filter(g => g.sold >= 2 && g.stock <= 2).sort((a,b)=>b.sold-a.sold).slice(0,5).forEach(g => recommendations.push(aiLine("Reorder opportunity", `${g.g} sold ${g.sold} recently and only ${g.stock} remain. Add to nursery shopping list.`, "intel", "info")));
+      const dupes = Object.values(plants.reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1); if (dupes.length) warnings.push(aiLine("Duplicate plant IDs", `${dupes.length} duplicate plant number group(s) found.`, "cleanup", "warning"));
+      const receiptNeeds = receipts.filter(r => (r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.main_category && !r.mainCategory)).length; if (receiptNeeds) actions.push(aiLine("Review receipts", `${receiptNeeds} receipt(s) need category or owner review for clean tax records.`, "receipts", "warning"));
+      const soldDocStates = plants.filter(p => p.status === "Sold" && ["CA","AZ","TX","LA"].includes(String(p.state||p.shippingState||"").toUpperCase())); if (soldDocStates.length && !casdCerts.length) warnings.push(aiLine("Check state docs", `${soldDocStates.length} sold plant(s) may require CA/AZ/TX/LA paperwork. Confirm PDFs are archived.`, "casd", "critical"));
+      if (task === "pricing_assistant") inStock.filter(p => (+p.suggestedPrice||0) && (+p.cost||0) && marg(+p.cost,+p.suggestedPrice) < 55).slice(0,12).forEach(p => recommendations.push(aiLine("Raise price", `${p.plantId || ""} ${p.name}: margin ${marg(+p.cost,+p.suggestedPrice)}%. Suggested price ${$(sprice(+p.cost,.62))}.`, "inv", "warning")));
+      if (task === "cash_leaks") { const byCat = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((m,e)=>{ const c=e.category||"Other"; m[c]=(m[c]||0)+(+e.amount||0); return m; },{}); Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,5).forEach(([cat,amt]) => recommendations.push(aiLine("Expense category watch", `${cat}: ${$(amt)} spent this month. Verify receipts and cut waste if high.`, "expense", "warning"))); }
+      if (task === "live_show_plan") { [...inStock].sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,5).forEach((p,i)=>actions.push(aiLine(`Show slot ${i+1}`, `${p.name} — ${$(p.suggestedPrice)}. Use as a hook or premium moment.`, "liveshow", "info"))); aging.slice(0,5).forEach(p=>actions.push(aiLine("Clearance push", `${p.name} held ${fDays(dHeld(p.dateAdded))}. Bundle or discount live.`, "discounts", "warning"))); }
+      if (task === "customer_ai") { const spend = {}; plants.filter(p=>p.status==="Sold").forEach(p=>{ const k=p.customerUsername||p.customerName||"Unknown"; spend[k]=(spend[k]||0)+(+p.salePrice||+p.suggestedPrice||0); }); Object.entries(spend).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([c,amt])=>recommendations.push(aiLine("VIP customer", `${c} has spent ${$(amt)}. Send a thank-you or early access message.`, "customers", "info"))); }
+      if (task === "employee_tasks") { actions.push(aiLine("Photo task", `Photograph ${Math.min(noPhoto.length,25)} plants missing photos.`, "inv", "info")); actions.push(aiLine("Packing task", `Pull and pack ${readyOrders.length} unshipped orders.`, "ship", "warning")); actions.push(aiLine("Label task", `Print labels for ${Math.min(needsLabel.length,50)} plants.`, "labels", "info")); }
+      const summary = task === "owner_summary" ? `This month: ${$(revenue)} revenue, estimated ${$(net)} net after COGS/expenses. ${readyOrders.length} orders need shipping, ${aging.length} plants are aging, ${noPhoto.length} plants need photos.` : task === "cash_leaks" ? `AI found ${recommendations.length} money leak checks for this month.` : task === "live_show_plan" ? "AI built a show plan using premium plants plus aging inventory to clear." : `AI found ${actions.length} actions, ${warnings.length} warnings, and ${recommendations.length} recommendations.`;
+      return { ok:true, task, summary, actions, warnings, recommendations, generatedAt:new Date().toISOString() };
+    }
+    async function runLeafAI(task, payload) { try { const { data, error } = await supabase.functions.invoke("leaf-ai", { body:{ task, payload } }); if (!error && data && data.ok) return data; } catch (err) { console.warn("leaf-ai unavailable, using local fallback", err); } return localLeafAI(task, payload); }
     /* ══════════════════════════════════════════════════════════
        SHARED UI COMPONENTS
     ══════════════════════════════════════════════════════════ */
@@ -505,76 +593,48 @@
     /* ══════════════════════════════════════════════════════════
        NAV
     ══════════════════════════════════════════════════════════ */
+    /* CLEAN GROUPED MENU + AI CENTER PATCH — visible in hamburger menu */
     function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {} }) {
-      const ownerTabs = [
-        { id: "dash", icon: "🏠", l: "Dashboard" }, { id: "command", icon: "🚀", l: "Command Center" }, { id: "cashflow", icon: "💵", l: "Cash Flow" }, { id: "ship", icon: "📦", l: "Ready to Ship" }, { id: "upload", icon: "📸", l: "Upload Invoice" },
-        { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "history", icon: "📋", l: "Past Invoices" },
-        { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "showbuilder", icon: "🎪", l: "Show Builder" }, { id: "liveshow", icon: "🎥", l: "Live Show" }, { id: "bundles", icon: "🧺", l: "Bundles" },
-        { id: "sellthru", icon: "📊", l: "Sell-Through" }, { id: "showimport", icon: "📦", l: "Post-Show" },
-        { id: "customers", icon: "👥", l: "Customers" }, { id: "retention", icon: "💚", l: "Retention" }, { id: "refunds", icon: "↩️", l: "Refunds" }, { id: "nursery", icon: "🏪", l: "Nurseries" }, { id: "pos", icon: "📋", l: "Purchase Orders" },
-        { id: "bills", icon: "📅", l: "Bills" }, { id: "expense", icon: "💳", l: "Expenses" }, { id: "receipts", icon: "🧾", l: "Receipt Scanner" },
-        { id: "timecard", icon: "⏱️", l: "Timecard" }, { id: "payroll", icon: "👥", l: "Payroll" },
-        { id: "intel", icon: "💡", l: "Buy Intel" }, { id: "reports", icon: "📈", l: "Reports" },
-        { id: "tax", icon: "🧾", l: "Tax Center" }, { id: "goals", icon: "🎯", l: "Goals" }, { id: "care", icon: "🩺", l: "Plant Care" }, { id: "content", icon: "✨", l: "AI Content" }, { id: "discounts", icon: "🏷️", l: "Discounts" }, { id: "locations", icon: "📍", l: "Locations" }, { id: "commissions", icon: "🤝", l: "Commissions" }, { id: "audit", icon: "🔍", l: "Audit Log" },
-        { id: "admin", icon: "⚙️", l: "Admin" },
-        { id: "cleanup", icon: "🧹", l: "Data Cleanup" },
-        { id: "casd", icon: "📜", l: "State Docs" },
-      ];
-      const mgrTabs = ownerTabs.filter(t => !["payroll", "tax", "audit", "admin", "bills"].includes(t.id));
-      const empTabs = [{ id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "liveshow", icon: "🎥", l: "Live Show" }, { id: "receipts", icon: "🧾", l: "Receipts" }, { id: "upload", icon: "📸", l: "Upload Invoice" }, { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }];
-      const tabs = user.role === "owner" ? ownerTabs : user.role === "manager" ? mgrTabs : empTabs;
-      const [menuOpen, setMenuOpen] = useState(false);
-      const defaultOwnerFooterTabs = ["dash", "inv", "upload", "reports", "bills"];
-      const defaultEmployeeFooterTabs = ["emp_dash", "inv", "upload", "manual", "timecard"];
-      const savedFooterIds = user.role === "employee"
-        ? (Array.isArray(settings.employeeFooterTabs) ? settings.employeeFooterTabs : defaultEmployeeFooterTabs)
-        : (Array.isArray(settings.footerTabs) ? settings.footerTabs : defaultOwnerFooterTabs);
+      const allOwnerTabs = [
+        ["dash","🏠","Dashboard","Core"],["command","🚀","Command Center","Core"],["aihub","🤖","AI Center","Core"],["cashflow","💵","Cash Flow","Core"],
+        ["inv","🌿","Inventory","Plants"],["manual","✏️","Add Plants","Plants"],["upload","📸","Upload Invoice","Plants"],["labels","🏷️","Labels","Plants"],["care","🩺","Plant Care","Plants"],["locations","📍","Locations","Plants"],
+        ["showbuilder","🎪","Show Builder","Live Selling"],["liveshow","🎥","Live Show","Live Selling"],["showimport","📦","Post-Show","Live Selling"],["bundles","🧺","Bundles","Live Selling"],["discounts","🏷️","Discounts","Live Selling"],
+        ["ship","📦","Ready to Ship","Orders"],["customers","👥","Customers","Orders"],["retention","💚","Retention","Orders"],["refunds","↩️","Refunds","Orders"],["casd","📜","State Docs","Orders"],
+        ["expense","💳","Expenses","Money"],["receipts","🧾","Receipt Scanner","Money"],["bills","📅","Bills","Money"],["payroll","👥","Payroll","Money"],["tax","🧾","Tax Center","Money"],["goals","🎯","Goals","Money"],["commissions","🤝","Commissions","Money"],
+        ["nursery","🏪","Nurseries","Buying"],["pos","📋","Purchase Orders","Buying"],["intel","💡","Buy Intel","Buying"],
+        ["reports","📈","Reports","Business"],["sellthru","📊","Sell-Through","Business"],["content","✨","AI Content","Business"],["history","📋","Past Invoices","Business"],["timecard","⏱️","Timecard","Business"],
+        ["audit","🔍","Audit Log","Admin"],["admin","⚙️","Admin","Admin"],["cleanup","🧹","Data Cleanup","Admin"]
+      ].map(([id,icon,l,group])=>({id,icon,l,group}));
+      const mgrTabs = allOwnerTabs.filter(t => !["payroll","tax","audit","admin","bills","cashflow","command","commissions","goals","cleanup"].includes(t.id));
+      const empTabs = [["emp_dash","🏠","My Dashboard","Core"],["aihub","🤖","AI Help","Core"],["liveshow","🎥","Live Show","Daily Work"],["receipts","🧾","Receipts","Daily Work"],["upload","📸","Upload Invoice","Daily Work"],["manual","✏️","Add Plants","Daily Work"],["inv","🌿","Inventory","Daily Work"],["labels","🏷️","Labels","Daily Work"],["timecard","⏱️","My Timecard","Daily Work"]].map(([id,icon,l,group])=>({id,icon,l,group}));
+      const tabs = user.role === "owner" ? allOwnerTabs : user.role === "manager" ? mgrTabs : empTabs;
+      const [menuOpen, setMenuOpen] = useState(false), [openGroup, setOpenGroup] = useState("Core"), [menuSearch, setMenuSearch] = useState("");
+      const defaultOwnerFooterTabs = ["dash","command","aihub","inv","upload"], defaultEmployeeFooterTabs = ["emp_dash","inv","upload","manual","timecard"];
+      const savedFooterIds = user.role === "employee" ? (Array.isArray(settings.employeeFooterTabs) ? settings.employeeFooterTabs : defaultEmployeeFooterTabs) : (Array.isArray(settings.footerTabs) ? settings.footerTabs : defaultOwnerFooterTabs);
       const fallbackFooterIds = user.role === "employee" ? defaultEmployeeFooterTabs : defaultOwnerFooterTabs;
       const tabsById = Object.fromEntries(tabs.map(t => [t.id, t]));
-      const bottomTabs = [...savedFooterIds, ...fallbackFooterIds]
-        .filter((id, idx, arr) => id && arr.indexOf(id) === idx && tabsById[id])
-        .slice(0, 5)
-        .map(id => tabsById[id]);
+      const bottomTabs = [...savedFooterIds, ...fallbackFooterIds].filter((id, idx, arr) => id && arr.indexOf(id) === idx && tabsById[id]).slice(0,5).map(id=>tabsById[id]);
+      const groups = [...new Set(tabs.map(t => t.group || "Other"))];
+      const coreIds = user.role === "employee" ? ["emp_dash","inv","upload","manual","timecard"] : ["dash","command","aihub","cashflow","ship","inv"];
+      const coreTabs = coreIds.map(id=>tabsById[id]).filter(Boolean);
+      const visibleTabs = tabs.filter(t => !menuSearch.trim() || (t.l + " " + t.group).toLowerCase().includes(menuSearch.trim().toLowerCase()));
+      const groupedTabs = groups.map(g => ({ group:g, items: visibleTabs.filter(t => (t.group||"Other") === g) })).filter(g=>g.items.length);
+      const openPage = id => { setPage(id); setMenuOpen(false); setMenuSearch(""); };
       return <>
-        <div style={{ background: "#000000", position: "sticky", top: 0, zIndex: 300, padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 2px 12px rgba(0,0,0,.2)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height: 38, width: 38, objectFit: "contain", borderRadius: "50%", background: "#000", padding: 1, boxShadow: "0 0 0 1px rgba(255,255,255,.25)" }} onError={e => { e.currentTarget.src = "https://cdn.shopify.com/s/files/1/0836/8723/7665/files/leaf_diary_logo_png.png?v=1768865207&width=200"; }} />
-            <span style={{ fontSize: 15, color: "#fff", fontWeight: 700, fontFamily: `'Playfair Display',Georgia,serif`, letterSpacing: .5 }}>LEAF DIARY</span>
-          </div>
-          <Row gap={8} center>
-            {billAlerts > 0 && <div onClick={() => { setPage("bills"); setMenuOpen(false); }} style={{ background: C.red, borderRadius: 20, padding: "4px 10px", fontSize: 12, color: "#fff", fontWeight: 700, cursor: "pointer" }}>📅 {billAlerts}</div>}
-            <div style={{ background: "rgba(255,255,255,.15)", borderRadius: 20, padding: "4px 12px", fontSize: 12, color: "#fff", fontWeight: 600 }}>{user.name}</div>
-            <button onClick={() => setMenuOpen(p => !p)} style={{ background: "rgba(255,255,255,.2)", border: "none", borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: "#fff", fontSize: 16, fontWeight: 700, fontFamily: F.body }}>☰</button>
-          </Row>
+        <div style={{ background:"#000", position:"sticky", top:0, zIndex:300, padding:"10px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 12px rgba(0,0,0,.2)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}><img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height:38, width:38, objectFit:"contain", borderRadius:"50%", background:"#000", padding:1, boxShadow:"0 0 0 1px rgba(255,255,255,.25)" }} /><span style={{ fontSize:15, color:"#fff", fontWeight:700, fontFamily:F.display, letterSpacing:.5 }}>LEAF DIARY</span></div>
+          <Row gap={8} center>{billAlerts > 0 && <div onClick={()=>openPage("bills")} style={{ background:C.red, borderRadius:20, padding:"4px 10px", fontSize:12, color:"#fff", fontWeight:700, cursor:"pointer" }}>📅 {billAlerts}</div>}<button onClick={()=>setPage("aihub")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:20, padding:"4px 10px", fontSize:11, fontWeight:900, cursor:"pointer" }}>🤖 AI</button><div style={{ background:"rgba(255,255,255,.15)", borderRadius:20, padding:"4px 12px", fontSize:12, color:"#fff", fontWeight:600 }}>{user.name}</div><button onClick={()=>setMenuOpen(p=>!p)} style={{ background:"rgba(255,255,255,.2)", border:"none", borderRadius:8, padding:"7px 12px", cursor:"pointer", color:"#fff", fontSize:16, fontWeight:700, fontFamily:F.body }}>☰</button></Row>
         </div>
-        {menuOpen && <div style={{ position: "fixed", inset: 0, zIndex: 400 }} onClick={() => setMenuOpen(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 56, right: 0, left: 0, background: "#000000", maxHeight: "75vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,.4)" }}>
-            <div style={{ padding: "12px 16px", borderBottom: `1px solid rgba(255,255,255,.08)`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>All Pages</span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => { setMenuOpen(false); onChangePassword(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 8, padding: "7px 10px", color: "#fff", cursor: "pointer", fontFamily: F.body, fontWeight: 600, fontSize: 12 }}>Password</button>
-                <button onClick={onLogout} style={{ background: "rgba(255,255,255,.15)", border: "none", borderRadius: 8, padding: "7px 14px", color: "#fff", cursor: "pointer", fontFamily: F.body, fontWeight: 600, fontSize: 13 }}>Logout</button>
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 2, padding: 8 }}>
-              {tabs.map(t => <button key={t.id} onClick={() => { setPage(t.id); setMenuOpen(false); }} style={{ background: page === t.id ? "#1a1a1a" : "transparent", border: "none", borderRadius: 10, padding: "16px 8px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, color: "#fff", fontFamily: F.body, position: "relative" }}>
-                <span style={{ fontSize: 26 }}>{t.icon}</span>
-                <span style={{ fontSize: 11, fontWeight: page === t.id ? 700 : 400, opacity: page === t.id ? 1 : .8 }}>{t.l}</span>
-                {t.id === "bills" && billAlerts > 0 && <span style={{ position: "absolute", top: 8, right: 12, background: C.red, color: "#fff", borderRadius: 20, padding: "0 5px", fontSize: 9, fontWeight: 700 }}>{billAlerts}</span>}
-              </button>)}
-            </div>
+        {menuOpen && <div style={{ position:"fixed", inset:0, zIndex:400, background:"rgba(0,0,0,.35)" }} onClick={()=>setMenuOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:56, right:0, left:0, background:"#000", maxHeight:"calc(100dvh - 110px)", overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", boxShadow:"0 8px 32px rgba(0,0,0,.4)", paddingBottom:18 }}>
+            <div style={{ padding:"12px 16px", borderBottom:"1px solid rgba(255,255,255,.08)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}><div><span style={{ color:"#fff", fontWeight:900, fontSize:16 }}>🌿 Leaf Diary Menu — Clean Groups</span><div style={{ color:"#97d33e", fontSize:11, fontWeight:700 }}>AI Center + Core tools are at the top. Open each group for the rest.</div></div><div style={{ display:"flex", gap:8 }}><button onClick={()=>{setMenuOpen(false); onChangePassword();}} style={{ background:"transparent", border:"1px solid rgba(255,255,255,.3)", borderRadius:8, padding:"7px 10px", color:"#fff", cursor:"pointer", fontFamily:F.body, fontWeight:600, fontSize:12 }}>Password</button><button onClick={onLogout} style={{ background:"rgba(255,255,255,.15)", border:"none", borderRadius:8, padding:"7px 14px", color:"#fff", cursor:"pointer", fontFamily:F.body, fontWeight:600, fontSize:13 }}>Logout</button></div></div>
+            <div style={{ padding:"12px 12px 0" }}><input value={menuSearch} onChange={e=>setMenuSearch(e.target.value)} placeholder="Search pages..." style={{ width:"100%", background:"#121212", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:12, padding:"12px 13px", fontFamily:F.body, fontSize:16, outline:"none" }} /></div>
+            {!menuSearch && <div style={{ padding:12, borderBottom:"1px solid rgba(255,255,255,.08)" }}><div style={{ color:"rgba(255,255,255,.55)", fontSize:11, fontWeight:800, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Most Used</div><div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>{coreTabs.map(t => <button key={t.id} onClick={()=>openPage(t.id)} style={{ background:page===t.id?"rgba(151,211,62,.18)":"#111", border:`1px solid ${page===t.id?"#97d33e":"rgba(255,255,255,.12)"}`, borderRadius:14, padding:"13px 8px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:5, color:"#fff", fontFamily:F.body }}><span style={{ fontSize:25 }}>{t.icon}</span><span style={{ fontSize:11, fontWeight:800 }}>{t.l}</span></button>)}</div></div>}
+            <div style={{ padding:"10px 12px 18px" }}>{groupedTabs.map(g => <div key={g.group} style={{ marginBottom:8 }}><button onClick={()=>setOpenGroup(openGroup===g.group?"":g.group)} style={{ width:"100%", background:openGroup===g.group?"#151515":"#0b0b0b", color:"#fff", border:"1px solid rgba(255,255,255,.12)", borderRadius:12, padding:"12px 13px", display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:F.body, fontWeight:800, cursor:"pointer" }}><span>{g.group}</span><span style={{ color:"#97d33e", fontSize:12 }}>{g.items.length} pages {openGroup===g.group?"▲":"▼"}</span></button>{(openGroup===g.group || menuSearch) && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:6, padding:"8px 2px" }}>{g.items.map(t => <button key={t.id} onClick={()=>openPage(t.id)} style={{ textAlign:"left", background:page===t.id?"rgba(251,99,146,.16)":"rgba(255,255,255,.045)", border:`1px solid ${page===t.id?"#fb6392":"rgba(255,255,255,.10)"}`, borderRadius:11, padding:"11px 10px", color:"#fff", cursor:"pointer", fontFamily:F.body }}><div style={{ display:"flex", alignItems:"center", gap:8 }}><span style={{ fontSize:18 }}>{t.icon}</span><span style={{ fontSize:12, fontWeight:800 }}>{t.l}</span></div></button>)}</div>}</div>)}</div>
           </div>
         </div>}
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 299, background: "#000000", borderTop: `2px solid ${C.g600}`, display: "flex", boxShadow: "0 -4px 24px rgba(0,0,0,.45)" }}>
-          {bottomTabs.map(t => <button key={t.id} onClick={() => setPage(t.id)} style={{ flex: 1, background: page === t.id ? "rgba(151,211,62,.12)" : "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "10px 4px 12px", fontFamily: F.body, position: "relative" }}>
-            <span style={{ fontSize: 24, lineHeight: 1, filter: page === t.id ? "drop-shadow(0 0 6px rgba(151,211,62,.55))" : "none" }}>{t.icon}</span>
-            <span style={{ fontSize: 10, fontWeight: page === t.id ? 800 : 500, color: page === t.id ? "#97d33e" : "rgba(255,255,255,.72)" }}>{t.l}</span>
-            {page === t.id && <div style={{ position: "absolute", top: 0, left: "20%", right: "20%", height: 3, background: "#fb6392", borderRadius: 2, boxShadow: "0 0 8px rgba(251,99,146,.8)" }} />}
-            {t.id === "bills" && billAlerts > 0 && <span style={{ position: "absolute", top: 6, right: "10%", background: C.red, color: "#fff", borderRadius: 20, padding: "0 5px", fontSize: 9, fontWeight: 700 }}>{billAlerts}</span>}
-            {(t.id === "inv" || t.id === "plants") && plantCount > 0 && <span style={{ position: "absolute", top: 6, right: "10%", background: C.g600, color: "#fff", borderRadius: 20, padding: "0 5px", fontSize: 9, fontWeight: 700 }}>{plantCount}</span>}
-          </button>)}
-        </div>
-        <style>{`body{margin:0} .pg-pad{padding:14px 14px 90px!important}`}</style>
+        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(t => <button key={t.id} onClick={()=>setPage(t.id)} style={{ flex:1, background:page===t.id?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:24, lineHeight:1, filter:page===t.id?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:page===t.id?800:500, color:page===t.id?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{page===t.id && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{t.id==="bills" && billAlerts>0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.red, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:700 }}>{billAlerts}</span>}{(t.id==="inv" || t.id==="plants") && plantCount>0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:700 }}>{plantCount}</span>}</button>)}</div>
+        <style>{`body{margin:0}.pg-pad{padding:14px 14px 90px!important}@media(max-width:760px){div[style*="grid-template-columns: repeat(3,1fr)"]{grid-template-columns:repeat(3,1fr)!important;}div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}}`}</style>
       </>;
     }
 
@@ -4014,7 +4074,49 @@
       return <div style={{ display:"grid", gap:8, marginBottom:14 }}>{alerts.map(a => <Card key={a.id} style={{ borderLeft:`5px solid ${sevColor[a.severity]||C.blue}`, background: a.severity === "critical" ? C.redBg : a.severity === "warning" ? C.amberBg : C.blueBg }}><Row between wrap center><div><div style={{ fontWeight:800, color:sevColor[a.severity]||C.tx1 }}>{a.title}</div><div style={{ fontSize:12, color:C.tx2 }}>{a.body}</div></div>{a.actionPage && <Btn sz="sm" v="outline" onClick={() => setPage(a.actionPage)}>{a.actionLabel || "Open"}</Btn>}</Row></Card>)}</div>;
     }
 
-    function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setPage }) {
+    
+    function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, receipts = [], users = [], settings, setSettings, casdCerts = [], user, setPage, addAudit }) {
+      const [busy, setBusy] = useState(""), [result, setResult] = useState(settings?.aiLastResults?.latest || null), [selected, setSelected] = useState("daily_check");
+      const snapshot = buildLeafDataSnapshot({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts });
+      const isOwner = user?.role === "owner";
+      const tasks = [
+        ["daily_check","🚀","Run Daily AI Business Check","Command","Creates today’s priority action plan from cash, shipping, inventory, receipts, docs, and payroll.","command"],
+        ["owner_summary","🧠","Generate Owner Summary","Command","Plain-English business summary with cash, sales, risks, and top actions.","command",true],
+        ["employee_tasks","✅","Create Today’s Employee Tasks","Command","Turns missing photos, labels, packing, quarantine, and receipt work into safe employee tasks.","admin"],
+        ["pricing_assistant","💲","AI Pricing Assistant","Inventory","Finds underpriced plants and suggests profitable prices.","inv"],
+        ["duplicate_detector","🧹","Find Duplicate Plants","Inventory","Flags duplicate plant numbers and messy records.","cleanup"],
+        ["aging_inventory","⏳","Fix Aging Inventory","Inventory","Finds old plants that need discounts, bundles, photos, or show placement.","discounts"],
+        ["reorder_builder","🛒","Build Reorder List","Buying","Uses sales and stock to recommend what to buy again.","intel"],
+        ["buy_pass","🏪","Analyze Nursery Offer","Buying","Scores a nursery offer as Buy, Pass, or Risky.","intel"],
+        ["nursery_trip","🗺️","Plan Nursery Run","Buying","Combines cash flow, reorder needs, and supplies.","nursery"],
+        ["live_show_plan","🎥","Create Live Show Plan","Sales","Builds show order with premium hooks and clearance pushes.","showbuilder"],
+        ["live_script","🎤","Generate Live Talking Points","Sales","Creates hooks, care notes, and urgency lines.","liveshow"],
+        ["smart_bundles","🧺","Create Smart Bundles","Sales","Combines slow movers with popular plants while protecting margin.","bundles"],
+        ["receipt_audit","🧾","Audit Receipts","Money","Finds duplicate receipts, missing categories, bad photos, and tax-review issues.","receipts"],
+        ["cash_leaks","💸","Find Money Leaks","Money","Looks for high spending, losses, fees, and low-margin inventory.","cashflow",true],
+        ["tax_prep","🧾","Prepare Tax Summary","Money","Creates a tax-ready checklist from sales, expenses, receipts, payroll, and inventory.","tax",true],
+        ["shipping_check","📦","Check Orders Before Shipping","Shipping","Flags missing address, tracking, heat pack, docs, and high-value orders.","ship"],
+        ["state_doc_check","📜","Check State Doc Compliance","Compliance","Checks CA/AZ/TX/LA sold orders against archived PDFs.","casd",true],
+        ["backup_health","💾","Check Backup Health","System","Checks docs, receipts, photos, and sync risk.","admin",true],
+        ["error_scan","🧯","Scan App for Problems","System","Finds missing IDs, costs, sale prices, and duplicate records.","cleanup",true],
+        ["customer_ai","👥","Find VIP / At-Risk Customers","Customer","Ranks customers by spend and suggests follow-up.","customers"],
+        ["plant_health","🩺","Diagnose Plant Health Issue","Plants","Turns symptoms and photos into care or quarantine recommendations.","care"],
+        ["photo_quality","📸","Check Photo Quality","Plants","Reviews if a plant photo is good enough for Palmstreet.","inv"]
+      ].map(([id,icon,title,group,desc,page,owner])=>({id,icon,title,group,desc,page,owner})).filter(t => isOwner || !t.owner);
+      const runTask = async (taskId) => { setBusy(taskId); setSelected(taskId); try { const res = await runLeafAI(taskId, snapshot); setResult(res); setSettings && setSettings(prev => ({ ...prev, aiLastResults:{ ...(prev.aiLastResults||{}), latest:res, [taskId]:res } })); addAudit && addAudit({ action:`AI ran ${taskId}`, user:user?.name||"AI", page:"AI Center" }); } catch(err) { setResult({ ok:false, summary:"AI tool failed: "+(err?.message||String(err)), actions:[], warnings:[aiLine("AI error", err?.message||String(err), "aihub", "critical")], recommendations:[] }); } finally { setBusy(""); } };
+      const grouped = tasks.reduce((m,t)=>{ (m[t.group]=m[t.group]||[]).push(t); return m; },{});
+      const selectedTask = tasks.find(t=>t.id===selected);
+      const renderItems = (arr, title, color) => <Card style={{ marginBottom:12 }}><div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:15, marginBottom:10 }}>{title}</div>{(!arr || arr.length===0) ? <div style={{ color:C.tx3, fontSize:12 }}>Nothing here right now.</div> : arr.map(x => <div key={x.id} style={{ background:(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)+"12", border:`1px solid ${(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)}40`, borderRadius:12, padding:11, marginBottom:8 }}><Row between center wrap><div><div style={{ fontWeight:800, color:x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color, fontSize:13 }}>{x.title}</div><div style={{ fontSize:12, color:C.tx2, marginTop:2 }}>{x.body}</div></div>{x.page && <Btn sz="sm" v="soft" onClick={()=>setPage(x.page)}>Open</Btn>}</Row></div>)}</Card>;
+      return <div className="page-scroll-safe" style={{ padding:"14px 14px 150px", background:C.bg, minHeight:"100dvh" }}>
+        <SHdr icon="🤖" title="AI Automation Center" sub="Smart business checks, pricing, shipping, receipts, buying, customers, and cleanup." right={<Btn sz="sm" onClick={()=>runTask("daily_check")} disabled={!!busy}>{busy ? "Running..." : "🚀 Run Daily Check"}</Btn>} />
+        <div style={{ background:"#000", color:"#fff", borderRadius:18, padding:"16px 18px", border:"2px solid #97d33e", marginBottom:14 }}><Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:"#97d33e" }}>Leaf Diary AI Copilot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.72)", marginTop:4 }}>Works now from your app data. Deploy <b>leaf-ai</b> later for real AI without exposing keys in HTML.</div></div><Btn v="gold" sz="sm" onClick={()=>selectedTask?.page && setPage(selectedTask.page)}>Open Related Page →</Btn></Row></div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}><KPI label="AI Actions" value={(result?.actions||[]).length} color={C.g600}/><KPI label="Warnings" value={(result?.warnings||[]).length} color={C.amber}/><KPI label="Recommendations" value={(result?.recommendations||[]).length} color={C.blue}/><KPI label="Unshipped Orders" value={snapshot.counts.readyToShip} color={snapshot.counts.readyToShip?C.red:C.g600} onClick={()=>setPage("ship")}/></div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}><Card><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:16, marginBottom:10 }}>AI Tools</div>{Object.entries(grouped).map(([group,items]) => <div key={group} style={{ marginBottom:12 }}><div style={{ fontSize:11, textTransform:"uppercase", letterSpacing:.7, color:C.tx3, fontWeight:900, marginBottom:6 }}>{group}</div><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>{items.map(t => <button key={t.id} onClick={()=>runTask(t.id)} disabled={!!busy} style={{ textAlign:"left", background:selected===t.id?C.g50:C.cardAlt, border:`1.5px solid ${selected===t.id?C.g500:C.bd}`, borderRadius:13, padding:12, cursor:busy?"wait":"pointer", fontFamily:F.body }}><div style={{ fontSize:20 }}>{t.icon}</div><div style={{ fontWeight:900, color:C.g900, fontSize:12, marginTop:3 }}>{t.title}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3 }}>{t.desc}</div></button>)}</div></div>)}</Card><div><Card style={{ marginBottom:12, borderTop:`4px solid ${C.g600}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:17, marginBottom:7 }}>AI Result</div><div style={{ fontSize:13, color:C.tx2, lineHeight:1.45 }}>{result?.summary || "Choose an AI tool or run the daily check. Results save here and survive refresh."}</div>{result?.generatedAt && <div style={{ color:C.tx3, fontSize:11, marginTop:8 }}>Generated {new Date(result.generatedAt).toLocaleString()}</div>}</Card>{renderItems(result?.actions,"✅ Recommended Actions",C.g600)}{renderItems(result?.warnings,"⚠️ Warnings",C.amber)}{renderItems(result?.recommendations,"💡 Opportunities",C.blue)}</div></div>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}}`}</style>
+      </div>;
+    }
+
+function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setSettings, nurseries = [], receipts = [], users = [], casdCerts = [], user, addAudit, setPage }) {
       const alerts = computeAlerts(plants, expenses, bills, timecards, settings);
       const soldMonth = plants.filter(p => p.status === "Sold" && monthKey(plantSaleDate(p)) === monthKey());
       const revenue = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
@@ -4028,6 +4130,7 @@
       const dueBills = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).sort((a,b)=>daysUntil(a.dueDate)-daysUntil(b.dueDate));
       const quarantine = plants.filter(p => ["Quarantine","Pest/Disease"].includes(p.healthStatus));
       const quick = [
+        ["AI Center", "aihub", "🤖", "Daily checks + smart recommendations"],
         ["Cash Flow", "cashflow", "💵", "Money in/out + safe nursery spend"],
         ["Ready to Ship", "ship", "📦", `${readyOrders.length} order(s) need tracking`],
         ["Discounts", "discounts", "🏷️", `${oldStock.length} aging plant(s)`],
@@ -4036,7 +4139,8 @@
         ["Reports", "reports", "📈", "Full analytics"],
       ];
       return <div className="page-scroll-safe" style={{ padding:"14px 14px 150px", background:C.bg, minHeight:"100dvh", height:"auto", overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", touchAction:"pan-y" }}>
-        <SHdr icon="🚀" title="Owner Command Center" sub="One screen for cash, shipping, warnings, goals, and operational action." />
+        <SHdr icon="🚀" title="Owner Command Center" sub="One screen for cash, shipping, warnings, goals, AI actions, and operational decisions." right={<Row gap={8} wrap><Btn sz="sm" onClick={()=>setPage("aihub")}>🤖 AI Center</Btn><Btn sz="sm" v="soft" onClick={async()=>{ const res = await runLeafAI("daily_check", buildLeafDataSnapshot({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts })); setSettings && setSettings(p=>({ ...p, aiLastResults:{ ...(p.aiLastResults||{}), latest:res, daily_check:res }})); addAudit && addAudit({ action:"AI Daily Business Check", user:user?.name||"Owner", page:"Command Center" }); alert(res.summary); }}>🚀 Run AI Daily Check</Btn></Row>} />
+        {settings?.aiLastResults?.latest && <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:"2px solid #97d33e" }}><Row between wrap center><div><div style={{ fontFamily:F.display, color:"#97d33e", fontWeight:900, fontSize:18 }}>🤖 Latest AI Summary</div><div style={{ fontSize:13, color:"rgba(255,255,255,.78)", marginTop:4 }}>{settings.aiLastResults.latest.summary}</div></div><Btn sz="sm" v="gold" onClick={()=>setPage("aihub")}>Open AI Details</Btn></Row></Card>}
         <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr", gap:10, marginBottom:14 }}>
           <div style={{ background:"#000", color:"#fff", borderRadius:16, padding:"18px 22px", border:`2px solid #97d33e`, boxShadow:"0 8px 26px rgba(0,0,0,.18)" }}>
             <div style={{ fontSize:11, letterSpacing:1, opacity:.75, textTransform:"uppercase", marginBottom:6 }}>Net This Month</div>
@@ -5197,7 +5301,7 @@
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "inv", "upload", "reports"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15 };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {} };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -6010,7 +6114,8 @@
 
         <div>
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage} />}
-          {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setPage={setPage} />}
+          {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={setPage} />}
+          {page === "aihub" && <AIAutomationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} setSettings={setSettings} casdCerts={casdCerts} user={user} setPage={setPage} addAudit={addAudit} />}
           {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={setPage} />}
           {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
           {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
