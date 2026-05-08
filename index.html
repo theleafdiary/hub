@@ -233,7 +233,14 @@
       .ld-page, .page-scroll-safe { padding-bottom: 150px !important; }
     }
 
-  </style>
+  
+    /* LAST RESORT SCROLL FIX: desktop/laptop must always scroll the document */
+    @media (min-width: 761px) {
+      html, body, #root { height: auto !important; min-height: 100% !important; overflow-y: auto !important; }
+      body { position: static !important; overflow-y: scroll !important; }
+      #root, #root > div { overflow: visible !important; height: auto !important; min-height: 100vh !important; }
+    }
+</style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -4529,15 +4536,49 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         return !!na && !!nb && na === nb;
       };
       const parseWhatnotAddress = v => {
-        const parts = String(v || "").split(",").map(x => cleanText(x)).filter(Boolean);
+        // Whatnot exports one combined field like:
+        // Name, Street, Apt/Unit, City, ST, ZIP, US
+        const raw = cleanText(v);
+        const parts = raw.split(",").map(x => cleanText(x)).filter(Boolean);
         if (!parts.length) return {};
-        const country = parts[parts.length - 1] || "";
-        const zip = parts[parts.length - 2] || "";
-        const state = parts[parts.length - 3] || "";
-        const city = parts[parts.length - 4] || "";
+        const country = parts.length >= 2 ? parts[parts.length - 1] || "" : "";
+        const zip = parts.length >= 3 ? parts[parts.length - 2] || "" : "";
+        const state = parts.length >= 4 ? parts[parts.length - 3] || "" : "";
+        const city = parts.length >= 5 ? parts[parts.length - 4] || "" : "";
         const name = parts[0] || "";
-        const address1 = parts.slice(1, Math.max(1, parts.length - 4)).join(", ");
-        return { name, address1, city, state, zip, country };
+        const streetParts = parts.slice(1, Math.max(1, parts.length - 4));
+        const address1 = streetParts[0] || "";
+        const address2 = streetParts.slice(1).join(", ");
+        return { raw, name, address1, address2, city, state, zip, country };
+      };
+      const customerAddressFieldsFromSale = sale => {
+        const state = sale.customerState || sale.buyerState || sale.state || "";
+        return {
+          customerUsername: sale.customerUsername || sale.customer || "",
+          customerName: sale.customerName || sale.recipientName || sale.buyerName || "",
+          buyerName: sale.customerName || sale.recipientName || sale.buyerName || "",
+          recipientName: sale.recipientName || sale.customerName || sale.buyerName || "",
+          customerEmail: sale.customerEmail || sale.email || "",
+          customerPhone: sale.customerPhone || sale.phone || "",
+          customerAddress1: sale.customerAddress1 || sale.address1 || "",
+          customerAddress2: sale.customerAddress2 || sale.address2 || "",
+          customerCity: sale.customerCity || sale.city || "",
+          customerState: state,
+          customerCountry: sale.customerCountry || sale.country || "",
+          customerZip: sale.customerZip || sale.zip || "",
+          address1: sale.customerAddress1 || sale.address1 || "",
+          address2: sale.customerAddress2 || sale.address2 || "",
+          city: sale.customerCity || sale.city || "",
+          state,
+          zip: sale.customerZip || sale.zip || "",
+          country: sale.customerCountry || sale.country || "",
+          shippingAddress1: sale.customerAddress1 || sale.address1 || "",
+          shippingAddress2: sale.customerAddress2 || sale.address2 || "",
+          shippingCity: sale.customerCity || sale.city || "",
+          shippingState: state,
+          shippingZip: sale.customerZip || sale.zip || "",
+          fullShippingAddress: [sale.customerName || sale.recipientName || "", sale.customerAddress1 || sale.address1 || "", sale.customerAddress2 || sale.address2 || "", sale.customerCity || sale.city || "", state, sale.customerZip || sale.zip || ""].filter(Boolean).join(", ")
+        };
       };
       const compactKey = v => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
       const saleImportKey = sale => [
@@ -4662,14 +4703,24 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             customerEmail: cleanText(rowVal(r, ["Email", "Customer Email", "Buyer Email"])),
             customerPhone: cleanText(rowVal(r, ["Phone", "Customer Phone", "Buyer Phone"])),
             customerAddress1: cleanText(rowVal(r, ["Street Line 1", "Address 1", "Address Line 1", "Ship Address 1", "Shipping Address 1"])) || whatnotAddr.address1,
-            customerAddress2: cleanText(rowVal(r, ["Street Line 2", "Address 2", "Address Line 2", "Ship Address 2", "Shipping Address 2"])),
+            customerAddress2: cleanText(rowVal(r, ["Street Line 2", "Address 2", "Address Line 2", "Ship Address 2", "Shipping Address 2"])) || whatnotAddr.address2,
             customerCity: cleanText(rowVal(r, ["City", "Ship City", "Shipping City"])) || whatnotAddr.city,
             customerState: cleanText(rowVal(r, ["State", "Buyer State", "Ship State", "Shipping State"])) || whatnotAddr.state,
             customerCountry: cleanText(rowVal(r, ["Country", "Ship Country", "Shipping Country"])) || whatnotAddr.country,
             customerZip: cleanText(rowVal(r, ["postal_code", "Zip/Postal Code", "Zip", "Postal Code", "Customer Zip", "Shipping Zip"])) || whatnotAddr.zip,
             raw: r,
           };
-          const enrichedSale = { ...sale, title: productVariant, price, state: sale.buyerState, orderNum: orderNo, orderDate: saleDate, orderDateTime: saleDateTime, shipping: sale.shippingFee };
+          const enrichedSale = {
+            ...sale,
+            ...customerAddressFieldsFromSale(sale),
+            title: productVariant,
+            price,
+            state: sale.customerState || sale.buyerState || sale.state || "",
+            orderNum: orderNo,
+            orderDate: saleDate,
+            orderDateTime: saleDateTime,
+            shipping: sale.shippingFee
+          };
           const duplicate = isDuplicateSale(enrichedSale);
           const match = findInventoryMatch(enrichedSale);
           good.push({
@@ -4776,6 +4827,18 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           customerState: sale.customerState || sale.buyerState || sale.state || "",
           customerCountry: sale.customerCountry || "",
           customerZip: sale.customerZip || "",
+          address1: sale.customerAddress1 || sale.address1 || "",
+          address2: sale.customerAddress2 || sale.address2 || "",
+          city: sale.customerCity || sale.city || "",
+          state: sale.customerState || sale.buyerState || sale.state || "",
+          zip: sale.customerZip || sale.zip || "",
+          country: sale.customerCountry || sale.country || "",
+          shippingAddress1: sale.customerAddress1 || sale.address1 || "",
+          shippingAddress2: sale.customerAddress2 || sale.address2 || "",
+          shippingCity: sale.customerCity || sale.city || "",
+          shippingState: sale.customerState || sale.buyerState || sale.state || "",
+          shippingZip: sale.customerZip || sale.zip || "",
+          fullShippingAddress: [sale.customerName || sale.recipientName || "", sale.customerAddress1 || sale.address1 || "", sale.customerAddress2 || sale.address2 || "", sale.customerCity || sale.city || "", sale.customerState || sale.buyerState || sale.state || "", sale.customerZip || sale.zip || ""].filter(Boolean).join(", "),
           orderNumber: sale.orderNo || sale.orderNum || "",
           saleImportKey: sale.saleImportKey || saleImportKey(sale),
           saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
@@ -4796,20 +4859,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         };
       };
 
-      const customerFieldsFromSale = sale => ({
-        customerUsername: sale.customerUsername || sale.customer || "",
-        customerName: sale.customerName || sale.recipientName || "",
-        buyerName: sale.customerName || sale.recipientName || "",
-        recipientName: sale.recipientName || sale.customerName || "",
-        customerEmail: sale.customerEmail || "",
-        customerPhone: sale.customerPhone || "",
-        customerAddress1: sale.customerAddress1 || "",
-        customerAddress2: sale.customerAddress2 || "",
-        customerCity: sale.customerCity || "",
-        customerState: sale.customerState || sale.buyerState || sale.state || "",
-        customerCountry: sale.customerCountry || "",
-        customerZip: sale.customerZip || "",
-      });
+      const customerFieldsFromSale = sale => customerAddressFieldsFromSale(sale);
 
       const keysForSale = sale => new Set([
         compactKey(sale.saleImportKey || saleImportKey(sale)),
@@ -4871,18 +4921,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             cost: (+p.cost || 0) || (+sale.costPerItem || 0),
             trackingNumber: sale.trackingCode || p.trackingNumber || "",
             shipmentId: sale.shipmentId || p.shipmentId || "",
-            customerUsername: sale.customerUsername || sale.customer || "",
-            customerName: sale.customerName || sale.recipientName || "",
-            buyerName: sale.customerName || sale.recipientName || "",
-            recipientName: sale.recipientName || sale.customerName || "",
-            customerEmail: sale.customerEmail || "",
-            customerPhone: sale.customerPhone || "",
-            customerAddress1: sale.customerAddress1 || "",
-            customerAddress2: sale.customerAddress2 || "",
-            customerCity: sale.customerCity || "",
-            customerState: sale.customerState || sale.buyerState || sale.state || "",
-            customerCountry: sale.customerCountry || "",
-            customerZip: sale.customerZip || "",
+            ...customerAddressFieldsFromSale(sale),
             orderNumber: sale.orderNo || sale.orderNum || "",
             saleImportKey: sale.saleImportKey || saleImportKey(sale),
             saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
@@ -5154,6 +5193,18 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           };
         }
         const c = custMap[key];
+        // Keep the fullest CRM profile. Whatnot address data may appear on later rows in the same customer group.
+        c.username = c.username || cleanCustomerValue(p.customerUsername || p.customer || p.palmstreetUsername || "");
+        c.name = c.name || cleanCustomerValue(p.customerName || p.buyerName || p.recipientName || "");
+        c.recipientName = c.recipientName || cleanCustomerValue(p.recipientName || p.customerName || "");
+        c.email = c.email || cleanCustomerValue(p.customerEmail || p.email || "");
+        c.phone = c.phone || cleanCustomerValue(p.customerPhone || p.phone || "");
+        c.address1 = c.address1 || cleanCustomerValue(p.customerAddress1 || p.address1 || p.shippingAddress1 || "");
+        c.address2 = c.address2 || cleanCustomerValue(p.customerAddress2 || p.address2 || p.shippingAddress2 || "");
+        c.city = c.city || cleanCustomerValue(p.customerCity || p.city || p.shippingCity || "");
+        c.state = c.state || cleanCustomerValue(p.customerState || p.buyerState || p.state || p.shippingState || "");
+        c.zip = c.zip || cleanCustomerValue(p.customerZip || p.zip || p.shippingZip || "");
+        c.fullShippingAddress = c.fullShippingAddress || cleanCustomerValue(p.fullShippingAddress || [p.customerName || p.recipientName, p.customerAddress1 || p.address1 || p.shippingAddress1, p.customerAddress2 || p.address2 || p.shippingAddress2, p.customerCity || p.city || p.shippingCity, p.customerState || p.buyerState || p.state || p.shippingState, p.customerZip || p.zip || p.shippingZip].filter(Boolean).join(", "));
         c.orders.push(p);
         c.total += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || +p.suggestedPrice || 0);
         c.plants++;
@@ -5180,8 +5231,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       };
 
       const stateMap = {};
-      saleRecords.filter(p => p.customerState || p.buyerState || p.state).forEach(p => {
-        const s = p.customerState || p.buyerState || p.state;
+      saleRecords.filter(p => p.customerState || p.buyerState || p.state || p.shippingState).forEach(p => {
+        const s = p.customerState || p.buyerState || p.state || p.shippingState;
         if (!stateMap[s]) stateMap[s] = { state: s, revenue: 0, orders: 0, customers: new Set() };
         stateMap[s].revenue += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || 0);
         stateMap[s].orders++;
@@ -5239,7 +5290,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const shownCustomers = tab === "blocked" ? customers.filter(c => ["red", "yellow"].includes(c.status)) : customers;
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="👥" title="Customer Hub" sub={`Palmstreet buyers · notes · blocked customers · showing ${customerDateLabel}`}
+        <SHdr icon="👥" title="Customer Hub" sub={`Palmstreet + Whatnot buyers · full address history · every plant purchased · showing ${customerDateLabel}`}
           right={<Btn v="outline" sz="sm" onClick={exportCustomers}>Export Customers</Btn>} />
 
         <Card style={{ marginBottom: 14, background: C.g50, border: `1px solid ${C.g200}` }}>
@@ -5335,6 +5386,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
                 ["Phone", detail.phone || "—"],
                 ["Address", [detail.address1, detail.address2].filter(Boolean).join(" ") || "—"],
                 ["City / State / Zip", [detail.city, detail.state, detail.zip].filter(Boolean).join(", ") || "—"],
+                ["Full Shipping Address", detail.fullShippingAddress || [detail.name || detail.recipientName, detail.address1, detail.address2, detail.city, detail.state, detail.zip].filter(Boolean).join(", ") || "—"],
                 ["Total Spent", $(detail.total)],
                 ["Orders / Items", `${detail.orderCount} orders · ${detail.plants} items`],
                 ["First / Last Order", `${detail.firstOrder || "—"} → ${detail.lastOrder || "—"}`]
@@ -5351,7 +5403,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
               item: o.name || o.title || o.rawProductVariant || o.productVariant || "Plant",
               order: o.orderNumber || o.orderNo || "—",
               amount: $(+o.salePrice || +o.productAmount || +o.orderAmount || +o.sellerIncome || +o.suggestedPrice || 0),
-              state: o.customerState || o.buyerState || o.state || "—"
+              state: o.customerState || o.buyerState || o.state || o.shippingState || "—"
             }))} empty="No purchases found." />
           </Card>
         </Modal>}
