@@ -2875,7 +2875,15 @@
         else { setBills(p => [...p, { ...form, id: uid() }]); }
         setForm(blank); setShow(false);
       };
-      const markPaid = id => setBills(p => p.map(b => b.id === id ? { ...b, status: "Paid", paidDate: today() } : b));
+      const addMonths = (dateStr, months) => { const d = new Date((dateStr || today()) + "T12:00:00"); d.setMonth(d.getMonth() + months); return d.toISOString().slice(0,10); };
+      const nextDueDate = b => b.frequency === "Weekly" ? new Date(new Date((b.dueDate || today()) + "T12:00:00").getTime() + 7 * 864e5).toISOString().slice(0,10) : b.frequency === "Quarterly" ? addMonths(b.dueDate, 3) : b.frequency === "Annually" ? addMonths(b.dueDate, 12) : addMonths(b.dueDate, 1);
+      const markPaid = id => setBills(p => {
+        const bill = (p || []).find(b => b.id === id);
+        const paid = (p || []).map(b => b.id === id ? { ...b, status: "Paid", paidDate: today() } : b);
+        if (!bill || !bill.autoRenew || bill.frequency === "One-Time") return paid;
+        const next = { ...bill, id: uid(), status: "Unpaid", paidDate: "", dueDate: nextDueDate(bill), previousBillId: bill.id, notes: `${bill.notes || ""} Auto-created after prior bill was marked paid.`.trim() };
+        return [...paid, next];
+      });
       const del = id => setBills(p => p.filter(b => b.id !== id));
       const startEdit = b => { setForm({ ...b }); setEditId(b.id); setShow(true); };
       const getDays = due => Math.ceil((new Date(due) - Date.now()) / 864e5);
@@ -3018,7 +3026,7 @@
     /* ══════════════════════════════════════════════════════════
        AI EXPENSE RECEIPT SCANNER — non-plant business receipts
     ══════════════════════════════════════════════════════════ */
-    function ReceiptScanner({ receipts = [], setReceipts, expenses, setExpenses, addAudit, user }) {
+    function ReceiptScanner({ receipts = [], setReceipts, expenses = [], setExpenses, bills = [], setBills, addAudit, user }) {
       const isOwner = user?.role === "owner" || user?.role === "manager";
       const fRef = useRef();
       const [step, setStep] = useState("upload");
@@ -3026,34 +3034,107 @@
       const [fileName, setFileName] = useState("");
       const [busy, setBusy] = useState(false);
       const [msg, setMsg] = useState("");
-      const [filter, setFilter] = useState({ q: "", cat: "All", status: "All", from: "", to: "" });
-      const blank = { vendor_name: "", vendor_address: "", vendor_phone: "", receipt_date: today(), receipt_time: "", subtotal: "", tax: "", total: "", payment_method: "Cash", card_last4: "", receipt_number: "", main_category: "Other", business_purpose: "Other business expense", notes: "", deductible: true, review_status: "Needs Review", ai_confidence: 0.72, items: [{ item_name: "Business supplies", quantity: 1, unit_price: "", line_total: "", category: "Other", deductible: true, notes: "" }] };
+      const [scanWarning, setScanWarning] = useState("");
+      const [filter, setFilter] = useState({ q: "", cat: "All", status: "All", type: "All", from: "", to: "" });
+      const [routeChoice, setRouteChoice] = useState("expense");
+      const [showBillPrompt, setShowBillPrompt] = useState(false);
+      const blankItem = { item_name: "Business supplies", quantity: 1, unit_price: "", line_total: "", category: "Other", deductible: true, notes: "", confidence: .65 };
+      const blank = { document_type: "receipt", vendor_name: "", vendor_address: "", vendor_phone: "", invoice_number: "", receipt_date: today(), receipt_time: "", subtotal: "", tax: "", total: "", due_date: "", payment_method: "Cash", card_last4: "", receipt_number: "", main_category: "Other", bill_category: "Other", business_purpose: "Other business expense", notes: "", deductible: true, review_status: "Needs Review", ai_confidence: 0, field_confidence: {}, is_recurring: false, suggested_frequency: "One-Time", is_business_expense: true, vendor_known: false, vehicle_name: "", odometer: "", gallons: "", ocr_text: "", items: [blankItem] };
       const [form, setForm] = useState(blank);
       const upd = f => v => setForm(p => ({ ...p, [f]: v }));
       const updItem = (i, f, v) => setForm(p => ({ ...p, items: (p.items || []).map((it, idx) => idx === i ? { ...it, [f]: v } : it) }));
-      const addItem = () => setForm(p => ({ ...p, items: [...(p.items || []), { item_name: "", quantity: 1, unit_price: "", line_total: "", category: p.main_category || "Other", deductible: true, notes: "" }] }));
+      const addItem = () => setForm(p => ({ ...p, items: [...(p.items || []), { ...blankItem, category: p.main_category || "Other" }] }));
       const delItem = i => setForm(p => ({ ...p, items: (p.items || []).filter((_, idx) => idx !== i) }));
       const cleanMoney = v => +(String(v || "").replace(/[^0-9.\-]/g, "")) || 0;
       const slug = s => String(s || "receipt").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 45) || "receipt";
-      const guessCategory = vendor => {
-        const v = String(vendor || "").toLowerCase();
-        if (/shell|racetrac|wawa|chevron|exxon|circle k|bp|mobil|sunoco/.test(v)) return "Gas & Mileage";
-        if (/home depot|lowe|ace|tractor|harbor freight/.test(v)) return "Tools & Equipment";
-        if (/uline|ups|usps|pirate ship|fedex/.test(v)) return "Shipping Supplies";
-        if (/shopify|canva|openai|cloudflare|google|meta/.test(v)) return "Software & Website";
-        if (/walmart|amazon|target|dollar/.test(v)) return "Packaging Supplies";
-        return "Other";
+      const docTypes = ["receipt", "bill", "nursery_invoice", "utility_bill", "insurance_bill", "software_bill", "unknown"];
+      const safeText = v => String(v || "").trim();
+      const normDate = v => {
+        const s = String(v || "").trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+        const d = new Date(s);
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0,10);
+        return today();
+      };
+      const getVendorMemory = () => {
+        try { return JSON.parse(localStorage.getItem("leafDiaryVendorCategoryMemory") || "{}"); } catch (e) { return {}; }
+      };
+      const setVendorMemory = map => { try { localStorage.setItem("leafDiaryVendorCategoryMemory", JSON.stringify(map || {})); } catch (e) {} };
+      const VENDOR_MAP = [
+        { re: /shell|racetrac|race trac|wawa|chevron|exxon|circle\s*k|bp|mobil|sunoco|marathon|speedway|citgo|murphy/i, cat: "Gas & Mileage", bill: "Other", purpose: "Nursery run gas" },
+        { re: /walmart|sam'?s|target|dollar general|dollar tree|family dollar/i, cat: "Packaging Supplies", bill: "Supplier", purpose: "Store supplies for packaging, shipping, or live show operations" },
+        { re: /home depot|lowe'?s|ace hardware|tractor supply|harbor freight/i, cat: "Tools & Equipment", bill: "Supplier", purpose: "Business tools, shelving, or plant operation supplies" },
+        { re: /uline|ups|usps|post office|pirate ship|fedex|stamps\.com/i, cat: "Shipping Supplies", bill: "Supplier", purpose: "Shipping supplies or order fulfillment expense" },
+        { re: /shopify|canva|openai|cloudflare|google|meta|facebook|adobe|quickbooks|godaddy|ionos|domain/i, cat: "Software & Website", bill: "Software", purpose: "Software, website, advertising, or business subscription" },
+        { re: /palmstreet|whatnot/i, cat: "Software & Website", bill: "Platform Fee", purpose: "Live selling platform fees or subscription" },
+        { re: /duke energy|spectrum|xfinity|frontier|verizon|at&t|t-mobile/i, cat: "Rent & Utilities", bill: "Utilities", purpose: "Business utility or communication bill" },
+        { re: /insurance|progressive|state farm|geico|allstate/i, cat: "Other", bill: "Insurance", purpose: "Business insurance or vehicle insurance payment" },
+        { re: /nursery|grower|farms|plants|tropical|botanical|wholesale/i, cat: "Plant Care Supplies", bill: "Supplier", purpose: "Plant inventory or nursery purchase" },
+        { re: /amazon/i, cat: "Packaging Supplies", bill: "Supplier", purpose: "Online business supplies purchase" }
+      ];
+      const classifyVendor = vendor => {
+        try {
+          const v = String(vendor || "").toLowerCase();
+          const mem = getVendorMemory();
+          if (mem[v]) return mem[v];
+          const hit = VENDOR_MAP.find(x => x.re.test(v));
+          return hit ? { category: hit.cat, billCategory: hit.bill, purpose: hit.purpose, known: true } : null;
+        } catch (e) { return null; }
+      };
+      const rememberVendorCategory = rec => {
+        try {
+          if (!rec?.vendor_name) return;
+          const key = String(rec.vendor_name).toLowerCase().trim();
+          const mem = getVendorMemory();
+          mem[key] = { category: rec.main_category || "Other", billCategory: rec.bill_category || "Other", purpose: rec.business_purpose || "Other business expense", known: true };
+          setVendorMemory(mem);
+        } catch (e) {}
+      };
+      const deriveDocType = data => {
+        const raw = String(data?.document_type || "").toLowerCase();
+        const vendor = String(data?.vendor_name || fileName || "").toLowerCase();
+        const name = String(data?.invoice_number || data?.receipt_number || fileName || "").toLowerCase();
+        if (/nursery|grower|farms|plant invoice|wholesale/.test(vendor + " " + name)) return "nursery_invoice";
+        if (/due date|amount due|statement|balance due|invoice|bill/.test(JSON.stringify(data || {}).toLowerCase())) return raw && raw !== "receipt" ? raw : "bill";
+        if (docTypes.includes(raw)) return raw;
+        return "receipt";
+      };
+      const shouldTreatAsBill = f => ["bill", "utility_bill", "insurance_bill", "software_bill"].includes(f.document_type) || !!f.due_date || !!f.is_recurring;
+      const buildBusinessPurpose = (cat, docType) => docType === "nursery_invoice" ? "Plant supply purchase" : cat === "Gas & Mileage" ? "Nursery run gas" : cat && cat.includes("Shipping") ? "Shipping supplies" : cat && cat.includes("Packaging") ? "Packaging materials" : "Other business expense";
+      const calcBusinessTotal = f => (f.items || []).filter(i => i.deductible !== false).reduce((s, i) => s + cleanMoney(i.line_total), 0) || cleanMoney(f.total);
+      const confidenceColor = v => (+v || 0) >= .85 ? C.g600 : (+v || 0) >= .65 ? C.gold : C.red;
+      const FieldConfBadge = ({ name }) => {
+        const v = form.field_confidence && typeof form.field_confidence[name] !== "undefined" ? +form.field_confidence[name] : +form.ai_confidence || 0;
+        return <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: confidenceColor(v), background: confidenceColor(v) + "18", border: `1px solid ${confidenceColor(v)}55`, borderRadius: 999, padding: "2px 6px", whiteSpace: "nowrap" }}>{Math.round(v * 100)}%</span>;
       };
       const loadFile = file => {
         if (!file) return;
         setFileName(file.name || "receipt.jpg");
+        setScanWarning(""); setMsg(""); setRouteChoice("expense"); setShowBillPrompt(false);
         const r = new FileReader();
-        r.onload = e => { setImg(e.target.result); setStep("preview"); setMsg(""); };
+        r.onload = e => { setImg(e.target.result); setStep("preview"); };
+        r.onerror = () => setMsg("Could not read file. Try another photo.");
         r.readAsDataURL(file);
+      };
+      const normalizeScanData = data => {
+        const guessedVendor = data?.vendor_name || fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").replace(/\b\w/g, m => m.toUpperCase());
+        const vendorClass = classifyVendor(guessedVendor);
+        const aiCat = data?.main_category || "Other";
+        const aiConf = +data?.confidence || +data?.ai_confidence || 0;
+        const cat = (vendorClass && aiConf < .85) ? vendorClass.category : aiCat;
+        const docType = deriveDocType(data);
+        const total = cleanMoney(data?.total || "");
+        const items = Array.isArray(data?.items) && data.items.length ? data.items.map((it, idx) => {
+          const lineCat = it.category || cat;
+          const lineTotal = cleanMoney(it.line_total || it.total || it.amount || it.unit_price);
+          return { id: it.id || `scan-item-${idx+1}`, item_name: it.item_name || it.name || "", quantity: it.quantity || 1, unit_price: cleanMoney(it.unit_price || (lineTotal && it.quantity ? lineTotal / (+it.quantity || 1) : "")), line_total: lineTotal, category: RECEIPT_CATS.includes(lineCat) ? lineCat : cat, deductible: it.deductible !== false && data?.is_business_expense !== false, notes: it.notes || "", confidence: +it.confidence || aiConf || .65 };
+        }) : [{ ...blankItem, item_name: docType === "bill" ? "Bill payment" : "Business expense", unit_price: total || "", line_total: total || "", category: cat, deductible: data?.deductible !== false }];
+        const due = data?.due_date ? normDate(data.due_date) : (docType.includes("bill") ? normDate(data?.receipt_date || today()) : "");
+        return { ...blank, document_type: docType, vendor_name: guessedVendor, vendor_address: data?.vendor_address || "", vendor_phone: data?.vendor_phone || "", invoice_number: data?.invoice_number || data?.receipt_number || "", receipt_date: normDate(data?.receipt_date || today()), receipt_time: data?.receipt_time || "", subtotal: cleanMoney(data?.subtotal || (total ? (total / 1.07).toFixed(2) : "")), tax: cleanMoney(data?.tax || (total ? (total - total / 1.07).toFixed(2) : "")), total: total, due_date: due, payment_method: data?.payment_method || "Cash", card_last4: data?.card_last4 || "", receipt_number: data?.receipt_number || data?.invoice_number || "", main_category: RECEIPT_CATS.includes(cat) ? cat : "Other", bill_category: BILL_CATS.includes(data?.bill_category) ? data.bill_category : (vendorClass?.billCategory || "Other"), business_purpose: data?.business_purpose || vendorClass?.purpose || buildBusinessPurpose(cat, docType), notes: data?.notes || "AI scanned receipt. Review before saving.", deductible: data?.deductible !== false && data?.is_business_expense !== false, review_status: aiConf >= .85 ? "Reviewed" : "Needs Review", ai_confidence: aiConf || .72, field_confidence: data?.field_confidence || {}, is_recurring: !!data?.is_recurring || ["utility_bill","insurance_bill","software_bill"].includes(docType), suggested_frequency: data?.suggested_frequency || (data?.is_recurring ? "Monthly" : "One-Time"), is_business_expense: data?.is_business_expense !== false, vendor_known: !!vendorClass, ocr_text: data?.ocr_text || data?.raw_text || JSON.stringify(data || {}).slice(0, 7000), items };
       };
       const runScan = async () => {
         if (!img) return;
-        setBusy(true); setMsg("Scanning receipt...");
+        setBusy(true); setMsg("Scanning receipt or bill..."); setScanWarning("");
         try {
           const b64 = String(img).split(",")[1] || img;
           let data = null;
@@ -3061,35 +3142,22 @@
             const res = await supabase.functions.invoke('process-receipt', { body: { imageBase64: b64, fileName } });
             if (res.error) throw res.error;
             data = res.data;
+            if (data?.error) setScanWarning("AI had trouble reading parts of this document. Please review every field before saving.");
           } catch (aiErr) {
             console.warn("process-receipt function unavailable; using editable manual review fallback", aiErr);
+            setScanWarning("AI scan failed or the Edge Function is not upgraded yet. You can still fill this in manually and save safely.");
           }
-          const guessedVendor = data?.vendor_name || fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").replace(/\b\w/g, m => m.toUpperCase());
-          const cat = data?.main_category || guessCategory(guessedVendor);
-          const total = cleanMoney(data?.total || "");
-          setForm({
-            ...blank,
-            vendor_name: guessedVendor,
-            vendor_address: data?.vendor_address || "",
-            vendor_phone: data?.vendor_phone || "",
-            receipt_date: data?.receipt_date || today(),
-            receipt_time: data?.receipt_time || "",
-            subtotal: data?.subtotal || (total ? (total / 1.07).toFixed(2) : ""),
-            tax: data?.tax || (total ? (total - total / 1.07).toFixed(2) : ""),
-            total: data?.total || "",
-            payment_method: data?.payment_method || "Cash",
-            card_last4: data?.card_last4 || "",
-            receipt_number: data?.receipt_number || "",
-            main_category: cat,
-            business_purpose: data?.business_purpose || (cat === "Gas & Mileage" ? "Nursery run gas" : cat.includes("Shipping") ? "Shipping supplies" : "Plant supply purchase"),
-            notes: data?.notes || "AI scanned receipt. Review before saving.",
-            deductible: data?.deductible !== false,
-            review_status: data?.confidence && data.confidence >= .85 ? "Reviewed" : "Needs Review",
-            ai_confidence: data?.confidence || .72,
-            items: Array.isArray(data?.items) && data.items.length ? data.items.map(it => ({ item_name: it.item_name || "", quantity: it.quantity || 1, unit_price: it.unit_price || "", line_total: it.line_total || "", category: it.category || cat, deductible: it.deductible !== false, notes: it.notes || "" })) : [{ item_name: "Business expense", quantity: 1, unit_price: total || "", line_total: total || "", category: cat, deductible: true, notes: "" }]
-          });
-          setStep("review"); setMsg("Review the scan, fix anything wrong, then save.");
+          const next = normalizeScanData(data || {});
+          setForm(next);
+          setRouteChoice(shouldTreatAsBill(next) ? "both" : "expense");
+          setShowBillPrompt(shouldTreatAsBill(next));
+          setStep("review");
+          setMsg("Review the scan, fix anything wrong, then confirm where it should save.");
         } catch (e) {
+          console.error(e);
+          setScanWarning("Scan crashed safely. Manual review form is loaded instead of a blank screen.");
+          setForm({ ...blank, vendor_name: fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "), notes: "Manual entry fallback after AI scan error." });
+          setStep("review");
           setMsg("Scan failed: " + (e?.message || e));
         } finally { setBusy(false); }
       };
@@ -3110,90 +3178,132 @@
           return { url: "", path: "", fallbackData: img || "" };
         }
       };
+      const saveOcrArchive = async rec => {
+        try {
+          if (!rec.ocr_text && !rec.raw_ai_response) return;
+          await supabase.from("receipt_ocr_archive").insert([{ receipt_id: rec.id, vendor_name: rec.vendor_name, receipt_date: rec.receipt_date, document_type: rec.document_type, total: rec.total, category: rec.main_category, ocr_text: rec.ocr_text || "", raw_json: rec.raw_ai_response || null, created_at: new Date().toISOString() }]);
+        } catch (e) { console.warn("Non-critical OCR archive save failed", e); }
+      };
+      const buildExpenseFromReceipt = rec => ({ id: "exp-" + rec.id, vendor: rec.vendor_name, date: rec.receipt_date || today(), amount: rec.total, category: rec.main_category || "Other", payMethod: rec.payment_method || "Cash", cardLast4: rec.card_last4 || "", notes: `${rec.business_purpose || "Receipt scan"}${rec.notes ? " — " + rec.notes : ""}`, taxDed: !!rec.deductible, receiptId: rec.id, receiptImageUrl: rec.receipt_image_url, receiptImagePath: rec.receipt_image_path, aiScanned: true, addedBy: user?.name || "Unknown" });
+      const buildBillFromScan = rec => ({ id: "bill-" + rec.id, name: `${rec.vendor_name || "Bill"}${rec.invoice_number ? " #" + rec.invoice_number : ""}`, amount: rec.total, dueDate: rec.due_date || rec.receipt_date || today(), category: rec.bill_category || "Other", frequency: rec.suggested_frequency || "One-Time", payMethod: rec.payment_method || "", vendor: rec.vendor_name || "", notes: `Created from scanned ${rec.document_type}. Receipt ID: ${rec.id}. ${rec.notes || ""}`, status: "Unpaid", autoRenew: !!rec.is_recurring, receiptId: rec.id, aiScanned: true, created_at: new Date().toISOString() });
       const possibleDupes = receipts.filter(r => r.vendor_name && form.vendor_name && String(r.vendor_name).toLowerCase() === String(form.vendor_name).toLowerCase() && String(r.receipt_date) === String(form.receipt_date) && Math.abs((+r.total || 0) - cleanMoney(form.total)) < .01);
       const saveReceipt = async (addAnother=false, force=false) => {
         if (!form.vendor_name || !cleanMoney(form.total)) { setMsg("Vendor and total are required."); return; }
         if (possibleDupes.length && !force) { setMsg("Possible duplicate found. Review the warning and click Save Anyway if this is a new receipt."); return; }
-        setBusy(true); setMsg("Saving receipt and expense...");
-        const id = uid();
-        const base = { ...form, id, created_at: new Date().toISOString(), uploaded_by: user?.name || "Unknown", total: cleanMoney(form.total), subtotal: cleanMoney(form.subtotal), tax: cleanMoney(form.tax), ai_scanned: true, source: "Receipt Scanner", synced_to_expenses: true };
-        const stored = await uploadImage(id, base);
-        const rec = { ...base, receipt_image_url: stored.url, receipt_image_path: stored.path, receipt_image_data: stored.fallbackData, items: (base.items || []).map((it, idx) => ({ ...it, id: it.id || `${id}-item-${idx+1}`, receipt_id: id, line_total: cleanMoney(it.line_total), unit_price: cleanMoney(it.unit_price), quantity: +it.quantity || 1 })) };
-        const exp = { id: "exp-" + id, vendor: rec.vendor_name, date: rec.receipt_date || today(), amount: rec.total, category: rec.main_category || "Other", payMethod: rec.payment_method || "Cash", cardLast4: rec.card_last4 || "", notes: `${rec.business_purpose || "Receipt scan"}${rec.notes ? " — " + rec.notes : ""}`, taxDed: !!rec.deductible, receiptId: id, receiptImageUrl: rec.receipt_image_url, receiptImagePath: rec.receipt_image_path, aiScanned: true, addedBy: user?.name || "Unknown" };
-        setReceipts(p => [rec, ...(p || [])]);
-        setExpenses(p => [...(p || []), exp]);
-        addAudit && addAudit({ action: `Receipt scanned: ${rec.vendor_name} ${$(rec.total)}`, user: user?.name || "Unknown", page: "Receipt Scanner" });
-        setBusy(false); setMsg("✅ Receipt saved, synced to Expenses, and backed up.");
-        if (addAnother) { setImg(""); setFileName(""); setForm(blank); setStep("upload"); } else setStep("archive");
+        if ((routeChoice === "bill" || routeChoice === "both") && !setBills) { setMsg("Bills connection is missing in this app file. Expense can save, but bill creation cannot."); return; }
+        setBusy(true); setMsg("Saving scanned document...");
+        try {
+          const id = uid();
+          const businessTotal = calcBusinessTotal(form);
+          const base = { ...form, id, created_at: new Date().toISOString(), uploaded_by: user?.name || "Unknown", total: cleanMoney(form.total), subtotal: cleanMoney(form.subtotal), tax: cleanMoney(form.tax), business_total: businessTotal, ai_scanned: true, source: "AI Receipt & Bill Engine", synced_to_expenses: routeChoice !== "bill", synced_to_bills: routeChoice === "bill" || routeChoice === "both" };
+          const stored = await uploadImage(id, base);
+          const rec = { ...base, receipt_image_url: stored.url, receipt_image_path: stored.path, receipt_image_data: stored.fallbackData, items: (base.items || []).map((it, idx) => ({ ...it, id: it.id || `${id}-item-${idx+1}`, receipt_id: id, line_total: cleanMoney(it.line_total), unit_price: cleanMoney(it.unit_price), quantity: +it.quantity || 1 })) };
+          const newRecords = [];
+          setReceipts(p => [rec, ...(p || [])]);
+          newRecords.push("receipt archive");
+          if (routeChoice === "expense" || routeChoice === "both") {
+            const exp = buildExpenseFromReceipt(rec);
+            setExpenses(p => [...(p || []), exp]);
+            newRecords.push("expense");
+          }
+          if ((routeChoice === "bill" || routeChoice === "both") && setBills) {
+            const bill = buildBillFromScan(rec);
+            setBills(p => [...(p || []), bill]);
+            newRecords.push("upcoming bill");
+          }
+          rememberVendorCategory(rec);
+          saveOcrArchive(rec);
+          addAudit && addAudit({ action: `AI document saved: ${rec.vendor_name} ${$(rec.total)} as ${newRecords.join(" + ")}`, user: user?.name || "Unknown", page: "AI Receipt & Bill Engine" });
+          setMsg(`✅ Saved ${newRecords.join(" + ")}. Image and OCR backup preserved.`);
+          if (addAnother) { setImg(""); setFileName(""); setForm(blank); setRouteChoice("expense"); setStep("upload"); } else setStep("archive");
+        } catch (e) {
+          console.error(e);
+          setMsg("Save failed safely: " + (e?.message || e));
+        } finally { setBusy(false); }
       };
+      const rejectScan = () => { setImg(""); setFileName(""); setForm(blank); setRouteChoice("expense"); setStep("upload"); setMsg("Scan rejected. Nothing was saved."); };
       const exportCSV = () => {
-        const headers = ["Date","Vendor","Category","Purpose","Total","Tax","Payment","Card Last4","Deductible","Review Status","Receipt #","Uploaded By","Image URL"];
-        const rows = receipts.map(r => [r.receipt_date,r.vendor_name,r.main_category,r.business_purpose,r.total,r.tax,r.payment_method,r.card_last4,r.deductible ? "Yes" : "No",r.review_status,r.receipt_number,r.uploaded_by,r.receipt_image_url].map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(","));
-        const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv" })), download: `leaf-diary-expense-receipts-${today()}.csv` });
+        const headers = ["Date","Vendor","Document Type","Category","Purpose","Total","Business Total","Tax","Payment","Card Last4","Deductible","Review Status","Receipt #","Uploaded By","Image URL","OCR Text"];
+        const rows = receipts.map(r => [r.receipt_date,r.vendor_name,r.document_type || "receipt",r.main_category,r.business_purpose,r.total,r.business_total,r.tax,r.payment_method,r.card_last4,r.deductible ? "Yes" : "No",r.review_status,r.receipt_number,r.uploaded_by,r.receipt_image_url,(r.ocr_text || "").slice(0,300)].map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(","));
+        const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv" })), download: `leaf-diary-tax-receipt-vault-${today()}.csv` });
         a.click();
       };
       const inRange = r => (!filter.from || r.receipt_date >= filter.from) && (!filter.to || r.receipt_date <= filter.to);
-      const shown = receipts.filter(r => inRange(r) && (filter.cat === "All" || r.main_category === filter.cat) && (filter.status === "All" || r.review_status === filter.status) && (!filter.q || JSON.stringify(r).toLowerCase().includes(filter.q.toLowerCase())));
+      const shown = receipts.filter(r => inRange(r) && (filter.cat === "All" || r.main_category === filter.cat) && (filter.status === "All" || r.review_status === filter.status) && (filter.type === "All" || (r.document_type || "receipt") === filter.type) && (!filter.q || JSON.stringify(r).toLowerCase().includes(filter.q.toLowerCase())));
       const month = today().slice(0,7);
       const monthReceipts = receipts.filter(r => String(r.receipt_date || "").slice(0,7) === month);
       const totalMonth = monthReceipts.reduce((s,r)=>s+(+r.total||0),0);
+      const businessMonth = monthReceipts.reduce((s,r)=>s+(+r.business_total || +r.total || 0),0);
       const needsReview = receipts.filter(r => r.review_status !== "Reviewed" || !r.receipt_image_url && !r.receipt_image_data).length;
       const byVendor = [...new Set(receipts.map(r => r.vendor_name).filter(Boolean))].map(v => ({ v, t: receipts.filter(r=>r.vendor_name===v).reduce((s,r)=>s+(+r.total||0),0) })).sort((a,b)=>b.t-a.t).slice(0,5);
+      const RouteChoice = () => <Card style={{ marginBottom: 12, background: shouldTreatAsBill(form) ? C.blueBg : C.g50, border: `1px solid ${shouldTreatAsBill(form) ? C.blue : C.g300}44` }}>
+        <Row between center wrap>
+          <div><div style={{ fontWeight: 900, color: C.g900 }}>Smart Routing</div><div style={{ fontSize: 12, color: C.tx3 }}>Nothing saves until you confirm. Choose where this scanned document should go.</div></div>
+          <Row gap={8} wrap>{[["expense","Expense Only"],["bill","Bill Only"],["both","Expense + Bill"]].map(([v,l]) => <Btn key={v} sz="sm" v={routeChoice === v ? "fill" : "soft"} onClick={() => setRouteChoice(v)}>{l}</Btn>)}</Row>
+        </Row>
+        {shouldTreatAsBill(form) && <div style={{ marginTop: 10, fontSize: 12, color: C.blue, fontWeight: 800 }}>Detected as {form.document_type}. Due date: {form.due_date || "review needed"}. Recurring: {form.is_recurring ? "Yes" : "No"} · Frequency: {form.suggested_frequency || "One-Time"}</div>}
+      </Card>;
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🧾" title="Expense Receipt Scanner" sub="Scan gas, soil, pots, boxes, tape, labels, tools, software, and store supply receipts"
-          right={<Row gap={8} wrap><Btn onClick={() => { setStep("upload"); setMsg(""); }}>📸 Scan Receipt</Btn><Btn v="soft" onClick={() => setStep("archive")}>Archive</Btn><Btn v="ghost" onClick={exportCSV}>Export CSV</Btn></Row>} />
+        <SHdr icon="🧾" title="AI Receipt & Bill Engine" sub="Scan receipts, bills, gas, Walmart supplies, nursery invoices, software bills, and shipping purchases. Review first, then route to Expenses and/or Bills."
+          right={<Row gap={8} wrap><Btn onClick={() => { setStep("upload"); setMsg(""); setScanWarning(""); }}>📸 Scan Document</Btn><Btn v="soft" onClick={() => setStep("archive")}>Tax Vault</Btn><Btn v="ghost" onClick={exportCSV}>Export CSV</Btn></Row>} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
-          <KPI label="Receipts This Month" value={monthReceipts.length} color={C.blue} />
-          <KPI label="Expense Total" value={$(totalMonth)} color={C.red} />
+          <KPI label="Docs This Month" value={monthReceipts.length} color={C.blue} />
+          <KPI label="Gross Total" value={$(totalMonth)} color={C.red} />
+          <KPI label="Business Total" value={$(businessMonth)} color={C.g600} />
           <KPI label="Needs Review" value={needsReview} color={needsReview ? C.amber : C.g600} />
-          <KPI label="Receipt Archive" value={receipts.length} color={C.g600} />
         </div>
         {msg && <div style={{ background: msg.startsWith("✅") ? C.g50 : C.amberBg, border: `1px solid ${msg.startsWith("✅") ? C.g200 : C.amber}55`, borderRadius: 10, padding: "10px 14px", color: msg.startsWith("✅") ? C.g800 : C.amber, fontSize: 13, fontWeight: 700, marginBottom: 14 }}>{msg}</div>}
-        {step === "upload" && <Card style={{ maxWidth: 760 }}>
-          <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20, marginBottom: 8 }}>Take or Upload Receipt Photo</div>
-          <p style={{ color: C.tx3, fontSize: 13, lineHeight: 1.6 }}>Use this for non-plant expenses only: gas, store supplies, soil, pots, labels, shipping supplies, tools, software, and business purchases.</p>
+        {scanWarning && <div style={{ background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 800, marginBottom: 14 }}>⚠️ {scanWarning}</div>}
+        {step === "upload" && <Card style={{ maxWidth: 800 }}>
+          <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20, marginBottom: 8 }}>Take or Upload Receipt, Bill, or Invoice</div>
+          <p style={{ color: C.tx3, fontSize: 13, lineHeight: 1.6 }}>Use this for gas, Walmart supplies, shipping supplies, plant inventory invoices, software bills, utilities, insurance, tools, and store purchases. The AI will classify it, split line items, detect bills, and ask you before saving.</p>
           <input ref={fRef} type="file" accept="image/*,.pdf" capture="environment" style={{ display: "none" }} onChange={e => loadFile(e.target.files[0])} />
           <div onClick={() => fRef.current.click()} style={{ border: `2px dashed ${C.g300}`, borderRadius: 14, padding: "42px 20px", textAlign: "center", background: C.g50, cursor: "pointer" }}>
             <div style={{ fontSize: 42, marginBottom: 8 }}>📸</div>
-            <div style={{ fontWeight: 800, color: C.g800 }}>Tap to take photo or upload receipt</div>
-            <div style={{ fontSize: 12, color: C.tx3, marginTop: 4 }}>The original image is saved with the expense record.</div>
+            <div style={{ fontWeight: 800, color: C.g800 }}>Tap to take photo or upload document</div>
+            <div style={{ fontSize: 12, color: C.tx3, marginTop: 4 }}>Every save keeps the original image, raw OCR text, and audit trail.</div>
           </div>
         </Card>}
         {step === "preview" && <Card style={{ maxWidth: 900 }}>
-          <Row between center wrap style={{ marginBottom: 14 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20 }}>Receipt Preview</div><div style={{ fontSize: 12, color: C.tx3 }}>{fileName}</div></div><Row gap={8}><Btn onClick={runScan} disabled={busy}>{busy ? "Scanning..." : "🤖 AI Scan Receipt"}</Btn><Btn v="ghost" onClick={() => setStep("upload")}>Change Photo</Btn></Row></Row>
-          {img && <img src={img} style={{ maxWidth: "100%", maxHeight: 520, borderRadius: 12, border: `1px solid ${C.bd}` }} />}
+          <Row between center wrap style={{ marginBottom: 14 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20 }}>Document Preview</div><div style={{ fontSize: 12, color: C.tx3 }}>{fileName}</div></div><Row gap={8}><Btn onClick={runScan} disabled={busy}>{busy ? "Scanning..." : "🤖 AI Scan Document"}</Btn><Btn v="ghost" onClick={() => setStep("upload")}>Change Photo</Btn></Row></Row>
+          {img && String(img).startsWith("data:application/pdf") ? <div style={{ padding: 20, border: `1px solid ${C.bd}`, borderRadius: 12, background: C.cardAlt }}>PDF selected. Click AI Scan Document to process it.</div> : img && <img src={img} style={{ maxWidth: "100%", maxHeight: 520, borderRadius: 12, border: `1px solid ${C.bd}` }} />}
         </Card>}
-        {step === "review" && <Card style={{ maxWidth: 1080 }}>
-          <Row between center wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20 }}>Receipt Review</div><div style={{ fontSize: 12, color: C.tx3 }}>Fix anything wrong before saving. Confidence: {Math.round((+form.ai_confidence || 0) * 100)}%</div></div><Tag text={form.review_status} color={form.review_status === "Reviewed" ? C.g600 : C.amber} /></Row>
-          {possibleDupes.length > 0 && <div style={{ background: C.redBg, color: C.red, border: `1px solid ${C.red}55`, borderRadius: 10, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>⚠️ Possible duplicate receipt found for same vendor, date, and amount.</div>}
+        {step === "review" && <Card style={{ maxWidth: 1120 }}>
+          <Row between center wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20 }}>Confidence Review Screen</div><div style={{ fontSize: 12, color: C.tx3 }}>Confirm, edit, or reject. Nothing is saved silently.</div></div><Tag text={`${Math.round((+form.ai_confidence || 0) * 100)}% confidence`} color={confidenceColor(form.ai_confidence)} /></Row>
+          <RouteChoice />
+          {possibleDupes.length > 0 && <div style={{ background: C.redBg, color: C.red, border: `1px solid ${C.red}55`, borderRadius: 10, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>⚠️ Possible duplicate document found for same vendor, date, and amount.</div>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginBottom: 10 }}>
-            <Inp label="Vendor *" value={form.vendor_name} onChange={upd("vendor_name")} />
-            <Inp label="Date" type="date" value={form.receipt_date} onChange={upd("receipt_date")} />
-            <Inp label="Time" value={form.receipt_time} onChange={upd("receipt_time")} />
+            <div><Inp label="Vendor *" value={form.vendor_name} onChange={upd("vendor_name")} /><FieldConfBadge name="vendor_name" /></div>
+            <div><Inp label="Date" type="date" value={form.receipt_date} onChange={upd("receipt_date")} /><FieldConfBadge name="receipt_date" /></div>
+            <Inp label="Due Date" type="date" value={form.due_date} onChange={upd("due_date")} />
+            <Sel label="Document Type" value={form.document_type} onChange={upd("document_type")} options={docTypes} />
             <Inp label="Subtotal" type="number" value={form.subtotal} onChange={upd("subtotal")} />
             <Inp label="Tax" type="number" value={form.tax} onChange={upd("tax")} />
-            <Inp label="Total *" type="number" value={form.total} onChange={upd("total")} />
-            <Sel label="Category" value={form.main_category} onChange={upd("main_category")} options={RECEIPT_CATS} />
+            <div><Inp label="Total *" type="number" value={form.total} onChange={upd("total")} /><FieldConfBadge name="total" /></div>
+            <div><Sel label="Expense Category" value={form.main_category} onChange={upd("main_category")} options={RECEIPT_CATS} /><FieldConfBadge name="main_category" /></div>
+            <Sel label="Bill Category" value={form.bill_category} onChange={upd("bill_category")} options={BILL_CATS} />
             <Sel label="Payment" value={form.payment_method} onChange={upd("payment_method")} options={PAY_METHS} />
             <Inp label="Card Last 4" value={form.card_last4} onChange={upd("card_last4")} />
-            <Inp label="Receipt #" value={form.receipt_number} onChange={upd("receipt_number")} />
+            <Inp label="Receipt / Invoice #" value={form.receipt_number} onChange={upd("receipt_number")} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10, marginBottom: 10 }}><Inp label="Vendor Address" value={form.vendor_address} onChange={upd("vendor_address")} /><Inp label="Vendor Phone" value={form.vendor_phone} onChange={upd("vendor_phone")} /><Sel label="Business Purpose" value={form.business_purpose} onChange={upd("business_purpose")} options={RECEIPT_PURPOSES} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10, marginBottom: 10 }}><Inp label="Vendor Address" value={form.vendor_address} onChange={upd("vendor_address")} /><Inp label="Vendor Phone" value={form.vendor_phone} onChange={upd("vendor_phone")} /><Sel label="Business Purpose" value={form.business_purpose} onChange={upd("business_purpose")} options={RECEIPT_PURPOSES} /><Sel label="Frequency" value={form.suggested_frequency} onChange={upd("suggested_frequency")} options={BILL_FREQ} /></div>
+          {form.main_category === "Gas & Mileage" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginBottom: 10, background: C.blueBg, border: `1px solid ${C.blue}33`, borderRadius: 12, padding: 10 }}><Inp label="Vehicle" value={form.vehicle_name} onChange={upd("vehicle_name")} placeholder="GMC Canyon / trailer run" /><Inp label="Odometer" value={form.odometer} onChange={upd("odometer")} /><Inp label="Gallons" value={form.gallons} onChange={upd("gallons")} /></div>}
           <Inp label="Notes" value={form.notes} onChange={upd("notes")} style={{ marginBottom: 10 }} />
           <Row gap={8} wrap style={{ marginBottom: 12 }}>{RECEIPT_PURPOSES.slice(0,8).map(p => <Btn key={p} sz="sm" v={form.business_purpose === p ? "fill" : "soft"} onClick={() => upd("business_purpose")(p)}>{p}</Btn>)}</Row>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14 }}><input type="checkbox" checked={!!form.deductible} onChange={e => upd("deductible")(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.g700 }} /> Tax deductible business expense</label>
-          <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 10 }}>Item Lines</div>
+          <Row gap={14} wrap style={{ marginBottom: 14 }}><label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><input type="checkbox" checked={!!form.deductible} onChange={e => upd("deductible")(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.g700 }} /> Tax deductible business expense</label><label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><input type="checkbox" checked={!!form.is_recurring} onChange={e => upd("is_recurring")(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.g700 }} /> Recurring bill / subscription</label></Row>
+          <div style={{ background: C.cardAlt, border: `1px solid ${C.bd}`, borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 12 }}><b>Extracted Summary:</b> {form.vendor_name || "Unknown vendor"} · {form.document_type} · {$(form.total)} gross · {$(calcBusinessTotal(form))} business total · Route: {routeChoice}</div>
+          <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 10 }}>Item-Level Split</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>{(form.items || []).map((it, i) => <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr .7fr .8fr .8fr 1.2fr auto", gap: 7, alignItems: "end", background: C.cardAlt, padding: 10, borderRadius: 10 }}><Inp label={i===0?"Item":""} value={it.item_name} onChange={v => updItem(i,"item_name",v)} /><Inp label={i===0?"Qty":""} type="number" value={it.quantity} onChange={v => updItem(i,"quantity",v)} /><Inp label={i===0?"Unit":""} type="number" value={it.unit_price} onChange={v => updItem(i,"unit_price",v)} /><Inp label={i===0?"Line Total":""} type="number" value={it.line_total} onChange={v => updItem(i,"line_total",v)} /><Sel label={i===0?"Category":""} value={it.category} onChange={v => updItem(i,"category",v)} options={RECEIPT_CATS} /><Btn sz="sm" v="ghost" onClick={() => delItem(i)}>✕</Btn></div>)}</div>
-          <Row gap={8} wrap><Btn v="soft" onClick={addItem}>+ Add Item</Btn><Btn onClick={() => saveReceipt(false, false)} disabled={busy}>{busy ? "Saving..." : "Save Expense"}</Btn><Btn v="fill" onClick={() => saveReceipt(true, false)} disabled={busy}>Save & Add Another</Btn>{possibleDupes.length > 0 && <Btn v="danger" onClick={() => saveReceipt(false, true)} disabled={busy}>Save Anyway</Btn>}<Btn v="ghost" onClick={() => setStep("preview")}>Rescan</Btn><Btn v="ghost" onClick={() => upd("deductible")(false)}>Mark Personal / Do Not Deduct</Btn></Row>
+          <Row gap={8} wrap><Btn v="soft" onClick={addItem}>+ Add Item</Btn><Btn onClick={() => saveReceipt(false, false)} disabled={busy}>{busy ? "Saving..." : "Confirm & Save"}</Btn><Btn v="fill" onClick={() => saveReceipt(true, false)} disabled={busy}>Save & Add Another</Btn>{possibleDupes.length > 0 && <Btn v="danger" onClick={() => saveReceipt(false, true)} disabled={busy}>Save Anyway</Btn>}<Btn v="ghost" onClick={() => setStep("preview")}>Rescan</Btn><Btn v="danger" onClick={rejectScan}>Reject & Discard</Btn></Row>
         </Card>}
         {step === "archive" && <div>
-          <Card style={{ marginBottom: 14 }}><Row between center wrap><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 18 }}>Tax Receipt Vault</div><div style={{ fontSize: 12, color: C.tx3 }}>Search, filter, export, and view all scanned business receipts.</div></div><Btn v="ghost" onClick={() => window.print()}>Print / PDF</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 12 }}><Inp label="Search" value={filter.q} onChange={v=>setFilter(p=>({...p,q:v}))} /><Inp label="From" type="date" value={filter.from} onChange={v=>setFilter(p=>({...p,from:v}))} /><Inp label="To" type="date" value={filter.to} onChange={v=>setFilter(p=>({...p,to:v}))} /><Sel label="Category" value={filter.cat} onChange={v=>setFilter(p=>({...p,cat:v}))} options={["All",...RECEIPT_CATS]} /><Sel label="Status" value={filter.status} onChange={v=>setFilter(p=>({...p,status:v}))} options={["All","Needs Review","Reviewed"]} /></div></Card>
+          <Card style={{ marginBottom: 14 }}><Row between center wrap><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 18 }}>Tax Receipt Vault</div><div style={{ fontSize: 12, color: C.tx3 }}>Search by vendor, date, category, amount, document type, item, or OCR text.</div></div><Btn v="ghost" onClick={() => window.print()}>Print / PDF</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 12 }}><Inp label="Search" value={filter.q} onChange={v=>setFilter(p=>({...p,q:v}))} /><Inp label="From" type="date" value={filter.from} onChange={v=>setFilter(p=>({...p,from:v}))} /><Inp label="To" type="date" value={filter.to} onChange={v=>setFilter(p=>({...p,to:v}))} /><Sel label="Document" value={filter.type} onChange={v=>setFilter(p=>({...p,type:v}))} options={["All",...docTypes]} /><Sel label="Category" value={filter.cat} onChange={v=>setFilter(p=>({...p,cat:v}))} options={["All",...RECEIPT_CATS]} /><Sel label="Status" value={filter.status} onChange={v=>setFilter(p=>({...p,status:v}))} options={["All","Needs Review","Reviewed"]} /></div></Card>
           {byVendor.length > 0 && <Card style={{ marginBottom: 14 }}><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 10 }}>Top Vendors by Spend</div><BarLine data={byVendor} lk="v" vk="t" fmtV={$} /></Card>}
-          <Tbl cols={[{k:"date",l:"Date"},{k:"vendor",l:"Vendor"},{k:"cat",l:"Category"},{k:"total",l:"Total",right:true},{k:"pay",l:"Payment"},{k:"status",l:"Status"},{k:"img",l:"Receipt"}]}
-            rows={shown.map(r => ({ date: r.receipt_date || "—", vendor: <b>{r.vendor_name}</b>, cat: <Tag text={r.main_category || "Other"} color={C.gold} sm />, total: <b style={{ color: C.red }}>{$(r.total)}</b>, pay: `${r.payment_method || ""}${r.card_last4 ? " ···" + r.card_last4 : ""}`, status: <Tag text={r.review_status || "Needs Review"} color={(r.review_status === "Reviewed") ? C.g600 : C.amber} sm />, img: r.receipt_image_url ? <a href={r.receipt_image_url} target="_blank">View</a> : r.receipt_image_data ? <button onClick={() => { const w=window.open(); w.document.write(`<img src="${r.receipt_image_data}" style="max-width:100%">`); }}>View</button> : "Missing" }))}
+          <Tbl cols={[{k:"date",l:"Date"},{k:"vendor",l:"Vendor"},{k:"type",l:"Type"},{k:"cat",l:"Category"},{k:"total",l:"Total",right:true},{k:"pay",l:"Payment"},{k:"status",l:"Status"},{k:"img",l:"Receipt"}]}
+            rows={shown.map(r => ({ date: r.receipt_date || "—", vendor: <b>{r.vendor_name}</b>, type: <Tag text={r.document_type || "receipt"} color={C.blue} sm />, cat: <Tag text={r.main_category || "Other"} color={C.gold} sm />, total: <b style={{ color: C.red }}>{$(r.total)}</b>, pay: `${r.payment_method || ""}${r.card_last4 ? " ···" + r.card_last4 : ""}`, status: <Tag text={r.review_status || "Needs Review"} color={(r.review_status === "Reviewed") ? C.g600 : C.amber} sm />, img: r.receipt_image_url ? <a href={r.receipt_image_url} target="_blank">View</a> : r.receipt_image_data ? <button onClick={() => { const w=window.open(); w.document.write(`<img src="${r.receipt_image_data}" style="max-width:100%">`); }}>View</button> : "Missing" }))}
             empty="No scanned receipts yet" />
         </div>}
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"]{grid-template-columns:1fr 1fr!important;} div[style*="grid-template-columns: 2fr .7fr .8fr .8fr 1.2fr auto"]{grid-template-columns:1fr!important;}}`}</style>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4, minmax(0, 1fr))"]{grid-template-columns:1fr 1fr!important;} div[style*="grid-template-columns: 2fr .7fr .8fr .8fr 1.2fr auto"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
@@ -5923,7 +6033,32 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       const applyImport = () => {
         setImportMsg("Preparing full import. Large Palmstreet files may take a moment to save to Supabase in batches...");
-        const allSelected = matched.filter(r => r.apply);
+
+        // HARD SAFETY LOCK: never let a show save partially.
+        // The old bug allowed the review screen to show many sales, but submit only saved
+        // checked/non-duplicate rows. That broke revenue, inventory, and commissions.
+        const validRowsBeforeSubmit = matched.filter(r => !r.duplicate);
+        const duplicateRowsBeforeSubmit = matched.filter(r => r.duplicate);
+        const unselectedRowsBeforeSubmit = validRowsBeforeSubmit.filter(r => !r.apply);
+        const expectedSubmitCount = validRowsBeforeSubmit.length;
+        const expectedSubmitGross = validRowsBeforeSubmit.reduce((s, r) => s + money(r.price || r.productAmount || r.orderAmount), 0);
+
+        if (!matched.length) {
+          setImportMsg("Import stopped: no valid sales rows are loaded. Re-upload the original Whatnot/Palmstreet export.");
+          return;
+        }
+
+        if (duplicateRowsBeforeSubmit.length > 0) {
+          setImportMsg(`Import stopped for safety: ${duplicateRowsBeforeSubmit.length} row(s) look like they were already imported before. This usually means the last bad import partially changed the database. Do NOT import again on top of it. Go to Admin → Data Cleanup → Start Customers & Sales Over, then re-upload the ORIGINAL show file once. Expected full file: ${expectedSubmitCount + duplicateRowsBeforeSubmit.length} valid sale row(s), gross ${$(expectedSubmitGross + duplicateRowsBeforeSubmit.reduce((s,r)=>s+money(r.price||r.productAmount||r.orderAmount),0))}.`);
+          return;
+        }
+
+        if (unselectedRowsBeforeSubmit.length > 0) {
+          setImportMsg(`Import stopped for safety: ${unselectedRowsBeforeSubmit.length} valid sale row(s) are not selected, so the CRM would save a partial show. Switch to Historical Import - Save Unmatched, or manually match/select every row before submit. Expected ${expectedSubmitCount} rows and ${$(expectedSubmitGross)} gross.`);
+          return;
+        }
+
+        const allSelected = validRowsBeforeSubmit;
         const existingKeys = existingImportedSaleKeys(plants);
         const newKeys = new Set();
         const selected = [];
@@ -5941,6 +6076,22 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           newKeys.add(compactKey(k2));
           selected.push({ ...sale, saleImportKey: k1, saleLegacyKey: k2 });
         });
+
+        if (duplicates.length > 0) {
+          setImportMsg(`Import stopped for safety: ${duplicates.length} sale row(s) became duplicate during submit. Nothing was saved. This protects inventory and commissions from partial/double import. Reset Customers + Sales, then re-upload the original show file once.`);
+          return;
+        }
+
+        if (selected.length !== expectedSubmitCount) {
+          setImportMsg(`Import stopped for safety: submit count mismatch. Expected ${expectedSubmitCount} sales, but only ${selected.length} were ready to save. Nothing was saved.`);
+          return;
+        }
+
+        const submitGrossCheck = selected.reduce((s, r) => s + money(r.price || r.productAmount || r.orderAmount), 0);
+        if (Math.abs(submitGrossCheck - expectedSubmitGross) > 0.009) {
+          setImportMsg(`Import stopped for safety: gross sales mismatch. Expected ${$(expectedSubmitGross)}, but submit calculated ${$(submitGrossCheck)}. Nothing was saved.`);
+          return;
+        }
 
         const matchedSales = selected.filter(r => r.matched);
         const unmatchedSales = selected.filter(r => !r.matched);
@@ -6210,6 +6361,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             {showEmployeeId !== "none" && <div style={{ fontSize: 13, opacity: .95, marginTop: 4, color: "#fff" }}>👷 {selectedShowEmployee?.name || "Employee"} commission estimate: {$(matched.filter(r => r.apply && !r.duplicate).reduce((s,r)=>s+showNetAfterFees(r),0) * ((+showCommissionPercent||0)/100))} · {showCommissionPercent || 0}% after fees</div>}
             <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>{matched.length} plant sales found · {matched_count} matched to inventory · {unmatched_count} created sold / needs review · {duplicate_count} duplicates already imported · {skipped.length} skipped non-plant/bad rows</div>
             {importAudit && <div style={{ fontSize: 12, opacity: .92, marginTop: 6 }}>Audit lock: {importAudit.platform} · raw rows {importAudit.rawRows} · valid sales {importAudit.validSales} · gross {$(importAudit.grossSales)} · net {$(importAudit.netAfterFees)}</div>}
+            {duplicate_count > 0 && <div style={{ fontSize: 12, opacity: .98, marginTop: 6, color: "#FFD580" }}>⛔ Safety lock: {duplicate_count} duplicate row(s) detected. Submit will stop so the show cannot save partially or double-count commissions.</div>}
             {importMode === "exact" && unmatched_count > 0 && <div style={{ fontSize: 12, opacity: .98, marginTop: 6, color: "#FFD580" }}>⚠️ Exact mode is on: unmatched rows are NOT selected. Match them manually or switch to Historical Import to save them as needs-review sale records.</div>}
             {matched.length > 1000 && <div style={{ fontSize: 12, opacity: .9, marginTop: 6 }}>✅ Large file mode active: all {matched.length} rows will import/save. Preview only shows first 350 rows for speed.</div>}
           </div>
@@ -6255,7 +6407,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {lastImportResult?.duplicateSkipped > 0 && <p style={{ color: C.red, marginBottom: 6, fontWeight: 700 }}>{lastImportResult.duplicateSkipped} duplicate rows skipped — already imported before.</p>}
           {lastImportResult?.historicalDuplicateNumbers > 0 && <p style={{ color: C.amber, marginBottom: 6, fontWeight: 700 }}>{lastImportResult.historicalDuplicateNumbers} reused historical plant number(s) imported as new sold records and flagged for review.</p>}
           {lastImportResult?.commissionEmployee && <p style={{ color: C.g700, marginBottom: 6, fontWeight: 800 }}>👷 Commission created for {lastImportResult.commissionEmployee}: {$(lastImportResult.commissionAmount)}</p>}
-          <p style={{ color: C.gold, fontWeight: 700, fontSize: 18, marginBottom: 22 }}>{$(totalRev)} in new selected sales reviewed</p>
+          <p style={{ color: C.gold, fontWeight: 700, fontSize: 18, marginBottom: 22 }}>{$(lastImportResult?.grossSales ?? totalRev)} in sales imported / reviewed</p>
           <Row gap={10} style={{ justifyContent: "center" }}>
             <Btn v="outline" onClick={() => downloadCSVFile(`leaf-diary-show-import-audit-${today()}.csv`, buildShowImportAuditCsv(matched, importAudit))}>📥 Download Import Audit</Btn>
             <Btn onClick={() => { setRaw(""); setMatched([]); setSkipped([]); setImportAudit(null); setStep("paste"); }}>Import Another File</Btn>
@@ -7639,7 +7791,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
           {page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
-          {page === "receipts" && <ReceiptScanner receipts={expenseReceipts} setReceipts={setExpenseReceipts} expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
+          {page === "receipts" && <ReceiptScanner receipts={expenseReceipts} setReceipts={setExpenseReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} />}
           {page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} />}
           {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} />}
           {page === "intel" && CAN.seeReports(user.role) && <BuyIntel plants={plants} settings={settings} />}
