@@ -2268,233 +2268,195 @@
     /* ══════════════════════════════════════════════════════════
        REPORTS
     ══════════════════════════════════════════════════════════ */
-    function Reports({ plants, expenses, timecards, nurseries }) {
-      const [tab, setTab] = useState("overview");
-      const [timePreset, setTimePreset] = useState("all");
-      const [timeStart, setTimeStart] = useState(today());
-      const [timeEnd, setTimeEnd] = useState(today());
-      const sold = plants.filter(p => p.status === "Sold");
-      const inStock = plants.filter(p => p.status === "In Stock");
-      const dead = plants.filter(p => ["Dead", "Damaged"].includes(p.status));
-      const soldRev = sold.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0);
-      const soldFees = sold.reduce((s, p) => s + platFee(p.platform || "", +p.salePrice || +p.suggestedPrice || 0), 0);
-      const soldCogs = sold.reduce((s, p) => s + (+p.cost || 0), 0);
-      const trueGross = soldRev - soldCogs - soldFees;
-      const totalExp = expenses.reduce((s, e) => s + (+e.amount || 0), 0);
-      const netProfit = trueGross - totalExp;
-      const stockVal = inStock.reduce((s, p) => s + (+p.suggestedPrice || 0), 0);
-      const lostVal = dead.reduce((s, p) => s + (+p.cost || 0), 0);
-      const perPlant = sold.map(p => { const rev = +p.salePrice || +p.suggestedPrice || 0, cost = +p.cost || 0, fee = platFee(p.platform || "", rev), tp = rev - cost - fee - (+p.shippingCost || 0); return { ...p, rev, profit: rev - cost, truePro: tp, fee, roi: cost > 0 ? Math.round(((rev - cost) / cost) * 100) : 0 }; }).sort((a, b) => b.truePro - a.truePro);
-      const byPlat = PLATFORMS.map(pl => { const pp = sold.filter(p => p.platform === pl); const rev = pp.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0); const cost = pp.reduce((s, p) => s + (+p.cost || 0), 0); const fee = pp.reduce((s, p) => s + platFee(pl, +p.salePrice || +p.suggestedPrice || 0), 0); return { pl, count: pp.length, rev, cost, fee, profit: rev - cost - fee, margin: rev > 0 ? Math.round(((rev - cost - fee) / rev) * 100) : 0 }; }).filter(p => p.count > 0).sort((a, b) => b.profit - a.profit);
-      const byNursery = nurseries.map(n => { const np = plants.filter(p => p.nurseryCode === n.code); const ns = np.filter(p => p.status === "Sold"); const rev = ns.reduce((s, p) => s + (+p.salePrice || +p.suggestedPrice || 0), 0); const cost = ns.reduce((s, p) => s + (+p.cost || 0), 0); const spent = np.reduce((s, p) => s + (+p.cost || 0), 0); const avgM = np.length ? Math.round(np.reduce((s, p) => s + (+p.margin || 0), 0) / np.length) : 0; return { ...n, total: np.length, sold: ns.length, rev, cost, spent, profit: rev - cost, avgM, roi: spent > 0 ? Math.round(((rev - cost) / spent) * 100) : 0, dead: np.filter(p => ["Dead", "Damaged"].includes(p.status)).length }; }).sort((a, b) => b.profit - a.profit);
-      const gMap = {}; plants.forEach(p => { const g = gOf(p.name); if (!gMap[g]) gMap[g] = { name: g, total: 0, sold: 0, rev: 0, cost: 0, margins: [], days: [] }; gMap[g].total++; if (p.status === "Sold") { gMap[g].sold++; gMap[g].rev += (+p.salePrice || +p.suggestedPrice || 0); gMap[g].cost += (+p.cost || 0); const d = dHeld(p.dateAdded); if (d !== null) gMap[g].days.push(d); } gMap[g].margins.push(+p.margin || 0); });
-      const byGenus = Object.values(gMap).map(g => ({ ...g, profit: g.rev - g.cost, avgM: g.margins.length ? Math.round(g.margins.reduce((a, b) => a + b, 0) / g.margins.length) : 0, sellThru: g.total > 0 ? Math.round(g.sold / g.total * 100) : 0, avgDays: g.days.length ? Math.round(g.days.reduce((a, b) => a + b, 0) / g.days.length) : null, roi: g.cost > 0 ? Math.round(((g.rev - g.cost) / g.cost) * 100) : 0 })).sort((a, b) => b.profit - a.profit);
-      const restockAlerts = byGenus.filter(g => g.sellThru >= 60 && g.total - g.sold <= 2).slice(0, 6);
-      const slowMovers = inStock.filter(p => dHeld(p.dateAdded) >= 30).sort((a, b) => (dHeld(b.dateAdded) || 0) - (dHeld(a.dateAdded) || 0)).slice(0, 8);
-      const underPriced = inStock.filter(p => +p.cost > 0 && +p.suggestedPrice < +p.cost * 2).slice(0, 8);
-
-      const timeRange = getDashDateRange(timePreset, timeStart, timeEnd);
-      const timeDateChip = timePreset === "all" ? "All Time" : timeRange.label;
-      const saleDateTimeOf = p => {
-        const fields = ["saleDateTime", "orderCreatedAt", "soldAt", "soldDate", "saleDate", "dateSold", "orderDate", "dateAdded"];
-        for (const f of fields) {
-          const v = p?.[f];
-          if (!v) continue;
-          const str = String(v).trim();
-          const d = new Date(str.includes("T") ? str : str + "T12:00:00");
-          if (!isNaN(d)) return d;
-        }
-        return null;
+    function Reports({ plants, expenses, timecards, nurseries, casdCerts = [], user }) {
+      const [tab, setTab] = useState("executive");
+      const [rangePreset, setRangePreset] = useState("month");
+      const [rangeStart, setRangeStart] = useState(today());
+      const [rangeEnd, setRangeEnd] = useState(today());
+      const [theme, setTheme] = useState("classic");
+      const [safeMode, setSafeMode] = useState(false);
+      const hideMoney = safeMode || user?.role === "employee";
+      const dark = theme === "neon";
+      const pageBg = dark ? "#050505" : C.bg;
+      const cardBg = dark ? "#0B0F0C" : C.card;
+      const cardAlt = dark ? "#111A14" : C.cardAlt;
+      const textMain = dark ? "#F5FFF8" : C.tx1;
+      const textMuted = dark ? "#A9CBB3" : C.tx3;
+      const line = dark ? "#173522" : C.bd;
+      const money = n => hideMoney ? "Hidden" : $(n);
+      const pct = n => `${Math.round(+n || 0)}%`;
+      const safeName = v => String(v || "Unknown").trim() || "Unknown";
+      const dateFrom = v => {
+        if (!v) return null;
+        const s = String(v).trim();
+        const d = new Date(s.includes("T") ? s : s + "T12:00:00");
+        return isNaN(d) ? null : d;
       };
-      const hasRealTime = p => ["saleDateTime", "orderCreatedAt", "soldAt"].some(f => p?.[f] && String(p[f]).includes("T"));
-      const timeSales = (timePreset === "all" ? sold : sold.filter(p => {
-        const d = saleDateTimeOf(p);
-        return d && d >= timeRange.start && d <= timeRange.end;
-      })).filter(p => saleDateTimeOf(p));
-      const unknownTimeCount = timeSales.filter(p => !hasRealTime(p)).length;
-      const hourBuckets = Array.from({ length: 24 }, (_, h) => ({
-        hour: h,
-        label: new Date(2020, 0, 1, h).toLocaleTimeString("en-US", { hour: "numeric" }),
-        count: 0,
-        revenue: 0,
-        profit: 0,
-        avgSale: 0
-      }));
-      timeSales.forEach(p => {
-        const d = saleDateTimeOf(p);
-        if (!d) return;
-        const h = d.getHours();
-        const rev = +p.salePrice || +p.suggestedPrice || 0;
-        const cost = +p.cost || 0;
-        const fee = platFee(p.platform || "", rev);
-        hourBuckets[h].count += 1;
-        hourBuckets[h].revenue += rev;
-        hourBuckets[h].profit += rev - cost - fee - (+p.shippingCost || 0);
+      const saleDateOf = p => dateFrom(p.saleDateTime || p.orderCreatedAt || p.soldAt || p.saleDate || p.soldDate || p.dateSold || p.orderDate || p.dateAdded);
+      const addDateOf = p => dateFrom(p.dateAdded || p.createdAt || p.invoiceDate);
+      const expDateOf = e => dateFrom(e.date || e.expenseDate || e.paidDate || e.createdAt);
+      const range = getDashDateRange(rangePreset, rangeStart, rangeEnd);
+      const inRange = d => rangePreset === "all" || (d && d >= range.start && d <= range.end);
+      const rangeLabel = rangePreset === "all" ? "All Time" : range.label;
+      const soldAll = plants.filter(p => p.status === "Sold");
+      const sold = soldAll.filter(p => inRange(saleDateOf(p)));
+      const inStock = plants.filter(p => p.status === "In Stock");
+      const deadAll = plants.filter(p => ["Dead", "Damaged"].includes(p.status));
+      const dead = deadAll.filter(p => inRange(dateFrom(p.deadDate || p.damagedDate || p.updatedAt || p.dateAdded)));
+      const expInRange = expenses.filter(e => inRange(expDateOf(e)));
+      const timeInRange = timecards.filter(t => inRange(dateFrom(t.date || t.createdAt)));
+      const revOf = p => +p.salePrice || +p.suggestedPrice || 0;
+      const costOf = p => +p.cost || 0;
+      const profitOf = p => revOf(p) - costOf(p) - platFee(p.platform || "", revOf(p)) - (+p.shippingCost || 0);
+      const soldRev = sold.reduce((s, p) => s + revOf(p), 0);
+      const soldFees = sold.reduce((s, p) => s + platFee(p.platform || "", revOf(p)), 0);
+      const soldCogs = sold.reduce((s, p) => s + costOf(p), 0);
+      const trueGross = soldRev - soldCogs - soldFees;
+      const totalExp = expInRange.reduce((s, e) => s + (+e.amount || 0), 0);
+      const payrollCost = timeInRange.reduce((s, t) => s + (+t.totalPay || 0), 0);
+      const netProfit = trueGross - totalExp - payrollCost;
+      const inventoryCost = inStock.reduce((s, p) => s + costOf(p), 0);
+      const stockVal = inStock.reduce((s, p) => s + (+p.suggestedPrice || 0), 0);
+      const lostVal = dead.reduce((s, p) => s + costOf(p), 0);
+      const avgOrder = sold.length ? soldRev / sold.length : 0;
+      const cashFlow = soldRev - totalExp - payrollCost - soldFees;
+      const margin = soldRev ? (netProfit / soldRev) * 100 : 0;
+      const dateKey = d => d ? d.toISOString().slice(0, 10) : "Unknown";
+      const groupBy = (arr, keyFn, seedFn) => {
+        const m = {};
+        arr.forEach(x => {
+          const k = keyFn(x);
+          if (!m[k]) m[k] = seedFn ? seedFn(k) : { key: k };
+          m[k].items = m[k].items || [];
+          m[k].items.push(x);
+        });
+        return Object.values(m);
+      };
+      const quickRange = preset => getDashDateRange(preset, today(), today());
+      const salesInQuick = preset => soldAll.filter(p => { const d = saleDateOf(p); const r = quickRange(preset); return d && d >= r.start && d <= r.end; });
+      const salesToday = salesInQuick("today").reduce((s, p) => s + revOf(p), 0);
+      const salesWeek = salesInQuick("week").reduce((s, p) => s + revOf(p), 0);
+      const salesMonth = salesInQuick("month").reduce((s, p) => s + revOf(p), 0);
+      const salesYear = salesInQuick("year").reduce((s, p) => s + revOf(p), 0);
+      const perPlant = sold.map(p => ({ ...p, rev: revOf(p), truePro: profitOf(p), roi: costOf(p) ? Math.round(((revOf(p) - costOf(p)) / costOf(p)) * 100) : 0, realMargin: revOf(p) ? Math.round((profitOf(p) / revOf(p)) * 100) : 0 })).sort((a, b) => b.truePro - a.truePro);
+      const byPlatform = PLATFORMS.map(pl => {
+        const pp = sold.filter(p => (p.platform || "Other") === pl || (!p.platform && pl === "Other"));
+        const rev = pp.reduce((s, p) => s + revOf(p), 0);
+        const cost = pp.reduce((s, p) => s + costOf(p), 0);
+        const fee = pp.reduce((s, p) => s + platFee(pl, revOf(p)), 0);
+        return { platform: pl, count: pp.length, rev, cost, fee, profit: rev - cost - fee, avg: pp.length ? rev / pp.length : 0 };
+      }).filter(x => x.count > 0).sort((a, b) => b.rev - a.rev);
+      const bestPlatform = byPlatform[0]?.platform || "None yet";
+      const genusMap = {};
+      plants.forEach(p => {
+        const g = gOf(p.name);
+        if (!genusMap[g]) genusMap[g] = { genus: g, total: 0, sold: 0, inStock: 0, dead: 0, rev: 0, cost: 0, profit: 0, days: [] };
+        const row = genusMap[g]; row.total++;
+        if (p.status === "In Stock") row.inStock++;
+        if (["Dead", "Damaged"].includes(p.status)) row.dead++;
+        if (p.status === "Sold") { row.sold++; row.rev += revOf(p); row.cost += costOf(p); row.profit += profitOf(p); const sd = saleDateOf(p), ad = addDateOf(p); if (sd && ad) row.days.push(Math.max(0, Math.round((sd - ad) / 864e5))); }
       });
-      hourBuckets.forEach(h => h.avgSale = h.count ? h.revenue / h.count : 0);
-      const bestHours = hourBuckets.filter(h => h.count > 0).sort((a, b) => b.revenue - a.revenue);
-      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-      const dayBuckets = dayNames.map((name, day) => ({ day, name, count: 0, revenue: 0, profit: 0, avgSale: 0 }));
-      timeSales.forEach(p => {
-        const d = saleDateTimeOf(p);
-        if (!d) return;
-        const b = dayBuckets[d.getDay()];
-        const rev = +p.salePrice || +p.suggestedPrice || 0;
-        const cost = +p.cost || 0;
-        const fee = platFee(p.platform || "", rev);
-        b.count += 1;
-        b.revenue += rev;
-        b.profit += rev - cost - fee - (+p.shippingCost || 0);
-      });
-      dayBuckets.forEach(d => d.avgSale = d.count ? d.revenue / d.count : 0);
-      const bestDays = dayBuckets.filter(d => d.count > 0).sort((a, b) => b.revenue - a.revenue);
-      const timeRevenue = timeSales.reduce((sum, p) => sum + (+p.salePrice || +p.suggestedPrice || 0), 0);
-      const exportCSV = () => { const rows = [["LEAF DIARY P&L", today(), ""], ["Revenue", soldRev, ""], ["Fees", -soldFees, ""], ["COGS", -soldCogs, ""], ["True Gross", trueGross, ""], ["Expenses", -totalExp, ""], ["Net Profit", netProfit, ""], ["", "", ""], ["TOP PLANTS", "Cost", "True Profit"], ...perPlant.slice(0, 10).map(p => [toTC(p.name), $(p.cost), $(p.truePro)])]; const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([rows.map(r => r.join(",")).join("\n")], { type: "text/csv" })), download: `leaf-diary-${today()}.csv` }); a.click(); };
-      const TABS = [{ id: "overview", l: "📊 Overview" }, { id: "time", l: "⏰ Best Times" }, { id: "plants", l: "🌿 Per Plant" }, { id: "platform", l: "📱 Platform" }, { id: "nursery", l: "🏪 Nursery" }, { id: "genus", l: "🧬 Genus" }, { id: "alerts", l: "⚡ Alerts" }];
-      return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="📈" title="Reports & Analytics" sub="True profit after fees · All calculations automatic"
-          right={<Btn v="outline" onClick={exportCSV}>📥 Export CSV</Btn>} />
-        <div style={{ display: "flex", gap: 0, marginBottom: 22, borderBottom: `1px solid ${C.bd}`, flexWrap: "wrap" }}>
-          {TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "8px 14px", fontSize: 12, fontWeight: tab === t.id ? 700 : 500, background: "transparent", border: "none", borderBottom: tab === t.id ? `2.5px solid ${C.g700}` : "2.5px solid transparent", color: tab === t.id ? C.g800 : C.tx3, cursor: "pointer", fontFamily: F.body, whiteSpace: "nowrap" }}>{t.l}</button>)}
-        </div>
-        {tab === "overview" && <div>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-            <div style={{ background: C.g800, borderRadius: 14, padding: "18px 22px", color: "#fff" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 6 }}>True Net Profit</div>
-              <div style={{ fontSize: 30, fontWeight: 700, fontFamily: F.display, lineHeight: 1, marginBottom: 6 }}>{$(netProfit)}</div>
-              <div style={{ fontSize: 12, opacity: .7 }}>{$(soldRev)} rev · {$(soldFees)} fees · {$(totalExp)} exp</div>
-            </div>
-            <KPI label="Revenue" value={$(soldRev)} sub={`${sold.length} sold`} color={C.gold} />
-            <KPI label="Stock Value" value={$(stockVal)} sub={`${inStock.length} plants`} color={C.g600} />
-            <KPI label="Dead Losses" value={$(lostVal)} color={dead.length > 0 ? C.red : C.tx3} />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 10 }}>
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 14 }}>📋 True P&L</div>
-              {[["Gross Revenue", soldRev, C.gold, false], ["− Platform Fees", -soldFees, C.red, false], ["− COGS", -soldCogs, C.red, false], ["= True Gross", trueGross, trueGross >= 0 ? C.g600 : C.red, true], ["− Expenses", -totalExp, C.red, false], ["= Net Profit", netProfit, netProfit >= 0 ? C.g800 : C.red, true]].map(([l, v, c, bold]) => (
-                <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "7px 10px", background: bold ? C.g50 : "transparent", borderRadius: 5, marginBottom: 2 }}>
-                  <span style={{ fontSize: 13, color: C.tx2, fontWeight: bold ? 700 : 400 }}>{l}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: c }}>{v >= 0 ? $(v) : `(${$(-v)})`}</span>
-                </div>
-              ))}
-            </Card>
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 14 }}>💰 Revenue by Platform</div>
-              {byPlat.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales yet.</p> : <BarLine data={byPlat} lk="pl" vk="rev" fmtV={$} colorFn={(_, i) => [C.g600, C.gold, C.blue, C.amber][i % 4]} />}
-            </Card>
-          </div>
+      const byGenus = Object.values(genusMap).map(g => ({ ...g, sellThru: g.total ? Math.round((g.sold / g.total) * 100) : 0, deathRate: g.total ? Math.round((g.dead / g.total) * 100) : 0, avgDays: g.days.length ? Math.round(g.days.reduce((a, b) => a + b, 0) / g.days.length) : null, roi: g.cost ? Math.round((g.profit / g.cost) * 100) : 0 })).sort((a, b) => b.profit - a.profit);
+      const bestGenus = byGenus[0]?.genus || "None yet";
+      const byNursery = (nurseries || []).map(n => {
+        const np = plants.filter(p => String(p.nurseryCode || "") === String(n.code || ""));
+        const ns = np.filter(p => p.status === "Sold");
+        const nd = np.filter(p => ["Dead", "Damaged"].includes(p.status));
+        const rev = ns.reduce((s, p) => s + revOf(p), 0);
+        const cost = ns.reduce((s, p) => s + costOf(p), 0);
+        const spent = np.reduce((s, p) => s + costOf(p), 0);
+        const profit = ns.reduce((s, p) => s + profitOf(p), 0);
+        const days = ns.map(p => { const sd = saleDateOf(p), ad = addDateOf(p); return sd && ad ? Math.max(0, Math.round((sd - ad) / 864e5)) : null; }).filter(x => x !== null);
+        return { ...n, total: np.length, sold: ns.length, dead: nd.length, rev, cost, spent, profit, roi: spent ? Math.round((profit / spent) * 100) : 0, deathRate: np.length ? Math.round((nd.length / np.length) * 100) : 0, avgDays: days.length ? Math.round(days.reduce((a, b) => a + b, 0) / days.length) : null };
+      }).filter(n => n.total > 0).sort((a, b) => b.profit - a.profit);
+      const byCustomer = groupBy(sold, p => safeName(p.customerName || p.customer || p.buyerName || p.buyer || p.nameOnOrder || p.orderCustomer), key => ({ customer: key, rev: 0, profit: 0, count: 0, states: {}, rare: 0 })).map(c => {
+        c.items.forEach(p => { c.rev += revOf(p); c.profit += profitOf(p); c.count++; const st = String(p.state || p.shipState || p.shippingState || p.customerState || "Unknown").toUpperCase(); c.states[st] = (c.states[st] || 0) + 1; if (/albo|aurea|mint|variegated|spiritus|rare|thai|pink|black velvet/i.test(p.name || "")) c.rare++; });
+        c.avg = c.count ? c.rev / c.count : 0;
+        c.topState = Object.entries(c.states).sort((a, b) => b[1] - a[1])[0]?.[0] || "Unknown";
+        return c;
+      }).sort((a, b) => b.rev - a.rev);
+      const customersByState = Object.values(sold.reduce((m, p) => { const st = String(p.state || p.shipState || p.shippingState || p.customerState || "Unknown").toUpperCase(); if (!m[st]) m[st] = { state: st, count: 0, rev: 0 }; m[st].count++; m[st].rev += revOf(p); return m; }, {})).sort((a, b) => b.rev - a.rev);
+      const showGroups = groupBy(sold, p => safeName(p.showName || p.liveShowName || p.show || p.showDate || dateKey(saleDateOf(p)) || p.platform || "Unknown Show"), key => ({ show: key, rev: 0, profit: 0, count: 0, platforms: {}, dates: {} })).map(g => {
+        g.items.forEach(p => { g.rev += revOf(p); g.profit += profitOf(p); g.count++; const pl = p.platform || "Other"; g.platforms[pl] = (g.platforms[pl] || 0) + revOf(p); const dk = dateKey(saleDateOf(p)); g.dates[dk] = (g.dates[dk] || 0) + revOf(p); });
+        g.avg = g.count ? g.rev / g.count : 0;
+        return g;
+      }).sort((a, b) => b.rev - a.rev);
+      const salesByDate = groupBy(sold, p => dateKey(saleDateOf(p)), key => ({ date: key, rev: 0, profit: 0, count: 0 })).map(d => { d.items.forEach(p => { d.rev += revOf(p); d.profit += profitOf(p); d.count++; }); return d; }).sort((a, b) => a.date.localeCompare(b.date));
+      const expenseByDate = groupBy(expInRange, e => dateKey(expDateOf(e)), key => ({ date: key, amount: 0, count: 0 })).map(d => { d.items.forEach(e => { d.amount += +e.amount || 0; d.count++; }); return d; });
+      const chartDates = Array.from(new Set([...salesByDate.map(d => d.date), ...expenseByDate.map(d => d.date)])).sort();
+      const trend = chartDates.map(d => ({ date: d, revenue: salesByDate.find(x => x.date === d)?.rev || 0, profit: salesByDate.find(x => x.date === d)?.profit || 0, expense: expenseByDate.find(x => x.date === d)?.amount || 0 }));
+      const ageBuckets = [
+        { label: "0–15 days", min: 0, max: 15, count: 0, value: 0 }, { label: "16–30 days", min: 16, max: 30, count: 0, value: 0 }, { label: "31–60 days", min: 31, max: 60, count: 0, value: 0 }, { label: "60+ days", min: 61, max: 99999, count: 0, value: 0 }
+      ];
+      inStock.forEach(p => { const d = dHeld(p.dateAdded) || 0; const b = ageBuckets.find(x => d >= x.min && d <= x.max); if (b) { b.count++; b.value += +p.suggestedPrice || 0; } });
+      const soldNameMap = {};
+      sold.forEach(p => { const n = toTC(p.name || "Unknown"); if (!soldNameMap[n]) soldNameMap[n] = { name: n, count: 0, rev: 0, profit: 0 }; soldNameMap[n].count++; soldNameMap[n].rev += revOf(p); soldNameMap[n].profit += profitOf(p); });
+      const bestSellingPlants = Object.values(soldNameMap).sort((a, b) => b.count - a.count || b.rev - a.rev).slice(0, 10);
+      const slowestMovers = inStock.map(p => ({ ...p, days: dHeld(p.dateAdded) || 0 })).sort((a, b) => b.days - a.days).slice(0, 12);
+      const lowestMargin = inStock.map(p => ({ ...p, expectedMargin: (+p.suggestedPrice || 0) ? Math.round(((+p.suggestedPrice - costOf(p)) / +p.suggestedPrice) * 100) : 0 })).filter(p => costOf(p) > 0).sort((a, b) => a.expectedMargin - b.expectedMargin).slice(0, 12);
+      const discountCandidates = slowestMovers.filter(p => p.days >= 30).slice(0, 10);
+      const reorderCandidates = byGenus.filter(g => g.sellThru >= 60 && g.inStock <= 3).slice(0, 10);
+      const certs = Array.isArray(casdCerts) ? casdCerts : [];
+      const certStates = ["CA", "AZ", "TX", "LA"].map(st => ({ state: st, count: certs.filter(c => String(c.state || c.destinationState || "").toUpperCase() === st).length }));
+      const certHistory = certs.slice().sort((a, b) => String(b.createdAt || b.date || "").localeCompare(String(a.createdAt || a.date || ""))).slice(0, 25);
+      const certNums = certs.map(c => +c.certNumber || +c.documentNumber || +c.number || 0).filter(Boolean).sort((a, b) => a - b);
+      const missingDocAlerts = sold.filter(p => ["CA", "AZ", "TX", "LA"].includes(String(p.state || p.shipState || p.shippingState || p.customerState || "").toUpperCase())).length - certs.length;
+      const exportRows = rows => {
+        const csv = rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+        const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: `leaf-diary-report-${tab}-${today()}.csv` });
+        a.click(); URL.revokeObjectURL(a.href);
+      };
+      const exportCSV = () => exportRows([
+        ["Leaf Diary Report", tab, rangeLabel], ["Sales", soldRev], ["Net Profit", netProfit], ["Inventory Value", stockVal], ["Dead/Damaged Loss", lostVal], [],
+        ["Top Plant", "Sales", "Revenue", "Profit"], ...bestSellingPlants.map(p => [p.name, p.count, p.rev, p.profit]), [],
+        ["Nursery", "Spent", "Profit", "ROI", "Death Rate"], ...byNursery.map(n => [n.name, n.spent, n.profit, n.roi, n.deathRate]), [],
+        ["State Doc", "Count"], ...certStates.map(s => [s.state, s.count])
+      ]);
+      const exportLegalCSV = () => exportRows([["Doc #", "State", "Customer", "Date", "File"], ...certs.map(c => [c.certNumber || c.documentNumber || c.number || "", c.state || c.destinationState || "", c.customerName || c.shipToName || "", c.createdAt || c.date || "", c.fileUrl || c.downloadUrl || "Stored in archive"])]);
+      const MiniBar = ({ data, labelKey, valueKey, moneyFmt = false }) => {
+        const max = Math.max(...data.map(d => Math.abs(+d[valueKey] || 0)), 1);
+        return <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{data.length === 0 ? <p style={{ color: textMuted, fontSize: 12 }}>No data yet.</p> : data.map((d, i) => {
+          const val = +d[valueKey] || 0;
+          return <div key={i}><Row between center><span style={{ color: textMain, fontWeight: 700, fontSize: 12 }}>{d[labelKey]}</span><span style={{ color: val >= 0 ? C.g600 : C.red, fontWeight: 800, fontSize: 12 }}>{moneyFmt ? money(val) : val}</span></Row><div style={{ height: 9, background: dark ? "#111" : C.g100, borderRadius: 8, overflow: "hidden", marginTop: 4 }}><div style={{ height: "100%", width: `${Math.min(100, Math.abs(val) / max * 100)}%`, background: [C.g600, C.gold, C.blue, C.purple, C.teal][i % 5], borderRadius: 8 }} /></div></div>;
+        })}</div>;
+      };
+      const LineChart = ({ data, valueKey = "revenue", valueKey2, title }) => {
+        const w = 640, h = 190, pad = 22;
+        const vals = data.flatMap(d => [d[valueKey] || 0, valueKey2 ? (d[valueKey2] || 0) : 0]);
+        const max = Math.max(...vals, 1);
+        const pts = data.map((d, i) => { const x = pad + (data.length <= 1 ? 0 : i * ((w - pad * 2) / (data.length - 1))); const y = h - pad - ((d[valueKey] || 0) / max) * (h - pad * 2); return `${x},${y}`; }).join(" ");
+        const pts2 = valueKey2 ? data.map((d, i) => { const x = pad + (data.length <= 1 ? 0 : i * ((w - pad * 2) / (data.length - 1))); const y = h - pad - ((d[valueKey2] || 0) / max) * (h - pad * 2); return `${x},${y}`; }).join(" ") : "";
+        return <Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, color: textMain, fontWeight: 800, marginBottom: 10 }}>{title}</div>{data.length < 2 ? <p style={{ color: textMuted, fontSize: 12 }}>Need more dated sales to draw a chart.</p> : <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", height: 210, display: "block" }}><line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke={dark ? "#1f3a29" : C.bd} /><line x1={pad} y1={pad} x2={pad} y2={h - pad} stroke={dark ? "#1f3a29" : C.bd} /><polyline points={pts} fill="none" stroke={C.g500} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />{valueKey2 && <polyline points={pts2} fill="none" stroke={C.red} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />}{data.map((d, i) => { const x = pad + (data.length <= 1 ? 0 : i * ((w - pad * 2) / (data.length - 1))); const y = h - pad - ((d[valueKey] || 0) / max) * (h - pad * 2); return <circle key={i} cx={x} cy={y} r="4" fill={C.g700} />; })}</svg>}</Card>;
+      };
+      const Donut = ({ data }) => {
+        const total = data.reduce((s, d) => s + (+d.rev || +d.value || 0), 0) || 1;
+        let acc = 0;
+        const stops = data.map((d, i) => { const val = (+d.rev || +d.value || 0) / total * 100; const start = acc; acc += val; return `${[C.g600, C.gold, C.blue, C.purple, C.red, C.teal][i % 6]} ${start}% ${acc}%`; }).join(", ");
+        return <Row gap={18} wrap center><div style={{ width: 160, height: 160, borderRadius: "50%", background: `conic-gradient(${stops || C.g200})`, border: `10px solid ${dark ? "#070707" : C.card}`, boxShadow: dark ? "0 0 30px rgba(57,255,20,.18)" : "0 10px 25px rgba(0,0,0,.08)" }} /><div style={{ flex: 1, minWidth: 220 }}><MiniBar data={data.map(d => ({ label: d.platform || d.state || d.label || d.key, value: +d.rev || +d.value || 0 }))} labelKey="label" valueKey="value" moneyFmt /></div></Row>;
+      };
+      const ReportTable = ({ cols, rows }) => <div style={{ overflowX: "auto", border: `1px solid ${line}`, borderRadius: 12 }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, color: textMain }}><thead style={{ background: cardAlt }}><tr>{cols.map(c => <th key={c.k} style={{ textAlign: c.right ? "right" : "left", padding: "10px 12px", color: textMuted, textTransform: "uppercase", fontSize: 10, letterSpacing: .5 }}>{c.l}</th>)}</tr></thead><tbody>{rows.length ? rows.map((r, i) => <tr key={i} style={{ borderTop: `1px solid ${line}` }}>{cols.map(c => <td key={c.k} style={{ padding: "10px 12px", textAlign: c.right ? "right" : "left" }}>{c.f ? c.f(r) : r[c.k]}</td>)}</tr>) : <tr><td colSpan={cols.length} style={{ padding: 30, color: textMuted, textAlign: "center" }}>No data yet.</td></tr>}</tbody></table></div>;
+      const tabs = [
+        ["executive", "🚀 Executive"], ["charts", "📊 Charts"], ["plants", "🌿 Plants"], ["nursery", "🏪 Nurseries"], ["shows", "🎪 Shows"], ["customers", "👥 Customers"], ["legal", "📜 Legal"], ["options", "⚙️ Options"]
+      ];
+      return <div style={{ padding: "14px 14px 90px", background: pageBg, minHeight: "100vh", color: textMain }}>
+        <SHdr icon="📈" title="Reports & Analytics Pro" sub={`Showing ${rangeLabel} · true profit after fees, COGS, expenses, and payroll`}
+          right={<Row gap={8} wrap><Btn v="outline" onClick={exportCSV}>📥 Export CSV</Btn><Btn v="soft" onClick={() => window.print()}>🖨️ Print / Save PDF</Btn><Btn v={dark ? "gold" : "ghost"} onClick={() => setTheme(dark ? "classic" : "neon")}>{dark ? "☀️ Classic" : "🌑 Neon"}</Btn></Row>} />
+        <Card style={{ marginBottom: 14, background: cardBg, borderColor: line }}><Row between wrap center><Row gap={8} wrap>{[["today", "Today"], ["week", "Week"], ["month", "Month"], ["quarter", "Quarter"], ["year", "Year"], ["all", "All Time"], ["custom", "Custom"]].map(([v, l]) => <button key={v} onClick={() => setRangePreset(v)} style={{ padding: "9px 12px", borderRadius: 9, border: `1px solid ${rangePreset === v ? C.g600 : line}`, background: rangePreset === v ? C.g700 : cardAlt, color: rangePreset === v ? "#fff" : textMain, fontWeight: 800, cursor: "pointer" }}>{l}</button>)}</Row><label style={{ display: "flex", alignItems: "center", gap: 7, color: textMuted, fontSize: 12, fontWeight: 700 }}><input type="checkbox" checked={safeMode} onChange={e => setSafeMode(e.target.checked)} /> Employee-safe money view</label></Row>{rangePreset === "custom" && <Row gap={10} wrap style={{ marginTop: 12 }}><Inp label="Start" type="date" value={rangeStart} onChange={setRangeStart} /><Inp label="End" type="date" value={rangeEnd} onChange={setRangeEnd} /></Row>}</Card>
+        <div style={{ display: "flex", gap: 0, marginBottom: 18, borderBottom: `1px solid ${line}`, flexWrap: "wrap" }}>{tabs.map(([id, l]) => <button key={id} onClick={() => setTab(id)} style={{ padding: "12px 14px", background: tab === id ? (dark ? "#102015" : C.g100) : "transparent", border: "none", borderBottom: `3px solid ${tab === id ? C.g600 : "transparent"}`, color: tab === id ? (dark ? "#97d33e" : C.g800) : textMuted, fontWeight: 800, cursor: "pointer" }}>{l}</button>)}</div>
+        {tab === "executive" && <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}><KPI label="Sales Today" value={money(salesToday)} color={C.g600} /><KPI label="Sales Week" value={money(salesWeek)} color={C.blue} /><KPI label="Sales Month" value={money(salesMonth)} color={C.gold} /><KPI label="Sales Year" value={money(salesYear)} color={C.purple} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10, marginBottom: 12 }}><div style={{ background: dark ? "linear-gradient(135deg,#08130C,#12391E)" : C.g800, color: "#fff", borderRadius: 16, padding: 22 }}><div style={{ opacity: .75, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase" }}>Net Profit</div><div style={{ fontFamily: F.display, fontSize: 38, fontWeight: 900 }}>{money(netProfit)}</div><div style={{ opacity: .75, fontSize: 12 }}>Revenue {money(soldRev)} · Fees {money(soldFees)} · Expenses {money(totalExp)} · Payroll {money(payrollCost)}</div></div><KPI label="Inventory Value" value={money(stockVal)} sub={`${inStock.length} in stock · cost ${money(inventoryCost)}`} color={C.g600} /><KPI label="Cash Flow" value={money(cashFlow)} sub={`Margin ${pct(margin)}`} color={cashFlow >= 0 ? C.g600 : C.red} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}><KPI label="Dead/Damaged Loss" value={money(lostVal)} sub={`${dead.length} plants`} color={C.red} /><KPI label="Best Platform" value={bestPlatform} sub={byPlatform[0] ? money(byPlatform[0].rev) : "No sales"} color={C.blue} /><KPI label="Best Genus" value={bestGenus} sub={byGenus[0] ? money(byGenus[0].profit) : "No sales"} color={C.gold} /><KPI label="Avg Order" value={money(avgOrder)} sub={`${sold.length} sold`} color={C.teal} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12 }}><LineChart data={trend.slice(-30)} valueKey="revenue" valueKey2="expense" title="Revenue vs Expenses Trend" /><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Top Alerts</div><div style={{ display: "flex", flexDirection: "column", gap: 9 }}>{missingDocAlerts > 0 && <Tag text={`${missingDocAlerts} possible missing state docs`} color={C.red} />}{discountCandidates.length > 0 && <Tag text={`${discountCandidates.length} plants should be discounted`} color={C.amber} />}{reorderCandidates.length > 0 && <Tag text={`${reorderCandidates.length} genera may need reorder`} color={C.blue} />}{slowestMovers.length > 0 && <Tag text={`${slowestMovers[0].days} days oldest in-stock plant`} color={C.purple} />}</div></Card></div>
         </div>}
-        {tab === "time" && <div>
-          <Card style={{ marginBottom: 14, background: C.g50, border: `1px solid ${C.g200}` }}>
-            <Row between wrap center gap={10}>
-              <div>
-                <div style={{ fontFamily: F.display, fontSize: 17, fontWeight: 700, color: C.g900 }}>⏰ Best Sales Times</div>
-                <div style={{ fontSize: 12, color: C.tx3, marginTop: 2 }}>Uses Palmstreet/Whatnot order date and time to show when your live sales make the most money.</div>
-              </div>
-              <Row gap={8} wrap center>
-                {[["today", "Today"], ["week", "This Week"], ["month", "This Month"], ["quarter", "Quarter"], ["year", "YTD"], ["all", "All Time"], ["custom", "Custom"]].map(([v, l]) => <button key={v} onClick={() => setTimePreset(v)} style={{ padding: "8px 11px", borderRadius: 8, border: `1.5px solid ${timePreset === v ? C.g700 : C.bd}`, background: timePreset === v ? C.g700 : C.card, color: timePreset === v ? "#fff" : C.tx2, fontFamily: F.body, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{l}</button>)}
-              </Row>
-            </Row>
-            {timePreset === "custom" && <Row gap={10} wrap style={{ marginTop: 12 }}>
-              <Inp label="Start Date" type="date" value={timeStart} onChange={setTimeStart} />
-              <Inp label="End Date" type="date" value={timeEnd} onChange={setTimeEnd} />
-            </Row>}
-          </Card>
-          {unknownTimeCount > 0 && <div style={{ background: C.amberBg, border: `1px solid ${C.amber}44`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: C.amber, fontWeight: 700 }}>
-            {unknownTimeCount} older imported sales only have a date, not a time. They are counted at noon. Re-importing Palmstreet files with this version will save the real sale time going forward.
-          </div>}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
-            <KPI label="Sales in Range" value={timeSales.length} color={C.g600} />
-            <KPI label="Revenue in Range" value={$(timeRevenue)} color={C.gold} />
-            <KPI label="Best Hour" value={bestHours[0]?.label || "—"} sub={bestHours[0] ? `${$(bestHours[0].revenue)} · ${bestHours[0].count} sales` : "No sales"} color={C.blue} />
-            <KPI label="Best Day" value={bestDays[0]?.name || "—"} sub={bestDays[0] ? `${$(bestDays[0].revenue)} · ${bestDays[0].count} sales` : "No sales"} color={C.purple} />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1.2fr .8fr", gap: 14 }}>
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>💸 Revenue by Hour — {timeDateChip}</div>
-              {bestHours.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales found for this range.</p> : <BarLine data={hourBuckets} lk="label" vk="revenue" fmtV={$} colorFn={(d) => d.revenue === bestHours[0]?.revenue ? C.gold : C.g600} />}
-            </Card>
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>🏆 Top Hours</div>
-              <Tbl cols={[{ k: "hour_", l: "Hour" }, { k: "sales_", l: "Sales", right: true }, { k: "rev_", l: "Revenue", right: true }, { k: "avg_", l: "Avg Sale", right: true }]}
-                rows={bestHours.slice(0, 10).map(h => ({ hour_: <span style={{ fontWeight: 700 }}>{h.label}</span>, sales_: h.count, rev_: <span style={{ fontWeight: 700, color: C.gold }}>{$(h.revenue)}</span>, avg_: $(h.avgSale) }))}
-                empty="No sales found." />
-            </Card>
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>📅 Revenue by Day of Week</div>
-              {bestDays.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No sales found for this range.</p> : <BarLine data={dayBuckets} lk="name" vk="revenue" fmtV={$} colorFn={(d) => d.revenue === bestDays[0]?.revenue ? C.gold : C.blue} />}
-            </Card>
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>📊 Top Days</div>
-              <Tbl cols={[{ k: "day_", l: "Day" }, { k: "sales_", l: "Sales", right: true }, { k: "rev_", l: "Revenue", right: true }, { k: "avg_", l: "Avg Sale", right: true }]}
-                rows={bestDays.map(d => ({ day_: <span style={{ fontWeight: 700 }}>{d.name}</span>, sales_: d.count, rev_: <span style={{ fontWeight: 700, color: C.gold }}>{$(d.revenue)}</span>, avg_: $(d.avgSale) }))}
-                empty="No sales found." />
-            </Card>
-          </div>
-          <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 1.2fr .8fr"]{grid-template-columns:1fr!important;}}`}</style>
-        </div>}
-        {tab === "plants" && <div>
-          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>Top 10 Most Profitable Plants</div>
-          <Tbl cols={[{ k: "rank", l: "#" }, { k: "n_", l: "Plant" }, { k: "id_", l: "ID" }, { k: "cost_", l: "Cost", right: true }, { k: "rev_", l: "Sold For", right: true }, { k: "fee_", l: "Fee", right: true }, { k: "tp_", l: "True Profit", right: true }, { k: "roi_", l: "ROI", right: true }, { k: "plat_", l: "Platform" }]}
-            rows={perPlant.slice(0, 10).map((p, i) => ({ rank: <span style={{ fontWeight: 700, color: i === 0 ? C.gold : i === 1 ? "#AAA" : i === 2 ? C.amber : C.tx3 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`}</span>, n_: <span style={{ fontWeight: 600 }}>{toTC(p.name)}</span>, id_: <span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500 }}>{p.plantId}</span>, cost_: $(p.cost), rev_: $(p.rev), fee_: <span style={{ color: C.red }}>{$(p.fee)}</span>, tp_: <span style={{ fontWeight: 700, color: p.truePro >= 0 ? C.g600 : C.red }}>{$(p.truePro)}</span>, roi_: <span style={{ fontWeight: 700, color: p.roi >= 100 ? C.g600 : p.roi >= 50 ? C.gold : C.red }}>{p.roi}%</span>, plat_: <Tag text={p.platform || "—"} color={C.blue} sm /> }))}
-            empty="No sold plants yet" />
-        </div>}
-        {tab === "platform" && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {byPlat.length === 0 ? <Card style={{ textAlign: "center", padding: "50px" }}><p style={{ color: C.tx3 }}>No sales yet.</p></Card>
-            : byPlat.map((p, i) => <Card key={p.pl}>
-              <Row between center style={{ marginBottom: 10 }}>
-                <div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15 }}>{p.pl}</div><div style={{ fontSize: 12, color: C.tx3 }}>{p.count} plants sold</div></div>
-                <Tag text={`${p.margin}% margin`} color={p.margin >= 60 ? C.g600 : p.margin >= 40 ? C.gold : C.red} />
-              </Row>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-                {[["Revenue", $(p.rev), C.gold], ["Fees", $(p.fee), C.red], ["COGS", $(p.cost), C.tx3], ["True Profit", $(p.profit), p.profit >= 0 ? C.g600 : C.red]].map(([l, v, c]) => (
-                  <div key={l} style={{ background: C.cardAlt, borderRadius: 8, padding: "10px 12px" }}><div style={{ fontSize: 9, color: C.tx3, fontWeight: 700, textTransform: "uppercase", letterSpacing: .5, marginBottom: 3 }}>{l}</div><div style={{ fontSize: 16, fontWeight: 700, color: c, fontFamily: F.display }}>{v}</div></div>
-                ))}
-              </div>
-            </Card>)}
-        </div>}
-        {tab === "nursery" && <Tbl cols={[{ k: "grade_", l: "Grade" }, { k: "n_", l: "Nursery" }, { k: "total", l: "Plants" }, { k: "spent_", l: "Spent", right: true }, { k: "rev_", l: "Revenue", right: true }, { k: "pro_", l: "Profit", right: true }, { k: "roi_", l: "ROI", right: true }, { k: "m_", l: "Margin" }, { k: "dead_", l: "Dead" }]}
-          rows={byNursery.map(n => { const grade = n.avgM >= 65 ? "A" : n.avgM >= 50 ? "B" : n.avgM >= 35 ? "C" : "D"; const gc = { A: C.g600, B: C.gold, C: C.amber, D: C.red }[grade]; return { grade_: <div style={{ width: 24, height: 24, borderRadius: 5, background: gc + "18", border: `1.5px solid ${gc}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: gc }}>{grade}</div>, n_: <b style={{ fontSize: 12 }}>{n.name}</b>, total: n.total, spent_: $(n.spent), rev_: <span style={{ color: C.gold, fontWeight: 600 }}>{$(n.rev)}</span>, pro_: <span style={{ fontWeight: 700, color: n.profit >= 0 ? C.g600 : C.red }}>{$(n.profit)}</span>, roi_: <span style={{ fontWeight: 700, color: n.roi >= 80 ? C.g600 : n.roi >= 40 ? C.gold : C.red }}>{n.roi}%</span>, m_: <MBadge m={n.avgM} />, dead_: <span style={{ color: n.dead > 0 ? C.red : C.tx3 }}>{n.dead}</span> }; })}
-          empty="No data" />}
-        {tab === "genus" && <Tbl cols={[{ k: "rec_", l: "Recommendation" }, { k: "n_", l: "Genus" }, { k: "total", l: "Total" }, { k: "sold_", l: "Sold" }, { k: "st_", l: "Sell-Thru" }, { k: "pro_", l: "Profit", right: true }, { k: "m_", l: "Margin" }, { k: "roi_", l: "ROI" }, { k: "spd_", l: "Avg Days" }]}
-          rows={byGenus.map(g => { const rec = g.sellThru >= 60 && g.avgM >= 55 ? "🟢 Buy More" : g.sellThru >= 30 && g.avgM >= 40 ? "🟡 Cautious" : "🔴 Avoid"; return { rec_: <span style={{ fontSize: 11, fontWeight: 600 }}>{rec}</span>, n_: <b>{g.name}</b>, total: g.total, sold_: g.sold, st_: <span style={{ fontWeight: 600, color: g.sellThru >= 60 ? C.g600 : g.sellThru >= 30 ? C.gold : C.red }}>{g.sellThru}%</span>, pro_: <span style={{ fontWeight: 700, color: g.profit > 0 ? C.g600 : C.red }}>{$(g.profit)}</span>, m_: <MBadge m={g.avgM} />, roi_: <span style={{ fontWeight: 700, color: g.roi >= 80 ? C.g600 : g.roi >= 40 ? C.gold : C.red }}>{g.roi}%</span>, spd_: <span style={{ color: C.tx3, fontSize: 11 }}>{g.avgDays !== null ? `${g.avgDays}d` : "—"}</span> }; })}
-          empty="Add plants to see genus data" />}
-        {tab === "alerts" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <Card>
-            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 4 }}>🔁 Restock Now</div>
-            <p style={{ fontSize: 11, color: C.tx3, marginBottom: 10 }}>60%+ sell-through with 2 or fewer left</p>
-            {restockAlerts.length === 0 ? <p style={{ color: C.g600, fontSize: 13 }}>✅ Good stock levels.</p>
-              : restockAlerts.map(g => <div key={g.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.bdS}` }}>
-                <div><div style={{ fontWeight: 600, fontSize: 13 }}>{g.name}</div><div style={{ fontSize: 11, color: C.tx3 }}>{g.total - g.sold} left · {g.sellThru}% sell-through</div></div>
-                <Tag text="Buy More" color={C.g600} sm />
-              </div>)}
-          </Card>
-          <Card>
-            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 4 }}>⏳ Slow Movers (30+ days)</div>
-            {slowMovers.length === 0 ? <p style={{ color: C.g600, fontSize: 13 }}>✅ Great turnover!</p>
-              : slowMovers.map(p => <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.bdS}` }}>
-                <div><div style={{ fontWeight: 600, fontSize: 12 }}>{toTC(p.name)}</div><div style={{ fontSize: 10, color: C.tx3, fontFamily: F.mono }}>{p.plantId}</div></div>
-                <div style={{ textAlign: "right" }}><div style={{ fontWeight: 700, color: C.red, fontSize: 12 }}>{fDays(dHeld(p.dateAdded))}</div><div style={{ fontSize: 10, color: C.tx3 }}>{$(p.suggestedPrice)}</div></div>
-              </div>)}
-          </Card>
-          <Card>
-            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 4 }}>⚠️ Under-Priced (below 2× cost)</div>
-            {underPriced.length === 0 ? <p style={{ color: C.g600, fontSize: 13 }}>✅ All priced correctly.</p>
-              : underPriced.map(p => <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.bdS}` }}>
-                <div><div style={{ fontWeight: 600, fontSize: 12 }}>{toTC(p.name)}</div><div style={{ fontSize: 10, color: C.tx3 }}>Cost {$(p.cost)} · Min {$(+p.cost * 2)}</div></div>
-                <div style={{ textAlign: "right" }}><div style={{ fontWeight: 700, color: C.red, fontSize: 12 }}>At {$(p.suggestedPrice)}</div><Tag text="Raise Price" color={C.red} sm /></div>
-              </div>)}
-          </Card>
-          <Card>
-            <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 4 }}>💀 Dead Plant Losses</div>
-            <div style={{ background: C.redBg, borderRadius: 7, padding: "7px 12px", marginBottom: 8, display: "flex", justifyContent: "space-between" }}><span style={{ fontWeight: 700, color: C.red }}>Total Lost</span><span style={{ fontWeight: 700, color: C.red }}>{$(lostVal)}</span></div>
-            {dead.length === 0 ? <p style={{ color: C.g600, fontSize: 13 }}>✅ No dead plants!</p>
-              : dead.slice(0, 6).map(p => <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.bdS}` }}>
-                <div><div style={{ fontWeight: 600, fontSize: 12 }}>{toTC(p.name)}</div><div style={{ fontSize: 10, color: C.tx3 }}>{p.nurseryCode}</div></div>
-                <span style={{ fontWeight: 700, color: C.red, fontSize: 12 }}>{$(p.cost)}</span>
-              </div>)}
-          </Card>
-        </div>}
+        {tab === "charts" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><LineChart data={trend.slice(-45)} valueKey="revenue" title="Revenue Line Chart" /><LineChart data={trend.slice(-45)} valueKey="profit" valueKey2="expense" title="Profit vs Expenses" /><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Platform Pie Chart</div><Donut data={byPlatform} /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Nursery Profit</div><MiniBar data={byNursery.slice(0, 8).map(n => ({ label: n.name, value: n.profit }))} labelKey="label" valueKey="value" moneyFmt /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Inventory Age</div><MiniBar data={ageBuckets.map(b => ({ label: b.label, value: b.count }))} labelKey="label" valueKey="value" /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Dead/Damaged Loss by Genus</div><MiniBar data={byGenus.filter(g => g.dead > 0).map(g => ({ label: g.genus, value: g.dead })).slice(0, 8)} labelKey="label" valueKey="value" /></Card></div>}
+        {tab === "plants" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Best Selling Plants</h3><ReportTable cols={[{ k: "name", l: "Plant" }, { k: "count", l: "Sold", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={bestSellingPlants} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Highest Profit Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "truePro", l: "Profit", right: true, f: r => money(r.truePro) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }]} rows={perPlant.slice(0, 10)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Slowest Moving Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Price", right: true, f: r => money(r.suggestedPrice) }]} rows={slowestMovers} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Lowest Margin / Discount</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "expectedMargin", l: "Margin", right: true, f: r => pct(r.expectedMargin) }, { k: "cost", l: "Cost", right: true, f: r => money(r.cost) }]} rows={lowestMargin} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Discounted</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Current Price", right: true, f: r => money(r.suggestedPrice) }]} rows={discountCandidates} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Reordered</h3><ReportTable cols={[{ k: "genus", l: "Genus" }, { k: "sellThru", l: "Sell-Through", right: true, f: r => pct(r.sellThru) }, { k: "inStock", l: "Left", right: true }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={reorderCandidates} /></Card></div>}
+        {tab === "nursery" && <Card style={{ background: cardBg, borderColor: line }}><h3>Nursery Performance</h3><ReportTable cols={[{ k: "name", l: "Nursery" }, { k: "spent", l: "Total Spent", right: true, f: r => money(r.spent) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }, { k: "deathRate", l: "Death Rate", right: true, f: r => pct(r.deathRate) }, { k: "avgDays", l: "Avg Days To Sell", right: true, f: r => r.avgDays ?? "—" }]} rows={byNursery} /></Card>}
+        {tab === "shows" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Profit Per Live Show</h3><ReportTable cols={[{ k: "show", l: "Show" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Sales", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "avg", l: "Avg Order", right: true, f: r => money(r.avg) }]} rows={showGroups.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Whatnot vs Palmstreet</h3><MiniBar data={byPlatform.filter(p => ["Whatnot", "Palmstreet"].includes(p.platform)).map(p => ({ label: p.platform, value: p.profit }))} labelKey="label" valueKey="value" moneyFmt /><h3 style={{ marginTop: 22 }}>Sales by Date</h3><MiniBar data={salesByDate.slice(-12).map(d => ({ label: d.date, value: d.rev }))} labelKey="label" valueKey="value" moneyFmt /></Card></div>}
+        {tab === "customers" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Top Customers / Lifetime Value</h3><ReportTable cols={[{ k: "customer", l: "Customer" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Spend", right: true, f: r => money(r.rev) }, { k: "avg", l: "Avg", right: true, f: r => money(r.avg) }, { k: "rare", l: "Rare Buys", right: true }]} rows={byCustomer.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Customers by State</h3><ReportTable cols={[{ k: "state", l: "State" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }]} rows={customersByState.slice(0, 25)} /></Card></div>}
+        {tab === "legal" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><Row between center><h3>State Docs Compliance</h3><Btn v="outline" onClick={exportLegalCSV}>Download Docs CSV</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>{certStates.map(s => <KPI key={s.state} label={`${s.state} Docs`} value={s.count} color={s.count ? C.g600 : C.amber} />)}</div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}><KPI label="Possible Missing Docs" value={Math.max(0, missingDocAlerts)} color={missingDocAlerts > 0 ? C.red : C.g600} /><KPI label="Certificate Range" value={certNums.length ? `${certNums[0]}–${certNums[certNums.length - 1]}` : "None"} color={C.blue} /></div><p style={{ color: textMuted, fontSize: 12 }}>Retention tracker: keep every CA/AZ/TX/LA document for at least 3 years. Use the State Docs archive for the actual PDF downloads.</p></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Certificate Number History</h3><ReportTable cols={[{ k: "num", l: "Doc #", f: r => r.certNumber || r.documentNumber || r.number || "—" }, { k: "state", l: "State", f: r => r.state || r.destinationState || "—" }, { k: "customer", l: "Customer", f: r => r.customerName || r.shipToName || "—" }, { k: "date", l: "Date", f: r => r.createdAt || r.date || "—" }]} rows={certHistory} /></Card></div>}
+        {tab === "options" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Display Options</h3><p style={{ color: textMuted }}>Use Neon mode for a dark Leaf Diary look. Use employee-safe view when screen sharing so cost and profit are hidden.</p><Row gap={8} wrap><Btn onClick={() => setTheme("classic")}>Classic</Btn><Btn v="gold" onClick={() => setTheme("neon")}>Neon Dark</Btn><Btn v="soft" onClick={() => setSafeMode(!safeMode)}>{safeMode ? "Show Money" : "Hide Money"}</Btn></Row></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Exports</h3><p style={{ color: textMuted }}>CSV export, legal archive export, and Print / Save PDF are built in. Browser print can save the report as a PDF.</p><Row gap={8} wrap><Btn v="outline" onClick={exportCSV}>Export Report CSV</Btn><Btn v="outline" onClick={exportLegalCSV}>Export Legal CSV</Btn><Btn v="soft" onClick={() => window.print()}>Print / PDF</Btn></Row></Card></div>}
+        <style>{`@media(max-width:900px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 2fr 1fr 1fr"],div[style*="grid-template-columns: 1.5fr 1fr"],div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}} @media print{button,nav,.no-print{display:none!important;} body{background:#fff!important;} }`}</style>
       </div>;
     }
 
@@ -5140,7 +5102,7 @@
           {page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} />}
           {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} />}
           {page === "intel" && CAN.seeReports(user.role) && <BuyIntel plants={plants} settings={settings} />}
-          {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} />}
+          {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} />}
           {page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
           {page === "audit" && CAN.seeAudit(user.role) && <AuditLog auditLog={auditLog} />}
           {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
