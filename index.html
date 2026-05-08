@@ -2145,6 +2145,7 @@
       const cleanHeaderInv = v => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const COST_COLUMN_NAMES_INV = ["Cost Per Item", "Cost", "Your Cost", "Item Cost", "Plant Cost", "My Cost", "Paid", "Paid Price", "Buy Price", "Purchase Price", "Wholesale", "Wholesale Cost", "COGS", "Unit Cost", "Cost Each", "Cost Per Plant"];
       const PRICE_COLUMN_NAMES_INV = ["Price", "Sell Price", "Sell Price:", "Selling Price", "List Price", "Suggested Price", "Retail Price", "Sale Price", "Whatnot Price", "Palmstreet Price", "Ask Price", "Live Price"];
+      const NURSERY_COLUMN_NAMES_INV = ["Nursery", "Nursery Name", "Supplier", "Vendor", "Grower", "Source", "Bought From", "Purchased From", "Farm", "Greenhouse"];
       const findColInv = (row, names) => {
         const keys = Object.keys(row || {});
         const normalized = keys.reduce((a,k)=>{ a[cleanHeaderInv(k)] = k; return a; }, {});
@@ -2210,12 +2211,21 @@
             const cost = cleanMoneyInv(costRaw);
             const suggestedPrice = cleanMoneyInv(priceRaw);
             const prefix = ((plantNum.match(/^[A-Z]+/) || ["INV"])[0] || "INV").toUpperCase();
+            const nurseryRaw = String(valAt(arr, NURSERY_COLUMN_NAMES_INV, 5) || "").trim();
+            const matchedNursery = (nurseries || []).find(n => {
+              const code = String(n.code || "").trim().toLowerCase();
+              const nname = String(n.name || "").trim().toLowerCase();
+              const raw = nurseryRaw.toLowerCase();
+              return raw && (raw === code || raw === nname || nname.includes(raw) || raw.includes(nname));
+            });
+            const nurseryCode = matchedNursery?.code || prefix;
+            const nurseryName = nurseryRaw || matchedNursery?.name || "";
             mapped.push({
               _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && String(p.plantId || p.plantCode || "").trim().toUpperCase() === plantNum),
-              nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPotInv(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
+              nurseryCode: nurseryCode, nurseryName: nurseryName, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPotInv(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
               cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
               status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDateInv(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
-              platform: "", rack: "", shelf: "", notes: "Imported current inventory; kept original plant number.", labelPrinted: true, addedBy: user.name, importedExistingInventory: true
+              platform: "", rack: "", shelf: "", notes: `Imported current inventory; kept original plant number.${nurseryName ? " Nursery: " + nurseryName + "." : ""}`, labelPrinted: true, addedBy: user.name, importedExistingInventory: true
             });
           });
           setInvBulkRows(mapped);
@@ -2225,7 +2235,8 @@
           const histDupCount = mapped.filter(r => r.duplicateHistoricalPlantNumber).length;
           const missingCostCount = mapped.filter(r => !(+r.cost > 0)).length;
           const uploadCostTotal = mapped.reduce((s, r) => s + (+r.cost || 0), 0);
-          setInvBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. Total cost detected: ${$(uploadCostTotal)}. ${missingCostCount ? missingCostCount + " row(s) have no cost detected — check your cost column/header before saving. " : ""}${histDupCount ? histDupCount + " reused old sold/dead plant numbers and will be added as NEW current inventory. " : ""}${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
+          const nurseryDetectedCount = mapped.filter(r => String(r.nurseryName || "").trim()).length;
+          setInvBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. Total cost detected: ${$(uploadCostTotal)}. Nursery detected on ${nurseryDetectedCount} row(s). ${missingCostCount ? missingCostCount + " row(s) have no cost detected — check your cost column/header before saving. " : ""}${histDupCount ? histDupCount + " reused old sold/dead plant numbers and will be added as NEW current inventory. " : ""}${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
         } catch (e) { setInvBulkMsg("Inventory upload failed: " + e.message); }
       };
       const saveExistingInventoryOnInventory = () => {
@@ -2293,7 +2304,7 @@
       const exportMasterInventory = () => {
         const headers = ['Plant Code', 'Barcode Value', 'Barcode Type', 'Nursery Code', 'Nursery Name', 'Plant Name', 'Pot Size', 'Cost', 'Suggested Price', 'Status', 'Rack', 'Shelf', 'Date Added'];
         const rows = list.map(p => {
-          const nur = (nurseries || []).find(n => n.code === p.nurseryCode)?.name || p.nurseryCode;
+          const nur = p.nurseryName || (nurseries || []).find(n => n.code === p.nurseryCode)?.name || p.nurseryCode;
           return [p.plantCode || safePlantId(p), p.barcodeValue || safePlantId(p), p.barcodeType || 'CODE128', p.nurseryCode || '', nur || '', toTC(p.name), p.potSize || '', p.cost || '', p.suggestedPrice || '', p.status || '', p.rack || '', p.shelf || '', p.dateAdded || ''].map(csvCell).join(',');
         });
         downloadCSVFile(`master-inventory-${today()}.csv`, headers.map(csvCell).join(',') + '\n' + rows.join('\n'));
@@ -2318,8 +2329,8 @@
               <KPI label="Sell Value" value={$(invBulkRows.reduce((s,r)=>s+(+r.suggestedPrice||0),0))} sub="uploaded price" color={C.blue} />
             </div>
             <Tbl cols={[
-              { k: "plantId", l: "Plant #" }, { k: "name", l: "Plant" }, { k: "potSize", l: "Size" }, { k: "cost", l: "Cost", right: true }, { k: "suggestedPrice", l: "Price", right: true }
-            ]} rows={invBulkRows.slice(0, 8).map(r => ({ ...r, cost: $(r.cost), suggestedPrice: $(r.suggestedPrice) }))} />
+              { k: "plantId", l: "Plant #" }, { k: "name", l: "Plant" }, { k: "potSize", l: "Size" }, { k: "nurseryName", l: "Nursery" }, { k: "cost", l: "Cost", right: true }, { k: "suggestedPrice", l: "Sell Price", right: true }
+            ]} rows={invBulkRows.slice(0, 8).map(r => ({ ...r, nurseryName: r.nurseryName || r.nurseryCode || "—", cost: $(r.cost), suggestedPrice: $(r.suggestedPrice) }))} />
             {invBulkRows.length > 8 && <div style={{ fontSize: 11, color: C.tx3, marginTop: 6 }}>Showing first 8 of {invBulkRows.length} rows.</div>}
             {invBulkSkipped.length > 0 && <div style={{ marginTop: 8, background: C.amberBg, border: `1px solid ${C.amber}40`, borderRadius: 8, padding: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.amber }}>Skipped rows</div>
@@ -2354,7 +2365,7 @@
                     <div style={{ fontSize: 10, fontWeight: 700, color: i === 0 ? C.g600 : C.amber, marginBottom: 6, textTransform: 'uppercase', letterSpacing: .5 }}>{i === 0 ? '✓ First Entry — kept' : `⚠️ Entry ${i + 1} — resolve below`}</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: C.g900, fontFamily: F.display, marginBottom: 4 }}>{toTC(p.name)}</div>
                     <div style={{ fontSize: 11, color: C.tx3, marginBottom: 2 }}>📅 Added: {p.dateAdded || 'Unknown date'}</div>
-                    <div style={{ fontSize: 11, color: C.tx3, marginBottom: 2 }}>📦 {p.potSize || '—'} pot · {p.nurseryCode || '—'}</div>
+                    <div style={{ fontSize: 11, color: C.tx3, marginBottom: 2 }}>📦 {p.potSize || '—'} pot · {p.nurseryName || p.nurseryCode || '—'}</div>
                     {isOwner && <div style={{ fontSize: 11, color: C.tx3, marginBottom: 2 }}>💰 Cost: {$(+p.cost || 0)} · Price: {$(+p.suggestedPrice || 0)}</div>}
                     <div style={{ fontSize: 11, color: C.tx3, marginBottom: 10 }}>🔖 Status: {p.status || 'Unknown'}</div>
                     {i === 0
@@ -2396,7 +2407,7 @@
                   {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{$(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
                   <td style={{ padding: "8px 10px" }}><SBadge s={p.status} /></td>
                   <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 11, color: C.tx3 }}>{p.rack || "—"}</td>
-                  <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{p.nurseryCode}</td>
+                  <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{p.nurseryName || p.nurseryCode}</td>
                   <td style={{ padding: "8px 10px", color: C.tx3, fontSize: 11 }}>{p.dateAdded}</td>
                   <td style={{ padding: "8px 10px" }}><span style={{ fontSize: 11, fontWeight: alert60 || warn30 ? 700 : 400, color: alert60 ? C.red : warn30 ? C.amber : C.tx3 }}>{fDays(days)}</span></td>
                   <td style={{ padding: "8px 10px" }}><Btn sz="sm" v="ghost" onClick={e => { e.stopPropagation(); setDetail(p.id); }}>View</Btn></td>
