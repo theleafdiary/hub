@@ -492,7 +492,7 @@
       (plants || []).filter(p => p.status === "Sold").forEach(p => {
         const key = orderKeyOf(p);
         if (!map[key]) map[key] = { orderId: key, customerName: p.customerName || p.customerUsername || "Unknown Customer", customerUsername: p.customerUsername || "", address1: p.address1 || p.shippingAddress1 || "", address2: p.address2 || p.shippingAddress2 || "", city: p.city || p.shippingCity || "", state: p.state || p.shippingState || "", zip: p.zip || p.shippingZip || "", soldDate: (plantSaleDate(p) || today()).slice(0, 10), plants: [], totalValue: 0 };
-        map[key].plants.push({ id: p.id, name: p.name, potSize: p.potSize, plantId: p.plantId || p.plantCode, salePrice: +p.salePrice || +p.suggestedPrice || 0, trackingNumber: p.trackingNumber || "", carrier: p.carrier || "", shippedDate: p.shippedDate || "", deliveredDate: p.deliveredDate || "", includesHeatPack: !!p.includesHeatPack, packingSlipGenerated: !!p.packingSlipGenerated });
+        map[key].plants.push({ id: p.id, name: p.name, potSize: p.potSize, plantId: p.plantId || p.plantCode, salePrice: +p.salePrice || +p.suggestedPrice || 0, trackingNumber: p.trackingNumber || "", carrier: p.carrier || "", shippedDate: p.shippedDate || "", deliveredDate: p.deliveredDate || "", includesHeatPack: !!(p.includesHeatPack || p.heatPackAdded), packingSlipGenerated: !!p.packingSlipGenerated, fulfillmentStatus: p.fulfillmentStatus || p.shipmentStatus || "", packedAt: p.packedAt || "", platformReadyAt: p.platformReadyAt || "", paperworkAdded: !!p.paperworkAdded, stateDocChecked: !!p.stateDocChecked, insulationAdded: !!p.insulationAdded, fulfillmentNote: p.fulfillmentNote || "" });
         map[key].totalValue += (+p.salePrice || +p.suggestedPrice || 0);
       });
       return Object.values(map).sort((a,b) => String(b.soldDate).localeCompare(String(a.soldDate)));
@@ -511,8 +511,8 @@
       const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
       const payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
       if (balance && balance < due14 + payrollWeek) alerts.push({ id:"cash-low", severity:"critical", title:"Cash is tight", body:`Bank balance ${$(balance)} is lower than bills/payroll due soon (${$(due14 + payrollWeek)}).`, actionLabel:"Open Cash Flow", actionPage:"cashflow" });
-      const ready = groupSalesIntoOrders(plants).filter(o => o.plants.some(p => !p.trackingNumber));
-      if (ready.length) alerts.push({ id:"ready-ship", severity:"warning", title:"Orders ready to ship", body:`${ready.length} order(s) are sold but missing tracking numbers.`, actionLabel:"Pack Orders", actionPage:"ship" });
+      const ready = groupSalesIntoOrders(plants).filter(o => o.plants.some(p => p.fulfillmentStatus !== "Shipped"));
+      if (ready.length) alerts.push({ id:"ready-ship", severity:"warning", title:"Orders need fulfillment", body:`${ready.length} order(s) are sold and need packing/platform fulfillment.`, actionLabel:"Fulfill Orders", actionPage:"ship" });
       const old = plants.filter(p => p.status === "In Stock" && dHeld(p.dateAdded) >= 60);
       if (old.length) alerts.push({ id:"aging", severity:"warning", title:"Aging inventory", body:`${old.length} plant(s) are 60+ days old and may need discounting.`, actionLabel:"Discount Engine", actionPage:"discounts" });
       const quarantine = plants.filter(p => ["Quarantine","Pest/Disease"].includes(p.healthStatus));
@@ -536,16 +536,16 @@
        If you deploy Supabase Edge Function leaf-ai later, this screen
        will automatically use it instead of the local fallback.
     ══════════════════════════════════════════════════════════ */
-    const buildLeafDataSnapshot = ({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [] }) => ({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts, counts: { inStock: plants.filter(p => p.status === "In Stock").length, sold: plants.filter(p => p.status === "Sold").length, noPhoto: plants.filter(p => p.status === "In Stock" && !p.photoUrl && !p.photoBase64).length, needsLabel: plants.filter(p => p.status === "In Stock" && !p.labelPrinted).length, readyToShip: groupSalesIntoOrders(plants).filter(o => o.plants.some(x => !x.trackingNumber)).length, receiptsReview: receipts.filter(r => r.reviewStatus === "Needs Review" || r.review_status === "Needs Review").length, docs: casdCerts.length } });
+    const buildLeafDataSnapshot = ({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [] }) => ({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts, counts: { inStock: plants.filter(p => p.status === "In Stock").length, sold: plants.filter(p => p.status === "Sold").length, noPhoto: plants.filter(p => p.status === "In Stock" && !p.photoUrl && !p.photoBase64).length, needsLabel: plants.filter(p => p.status === "In Stock" && !p.labelPrinted).length, readyToShip: groupSalesIntoOrders(plants).filter(o => o.plants.some(x => x.fulfillmentStatus !== "Shipped")).length, receiptsReview: receipts.filter(r => r.reviewStatus === "Needs Review" || r.review_status === "Needs Review").length, docs: casdCerts.length } });
     const aiLine = (title, body, page = "command", severity = "info") => ({ id: uid(), title, body, page, severity });
     function localLeafAI(task, snapshot = {}) {
       const plants = snapshot.plants || [], expenses = snapshot.expenses || [], bills = snapshot.bills || [], timecards = snapshot.timecards || [], receipts = snapshot.receipts || [], settings = snapshot.settings || {}, casdCerts = snapshot.casdCerts || [];
-      const inStock = plants.filter(p => p.status === "In Stock"), readyOrders = groupSalesIntoOrders(plants).filter(o => o.plants.some(x => !x.trackingNumber));
+      const inStock = plants.filter(p => p.status === "In Stock"), readyOrders = groupSalesIntoOrders(plants).filter(o => o.plants.some(x => x.fulfillmentStatus !== "Shipped"));
       const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64), needsLabel = inStock.filter(p => !p.labelPrinted), aging = inStock.filter(p => dHeld(p.dateAdded) >= 45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
       const month = monthKey(), soldMonth = plants.filter(p => p.status === "Sold" && monthKey(plantSaleDate(p)) === month), revenue = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0), cogs = soldMonth.reduce((s,p)=>s+(+p.cost||0),0), expMonth = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((s,e)=>s+(+e.amount||0),0), net = revenue - cogs - expMonth;
       const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0), payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
       const actions = [], warnings = [], recommendations = [];
-      if (readyOrders.length) actions.push(aiLine("Ship sold orders", `${readyOrders.length} order(s) are sold but missing tracking. Print slips and add tracking today.`, "ship", "warning"));
+      if (readyOrders.length) actions.push(aiLine("Fulfill sold orders", `${readyOrders.length} order(s) are sold and need packing/platform fulfillment. Print slips, pack orders, and mark them ready for Palmstreet/Whatnot.`, "ship", "warning"));
       if (noPhoto.length) actions.push(aiLine("Add missing photos", `${noPhoto.length} in-stock plant(s) are missing photos. Photos help Palmstreet listings sell faster.`, "inv", "info"));
       if (needsLabel.length) actions.push(aiLine("Print labels", `${needsLabel.length} plant(s) need labels before the next show.`, "labels", "info"));
       if (aging.length) actions.push(aiLine("Move aging plants", `${aging.length} plant(s) are 45+ days old. Discount, bundle, or feature them in the next live show.`, "discounts", "warning"));
@@ -561,7 +561,7 @@
       if (task === "cash_leaks") { const byCat = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((m,e)=>{ const c=e.category||"Other"; m[c]=(m[c]||0)+(+e.amount||0); return m; },{}); Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,5).forEach(([cat,amt]) => recommendations.push(aiLine("Expense category watch", `${cat}: ${$(amt)} spent this month. Verify receipts and cut waste if high.`, "expense", "warning"))); }
       if (task === "live_show_plan") { [...inStock].sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,5).forEach((p,i)=>actions.push(aiLine(`Show slot ${i+1}`, `${p.name} — ${$(p.suggestedPrice)}. Use as a hook or premium moment.`, "liveshow", "info"))); aging.slice(0,5).forEach(p=>actions.push(aiLine("Clearance push", `${p.name} held ${fDays(dHeld(p.dateAdded))}. Bundle or discount live.`, "discounts", "warning"))); }
       if (task === "customer_ai") { const spend = {}; plants.filter(p=>p.status==="Sold").forEach(p=>{ const k=p.customerUsername||p.customerName||"Unknown"; spend[k]=(spend[k]||0)+(+p.salePrice||+p.suggestedPrice||0); }); Object.entries(spend).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([c,amt])=>recommendations.push(aiLine("VIP customer", `${c} has spent ${$(amt)}. Send a thank-you or early access message.`, "customers", "info"))); }
-      if (task === "employee_tasks") { actions.push(aiLine("Photo task", `Photograph ${Math.min(noPhoto.length,25)} plants missing photos.`, "inv", "info")); actions.push(aiLine("Packing task", `Pull and pack ${readyOrders.length} unshipped orders.`, "ship", "warning")); actions.push(aiLine("Label task", `Print labels for ${Math.min(needsLabel.length,50)} plants.`, "labels", "info")); }
+      if (task === "employee_tasks") { actions.push(aiLine("Photo task", `Photograph ${Math.min(noPhoto.length,25)} plants missing photos.`, "inv", "info")); actions.push(aiLine("Packing task", `Pull/pack ${readyOrders.length} unshipped orders.`, "ship", "warning")); actions.push(aiLine("Label task", `Print labels for ${Math.min(needsLabel.length,50)} plants.`, "labels", "info")); }
       const summary = task === "owner_summary" ? `This month: ${$(revenue)} revenue, estimated ${$(net)} net after COGS/expenses. ${readyOrders.length} orders need shipping, ${aging.length} plants are aging, ${noPhoto.length} plants need photos.` : task === "cash_leaks" ? `AI found ${recommendations.length} money leak checks for this month.` : task === "live_show_plan" ? "AI built a show plan using premium plants plus aging inventory to clear." : `AI found ${actions.length} actions, ${warnings.length} warnings, and ${recommendations.length} recommendations.`;
       return { ok:true, task, summary, actions, warnings, recommendations, generatedAt:new Date().toISOString() };
     }
@@ -672,7 +672,7 @@
         ["dash","🏠","Dashboard","Core"],["command","🚀","Command Center","Core"],["aihub","🤖","AI Center","Core"],["social","📣","Social Center","Marketing"],["cashflow","💵","Cash Flow","Core"],
         ["inv","🌿","Inventory","Plants"],["manual","✏️","Add Plants","Plants"],["upload","📸","Upload Invoice","Plants"],["labels","🏷️","Labels","Plants"],["care","🩺","Plant Care","Plants"],["locations","📍","Locations","Plants"],
         ["showbuilder","🎪","Show Builder","Live Selling"],["liveshow","🎥","Live Show","Live Selling"],["showimport","📦","Post-Show","Live Selling"],["bundles","🧺","Bundles","Live Selling"],["discounts","🏷️","Discounts","Live Selling"],
-        ["ship","📦","Ready to Ship","Orders"],["customers","👥","Customers","Orders"],["retention","💚","Retention","Orders"],["refunds","↩️","Refunds","Orders"],["casd","📜","State Docs","Orders"],
+        ["ship","📦","Order Fulfillment","Orders"],["customers","👥","Customers","Orders"],["retention","💚","Retention","Orders"],["refunds","↩️","Refunds","Orders"],["casd","📜","State Docs","Orders"],
         ["expense","💳","Expenses","Money"],["receipts","🧾","Receipt Scanner","Money"],["bills","📅","Bills","Money"],["payroll","👥","Payroll","Money"],["tax","🧾","Tax Center","Money"],["goals","🎯","Goals","Money"],["commissions","🤝","Commissions","Money"],
         ["nursery","🏪","Nurseries","Buying"],["pos","📋","Purchase Orders","Buying"],["intel","💡","Buy Intel","Buying"],
         ["reports","📈","Reports","Business"],["sellthru","📊","Sell-Through","Business"],["content","✨","AI Content","Marketing"],["history","📋","Past Invoices","Business"],["timecard","⏱️","Timecard","Business"],
@@ -3441,7 +3441,7 @@
           <p style={{ fontSize: 12, color: C.tx3, lineHeight: 1.45, overflowWrap: "anywhere" }}>Choose the 5 buttons that show in the black bottom menu. Use the dropdowns below so you can pick exactly what you want in each footer position.</p>
           {[["footerTabs", "Owner / Manager Footer"], ["employeeFooterTabs", "Employee Footer"]].map(([key, label]) => {
             const ownerChoices = [
-              ["dash", "🏠 Dashboard"], ["command", "🚀 Command Center"], ["aihub", "🤖 AI Center"], ["social", "📣 Social Center"], ["cashflow", "💵 Cash Flow"], ["ship", "📦 Ready to Ship"],
+              ["dash", "🏠 Dashboard"], ["command", "🚀 Command Center"], ["aihub", "🤖 AI Center"], ["social", "📣 Social Center"], ["cashflow", "💵 Cash Flow"], ["ship", "📦 Order Fulfillment"],
               ["inv", "🌿 Inventory"], ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Receipt Scanner"],
               ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
               ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
@@ -4402,7 +4402,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const quick = [
         ["AI Center", "aihub", "🤖", "Daily checks + smart recommendations"],
         ["Cash Flow", "cashflow", "💵", "Money in/out + safe nursery spend"],
-        ["Ready to Ship", "ship", "📦", `${readyOrders.length} order(s) need tracking`],
+        ["Order Fulfillment", "ship", "📦", `${readyOrders.length} order(s) need tracking`],
         ["Discounts", "discounts", "🏷️", `${oldStock.length} aging plant(s)`],
         ["Care / Quarantine", "care", "🩺", `${quarantine.length} flagged plant(s)`],
         ["Goals", "goals", "🎯", "Revenue and profit progress"],
@@ -4418,7 +4418,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             <div style={{ fontSize:12, opacity:.75, marginTop:5 }}>{$(revenue)} revenue · {$(expMonth)} expenses · {$(fees)} platform fees</div>
           </div>
           <KPI label="Inventory Value" value={$(inStock.reduce((s,p)=>s+(+p.suggestedPrice||0),0))} sub={`${inStock.length} in stock`} color={C.g600} onClick={()=>setPage("inv")} />
-          <KPI label="Ready to Ship" value={readyOrders.length} sub="orders missing tracking" color={readyOrders.length ? C.amber : C.g600} onClick={()=>setPage("ship")} />
+          <KPI label="Order Fulfillment" value={readyOrders.length} sub="orders missing tracking" color={readyOrders.length ? C.amber : C.g600} onClick={()=>setPage("ship")} />
           <KPI label="Health Alerts" value={alerts.length} sub="warnings/info" color={alerts.some(a=>a.severity==="critical") ? C.red : alerts.length ? C.amber : C.g600} />
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"1.2fr .8fr", gap:14 }}>
@@ -4473,7 +4473,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const alerts = computeAlerts(plants, expenses, bills, timecards, settings);
       const updateBalance = v => setSettings(s => ({ ...s, currentBankBalance: moneyNum(v) }));
       return <div style={{ padding:"14px 14px 90px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="💵" title="Cash Flow Dashboard" sub="Know what came in, what is going out, and what is safe to spend before nursery runs." right={<Btn sz="sm" onClick={()=>setPage("ship")}>📦 Ready to Ship</Btn>} />
+        <SHdr icon="💵" title="Cash Flow Dashboard" sub="Know what came in, what is going out, and what is safe to spend before nursery runs." right={<Btn sz="sm" onClick={()=>setPage("ship")}>📦 Order Fulfillment</Btn>} />
         <AlertPanel alerts={alerts} setPage={setPage} />
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:14 }}><KPI label="Cash In This Month" value={$(cashInMonth)} sub={`${soldMonth.length} sales`} color={C.g600}/><KPI label="Cash Out This Month" value={$(cashOutMonth)} sub="Expenses + bills + payroll" color={C.red}/><KPI label="Net This Month" value={$(netMonth)} color={netMonth>=0?C.g700:C.red}/></div>
         <Card style={{ marginBottom:14 }}><h3 style={{ marginTop:0, fontFamily:F.display }}>Next 30 Days</h3><div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>{weeks.map(w => <div key={w.label} style={{ border:`1px solid ${C.bd}`, borderRadius:10, padding:10 }}><b>{w.label}</b><div style={{ fontSize:12, color:w.net>=0?C.g700:C.red }}>Net {$(w.net)}</div><div style={{ height:8, background:C.g100, borderRadius:9, margin:"10px 0 4px" }}><div style={{ width:`${Math.min(100, w.in/(w.in+w.out||1)*100)}%`, height:8, background:C.g600, borderRadius:9 }}/></div><div style={{ height:8, background:C.redBg, borderRadius:9 }}><div style={{ width:`${Math.min(100, w.out/(w.in+w.out||1)*100)}%`, height:8, background:C.red, borderRadius:9 }}/></div><div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:C.tx3, marginTop:5 }}><span>In {$(w.in)}</span><span>Out {$(w.out)}</span></div></div>)}</div></Card>
@@ -4483,16 +4483,184 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
     }
 
     function PackingShippingCenter({ plants, setPlants, user, addAudit }) {
-      const [trackOrder, setTrackOrder] = useState(null), [carrier, setCarrier] = useState("USPS"), [shipDate, setShipDate] = useState(today()), [tracking, setTracking] = useState(""), [heat, setHeat] = useState(false), [bulk, setBulk] = useState(false), [bulkMap, setBulkMap] = useState({});
-      const orders = groupSalesIntoOrders(plants); const ready = orders.filter(o => o.plants.some(p => !p.trackingNumber)); const shipped = orders.filter(o => o.plants.some(p => p.trackingNumber));
-      const printSlip = (order) => { const care = [...new Set(order.plants.map(p=>p.name))].map(n=>`<li><b>${n}:</b> Bright indirect light. Water when the top inch is lightly dry. Avoid direct sun after shipping.</li>`).join(""); const html = `<html><head><title>Packing Slip ${order.orderId}</title><style>body{font-family:Arial;padding:32px;color:#123} h1{letter-spacing:2px}.row{display:flex;justify-content:space-between}.box{border:1px solid #bbb;padding:12px;margin:14px 0} table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:7px;text-align:left}</style></head><body><div class="row"><div><h1>LEAF DIARY</h1><p>Rare Plant Specialist<br/>theleafdiary@gmail.com</p></div><div><h2>PACKING SLIP</h2><p>${order.soldDate}</p></div></div><hr/><div class="box"><b>SHIP TO</b><br/>${order.customerName}<br/>${order.address1}<br/>${order.address2||""}<br/>${order.city||""} ${order.state||""} ${order.zip||""}</div><table><tr><th>Plant</th><th>Pot</th><th>ID</th><th>Price</th></tr>${order.plants.map(p=>`<tr><td>${p.name}</td><td>${p.potSize||""}</td><td>${p.plantId||""}</td><td>$${(+p.salePrice||0).toFixed(2)}</td></tr>`).join("")}</table><div class="box"><b>Care Notes</b><ul>${care}</ul></div><p>Thank you for your order! Questions? theleafdiary@gmail.com | @theleafdiary</p><script>window.print()<\/script></body></html>`; const w = window.open("", "_blank"); w.document.write(html); w.document.close(); setPlants(prev=>prev.map(p=>order.plants.some(x=>x.id===p.id)?{...p, packingSlipGenerated:true}:p)); addAudit&&addAudit({action:`Packing slip printed for ${order.orderId}`, user:user.name, page:"Shipping"}); };
-      const saveTracking = (order, num = tracking) => { if (!num) return alert("Enter tracking number"); setPlants(prev=>prev.map(p=>order.plants.some(x=>x.id===p.id)?{...p, trackingNumber:num, carrier, shippedDate:shipDate, includesHeatPack:heat}:p)); addAudit&&addAudit({action:`Tracking added for ${order.orderId}: ${carrier} ${num}`, user:user.name, page:"Shipping"}); setTrackOrder(null); setTracking(""); };
-      const saveBulk = () => { setPlants(prev=>prev.map(p=>{ const o=ready.find(o=>o.plants.some(x=>x.id===p.id)); const num=o && bulkMap[o.orderId]; return num?{...p, trackingNumber:num, carrier, shippedDate:shipDate}:p; })); addAudit&&addAudit({action:`Bulk tracking saved for ${Object.values(bulkMap).filter(Boolean).length} orders`, user:user.name, page:"Shipping"}); setBulk(false); setBulkMap({}); };
-      return <div style={{ padding:"14px 14px 90px", background:C.bg, minHeight:"100vh" }}><SHdr icon="📦" title="Ready to Ship & Tracking" sub="Print packing slips, add tracking numbers, and confirm delivery." right={<Btn sz="sm" onClick={()=>setBulk(!bulk)}>Bulk Tracking</Btn>} />
-        {ready.length===0 ? <Card style={{ background:C.g50 }}><b>✅ All caught up — no orders waiting to ship.</b></Card> : <div style={{ display:"grid", gap:10 }}>{bulk && <Card><h3 style={{ marginTop:0 }}>Bulk Tracking Entry</h3><Row gap={10} wrap><Sel label="Carrier" value={carrier} onChange={setCarrier} options={["USPS","UPS","FedEx","Other"]}/><Inp label="Ship Date" type="date" value={shipDate} onChange={setShipDate}/></Row>{ready.map(o=><Inp key={o.orderId} label={`${o.customerName} · ${o.state} · ${o.plants.length} plants`} value={bulkMap[o.orderId]||""} onChange={v=>setBulkMap(m=>({...m,[o.orderId]:v}))}/>) }<Btn onClick={saveBulk}>Save All Tracking</Btn></Card>}{ready.map(o => <Card key={o.orderId}><Row between wrap><div><b>{o.customerName}</b> <Tag text={o.state||"No State"} sm/><div style={{fontSize:12,color:C.tx3}}>{o.plants.length} plants · {$(o.totalValue)} · {o.orderId}</div></div><Row gap={8}><Btn sz="sm" v="soft" onClick={()=>printSlip(o)}>Print Packing Slip</Btn><Btn sz="sm" onClick={()=>setTrackOrder(trackOrder===o.orderId?null:o.orderId)}>Add Tracking</Btn></Row></Row>{trackOrder===o.orderId && <div style={{ marginTop:12, padding:12, background:C.cardAlt, borderRadius:10 }}><Row gap={10} wrap><Inp label="Tracking Number" value={tracking} onChange={setTracking}/><Sel label="Carrier" value={carrier} onChange={setCarrier} options={["USPS","UPS","FedEx","Other"]}/><Inp label="Ship Date" type="date" value={shipDate} onChange={setShipDate}/></Row><label style={{fontSize:12}}><input type="checkbox" checked={heat} onChange={e=>setHeat(e.target.checked)}/> Heat pack included</label><br/><Btn sz="sm" onClick={()=>saveTracking(o)}>Save Tracking</Btn></div>}</Card>)}</div>}
-        <Card style={{ marginTop:14 }}><h3 style={{ marginTop:0, fontFamily:F.display }}>Shipped Orders</h3>{shipped.length===0 ? <p>No shipped orders yet.</p> : shipped.slice(0,50).map(o=><div key={o.orderId} style={{ padding:8, borderBottom:`1px solid ${C.bdS}` }}><Row between><span><b>{o.customerName}</b> · {o.plants[0]?.carrier} {o.plants[0]?.trackingNumber && (trackingUrl(o.plants[0].carrier,o.plants[0].trackingNumber)?<a href={trackingUrl(o.plants[0].carrier,o.plants[0].trackingNumber)} target="_blank">{o.plants[0].trackingNumber}</a>:o.plants[0].trackingNumber)}</span><Btn sz="sm" v="soft" onClick={()=>setPlants(prev=>prev.map(p=>o.plants.some(x=>x.id===p.id)?{...p, deliveredDate: today()}:p))}>Delivered?</Btn></Row></div>)}</Card>
+      const [selected, setSelected] = useState({});
+      const [view, setView] = useState("open");
+      const [bulkStatus, setBulkStatus] = useState("Packed");
+      const [bulkNote, setBulkNote] = useState("");
+      const [bulkHeat, setBulkHeat] = useState(false);
+      const [bulkInsulation, setBulkInsulation] = useState(false);
+      const [bulkPaperwork, setBulkPaperwork] = useState(false);
+      const [bulkStateDocs, setBulkStateDocs] = useState(false);
+      const [orderNotes, setOrderNotes] = useState({});
+      const orders = groupSalesIntoOrders(plants);
+      const getOrderPlants = (order) => plants.filter(p => order.plants.some(x => x.id === p.id));
+      const orderFulfillment = (order) => {
+        const ps = getOrderPlants(order);
+        const statuses = ps.map(p => p.fulfillmentStatus || "");
+        const allShipped = ps.length && statuses.every(s => s === "Shipped" || s === "Done");
+        const allReady = ps.length && statuses.every(s => ["Ready for Platform", "Shipped", "Done"].includes(s));
+        const allPacked = ps.length && statuses.every(s => ["Packed", "Ready for Platform", "Shipped", "Done"].includes(s));
+        if (allShipped) return "Shipped";
+        if (allReady) return "Ready for Platform";
+        if (allPacked) return "Packed";
+        return "Needs Packing";
+      };
+      const needsStateDoc = (order) => ["CA", "AZ", "TX", "LA"].includes(String(order.state || "").toUpperCase());
+      const visibleOrders = orders.filter(o => {
+        const status = orderFulfillment(o);
+        if (view === "open") return status !== "Shipped";
+        if (view === "packed") return status === "Packed";
+        if (view === "ready") return status === "Ready for Platform";
+        if (view === "shipped") return status === "Shipped";
+        if (view === "docs") return needsStateDoc(o);
+        return true;
+      });
+      const selectedIds = Object.keys(selected).filter(k => selected[k]);
+      const setOrdersSelected = (ordersToSelect, checked) => {
+        const next = { ...selected };
+        ordersToSelect.forEach(o => next[o.orderId] = checked);
+        setSelected(next);
+      };
+      const updateOrders = (orderIds, patch) => {
+        const chosen = orders.filter(o => orderIds.includes(o.orderId));
+        const plantIds = new Set(chosen.flatMap(o => o.plants.map(p => p.id)));
+        const now = new Date().toISOString();
+        const finalPatch = { ...patch, fulfillmentUpdatedAt: now };
+        if (patch.fulfillmentStatus === "Packed") finalPatch.packedAt = now;
+        if (patch.fulfillmentStatus === "Ready for Platform") finalPatch.platformReadyAt = now;
+        if (patch.fulfillmentStatus === "Shipped") finalPatch.shippedDate = today();
+        setPlants(prev => prev.map(p => plantIds.has(p.id) ? { ...p, ...finalPatch } : p));
+        addAudit?.(`Updated fulfillment for ${chosen.length} order(s) to ${patch.fulfillmentStatus || "edited"}`);
+      };
+      const applyBulk = () => {
+        if (!selectedIds.length) return alert("Select at least one order first.");
+        updateOrders(selectedIds, {
+          fulfillmentStatus: bulkStatus,
+          heatPackAdded: bulkHeat,
+          includesHeatPack: bulkHeat,
+          insulationAdded: bulkInsulation,
+          paperworkAdded: bulkPaperwork,
+          stateDocChecked: bulkStateDocs,
+          fulfillmentNote: bulkNote
+        });
+        setBulkNote("");
+        setSelected({});
+      };
+      const updateOne = (order, patch) => updateOrders([order.orderId], patch);
+      const printSlip = (order) => {
+        const care = [...new Set(order.plants.map(p => p.name))].map(n => `<li><b>${n}:</b> Bright indirect light. Water when the top inch is lightly dry. Avoid direct sun after shipping.</li>`).join("");
+        const html = `<html><head><title>Packing Slip ${order.orderId}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#123}h1{letter-spacing:2px;margin:0}.row{display:flex;justify-content:space-between;gap:20px}.box{border:1px solid #bbb;padding:12px;margin:14px 0}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:7px;text-align:left}.check{font-size:14px;line-height:2}</style></head><body><div class="row"><div><h1>LEAF DIARY</h1><p>Rare Plant Specialist<br/>theleafdiary.com</p></div><div><h2>PACKING SLIP</h2><p>${order.soldDate}</p></div></div><hr/><div class="box"><b>CUSTOMER / SHIP TO</b><br/>${order.customerName}<br/>${order.address1 || ""}<br/>${order.address2 || ""}<br/>${order.city || ""} ${order.state || ""} ${order.zip || ""}</div><table><tr><th>Plant</th><th>Pot</th><th>ID</th><th>Price</th></tr>${order.plants.map(p => `<tr><td>${p.name}</td><td>${p.potSize || ""}</td><td>${p.plantId || ""}</td><td>$${(+p.salePrice || 0).toFixed(2)}</td></tr>`).join("")}</table><div class="box check"><b>Packing Checklist</b><br/>☐ Correct plant(s) pulled<br/>☐ Plant condition checked<br/>☐ Wrapped safely<br/>☐ Insulation added if needed<br/>☐ Heat pack added if needed<br/>☐ CA/AZ/TX/LA paperwork added if required<br/>☐ Ready for Palmstreet/Whatnot label</div><div class="box"><b>Care Notes</b><ul>${care}</ul></div><p>Thank you for your order! Questions? @theleafdiary</p><script>window.print()<\/script></body></html>`;
+        const w = window.open("", "_blank");
+        w.document.write(html);
+        w.document.close();
+        updateOne(order, { packingSlipGenerated: true });
+      };
+      const exportFulfillmentCsv = () => {
+        const rows = [["Order ID", "Customer", "Platform", "State", "Plants", "Value", "Status", "Heat Pack", "Insulation", "Paperwork", "State Doc Checked", "Note"]];
+        visibleOrders.forEach(o => {
+          const ps = getOrderPlants(o);
+          rows.push([
+            o.orderId,
+            o.customerName,
+            ps[0]?.platform || "",
+            o.state || "",
+            o.plants.map(p => `${p.plantId || ""} ${p.name}`).join(" | "),
+            o.totalValue,
+            orderFulfillment(o),
+            ps.some(p => p.heatPackAdded || p.includesHeatPack) ? "Yes" : "No",
+            ps.some(p => p.insulationAdded) ? "Yes" : "No",
+            ps.some(p => p.paperworkAdded) ? "Yes" : "No",
+            ps.some(p => p.stateDocChecked) ? "Yes" : "No",
+            ps.map(p => p.fulfillmentNote).filter(Boolean)[0] || ""
+          ]);
+        });
+        downloadCsv(`leaf-diary-fulfillment-${today()}.csv`, rows);
+      };
+      const statusColor = s => s === "Shipped" ? C.g600 : s === "Ready for Platform" ? C.blue : s === "Packed" ? C.gold : C.red;
+      const counts = {
+        open: orders.filter(o => orderFulfillment(o) !== "Shipped").length,
+        packed: orders.filter(o => orderFulfillment(o) === "Packed").length,
+        ready: orders.filter(o => orderFulfillment(o) === "Ready for Platform").length,
+        shipped: orders.filter(o => orderFulfillment(o) === "Shipped").length,
+        docs: orders.filter(needsStateDoc).length
+      };
+      return <div className="ld-page page-scroll-safe" style={{ padding: "14px 14px 130px", background: C.bg, minHeight: "100vh" }}>
+        <SHdr icon="📦" title="Order Fulfillment" sub="Bulk pack sold orders from Palmstreet and Whatnot. No manual tracking required — use this to pull plants, print slips, add heat packs, check paperwork, and mark orders ready for the platform label." right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={exportFulfillmentCsv}>Export Queue CSV</Btn><Btn sz="sm" onClick={() => setOrdersSelected(visibleOrders, true)}>Select Visible</Btn></Row>} />
+        <Card style={{ marginBottom: 12, background: C.g50, border: `1px solid ${C.g200}` }}>
+          <Row wrap gap={8}>
+            {[["open", `Open ${counts.open}`], ["packed", `Packed ${counts.packed}`], ["ready", `Ready ${counts.ready}`], ["docs", `Needs Docs ${counts.docs}`], ["shipped", `Done ${counts.shipped}`], ["all", "All Orders"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} style={{ padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${view === id ? C.g700 : C.bd}`, background: view === id ? C.g700 : C.card, color: view === id ? "#fff" : C.tx2, fontWeight: 800, fontFamily: F.body, cursor: "pointer", fontSize: 12 }}>{label}</button>)}
+          </Row>
+        </Card>
+        <Card style={{ marginBottom: 14, borderTop: `4px solid ${C.g700}` }}>
+          <Row between wrap gap={10}>
+            <div>
+              <h3 style={{ margin: 0, fontFamily: F.display, color: C.g900 }}>Bulk Fulfillment Editor</h3>
+              <p style={{ margin: "4px 0 0", color: C.tx3, fontSize: 12 }}>Select many orders, then update them all at once.</p>
+            </div>
+            <Tag text={`${selectedIds.length} selected`} color={selectedIds.length ? C.g700 : C.tx3} />
+          </Row>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: 12 }}>
+            <Sel label="Bulk Status" value={bulkStatus} onChange={setBulkStatus} options={["Needs Packing", "Packed", "Ready for Platform", "Shipped"]} />
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkHeat} onChange={e => setBulkHeat(e.target.checked)} /> Heat Pack Added</label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkInsulation} onChange={e => setBulkInsulation(e.target.checked)} /> Insulation Added</label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkPaperwork} onChange={e => setBulkPaperwork(e.target.checked)} /> Paperwork Added</label>
+          </div>
+          <Row gap={10} wrap center style={{ marginTop: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkStateDocs} onChange={e => setBulkStateDocs(e.target.checked)} /> State Docs Checked</label>
+            <Inp label="Bulk Note" value={bulkNote} onChange={setBulkNote} placeholder="Example: Packed by Malasia, waiting for Whatnot label..." />
+            <Btn onClick={applyBulk} disabled={!selectedIds.length}>Apply to Selected Orders</Btn>
+            <Btn v="ghost" onClick={() => setSelected({})}>Clear Selection</Btn>
+          </Row>
+        </Card>
+        {visibleOrders.length === 0 ? <Card><div style={{ textAlign: "center", padding: 30, color: C.tx3 }}>All caught up ✅ No orders in this view.</div></Card> :
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+            {visibleOrders.map(order => {
+              const ps = getOrderPlants(order);
+              const status = orderFulfillment(order);
+              const chosen = !!selected[order.orderId];
+              const hasHeat = ps.some(p => p.heatPackAdded || p.includesHeatPack);
+              const hasInsulation = ps.some(p => p.insulationAdded);
+              const hasPaperwork = ps.some(p => p.paperworkAdded);
+              const docChecked = ps.some(p => p.stateDocChecked);
+              return <Card key={order.orderId} style={{ borderLeft: `5px solid ${statusColor(status)}`, background: chosen ? C.g50 : C.card }}>
+                <Row between wrap gap={10}>
+                  <Row gap={9} center>
+                    <input type="checkbox" checked={chosen} onChange={e => setSelected(prev => ({ ...prev, [order.orderId]: e.target.checked }))} style={{ width: 20, height: 20 }} />
+                    <div>
+                      <div style={{ fontWeight: 900, color: C.g900, fontSize: 15 }}>{order.customerName}</div>
+                      <div style={{ fontSize: 12, color: C.tx3 }}>{order.city || ""} {order.state || ""} {order.zip || ""} · {order.plants.length} plant(s) · {$(order.totalValue)}</div>
+                    </div>
+                  </Row>
+                  <Row gap={6} wrap center>
+                    <Tag text={status} color={statusColor(status)} />
+                    {needsStateDoc(order) && <Tag text={`${order.state} paperwork`} color={docChecked ? C.g600 : C.red} />}
+                    {hasHeat && <Tag text="Heat pack" color={C.amber} />}
+                    {hasInsulation && <Tag text="Insulated" color={C.blue} />}
+                  </Row>
+                </Row>
+                <div style={{ marginTop: 10, padding: 10, background: C.cardAlt, borderRadius: 10, fontSize: 12, color: C.tx2 }}>
+                  {order.plants.map(p => <div key={p.id} style={{ padding: "3px 0" }}><b>{p.plantId || ""}</b> · {p.name} {p.potSize ? `· ${p.potSize}` : ""} · {$(p.salePrice)}</div>)}
+                </div>
+                <Row gap={7} wrap style={{ marginTop: 10 }}>
+                  <Btn sz="sm" v="soft" onClick={() => printSlip(order)}>Print Packing Slip</Btn>
+                  <Btn sz="sm" onClick={() => updateOne(order, { fulfillmentStatus: "Packed", packedAt: new Date().toISOString() })}>Mark Packed</Btn>
+                  <Btn sz="sm" v="gold" onClick={() => updateOne(order, { fulfillmentStatus: "Ready for Platform", platformReadyAt: new Date().toISOString(), paperworkAdded: true })}>Ready for Platform</Btn>
+                  <Btn sz="sm" v="outline" onClick={() => updateOne(order, { heatPackAdded: !hasHeat, includesHeatPack: !hasHeat })}>{hasHeat ? "Remove Heat Pack" : "Heat Pack Added"}</Btn>
+                  <Btn sz="sm" v="outline" onClick={() => updateOne(order, { insulationAdded: !hasInsulation })}>{hasInsulation ? "Remove Insulation" : "Insulation Added"}</Btn>
+                  <Btn sz="sm" v="outline" onClick={() => updateOne(order, { paperworkAdded: !hasPaperwork, stateDocChecked: needsStateDoc(order) ? true : docChecked })}>{hasPaperwork ? "Paperwork Done ✓" : "Paperwork Added"}</Btn>
+                  <Btn sz="sm" v="ghost" onClick={() => updateOne(order, { fulfillmentStatus: "Shipped", shippedDate: today() })}>Mark Done/Shipped</Btn>
+                </Row>
+                <Row gap={8} wrap center style={{ marginTop: 10 }}>
+                  <Inp label="Order Note" value={orderNotes[order.orderId] ?? (ps.find(p => p.fulfillmentNote)?.fulfillmentNote || "")} onChange={v => setOrderNotes(prev => ({ ...prev, [order.orderId]: v }))} placeholder="Packing note for this order..." />
+                  <Btn sz="sm" v="soft" onClick={() => updateOne(order, { fulfillmentNote: orderNotes[order.orderId] ?? "" })}>Save Note</Btn>
+                </Row>
+              </Card>;
+            })}
+          </div>}
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"]{grid-template-columns:1fr!important}}`}</style>
       </div>;
     }
+
 
     function PlantBundles({ plants, setPlants, bundles, setBundles, user, addAudit }) {
       const [name,setName]=useState(""), [ids,setIds]=useState(""), [price,setPrice]=useState("");
