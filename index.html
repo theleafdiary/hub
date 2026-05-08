@@ -3675,24 +3675,35 @@
 
       const createUser = async () => {
         setAuthErr(""); setAuthMsg("");
-        const profile = buildProfile();
-        if (!profile.name || !profile.email) { setAuthErr("Name and email are required."); return; }
+        let profile = buildProfile();
+        if (!profile.name) { setAuthErr("Name is required."); return; }
+        const safeName = String(profile.name || "employee").trim().toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "") || "employee";
+        const hasRealEmail = !!profile.email;
+        if (!profile.email) profile = { ...profile, email: `${safeName}.${Date.now()}@leafdiary.local`, loginDisabled: true };
         if (userExists(profile.email)) { setAuthErr("That email already exists in your app users."); return; }
-        if (!form.tempPassword || form.tempPassword.length < 6) { setAuthErr("Temporary password must be at least 6 characters."); return; }
+
+        /* Commission-only employees do not need a Supabase login. They still save permanently for show commissions. */
+        const shouldCreateAuth = hasRealEmail && form.tempPassword && form.tempPassword.length >= 6;
         setBusyUser(true);
         let authCreated = false, authUserId = profile.authUserId;
-        try {
-          const result = await invokeAdminCreateUser(profile, form.tempPassword);
-          authCreated = true;
-          authUserId = result.userId || result.authUserId || profile.authUserId || "";
-          setAuthMsg("✅ Supabase Auth user created and app profile saved.");
-        } catch (err) {
-          console.error("admin-create-user failed", err);
-          setAuthErr("Edge Function admin-create-user failed. I still saved the app profile, but login password will not work until the Edge Function is deployed or you create the user in Supabase Auth. Error: " + (err?.message || String(err)));
+        if (shouldCreateAuth) {
+          try {
+            const result = await invokeAdminCreateUser(profile, form.tempPassword);
+            authCreated = true;
+            authUserId = result.userId || result.authUserId || profile.authUserId || "";
+            setAuthMsg("✅ Supabase Auth user created and app profile saved.");
+          } catch (err) {
+            console.error("admin-create-user failed", err);
+            setAuthErr("Edge Function admin-create-user failed. I still saved the app profile for commissions and app access, but login password will not work until the Edge Function is deployed or you create the user in Supabase Auth. Error: " + (err?.message || String(err)));
+          }
+        } else {
+          setAuthMsg("✅ Employee profile saved for commissions. No login was created.");
         }
-        const finalProfile = { ...profile, authUserId, authCreated, authStatus: authCreated ? "auth-created" : "profile-only" };
-        setUsers(prev => [...prev, finalProfile]);
-        addAudit({ action: `Admin created user profile for ${finalProfile.email}${authCreated ? " with Supabase Auth" : " without Auth"}`, user: user.name, page: "Admin" });
+        const finalProfile = { ...profile, authUserId, authCreated, active: profile.active !== false, authStatus: authCreated ? "auth-created" : "profile-only", permissions: { ...DEFAULT_PERMS, ...(profile.permissions || {}) } };
+        const updatedUsers = [...safeArray(users).filter(u => u.id !== finalProfile.id), finalProfile];
+        setUsers(updatedUsers);
+        try { cloudUpsertState("users", updatedUsers); } catch (e) { console.warn("Explicit user cloud save failed", e); }
+        addAudit({ action: `Admin created user profile for ${finalProfile.name}${authCreated ? " with Supabase Auth" : " for commissions/profile only"}`, user: user?.name || "Owner", page: "Admin" });
         setBusyUser(false);
         setShowAdd(false); setEditId(null); setForm({ ...blank, tempPassword: "" });
       };
@@ -3766,12 +3777,12 @@
         <Row between center wrap style={{ marginBottom: 12 }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900 }}>{showAdd ? "Create New User" : "Edit User"}</div><Btn v="ghost" sz="sm" onClick={closeForm}>Cancel</Btn></Row>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
           <Inp label="Full Name" value={form.name} onChange={updF("name")} required />
-          <Inp label="Email / Login" value={form.email} onChange={v => updF("email")(normalizeEmail(v))} type="email" required />
+          <Inp label="Email / Login (optional for commission-only employee)" value={form.email} onChange={v => updF("email")(normalizeEmail(v))} type="email" />
           <Inp label="Phone" value={form.phone} onChange={updF("phone")} />
           <Inp label="Job Title" value={form.jobTitle} onChange={updF("jobTitle")} placeholder="Packer, plant care, manager..." />
           <Sel label="Role" value={form.role} onChange={setRole} options={roles} />
           <Inp label="Hourly Pay" type="number" value={form.hourlyRate} onChange={updF("hourlyRate")} />
-          {showAdd && <Inp label="Temporary Password" value={form.tempPassword} onChange={updF("tempPassword")} type="text" required />}
+          {showAdd && <Inp label="Temporary Password (optional unless this employee logs in)" value={form.tempPassword} onChange={updF("tempPassword")} type="text" />}
           {showAdd && <div style={{ display: "flex", alignItems: "flex-end" }}><Btn v="soft" onClick={() => updF("tempPassword")(makeTempPassword())}>Generate Password</Btn></div>}
         </div>
         <Row gap={10} wrap style={{ marginTop: 12 }}>
@@ -3791,7 +3802,7 @@
           <Btn onClick={showAdd ? createUser : saveEdit} disabled={busyUser}>{busyUser ? "Saving..." : showAdd ? "Create User + Auth" : "Save User"}</Btn>
           {showAdd && <Btn v="soft" onClick={() => copyLogin(form)}>Copy Login Info</Btn>}
         </Row>
-        <div style={{ marginTop: 10, fontSize: 11, color: C.tx3 }}>Passwords are never stored in this HTML or app data. New passwords are sent one time to your Supabase Edge Function named <b>admin-create-user</b>.</div>
+        <div style={{ marginTop: 10, fontSize: 11, color: C.tx3 }}>For commission-only employees, name is enough and no login is created. If you enter an email and password, the app will try to create a Supabase Auth login through <b>admin-create-user</b>.</div>
       </Card>;
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
@@ -6987,6 +6998,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const [cloudMsg, setCloudMsg] = useState("Connecting to Supabase cloud...");
 
       const cloudReadyRef = useRef(false);
+      const cloudStatusRef = useRef("loading");
+      useEffect(() => { cloudStatusRef.current = cloudStatus; }, [cloudStatus]);
       const suppressCloudSaveRef = useRef(false);
       const backupRef = useRef();
 
@@ -7200,7 +7213,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           if (Array.isArray(cloudRefunds) && cloudRefunds.length) setRefundsRaw(cloudRefunds);
           if (Array.isArray(cloudBundles) && cloudBundles.length) setBundlesRaw(cloudBundles);
           if (cloudTimecards.length) setTimecardsRaw(cloudTimecards);
-          if (Array.isArray(cloudUsers)) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
+          if (Array.isArray(cloudUsers) && cloudUsers.length) setUsersRaw(cloudUsers); else if (!safeArray(saved?.users).length && !safeArray(users).length) setUsersRaw(DEFAULT_USERS);
           if (cloudSettings && typeof cloudSettings === "object" && !Array.isArray(cloudSettings)) setSettingsRaw(safeSettings(cloudSettings)); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
           if (Array.isArray(cloudAudit)) setAuditLogRaw(cloudAudit);
           const liveCasdCerts = window.__casdCertsSnapshot || [];
@@ -7229,7 +7242,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           if ((!Array.isArray(cloudRefunds) || !cloudRefunds.length) && saved?.refunds?.length) await cloudUpsertState("refunds", saved.refunds);
           if ((!Array.isArray(cloudBundles) || !cloudBundles.length) && saved?.bundles?.length) await cloudUpsertState("bundles", saved.bundles);
           if (!cloudTimecards.length && saved?.timecards?.length) await cloudUpsertRows("timecards", saved.timecards);
-          if (!cloudUsers && saved?.users) await cloudUpsertState("users", saved.users);
+          if ((!Array.isArray(cloudUsers) || !cloudUsers.length) && saved?.users?.length) await cloudUpsertState("users", saved.users);
           if (!cloudSettings && saved?.settings) await cloudUpsertState("settings", saved.settings);
           if (!cloudAudit && saved?.auditLog) await cloudUpsertState("auditLog", saved.auditLog);
           if (restoredCasdCerts.length) {
@@ -7247,9 +7260,17 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       useEffect(() => {
         if (!session) return;
+        let cancelled = false;
+        const fallback = setTimeout(() => {
+          if (!cancelled && cloudStatusRef.current === "loading") {
+            console.warn("Cloud load timed out, opening with local data fallback.");
+            setCloudStatus("offline");
+            setCloudMsg("Cloud timed out — opened from local backup.");
+          }
+        }, 9000);
         loadFromCloud();
-        const timer = setInterval(() => loadFromCloud({ silent: true }), 20000);
-        return () => clearInterval(timer);
+        const timer = setInterval(() => loadFromCloud({ silent: true }), 30000);
+        return () => { cancelled = true; clearTimeout(fallback); clearInterval(timer); };
       }, [loadFromCloud, session]);
 
       /* Manual backup — exports all data as JSON file */
@@ -7343,7 +7364,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       if (session === undefined) return <div style={{ height: "100vh", background: C.bg }}></div>;
       if (!session) return <AuthScreen />;
-      if (cloudStatus === "loading" || !user) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16, padding: 22, textAlign: "center" }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div><div>Connecting to Leaf Diary Cloud...</div><button onClick={() => { resetBrokenNavStorage(); setUsersRaw([]); setCloudStatus("synced"); }} style={{ marginTop: 8, background: C.g700, color: "#fff", border: "none", borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Repair Startup</button><div style={{ maxWidth: 380, fontSize: 12, color: C.tx3 }}>Use Repair Startup only if the app stays on this screen after deleting data. It does not restore deleted inventory; it just lets the app open cleanly.</div></div>;
+      if (cloudStatus === "loading" || !user) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16, padding: 22, textAlign: "center" }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div><div>Connecting to Leaf Diary Cloud...</div><button onClick={() => { resetBrokenNavStorage(); const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const repairedOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, phone: "", jobTitle: "Owner", hourlyRate: 0, active: true, mustChangePassword: false, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Repair Startup", authStatus: "auth-created" }; const nextUsers = safeArray(users).some(u => u.email === email) ? safeArray(users) : [repairedOwner, ...safeArray(users)]; setUsersRaw(nextUsers); setUser(repairedOwner); try { cloudUpsertState("users", nextUsers); } catch(e) {} setCloudStatus("synced"); setCloudMsg("Startup repaired — app opened locally."); resetToPage("today"); }} style={{ marginTop: 8, background: C.g700, color: "#fff", border: "none", borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Repair Startup</button><button onClick={() => { const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const localOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, active: true, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Offline Continue", authStatus: "auth-created" }; setUser(localOwner); setCloudStatus("offline"); resetToPage("today"); }} style={{ background: C.card, color: C.g800, border: `1px solid ${C.g300}`, borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Open App Offline</button><div style={{ maxWidth: 420, fontSize: 12, color: C.tx3 }}>Use Repair Startup only if the app stays here after deleting data. It does not restore deleted inventory; it creates/repairs your owner profile so the app can open cleanly.</div></div>;
       if (user?.blocked || user?.active === false) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, padding: 20 }}><Card style={{ maxWidth: 420, textAlign: "center" }}><div style={{ fontSize: 38 }}>🚫</div><h2 style={{ fontFamily: F.display, color: C.red, margin: "8px 0" }}>Access Disabled</h2><p style={{ color: C.tx3 }}>This user is disabled in Leaf Diary. Contact the owner to re-enable access.</p><Btn v="danger" onClick={handleLogout}>Log Out</Btn></Card></div>;
 
       const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit };
