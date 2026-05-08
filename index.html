@@ -427,6 +427,17 @@
     };
 
     const uid = () => Math.random().toString(36).slice(2, 9);
+
+    /* Crash-safe data helpers — lets the app boot even after inventory/customers were wiped. */
+    const safeArray = (v) => Array.isArray(v) ? v : [];
+    const safeObject = (v) => (v && typeof v === "object" && !Array.isArray(v)) ? v : {};
+    const safeSettings = (v) => ({ ...DEFAULT_SETTINGS, ...safeObject(v) });
+    const safeUsers = (v) => Array.isArray(v) ? v : [];
+    const safeNurseries = (v) => migrateNurseries(Array.isArray(v) && v.length ? v : DEFAULT_NURSERIES);
+    const resetBrokenNavStorage = () => {
+      try { localStorage.setItem("leafDiaryLastPage", "today"); localStorage.setItem("leafDiaryNavHistory", "[]"); } catch (e) {}
+    };
+
     const supabaseUrl = 'https://yyklidmefiguzrbvrnmp.supabase.co';
     const supabaseKey = 'sb_publishable_8vyVQt8Ay3S8kJ4cI9U5YA_eB6l2CUu';
     const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
@@ -6883,6 +6894,31 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       </div>;
     }
 
+    /* App crash guard — prevents one bad/empty dataset from taking down the whole app. */
+    class LeafDiaryErrorBoundary extends React.Component {
+      constructor(props) { super(props); this.state = { error: null }; }
+      static getDerivedStateFromError(error) { return { error }; }
+      componentDidCatch(error, info) { console.error("Leaf Diary render error", error, info); }
+      render() {
+        if (this.state.error) {
+          const msg = this.state.error?.message || String(this.state.error || "Unknown error");
+          return <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:F.body }}>
+            <Card style={{ maxWidth:520, textAlign:"center", borderTop:`5px solid ${C.red}` }}>
+              <div style={{ fontSize:42 }}>🛠️</div>
+              <h2 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0" }}>Leaf Diary startup repaired needed</h2>
+              <p style={{ color:C.tx3 }}>The app hit bad or missing data after the CRM reset. Use the repair button below, then refresh.</p>
+              <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}44`, borderRadius:10, padding:10, fontSize:12, marginBottom:12, textAlign:"left" }}>{msg}</div>
+              <Row center gap={8} wrap style={{ justifyContent:"center" }}>
+                <Btn onClick={() => { resetBrokenNavStorage(); window.location.reload(); }}>Repair Navigation + Refresh</Btn>
+                <Btn v="outline" onClick={() => window.location.reload()}>Refresh</Btn>
+              </Row>
+            </Card>
+          </div>;
+        }
+        return this.props.children;
+      }
+    }
+
     /* ══════════════════════════════════════════════════════════
        ROOT APP — Supabase cloud sync + localStorage backup
     ══════════════════════════════════════════════════════════ */
@@ -6900,19 +6936,19 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const [page, setPageRaw] = useState(() => { try { return localStorage.getItem("leafDiaryLastPage") || saved?.settings?.lastPage || "today"; } catch(e) { return "today"; } });
       const [navHistory, setNavHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("leafDiaryNavHistory") || "[]"); } catch(e) { return []; } });
       const [navDir, setNavDir] = useState("forward");
-      const [plants, setPlantsRaw] = useState(saved?.plants || []);
-      const [expenses, setExpensesRaw] = useState(saved?.expenses || []);
-      const [expenseReceipts, setExpenseReceiptsRaw] = useState(saved?.expenseReceipts || []);
-      const [purchaseOrders, setPurchaseOrdersRaw] = useState(saved?.purchaseOrders || []);
-      const [refunds, setRefundsRaw] = useState(saved?.refunds || []);
-      const [bundles, setBundlesRaw] = useState(saved?.bundles || []);
-      const [timecards, setTimecardsRaw] = useState(saved?.timecards || []);
-      const [auditLog, setAuditLogRaw] = useState(saved?.auditLog || []);
-      const [bills, setBillsRaw] = useState(saved?.bills || DEFAULT_BILLS);
-      const [nurseries, setNurseriesRaw] = useState(migrateNurseries(saved?.nurseries || DEFAULT_NURSERIES));
-      const [users, setUsersRaw] = useState(saved?.users || DEFAULT_USERS);
-      const [settings, setSettingsRaw] = useState({ ...DEFAULT_SETTINGS, ...(saved?.settings || {}) });
-      const [casdCerts, setCasdCertsRaw] = useState(mergeCasdCertLists(saved?.casdCerts || [], loadCasdCertsFromLocalBackup()));
+      const [plants, setPlantsRaw] = useState(safeArray(saved?.plants));
+      const [expenses, setExpensesRaw] = useState(safeArray(saved?.expenses));
+      const [expenseReceipts, setExpenseReceiptsRaw] = useState(safeArray(saved?.expenseReceipts));
+      const [purchaseOrders, setPurchaseOrdersRaw] = useState(safeArray(saved?.purchaseOrders));
+      const [refunds, setRefundsRaw] = useState(safeArray(saved?.refunds));
+      const [bundles, setBundlesRaw] = useState(safeArray(saved?.bundles));
+      const [timecards, setTimecardsRaw] = useState(safeArray(saved?.timecards));
+      const [auditLog, setAuditLogRaw] = useState(safeArray(saved?.auditLog));
+      const [bills, setBillsRaw] = useState(safeArray(saved?.bills).length ? safeArray(saved?.bills) : DEFAULT_BILLS);
+      const [nurseries, setNurseriesRaw] = useState(safeNurseries(saved?.nurseries));
+      const [users, setUsersRaw] = useState(safeUsers(saved?.users).length ? safeUsers(saved?.users) : DEFAULT_USERS);
+      const [settings, setSettingsRaw] = useState(safeSettings(saved?.settings));
+      const [casdCerts, setCasdCertsRaw] = useState(mergeCasdCertLists(safeArray(saved?.casdCerts), loadCasdCertsFromLocalBackup()));
       const [saveMsg, setSaveMsg] = useState("");
       const [cloudStatus, setCloudStatus] = useState("loading");
       const [cloudMsg, setCloudMsg] = useState("Connecting to Supabase cloud...");
@@ -6923,7 +6959,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       const cloudCollectionSetter = useCallback((table, rawSetter) => (updater) => {
         rawSetter(prev => {
-          const next = applyUpdater(updater, prev) || [];
+          const next = safeArray(applyUpdater(updater, prev));
           if (cloudReadyRef.current && !suppressCloudSaveRef.current) {
             const removed = missingIds(prev, next);
             setCloudStatus("syncing");
@@ -7131,9 +7167,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           if (Array.isArray(cloudRefunds) && cloudRefunds.length) setRefundsRaw(cloudRefunds);
           if (Array.isArray(cloudBundles) && cloudBundles.length) setBundlesRaw(cloudBundles);
           if (cloudTimecards.length) setTimecardsRaw(cloudTimecards);
-          if (cloudUsers) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
-          if (cloudSettings) setSettingsRaw({ ...DEFAULT_SETTINGS, ...cloudSettings }); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
-          if (cloudAudit) setAuditLogRaw(cloudAudit);
+          if (Array.isArray(cloudUsers)) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
+          if (cloudSettings && typeof cloudSettings === "object" && !Array.isArray(cloudSettings)) setSettingsRaw(safeSettings(cloudSettings)); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
+          if (Array.isArray(cloudAudit)) setAuditLogRaw(cloudAudit);
           const liveCasdCerts = window.__casdCertsSnapshot || [];
           const localCasdCerts = loadCasdCertsFromLocalBackup();
           const restoredCasdCerts = mergeCasdCertLists(
@@ -7274,7 +7310,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       if (session === undefined) return <div style={{ height: "100vh", background: C.bg }}></div>;
       if (!session) return <AuthScreen />;
-      if (cloudStatus === "loading" || !user) return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16 }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div>Connecting to Leaf Diary Cloud...</div>;
+      if (cloudStatus === "loading" || !user) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16, padding: 22, textAlign: "center" }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div><div>Connecting to Leaf Diary Cloud...</div><button onClick={() => { resetBrokenNavStorage(); setUsersRaw([]); setCloudStatus("synced"); }} style={{ marginTop: 8, background: C.g700, color: "#fff", border: "none", borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Repair Startup</button><div style={{ maxWidth: 380, fontSize: 12, color: C.tx3 }}>Use Repair Startup only if the app stays on this screen after deleting data. It does not restore deleted inventory; it just lets the app open cleanly.</div></div>;
       if (user?.blocked || user?.active === false) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, padding: 20 }}><Card style={{ maxWidth: 420, textAlign: "center" }}><div style={{ fontSize: 38 }}>🚫</div><h2 style={{ fontFamily: F.display, color: C.red, margin: "8px 0" }}>Access Disabled</h2><p style={{ color: C.tx3 }}>This user is disabled in Leaf Diary. Contact the owner to re-enable access.</p><Btn v="danger" onClick={handleLogout}>Log Out</Btn></Card></div>;
 
       const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit };
@@ -7356,7 +7392,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
     }
     const container = document.getElementById('root');
     const root = ReactDOM.createRoot(container);
-    root.render(React.createElement(App));
+    root.render(React.createElement(LeafDiaryErrorBoundary, null, React.createElement(App)));
   </script>
 </body>
 
