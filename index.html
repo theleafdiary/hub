@@ -263,6 +263,87 @@
       overflow-x: hidden !important;
       padding-bottom: calc(130px + env(safe-area-inset-bottom, 0px)) !important;
     }
+
+
+    /* Native-style navigation: back bar, breadcrumbs, slide feel */
+    .ld-page-shell {
+      animation-duration: .18s;
+      animation-timing-function: ease-out;
+      animation-fill-mode: both;
+    }
+    .ld-slide-forward { animation-name: ldSlideForward; }
+    .ld-slide-back { animation-name: ldSlideBack; }
+    @keyframes ldSlideForward { from { opacity: .7; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes ldSlideBack { from { opacity: .75; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
+    .ld-backbar {
+      position: sticky;
+      top: 56px;
+      z-index: 250;
+      background: rgba(239,244,241,.96);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid #CDE0D5;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 48px;
+    }
+    .ld-back-btn {
+      background: #0D2B1A;
+      color: #fff;
+      border: 0;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-weight: 900;
+      cursor: pointer;
+      white-space: nowrap !important;
+    }
+    .ld-crumbs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      font-size: 12px;
+      color: #304D3A;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .ld-crumbs::-webkit-scrollbar { display: none; }
+    .ld-crumb-btn {
+      background: transparent;
+      border: 0;
+      color: #174D2F;
+      font-weight: 900;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      cursor: pointer;
+      padding: 4px 2px;
+      white-space: nowrap !important;
+    }
+    .ld-floating-back {
+      position: fixed;
+      left: 14px;
+      bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+      z-index: 500;
+      width: 46px;
+      height: 46px;
+      border-radius: 999px;
+      border: 2px solid #97d33e;
+      background: #000;
+      color: #97d33e;
+      font-size: 22px;
+      font-weight: 900;
+      box-shadow: 0 8px 28px rgba(0,0,0,.35);
+      cursor: pointer;
+    }
+    @media (min-width: 761px) {
+      .ld-floating-back { display: none; }
+      .ld-backbar { top: 58px; }
+    }
+
 </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -748,6 +829,7 @@
       { id:"dash", icon:"📊", l:"Dashboard", group:"Today", roles:["owner","manager"] },
       { id:"command", icon:"🚀", l:"Command Center", group:"Today", roles:["owner"] },
       { id:"aihub", icon:"🤖", l:"AI Center", group:"Today", roles:["owner","manager","employee"] },
+      { id:"dataai", icon:"💬", l:"Ask Business AI", group:"Today", roles:["owner","manager","employee"] },
       { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Today", roles:["owner"] },
       { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Today", roles:["employee"] },
       { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
@@ -788,6 +870,38 @@
     ];
     const getToolsForRole = role => TOOL_CATALOG.filter(t => (t.roles || []).includes(role));
 
+    const ROOT_PAGES = ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "admin_ws"];
+    const PAGE_TO_WORKSPACE = {
+      today:"today", dash:"today", command:"today", aihub:"today", dataai:"today", cashflow:"today", emp_dash:"today",
+      plants_ws:"plants_ws", inv:"plants_ws", manual:"plants_ws", upload:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
+      shows_ws:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", showimport:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
+      orders_ws:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
+      money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
+      admin_ws:"admin_ws", nursery:"admin_ws", pos:"admin_ws", intel:"admin_ws", reports:"admin_ws", history:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws"
+    };
+    const getPageLabel = (id) => (TOOL_CATALOG.find(t => t.id === id)?.l || WORKSPACES.find(w => w.id === id)?.l || id);
+    const getPageIcon = (id) => (TOOL_CATALOG.find(t => t.id === id)?.icon || WORKSPACES.find(w => w.id === id)?.icon || "•");
+    const getWorkspaceForPage = (id) => PAGE_TO_WORKSPACE[id] || "today";
+    const isRootPage = (id) => ROOT_PAGES.includes(id);
+
+    function BackBreadcrumbBar({ page, navHistory, goBack, goTo, goCrumb }) {
+      if (isRootPage(page)) return null;
+      const wsId = getWorkspaceForPage(page);
+      const ws = WORKSPACES.find(w => w.id === wsId) || WORKSPACES[0];
+      return <>
+        <div className="ld-backbar">
+          <button className="ld-back-btn" onClick={goBack}>← Back</button>
+          <div className="ld-crumbs" aria-label="Breadcrumb navigation">
+            <button className="ld-crumb-btn" onClick={() => goCrumb(wsId)}>{ws.icon} {ws.l}</button>
+            <span style={{ color: "#6A8C76" }}>›</span>
+            <button className="ld-crumb-btn" onClick={() => goCrumb(page)}>{getPageIcon(page)} {getPageLabel(page)}</button>
+          </div>
+        </div>
+        {navHistory.length > 0 && <button className="ld-floating-back" onClick={goBack} aria-label="Back">←</button>}
+      </>;
+    }
+
+
     function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {} }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const [addOpen, setAddOpen] = useState(false);
@@ -802,7 +916,7 @@
       const quickAdd = [
         ["Add Plant","manual","✏️"], ["Upload Invoice","upload","📸"], ["Scan Receipt","receipts","🧾"],
         ["Import Show","showimport","📥"], ["Add Expense","expense","💳"], ["Create Social Post","social","📣"],
-        ["State Doc","casd","📜"], ["Live Show","liveshow","🎥"]
+        ["State Doc","casd","📜"], ["Ask Data AI","dataai","💬"], ["Live Show","liveshow","🎥"]
       ].filter(x => tools.some(t => t.id === x[1]) || WORKSPACES.some(w => w.id === x[1]));
       const menuGroups = ["Today","Plants","Shows","Orders","Money","Buying","Marketing","Business","Admin"]
         .map(g => ({ group:g, items:tools.filter(t => t.group === g && (!menuSearch || (t.l + " " + t.group).toLowerCase().includes(menuSearch.toLowerCase()))) }))
@@ -888,7 +1002,7 @@
       const CardBtn = ({ item }) => { const [label,id,icon,sub] = item; const disabled = !canOpen(id); return <button disabled={disabled} onClick={()=>open(id)} className="ld-workspace-card" style={{ background:disabled?"#f1f1f1":C.card, border:`1px solid ${disabled?"#ddd":C.bd}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:disabled?"not-allowed":"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)", fontFamily:F.body, opacity:disabled ? .45 : 1 }}><Row gap={10} center><div style={{ width:42, height:42, borderRadius:14, background:(pack.color||C.g600)+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:23 }}>{icon}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{label}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{sub}</div></div><span style={{ color:C.tx4, fontWeight:900 }}>›</span></Row></button> };
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1060, margin:"0 auto", fontFamily:F.body }}>
         <div style={{ background:"#000", color:"#fff", borderRadius:26, padding:"20px 18px", border:`2px solid ${pack.color}`, boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
-          <Row between center wrap gap={12}><div><div style={{ fontSize:40, lineHeight:1 }}>{pack.icon}</div><div style={{ fontFamily:F.display, fontSize:28, color:pack.color, fontWeight:900, marginTop:5 }}>{pack.title}</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>{pack.sub}</div></div><button onClick={()=>setPage("aihub")} style={{ background:pack.color, color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🤖 Ask AI</button></Row>
+          <Row between center wrap gap={12}><div><div style={{ fontSize:40, lineHeight:1 }}>{pack.icon}</div><div style={{ fontFamily:F.display, fontSize:28, color:pack.color, fontWeight:900, marginTop:5 }}>{pack.title}</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>{pack.sub}</div></div><Row gap={8} wrap><button onClick={()=>setPage("dataai")} style={{ background:pack.color, color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>💬 Ask Data</button><button onClick={()=>setPage("aihub")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🤖 AI</button></Row></Row>
           <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>{pack.hero}</div>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>{pack.kpis.map((k,i)=><KPI key={i} label={k[0]} value={k[1]} sub={k[2]} color={pack.color} />)}</div>
@@ -4562,6 +4676,94 @@
       </div>;
     }
 
+
+    function BusinessDataAI({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [], user, addAudit, setPage }) {
+      const [q, setQ] = useState("");
+      const [answer, setAnswer] = useState(null);
+      const [history, setHistory] = useState(settings?.dataAiHistory || []);
+      const findPlantMatches = (query) => {
+        const text = String(query || "").toLowerCase();
+        const codeMatch = text.match(/\b[a-z]{1,4}-?\d{1,5}\b/i);
+        const code = codeMatch ? codeMatch[0].replace(/([a-z]+)(\d+)/i, "$1-$2").toLowerCase() : "";
+        let matches = plants.filter(p => {
+          const pidv = String(p.plantId || p.plantCode || "").toLowerCase();
+          const nm = String(p.name || "").toLowerCase();
+          return (code && (pidv === code || pidv.replace(/-0+/g,"-") === code.replace(/-0+/g,"-"))) || (nm && text.includes(nm.slice(0, Math.min(12, nm.length))));
+        });
+        if (!matches.length && text.length > 3) matches = plants.filter(p => String(p.name || "").toLowerCase().split(/\s+/).some(w => w.length > 4 && text.includes(w))).slice(0, 8);
+        return matches.slice(0, 8);
+      };
+      const customerMatches = (query) => {
+        const text = String(query || "").toLowerCase();
+        const sold = plants.filter(p => p.status === "Sold");
+        const names = [...new Set(sold.map(p => p.customerName || p.customerUsername || "").filter(Boolean))];
+        const found = names.filter(n => text.includes(String(n).toLowerCase()) || String(n).toLowerCase().includes(text.trim())).slice(0,5);
+        return found;
+      };
+      const lineForPlant = p => {
+        const sold = p.status === "Sold";
+        const revenue = +p.salePrice || +p.suggestedPrice || 0;
+        const cost = +p.cost || 0;
+        const profit = trueProfit(p);
+        const bought = p.dateAdded || p.purchaseDate || p.createdAt || "Unknown";
+        const soldDate = p.soldDate || p.saleDate || p.dateSold || "Not sold yet";
+        const nursery = p.nurseryName || p.nursery || p.supplier || "Unknown nursery";
+        const buyer = p.customerName || p.customerUsername || "No buyer recorded";
+        return `${p.plantId || p.plantCode || "No ID"} — ${p.name || "Unnamed plant"}\nStatus: ${p.status || "Unknown"}\nBought: ${bought} from ${nursery}\nCost: ${$(cost)}\nSell Price: ${$(revenue)}\n${sold ? `Sold to: ${buyer}\nSold Date: ${soldDate}\nProfit after fees/shipping: ${$(profit)}` : `Potential profit at current price: ${$(revenue - cost)}`}`;
+      };
+      const buildAnswer = (query) => {
+        const text = String(query || "").toLowerCase();
+        const inStock = plants.filter(p => p.status === "In Stock");
+        const sold = plants.filter(p => p.status === "Sold");
+        const plantHits = findPlantMatches(query);
+        const custHits = customerMatches(query);
+        if (plantHits.length) {
+          return { title: "Plant lookup", body: plantHits.map(lineForPlant).join("\n\n"), actions: plantHits[0] ? [{ label:"Open Inventory", page:"inv" }, { label:"Open Customers", page:"customers" }] : [] };
+        }
+        if (custHits.length || text.includes("customer") || text.includes("bought from me") || text.includes("buy from me")) {
+          const target = custHits[0];
+          const rows = target ? sold.filter(p => [p.customerName,p.customerUsername].some(v => String(v||"").toLowerCase() === target.toLowerCase())) : sold;
+          const byCustomer = rows.reduce((m,p)=>{ const k=p.customerName||p.customerUsername||"Unknown"; if(!m[k]) m[k]={count:0,total:0,plants:[]}; m[k].count++; m[k].total += (+p.salePrice||+p.suggestedPrice||0); m[k].plants.push(`${p.plantId||""} ${p.name||""}`.trim()); return m; },{});
+          const body = Object.entries(byCustomer).sort((a,b)=>b[1].total-a[1].total).slice(0,10).map(([name,v])=>`${name}: ${v.count} plant(s), ${$(v.total)} total\nPlants: ${v.plants.slice(0,12).join(", ")}`).join("\n\n") || "No customer purchase records found.";
+          return { title: target ? `Customer history: ${target}` : "Top customer purchase history", body, actions:[{label:"Open Customers", page:"customers"}] };
+        }
+        if (text.includes("profit") || text.includes("made") || text.includes("sales")) {
+          const revenue = sold.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
+          const cogs = sold.reduce((s,p)=>s+(+p.cost||0),0);
+          const profit = sold.reduce((s,p)=>s+trueProfit(p),0);
+          const avg = sold.length ? profit / sold.length : 0;
+          return { title:"Sales and profit summary", body:`Sold plants: ${sold.length}\nGross sales: ${$(revenue)}\nCOGS: ${$(cogs)}\nEstimated profit after platform fees/shipping: ${$(profit)}\nAverage profit per sold plant: ${$(avg)}`, actions:[{label:"Open Reports", page:"reports"},{label:"Open Money", page:"money_ws"}] };
+        }
+        if (text.includes("inventory") || text.includes("stock") || text.includes("value") || text.includes("cost")) {
+          const cost = inStock.reduce((s,p)=>s+(+p.cost||0),0);
+          const value = inStock.reduce((s,p)=>s+(+p.suggestedPrice||0),0);
+          const noPhoto = inStock.filter(p=>!p.photoUrl && !p.photoBase64).length;
+          return { title:"Current inventory summary", body:`In-stock plants: ${inStock.length}\nInventory cost tied up: ${$(cost)}\nCurrent sell value: ${$(value)}\nPotential gross profit: ${$(value-cost)}\nPlants missing photos: ${noPhoto}`, actions:[{label:"Open Inventory", page:"inv"},{label:"Open Plants", page:"plants_ws"}] };
+        }
+        if (text.includes("nursery") || text.includes("where did we buy") || text.includes("supplier")) {
+          const byNursery = plants.reduce((m,p)=>{ const k=p.nurseryName||p.nursery||p.supplier||"Unknown"; if(!m[k])m[k]={count:0,cost:0,sales:0,profit:0}; m[k].count++; m[k].cost+=(+p.cost||0); m[k].sales+=(+p.salePrice||+p.suggestedPrice||0); if(p.status==="Sold") m[k].profit+=trueProfit(p); return m; },{});
+          return { title:"Nursery / supplier summary", body:Object.entries(byNursery).sort((a,b)=>b[1].cost-a[1].cost).slice(0,10).map(([n,v])=>`${n}: ${v.count} plants, ${$(v.cost)} cost, ${$(v.sales)} sell value/sales, ${$(v.profit)} sold profit`).join("\n") || "No nursery data found.", actions:[{label:"Open Nurseries", page:"nursery"}] };
+        }
+        return { title:"Ask Leaf Diary AI", body:`I can answer questions like:\n• Who bought P-022?\n• When did we buy Monstera Albo and from where?\n• How much profit did we make on this plant?\n• What is our current inventory cost?\n• Who are my top customers?\n• What nursery made us the most money?`, actions:[{label:"Open AI Center", page:"aihub"}] };
+      };
+      const ask = () => {
+        const res = buildAnswer(q);
+        setAnswer(res);
+        const h = [{ id:uid(), q, title:res.title, body:res.body, at:new Date().toISOString() }, ...history].slice(0,20);
+        setHistory(h);
+        addAudit && addAudit({ action:"Asked Business AI", page:"Ask Business AI", details:q, user:user?.name||"Unknown" });
+      };
+      const examples = ["Who bought P-001?", "What is my current inventory cost?", "How much profit did we make?", "What nursery did we buy Monstera from?", "Who are my top customers?"];
+      return <div className="ld-page"><SHdr icon="💬" title="Ask Business AI" sub="Ask questions about your plants, buyers, inventory cost, profit, nurseries, and show data." right={<Btn sz="sm" onClick={()=>setPage && setPage("aihub")}>🤖 AI Center</Btn>} />
+        <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e", marginBottom:14 }}><div style={{ fontFamily:F.display, color:"#97d33e", fontWeight:900, fontSize:22 }}>Leaf Diary Business Data Copilot</div><div style={{ color:"rgba(255,255,255,.75)", fontSize:13, marginTop:5 }}>This answers from the CRM data already saved inside the app. No guessing.</div></Card>
+        <Card style={{ marginBottom:14 }}><textarea value={q} onChange={e=>setQ(e.target.value)} placeholder="Ask something like: Who did P-022 sell to and how much profit did we make?" style={{ width:"100%", minHeight:105, border:`1.5px solid ${C.bd}`, borderRadius:14, padding:13, fontFamily:F.body, fontSize:16, outline:"none" }} />
+          <Row wrap gap={8} style={{ marginTop:10 }}>{examples.map(ex=><button key={ex} onClick={()=>setQ(ex)} style={{ background:C.g100, color:C.g800, border:`1px solid ${C.g300}`, borderRadius:999, padding:"8px 10px", fontWeight:800, fontSize:12, cursor:"pointer" }}>{ex}</button>)}</Row>
+          <Btn full style={{ marginTop:12 }} onClick={ask}>Ask AI About My Business Data</Btn></Card>
+        {answer && <Card style={{ marginBottom:14, borderLeft:`5px solid ${C.g600}` }}><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, fontSize:20, marginBottom:10 }}>{answer.title}</div><pre style={{ whiteSpace:"pre-wrap", fontFamily:F.body, fontSize:14, color:C.tx1, lineHeight:1.45, margin:0 }}>{answer.body}</pre>{answer.actions?.length > 0 && <Row wrap gap={8} style={{ marginTop:12 }}>{answer.actions.map(a=><Btn key={a.page} sz="sm" v="soft" onClick={()=>setPage && setPage(a.page)}>{a.label}</Btn>)}</Row>}</Card>}
+        {history.length > 0 && <Card><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, marginBottom:10 }}>Recent AI Questions</div>{history.slice(0,8).map(h=><div key={h.id} style={{ padding:"9px 0", borderBottom:`1px solid ${C.bdS}` }}><div style={{ fontWeight:800, fontSize:13 }}>{h.q}</div><div style={{ color:C.tx3, fontSize:11 }}>{new Date(h.at).toLocaleString()} · {h.title}</div></div>)}</Card>}
+      </div>;
+    }
+
 function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, receipts = [], users = [], settings, setSettings, casdCerts = [], user, setPage, addAudit }) {
       const [busy, setBusy] = useState(""), [result, setResult] = useState(settings?.aiLastResults?.latest || null), [selected, setSelected] = useState("daily_check");
       const snapshot = buildLeafDataSnapshot({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts });
@@ -4691,7 +4893,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const updateBalance = v => setSettings(s => ({ ...s, currentBankBalance: moneyNum(v) }));
       return <div style={{ padding:"14px 14px 90px", background:C.bg, minHeight:"100vh" }}>
         <SHdr icon="💵" title="Cash Flow Dashboard" sub="Know what came in, what is going out, and what is safe to spend before nursery runs." right={<Btn sz="sm" onClick={()=>setPage("ship")}>📦 Order Fulfillment</Btn>} />
-        <AlertPanel alerts={alerts} setPage={setPage} />
+        <AlertPanel alerts={alerts} setPage={navigate} />
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:14 }}><KPI label="Cash In This Month" value={$(cashInMonth)} sub={`${soldMonth.length} sales`} color={C.g600}/><KPI label="Cash Out This Month" value={$(cashOutMonth)} sub="Expenses + bills + payroll" color={C.red}/><KPI label="Net This Month" value={$(netMonth)} color={netMonth>=0?C.g700:C.red}/></div>
         <Card style={{ marginBottom:14 }}><h3 style={{ marginTop:0, fontFamily:F.display }}>Next 30 Days</h3><div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>{weeks.map(w => <div key={w.label} style={{ border:`1px solid ${C.bd}`, borderRadius:10, padding:10 }}><b>{w.label}</b><div style={{ fontSize:12, color:w.net>=0?C.g700:C.red }}>Net {$(w.net)}</div><div style={{ height:8, background:C.g100, borderRadius:9, margin:"10px 0 4px" }}><div style={{ width:`${Math.min(100, w.in/(w.in+w.out||1)*100)}%`, height:8, background:C.g600, borderRadius:9 }}/></div><div style={{ height:8, background:C.redBg, borderRadius:9 }}><div style={{ width:`${Math.min(100, w.out/(w.in+w.out||1)*100)}%`, height:8, background:C.red, borderRadius:9 }}/></div><div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:C.tx3, marginTop:5 }}><span>In {$(w.in)}</span><span>Out {$(w.out)}</span></div></div>)}</div></Card>
         <div style={{ display:"grid", gridTemplateColumns:"1.2fr 1fr", gap:14 }}><Card><h3 style={{ marginTop:0, fontFamily:F.display }}>Upcoming Obligations</h3>{bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 30).sort((a,b)=>daysUntil(a.dueDate)-daysUntil(b.dueDate)).map(b => <div key={b.id} style={{ padding:10, borderRadius:8, marginBottom:6, background:daysUntil(b.dueDate)<0?C.redBg:daysUntil(b.dueDate)<=7?C.amberBg:C.cardAlt }}><Row between><span><b>{b.name}</b><br/><small>{daysUntil(b.dueDate)<0 ? `${Math.abs(daysUntil(b.dueDate))} days overdue` : `Due in ${daysUntil(b.dueDate)} days`}</small></span><b>{$(b.amount)}</b></Row></div>)}<div style={{ padding:10, borderRadius:8, background:C.purpleBg }}><Row between><span><b>Estimated Payroll This Week</b><br/><small>From current timecards</small></span><b>{$(payrollWeek)}</b></Row></div></Card><Card style={{ background:safeSpend>=0?C.g50:C.redBg, border:`2px solid ${safeSpend>=0?C.g300:C.red}` }}><h3 style={{ marginTop:0, fontFamily:F.display }}>Nursery Run Budget</h3><Inp label="Current Bank Balance" type="number" value={settings.currentBankBalance || 0} onChange={updateBalance}/><div style={{ fontFamily:F.display, fontSize:32, fontWeight:800, color:safeSpend>=0?C.g700:C.red, marginTop:14 }}>{safeSpend>=0 ? `Safe to spend: ${$(safeSpend)}` : "Not a good week for a nursery run"}</div><p style={{ fontSize:12, color:C.tx3 }}>Balance {$(settings.currentBankBalance)} | Bills {$(obligations)} | Payroll {$(payrollWeek)} | Buffer {$(buffer)}</p></Card></div>
@@ -6655,7 +6857,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       }, []);
 
       const [user, setUser] = useState(null);
-      const [page, setPage] = useState("today");
+      const [page, setPageRaw] = useState(() => { try { return localStorage.getItem("leafDiaryLastPage") || saved?.settings?.lastPage || "today"; } catch(e) { return "today"; } });
+      const [navHistory, setNavHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("leafDiaryNavHistory") || "[]"); } catch(e) { return []; } });
+      const [navDir, setNavDir] = useState("forward");
       const [plants, setPlantsRaw] = useState(saved?.plants || []);
       const [expenses, setExpensesRaw] = useState(saved?.expenses || []);
       const [expenseReceipts, setExpenseReceiptsRaw] = useState(saved?.expenseReceipts || []);
@@ -6741,6 +6945,51 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const setUsers = cloudStateSetter("users", setUsersRaw);
       const setSettings = cloudStateSetter("settings", setSettingsRaw);
 
+      const navigate = useCallback((nextPage, opts = {}) => {
+        if (!nextPage) return;
+        setPageRaw(prev => {
+          if (prev === nextPage) return prev;
+          setNavDir(opts.direction || "forward");
+          setNavHistory(h => {
+            if (opts.replace) return h;
+            const nextHist = [...(h || []), prev].filter(Boolean).slice(-40);
+            try { localStorage.setItem("leafDiaryNavHistory", JSON.stringify(nextHist)); } catch(e) {}
+            return nextHist;
+          });
+          try { localStorage.setItem("leafDiaryLastPage", nextPage); } catch(e) {}
+          return nextPage;
+        });
+      }, []);
+      const goBack = useCallback(() => {
+        setNavHistory(h => {
+          const stack = [...(h || [])];
+          const prev = stack.pop();
+          if (prev) {
+            setNavDir("back");
+            setPageRaw(prev);
+            try { localStorage.setItem("leafDiaryLastPage", prev); localStorage.setItem("leafDiaryNavHistory", JSON.stringify(stack)); } catch(e) {}
+          }
+          return stack;
+        });
+      }, []);
+      const goCrumb = useCallback((target) => {
+        if (!target || target === page) return;
+        setNavDir("back");
+        setPageRaw(target);
+        setNavHistory(h => {
+          const idx = (h || []).lastIndexOf(target);
+          const nextHist = idx >= 0 ? h.slice(0, idx) : h;
+          try { localStorage.setItem("leafDiaryLastPage", target); localStorage.setItem("leafDiaryNavHistory", JSON.stringify(nextHist || [])); } catch(e) {}
+          return nextHist || [];
+        });
+      }, [page]);
+      const resetToPage = useCallback((nextPage) => {
+        setNavHistory([]); setNavDir("forward"); setPageRaw(nextPage || "today");
+        try { localStorage.setItem("leafDiaryLastPage", nextPage || "today"); localStorage.setItem("leafDiaryNavHistory", "[]"); } catch(e) {}
+      }, []);
+      useEffect(() => { try { localStorage.setItem("leafDiaryLastPage", page); } catch(e) {} }, [page]);
+
+
       /* Migration: clean legacy LD- prefixes only. Never bump or recycle short nursery codes like CF-001. */
       useEffect(() => {
         const needsMigration = plants.some(p => p?.plantId && (String(p.plantId).startsWith("LD-") || String(p.plantId).includes("--")));
@@ -6783,12 +7032,12 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           }
           if (u.active === false) {
             setUser({ ...u, blocked: true });
-            setPage("today");
+            resetToPage("today");
             return;
           }
           if (!user || user.id !== u.id || user.mustChangePassword !== u.mustChangePassword || user.active !== u.active) {
             setUser(u);
-            setPage("today");
+            resetToPage("today");
             addAudit({ action: "Logged in via Auth", user: u.name, page: "System" });
           }
         }
@@ -6970,8 +7219,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           }).catch(() => {});
         }).catch(() => {});
       }, [setAuditLog, user, session]);
-      const handleLogin = u => { setUser(u); setPage("today"); addAudit({ action: "Logged in", user: u.name, page: "Login" }); };
-      const handleLogout = async () => { await supabase.auth.signOut(); addAudit({ action: "Logged out", user: user?.name || "Unknown", page: "System" }); setUser(null); setPage("today"); };
+      const handleLogin = u => { setUser(u); resetToPage("today"); addAudit({ action: "Logged in", user: u.name, page: "Login" }); };
+      const handleLogout = async () => { await supabase.auth.signOut(); addAudit({ action: "Logged out", user: user?.name || "Unknown", page: "System" }); setUser(null); resetToPage("today"); };
       const lastPageAuditRef = useRef("");
       useEffect(() => {
         if (!user || !page) return;
@@ -6994,7 +7243,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
         {(showPwdModal || user?.mustChangePassword) && <ChangePasswordModal onClose={() => { if (!user?.mustChangePassword) setShowPwdModal(false); }} user={user} onSuccess={() => { setUsers(prev => prev.map(u => u.id === user.id ? { ...u, mustChangePassword: false } : u)); setUser(prev => prev ? { ...prev, mustChangePassword: false } : prev); setShowPwdModal(false); }} />}
-        <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} />
+        <Nav page={page} setPage={navigate} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} />
+        <BackBreadcrumbBar page={page} navHistory={navHistory} goBack={goBack} goTo={navigate} goCrumb={goCrumb} />
 
         {/* Cloud sync indicator strip */}
         <div style={{ background: C.g900, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -7012,18 +7262,19 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           </div>
         </div>
 
-        <div>
-          {page === "today" && <WorkspaceHome type="today" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={setPage} />}
-          {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={setPage} />}
-          {page === "shows_ws" && <WorkspaceHome type="shows_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={setPage} />}
-          {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={setPage} />}
-          {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={setPage} />}
-          {page === "admin_ws" && user.role === "owner" && <WorkspaceHome type="admin_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={setPage} />}
-          {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage} />}
-          {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={setPage} />}
-          {page === "aihub" && <AIAutomationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} setSettings={setSettings} casdCerts={casdCerts} user={user} setPage={setPage} addAudit={addAudit} />}
+        <div key={page} className={`ld-page-shell ${navDir === "back" ? "ld-slide-back" : "ld-slide-forward"}`}>
+          {page === "today" && <WorkspaceHome type="today" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "shows_ws" && <WorkspaceHome type="shows_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "admin_ws" && user.role === "owner" && <WorkspaceHome type="admin_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={navigate} />}
+          {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
+          {page === "aihub" && <AIAutomationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} setSettings={setSettings} casdCerts={casdCerts} user={user} setPage={navigate} addAudit={addAudit} />}
+          {page === "dataai" && <BusinessDataAI plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "social" && <SocialMediaCenter plants={plants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} />}
-          {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={setPage} />}
+          {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={navigate} />}
           {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
           {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
           {page === "pos" && CAN.seeReports(user.role) && <PurchaseOrders purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} user={user} addAudit={addAudit} />}
@@ -7040,10 +7291,10 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "upload" && <InvoiceUpload {...P} />}
           {page === "manual" && <ManualEntry {...P} />}
           {page === "history" && <PastInvoices {...P} />}
-          {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} setPage={setPage} />}
-          {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={setPage} settings={settings} />}
-          {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={setPage} />}
-          {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} />}
+          {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} setPage={navigate} />}
+          {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} settings={settings} />}
+          {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={navigate} />}
+          {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
           {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
@@ -7058,7 +7309,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
           {page === "audit" && CAN.seeAudit(user.role) && <AuditLog auditLog={auditLog} />}
           {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
-          {page === "cleanup" && user.role === "owner" && <DataCleanup plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} />}
+          {page === "cleanup" && user.role === "owner" && <DataCleanup plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
           {page === "casd" && user.role === "owner" && <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} />}
         </div>
       </div>;
