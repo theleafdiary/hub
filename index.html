@@ -276,7 +276,7 @@
     /* ══════════════════════════════════════════════════════════
        NAV
     ══════════════════════════════════════════════════════════ */
-    function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword }) {
+    function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {} }) {
       const ownerTabs = [
         { id: "dash", icon: "🏠", l: "Dashboard" }, { id: "upload", icon: "📸", l: "Upload Invoice" },
         { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "history", icon: "📋", l: "Past Invoices" },
@@ -295,9 +295,17 @@
       const empTabs = [{ id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "upload", icon: "📸", l: "Upload Invoice" }, { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }];
       const tabs = user.role === "owner" ? ownerTabs : user.role === "manager" ? mgrTabs : empTabs;
       const [menuOpen, setMenuOpen] = useState(false);
-      const bottomTabs = user.role === "employee"
-        ? [{ id: "emp_dash", icon: "🏠", l: "Home" }, { id: "inv", icon: "🌿", l: "Plants" }, { id: "upload", icon: "📸", l: "Scan" }, { id: "manual", icon: "✏️", l: "Add" }, { id: "timecard", icon: "⏱️", l: "Time" }]
-        : [{ id: "dash", icon: "🏠", l: "Home" }, { id: "inv", icon: "🌿", l: "Plants" }, { id: "upload", icon: "📸", l: "Scan" }, { id: "sellthru", icon: "📊", l: "Insights" }, { id: "bills", icon: "📅", l: "Bills" }];
+      const defaultOwnerFooterTabs = ["dash", "inv", "upload", "reports", "bills"];
+      const defaultEmployeeFooterTabs = ["emp_dash", "inv", "upload", "manual", "timecard"];
+      const savedFooterIds = user.role === "employee"
+        ? (Array.isArray(settings.employeeFooterTabs) ? settings.employeeFooterTabs : defaultEmployeeFooterTabs)
+        : (Array.isArray(settings.footerTabs) ? settings.footerTabs : defaultOwnerFooterTabs);
+      const fallbackFooterIds = user.role === "employee" ? defaultEmployeeFooterTabs : defaultOwnerFooterTabs;
+      const tabsById = Object.fromEntries(tabs.map(t => [t.id, t]));
+      const bottomTabs = [...savedFooterIds, ...fallbackFooterIds]
+        .filter((id, idx, arr) => id && arr.indexOf(id) === idx && tabsById[id])
+        .slice(0, 5)
+        .map(id => tabsById[id]);
       return <>
         <div style={{ background: "#000000", position: "sticky", top: 0, zIndex: 300, padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 2px 12px rgba(0,0,0,.2)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -328,11 +336,11 @@
             </div>
           </div>
         </div>}
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 299, background: C.card, borderTop: `2px solid ${C.bd}`, display: "flex", boxShadow: "0 -4px 20px rgba(0,0,0,.1)" }}>
-          {bottomTabs.map(t => <button key={t.id} onClick={() => setPage(t.id)} style={{ flex: 1, background: "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "10px 4px 12px", fontFamily: F.body, position: "relative" }}>
-            <span style={{ fontSize: 24, lineHeight: 1 }}>{t.icon}</span>
-            <span style={{ fontSize: 10, fontWeight: page === t.id ? 700 : 400, color: page === t.id ? C.g700 : C.tx3 }}>{t.l}</span>
-            {page === t.id && <div style={{ position: "absolute", top: 0, left: "20%", right: "20%", height: 3, background: C.g600, borderRadius: 2 }} />}
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 299, background: "#000000", borderTop: `2px solid ${C.g600}`, display: "flex", boxShadow: "0 -4px 24px rgba(0,0,0,.45)" }}>
+          {bottomTabs.map(t => <button key={t.id} onClick={() => setPage(t.id)} style={{ flex: 1, background: page === t.id ? "rgba(151,211,62,.12)" : "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: "10px 4px 12px", fontFamily: F.body, position: "relative" }}>
+            <span style={{ fontSize: 24, lineHeight: 1, filter: page === t.id ? "drop-shadow(0 0 6px rgba(151,211,62,.55))" : "none" }}>{t.icon}</span>
+            <span style={{ fontSize: 10, fontWeight: page === t.id ? 800 : 500, color: page === t.id ? "#97d33e" : "rgba(255,255,255,.72)" }}>{t.l}</span>
+            {page === t.id && <div style={{ position: "absolute", top: 0, left: "20%", right: "20%", height: 3, background: "#fb6392", borderRadius: 2, boxShadow: "0 0 8px rgba(251,99,146,.8)" }} />}
             {t.id === "bills" && billAlerts > 0 && <span style={{ position: "absolute", top: 6, right: "10%", background: C.red, color: "#fff", borderRadius: 20, padding: "0 5px", fontSize: 9, fontWeight: 700 }}>{billAlerts}</span>}
             {(t.id === "inv" || t.id === "plants") && plantCount > 0 && <span style={{ position: "absolute", top: 6, right: "10%", background: C.g600, color: "#fff", borderRadius: 20, padding: "0 5px", fontSize: 9, fontWeight: 700 }}>{plantCount}</span>}
           </button>)}
@@ -2669,7 +2677,36 @@
         {form.role === "owner" && <div style={{ background: C.g50, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: C.tx2, marginBottom: 14 }}>Owners have full access to everything — no restrictions.</div>}
         <Row gap={8}><Btn onClick={isNew ? saveNew : saveEdit}>{isNew ? "Add Employee" : "Save Changes"}</Btn><Btn v="ghost" onClick={() => { isNew ? setShowAdd(false) : setEditId(null); setForm({ ...blank }); }}>Cancel</Btn></Row>
       </Card>;
-      const TABS = [{ id: "users", l: "👥 Users & Permissions" }, { id: "settings", l: "⚙️ Pricing Settings" }, { id: "cert", l: "📄 Reseller Certificate" }, { id: "data", l: "🧹 Bulk Delete / Reset" }];
+      const TABS = [{ id: "users", l: "👥 Users & Permissions" }, { id: "settings", l: "⚙️ Pricing Settings" }, { id: "footer", l: "📱 Footer Tabs" }, { id: "cert", l: "📄 Reseller Certificate" }, { id: "data", l: "🧹 Bulk Delete / Reset" }];
+      const FOOTER_OPTIONS = [
+        { id: "dash", icon: "🏠", l: "Dashboard" }, { id: "inv", icon: "🌿", l: "Inventory / Plants" }, { id: "upload", icon: "📸", l: "Upload Invoice" },
+        { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "history", icon: "📋", l: "Past Invoices" }, { id: "labels", icon: "🏷️", l: "Labels" },
+        { id: "showbuilder", icon: "🎪", l: "Show Builder" }, { id: "sellthru", icon: "📊", l: "Sell-Through" }, { id: "showimport", icon: "📦", l: "Post-Show" },
+        { id: "customers", icon: "👥", l: "Customers" }, { id: "nursery", icon: "🏪", l: "Nurseries" }, { id: "bills", icon: "📅", l: "Bills" },
+        { id: "expense", icon: "💳", l: "Expenses" }, { id: "timecard", icon: "⏱️", l: "Timecard" }, { id: "payroll", icon: "👥", l: "Payroll" },
+        { id: "intel", icon: "💡", l: "Buy Intel" }, { id: "reports", icon: "📈", l: "Reports Pro" }, { id: "tax", icon: "🧾", l: "Tax Center" },
+        { id: "audit", icon: "🔍", l: "Audit Log" }, { id: "admin", icon: "⚙️", l: "Admin" }, { id: "cleanup", icon: "🧹", l: "Data Cleanup" }, { id: "casd", icon: "📜", l: "State Docs" }
+      ];
+      const EMP_FOOTER_OPTIONS = [
+        { id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "inv", icon: "🌿", l: "Inventory / Plants" }, { id: "upload", icon: "📸", l: "Upload Invoice" },
+        { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }
+      ];
+      const getFooterSelection = key => {
+        const fallback = key === "employeeFooterTabs" ? DEFAULT_SETTINGS.employeeFooterTabs : DEFAULT_SETTINGS.footerTabs;
+        const allowed = key === "employeeFooterTabs" ? EMP_FOOTER_OPTIONS : FOOTER_OPTIONS;
+        const allowedIds = new Set(allowed.map(o => o.id));
+        return [...(Array.isArray(settings?.[key]) ? settings[key] : fallback), ...fallback].filter((id, idx, arr) => id && allowedIds.has(id) && arr.indexOf(id) === idx).slice(0, 5);
+      };
+      const setFooterTab = (key, index, val) => setSettings(p => {
+        const current = getFooterSelection(key);
+        current[index] = val;
+        const allowed = key === "employeeFooterTabs" ? EMP_FOOTER_OPTIONS : FOOTER_OPTIONS;
+        const fallback = key === "employeeFooterTabs" ? DEFAULT_SETTINGS.employeeFooterTabs : DEFAULT_SETTINGS.footerTabs;
+        const allowedIds = new Set(allowed.map(o => o.id));
+        const unique = [...current, ...fallback].filter((id, idx, arr) => id && allowedIds.has(id) && arr.indexOf(id) === idx).slice(0, 5);
+        return { ...p, [key]: unique };
+      });
+      const resetFooterTabs = key => setSettings(p => ({ ...p, [key]: key === "employeeFooterTabs" ? [...DEFAULT_SETTINGS.employeeFooterTabs] : [...DEFAULT_SETTINGS.footerTabs] }));
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="⚙️" title="Admin Panel" sub="Manage users, permissions, pricing rules, and business documents" />
         <div style={{ display: "flex", gap: 0, marginBottom: 22, borderBottom: `1px solid ${C.bd}`, flexWrap: "wrap" }}>
@@ -2713,6 +2750,37 @@
             <b>Quarterly:</b> Jan 20, Apr 20, Jul 20, Oct 20 · floridarevenue.com
           </div>
         </Card>}
+        {tab === "footer" && <div style={{ maxWidth: 900 }}>
+          <Card style={{ marginBottom: 14, background: "#000", color: "#fff", border: `1px solid ${C.g700}` }}>
+            <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 20, marginBottom: 6, color: "#97d33e" }}>📱 Editable Bottom Footer Menu</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,.78)", lineHeight: 1.5 }}>Pick exactly 5 shortcuts for the black footer bar. These choices save to cloud settings and stay after refresh.</div>
+          </Card>
+          {[{ key: "footerTabs", title: "Owner / Manager Footer Tabs", options: FOOTER_OPTIONS }, { key: "employeeFooterTabs", title: "Employee Footer Tabs", options: EMP_FOOTER_OPTIONS }].map(section => {
+            const selected = getFooterSelection(section.key);
+            return <Card key={section.key} style={{ marginBottom: 16 }}>
+              <Row between center wrap style={{ marginBottom: 12 }}>
+                <div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16 }}>{section.title}</div><div style={{ fontSize: 12, color: C.tx3 }}>Choose what appears in each of the 5 bottom footer positions.</div></div>
+                <Btn sz="sm" v="ghost" onClick={() => resetFooterTabs(section.key)}>Reset Default</Btn>
+              </Row>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginBottom: 14 }}>
+                {selected.map((id, i) => {
+                  const selectedOption = section.options.find(o => o.id === id) || section.options[0];
+                  return <div key={i} style={{ background: C.cardAlt, border: `1px solid ${C.bd}`, borderRadius: 12, padding: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: C.tx3, textTransform: "uppercase", letterSpacing: .6, marginBottom: 6 }}>Footer Spot {i + 1}</div>
+                    <select value={id} onChange={e => setFooterTab(section.key, i, e.target.value)} style={{ width: "100%", padding: "10px 9px", borderRadius: 8, border: `1.5px solid ${C.bd}`, background: C.card, fontFamily: F.body, fontSize: 13 }}>
+                      {section.options.map(o => <option key={o.id} value={o.id}>{o.icon} {o.l}</option>)}
+                    </select>
+                    <div style={{ marginTop: 8, background: "#000", borderRadius: 10, padding: "10px 8px", textAlign: "center", color: "#97d33e", border: "1px solid rgba(151,211,62,.35)" }}><div style={{ fontSize: 24 }}>{selectedOption.icon}</div><div style={{ fontSize: 10, fontWeight: 800 }}>{selectedOption.l}</div></div>
+                  </div>;
+                })}
+              </div>
+              <div style={{ background: "#000", borderRadius: 14, padding: "10px 8px", display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 4, border: `2px solid ${C.g600}` }}>
+                {selected.map((id, i) => { const o = section.options.find(x => x.id === id) || section.options[0]; return <div key={i} style={{ textAlign: "center", color: i === 0 ? "#97d33e" : "rgba(255,255,255,.75)", fontSize: 10, fontWeight: i === 0 ? 800 : 500, padding: "6px 2px", background: i === 0 ? "rgba(151,211,62,.12)" : "transparent", borderRadius: 8 }}><div style={{ fontSize: 22 }}>{o.icon}</div><div>{o.l.replace("Inventory / Plants", "Plants")}</div></div>; })}
+              </div>
+            </Card>;
+          })}
+        </div>}
+
         {tab === "cert" && <div style={{ maxWidth: 640 }}>
           <Card>
             <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 6 }}>📄 Reseller Tax Certificate (FL DR-13)</div>
@@ -4311,7 +4379,7 @@
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "" };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "inv", "upload", "reports", "bills"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"] };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -4794,7 +4862,7 @@
       const [bills, setBillsRaw] = useState(saved?.bills || DEFAULT_BILLS);
       const [nurseries, setNurseriesRaw] = useState(migrateNurseries(saved?.nurseries || DEFAULT_NURSERIES));
       const [users, setUsersRaw] = useState(saved?.users || DEFAULT_USERS);
-      const [settings, setSettingsRaw] = useState(saved?.settings || DEFAULT_SETTINGS);
+      const [settings, setSettingsRaw] = useState({ ...DEFAULT_SETTINGS, ...(saved?.settings || {}) });
       const [casdCerts, setCasdCertsRaw] = useState(mergeCasdCertLists(saved?.casdCerts || [], loadCasdCertsFromLocalBackup()));
       const [saveMsg, setSaveMsg] = useState("");
       const [cloudStatus, setCloudStatus] = useState("loading");
@@ -4948,7 +5016,7 @@
           if (cloudExpenses.length) setExpensesRaw(cloudExpenses);
           if (cloudTimecards.length) setTimecardsRaw(cloudTimecards);
           if (cloudUsers) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
-          if (cloudSettings) setSettingsRaw(cloudSettings); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
+          if (cloudSettings) setSettingsRaw({ ...DEFAULT_SETTINGS, ...cloudSettings }); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
           if (cloudAudit) setAuditLogRaw(cloudAudit);
           const liveCasdCerts = window.__casdCertsSnapshot || [];
           const localCasdCerts = loadCasdCertsFromLocalBackup();
@@ -5065,7 +5133,7 @@
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
         {showPwdModal && <ChangePasswordModal onClose={() => setShowPwdModal(false)} user={user} />}
-        <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} />
+        <Nav page={page} setPage={setPage} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} />
 
         {/* Cloud sync indicator strip */}
         <div style={{ background: C.g900, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
