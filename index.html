@@ -669,13 +669,13 @@
     /* CLEAN GROUPED MENU + AI CENTER PATCH — visible in hamburger menu */
     function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {} }) {
       const allOwnerTabs = [
-        ["dash","🏠","Dashboard","Core"],["command","🚀","Command Center","Core"],["aihub","🤖","AI Center","Core"],["social","📣","Social Center","Core"],["cashflow","💵","Cash Flow","Core"],
+        ["dash","🏠","Dashboard","Core"],["command","🚀","Command Center","Core"],["aihub","🤖","AI Center","Core"],["social","📣","Social Center","Marketing"],["cashflow","💵","Cash Flow","Core"],
         ["inv","🌿","Inventory","Plants"],["manual","✏️","Add Plants","Plants"],["upload","📸","Upload Invoice","Plants"],["labels","🏷️","Labels","Plants"],["care","🩺","Plant Care","Plants"],["locations","📍","Locations","Plants"],
         ["showbuilder","🎪","Show Builder","Live Selling"],["liveshow","🎥","Live Show","Live Selling"],["showimport","📦","Post-Show","Live Selling"],["bundles","🧺","Bundles","Live Selling"],["discounts","🏷️","Discounts","Live Selling"],
         ["ship","📦","Ready to Ship","Orders"],["customers","👥","Customers","Orders"],["retention","💚","Retention","Orders"],["refunds","↩️","Refunds","Orders"],["casd","📜","State Docs","Orders"],
         ["expense","💳","Expenses","Money"],["receipts","🧾","Receipt Scanner","Money"],["bills","📅","Bills","Money"],["payroll","👥","Payroll","Money"],["tax","🧾","Tax Center","Money"],["goals","🎯","Goals","Money"],["commissions","🤝","Commissions","Money"],
         ["nursery","🏪","Nurseries","Buying"],["pos","📋","Purchase Orders","Buying"],["intel","💡","Buy Intel","Buying"],
-        ["reports","📈","Reports","Business"],["sellthru","📊","Sell-Through","Business"],["content","✨","AI Content","Business"],["history","📋","Past Invoices","Business"],["timecard","⏱️","Timecard","Business"],
+        ["reports","📈","Reports","Business"],["sellthru","📊","Sell-Through","Business"],["content","✨","AI Content","Marketing"],["history","📋","Past Invoices","Business"],["timecard","⏱️","Timecard","Business"],
         ["audit","🔍","Audit Log","Admin"],["admin","⚙️","Admin","Admin"],["cleanup","🧹","Data Cleanup","Admin"]
       ].map(([id,icon,l,group])=>({id,icon,l,group}));
       const mgrTabs = allOwnerTabs.filter(t => !["payroll","tax","audit","admin","bills","cashflow","command","commissions","goals","cleanup"].includes(t.id));
@@ -688,7 +688,7 @@
       const tabsById = Object.fromEntries(tabs.map(t => [t.id, t]));
       const bottomTabs = [...savedFooterIds, ...fallbackFooterIds].filter((id, idx, arr) => id && arr.indexOf(id) === idx && tabsById[id]).slice(0,5).map(id=>tabsById[id]);
       const groups = [...new Set(tabs.map(t => t.group || "Other"))];
-      const coreIds = user.role === "employee" ? ["emp_dash","inv","upload","manual","timecard"] : ["dash","command","aihub","cashflow","ship","inv"];
+      const coreIds = user.role === "employee" ? ["emp_dash","inv","upload","manual","timecard"] : ["dash","command","aihub","social","cashflow","ship","inv"];
       const coreTabs = coreIds.map(id=>tabsById[id]).filter(Boolean);
       const visibleTabs = tabs.filter(t => !menuSearch.trim() || (t.l + " " + t.group).toLowerCase().includes(menuSearch.trim().toLowerCase()));
       const groupedTabs = groups.map(g => ({ group:g, items: visibleTabs.filter(t => (t.group||"Other") === g) })).filter(g=>g.items.length);
@@ -3441,15 +3441,15 @@
           <p style={{ fontSize: 12, color: C.tx3, lineHeight: 1.45, overflowWrap: "anywhere" }}>Choose the 5 buttons that show in the black bottom menu. Use the dropdowns below so you can pick exactly what you want in each footer position.</p>
           {[["footerTabs", "Owner / Manager Footer"], ["employeeFooterTabs", "Employee Footer"]].map(([key, label]) => {
             const ownerChoices = [
-              ["dash", "🏠 Dashboard"], ["command", "🚀 Command Center"], ["cashflow", "💵 Cash Flow"], ["ship", "📦 Ready to Ship"],
+              ["dash", "🏠 Dashboard"], ["command", "🚀 Command Center"], ["aihub", "🤖 AI Center"], ["social", "📣 Social Center"], ["cashflow", "💵 Cash Flow"], ["ship", "📦 Ready to Ship"],
               ["inv", "🌿 Inventory"], ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Receipt Scanner"],
-              ["reports", "📈 Reports"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
+              ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
               ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
               ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 Buy Intel"], ["tax", "🧾 Tax Center"],
               ["audit", "🔍 Audit Log"], ["admin", "⚙️ Admin"], ["cleanup", "🧹 Data Cleanup"], ["casd", "📜 State Docs"]
             ];
             const employeeChoices = [
-              ["emp_dash", "🏠 My Dashboard"], ["liveshow", "🎥 Live Show"], ["receipts", "🧾 Receipts"], ["inv", "🌿 Inventory"],
+              ["emp_dash", "🏠 My Dashboard"], ["aihub", "🤖 AI Help"], ["social", "📣 Social Drafts"], ["liveshow", "🎥 Live Show"], ["receipts", "🧾 Receipts"], ["inv", "🌿 Inventory"],
               ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["labels", "🏷️ Labels"], ["timecard", "⏱️ My Timecard"]
             ];
             const choices = key === "employeeFooterTabs" ? employeeChoices : ownerChoices;
