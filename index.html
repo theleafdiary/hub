@@ -364,6 +364,76 @@
     }
     repairPageScroll();
 
+    /* ══════════════════════════════════════════════════════════
+       SECURITY AUDIT HELPERS — IP + device tracking
+       Real trusted IP should come from Supabase Edge Function audit-log.
+       Browser IP fallback is included so owners can still see an IP in-app.
+    ══════════════════════════════════════════════════════════ */
+    const AUDIT_IP_CACHE_KEY = "leafDiaryAuditPublicIp";
+    function getAuditDeviceInfo() {
+      const ua = navigator.userAgent || "Unknown";
+      const isIOS = /iPhone|iPad|iPod/i.test(ua);
+      const isMac = /Macintosh/i.test(ua);
+      const isAndroid = /Android/i.test(ua);
+      const browser = /CriOS|Chrome/i.test(ua) ? "Chrome" : /Safari/i.test(ua) ? "Safari" : /Firefox/i.test(ua) ? "Firefox" : /Edg/i.test(ua) ? "Edge" : "Browser";
+      const os = isIOS ? "iOS" : isMac ? "macOS" : isAndroid ? "Android" : /Windows/i.test(ua) ? "Windows" : "Unknown OS";
+      return {
+        userAgent: ua,
+        browser,
+        os,
+        platform: navigator.platform || "Unknown",
+        language: navigator.language || "",
+        screen: `${window.screen?.width || "?"}x${window.screen?.height || "?"}`,
+        viewport: `${window.innerWidth || "?"}x${window.innerHeight || "?"}`,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      };
+    }
+    async function getBrowserPublicIp() {
+      if (window.__leafDiaryAuditIp) return window.__leafDiaryAuditIp;
+      try {
+        const cached = localStorage.getItem(AUDIT_IP_CACHE_KEY);
+        if (cached) { window.__leafDiaryAuditIp = cached; return cached; }
+      } catch (e) {}
+      try {
+        const res = await fetch("https://api.ipify.org?format=json", { cache: "no-store" });
+        const data = await res.json();
+        const ip = data && data.ip ? data.ip : "IP pending";
+        window.__leafDiaryAuditIp = ip;
+        try { localStorage.setItem(AUDIT_IP_CACHE_KEY, ip); } catch (e) {}
+        return ip;
+      } catch (e) {
+        return "IP pending — deploy audit-log Edge Function";
+      }
+    }
+    function normalizeAuditEntry(entry, user, session) {
+      const device = getAuditDeviceInfo();
+      const nowIso = new Date().toISOString();
+      return {
+        id: uid(),
+        timestamp: new Date().toLocaleString(),
+        createdAt: nowIso,
+        created_at: nowIso,
+        user: entry.user || user?.name || session?.user?.email || "Unknown",
+        userName: entry.user || user?.name || "Unknown",
+        userEmail: user?.email || session?.user?.email || "",
+        userId: user?.id || session?.user?.id || "",
+        userRole: user?.role || "",
+        page: entry.page || "System",
+        action: entry.action || "Action",
+        details: entry.details || "",
+        severity: entry.severity || "info",
+        ipAddress: entry.ipAddress || window.__leafDiaryAuditIp || "Checking IP...",
+        ip_address: entry.ip_address || window.__leafDiaryAuditIp || "Checking IP...",
+        deviceInfo: entry.deviceInfo || device,
+        browser: entry.browser || device.browser,
+        os: entry.os || device.os,
+        platform: entry.platform || device.platform,
+        screen: entry.screen || device.screen,
+        timezone: entry.timezone || device.timezone,
+        source: entry.source || "browser-app"
+      };
+    }
+
     function bytesToBase64(bytes) {
       let binary = "";
       const chunkSize = 0x8000;
@@ -668,7 +738,7 @@
     ══════════════════════════════════════════════════════════ */
     const WORKSPACES = [
       { id:"today", icon:"🏠", l:"Today", sub:"What needs attention now", color:"#97d33e" },
-      { id:"plants_ws", icon:"🌿", l:"Plants", sub:"Inventory, photos, labels, care", color:"#39FF14" },
+      { id:"plants_ws", icon:"🌿", l:"Plants", sub:"Inventory, photos, labels, care", color:"#2E8A55" },
       { id:"shows_ws", icon:"🎥", l:"Shows", sub:"Live selling + imports", color:"#fb6392" },
       { id:"orders_ws", icon:"📦", l:"Orders", sub:"Customers, fulfillment, docs", color:"#68d8ff" },
       { id:"money_ws", icon:"💵", l:"Money", sub:"Receipts, expenses, payroll", color:"#f5c542" },
@@ -794,7 +864,7 @@
           { title:"Start Here", items:[["Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Order Fulfillment","ship","📦","Pack orders and paperwork"],["Upload Invoice","upload","📸","Add new inventory"]] },
           { title:"Common Tasks", items:[["Add Plant","manual","✏️","Manual inventory entry"],["Scan Receipt","receipts","🧾","Save expense receipt"],["Import Show","showimport","📥","Whatnot/Palmstreet sales"],["Social Post","social","📣","Turn plant photos into posts"]] }
         ]},
-        plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything inventory in one clean area.", hero:"Manage plants without hunting pages", color:"#39FF14", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
+        plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything inventory in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
           { title:"Inventory Work", items:[["Inventory","inv","🌿","Search and edit all plants"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Past Invoices","history","📋","Previous uploads"]] },
           { title:"Plant Tools", items:[["Labels","labels","🏷️","Print plant labels"],["Plant Care","care","🩺","Quarantine and health"],["Locations","locations","📍","Racks, trailer, rooms"],["Sell-Through","sellthru","📊","What sells fastest"]] }
         ]},
@@ -3326,10 +3396,42 @@
        AUDIT LOG
     ══════════════════════════════════════════════════════════ */
     function AuditLog({ auditLog }) {
-      return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🔍" title="Audit Log" sub="Every action tracked — who did what and when" />
-        <Tbl cols={[{ k: "ts", l: "Time" }, { k: "user_", l: "User" }, { k: "page_", l: "Page" }, { k: "action", l: "Action" }]}
-          rows={auditLog.slice().reverse().map(a => ({ ts: a.timestamp, user_: <Tag text={a.user} color={C.g500} sm />, page_: <Tag text={a.page} color={C.blue} sm />, action: a.action }))}
+      const [q, setQ] = useState("");
+      const [severity, setSeverity] = useState("All");
+      const [pageFilter, setPageFilter] = useState("All");
+      const pages = ["All", ...Array.from(new Set((auditLog || []).map(a => a.page || "System"))).sort()];
+      const filtered = (auditLog || []).slice().reverse().filter(a => {
+        const hay = `${a.timestamp || ""} ${a.createdAt || ""} ${a.user || ""} ${a.userEmail || ""} ${a.page || ""} ${a.action || ""} ${a.ipAddress || a.ip_address || ""} ${a.browser || ""} ${a.os || ""}`.toLowerCase();
+        return (!q || hay.includes(q.toLowerCase())) && (severity === "All" || (a.severity || "info") === severity) && (pageFilter === "All" || (a.page || "System") === pageFilter);
+      });
+      const exportAuditCsv = () => downloadCsv(`leaf-diary-audit-log-${today()}.csv`, [
+        ["Time", "User", "Email", "Role", "Page", "Action", "Severity", "IP Address", "Browser", "OS", "Platform", "Screen", "Timezone", "Details"],
+        ...filtered.map(a => [a.timestamp || a.createdAt || "", a.user || a.userName || "", a.userEmail || "", a.userRole || "", a.page || "", a.action || "", a.severity || "info", a.ipAddress || a.ip_address || "", a.browser || a.deviceInfo?.browser || "", a.os || a.deviceInfo?.os || "", a.platform || a.deviceInfo?.platform || "", a.screen || a.deviceInfo?.screen || "", a.timezone || a.deviceInfo?.timezone || "", a.details || ""])
+      ]);
+      const sevColor = s => s === "critical" ? C.red : s === "warning" ? C.amber : C.g600;
+      return <div className="ld-page" style={{ padding: "14px 14px 130px", background: C.bg, minHeight: "100vh" }}>
+        <SHdr icon="🔍" title="Audit Log" sub="Tracks user changes, page activity, IP address, browser, device and security events" right={<Btn v="outline" sz="sm" onClick={exportAuditCsv}>Export CSV</Btn>} />
+        <Card style={{ marginBottom: 12, borderLeft: `4px solid ${C.blue}` }}>
+          <div style={{ fontWeight: 900, color: C.g900, marginBottom: 4 }}>IP tracking status</div>
+          <div style={{ fontSize: 12, color: C.tx2 }}>The app records a browser public IP fallback. For the most accurate legal/security IP, deploy the Supabase Edge Function named <b>audit-log</b>; the frontend is already wired to call it and will show the returned server IP when available.</div>
+        </Card>
+        <Card style={{ marginBottom: 12 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr", gap:10 }}>
+            <Inp label="Search audit log" value={q} onChange={setQ} placeholder="Search user, page, IP, action..." />
+            <Sel label="Severity" value={severity} onChange={setSeverity} options={["All","info","warning","critical"]} />
+            <Sel label="Page" value={pageFilter} onChange={setPageFilter} options={pages} />
+          </div>
+        </Card>
+        <Tbl cols={[{ k: "ts", l: "Time" }, { k: "user_", l: "User" }, { k: "page_", l: "Page" }, { k: "ip_", l: "IP Address" }, { k: "device_", l: "Device" }, { k: "severity_", l: "Level" }, { k: "action", l: "Action" }]}
+          rows={filtered.map(a => ({
+            ts: a.timestamp || (a.createdAt ? new Date(a.createdAt).toLocaleString() : ""),
+            user_: <div><Tag text={a.user || a.userName || "Unknown"} color={C.g500} sm />{a.userEmail && <div style={{ fontSize:10, color:C.tx3, marginTop:3 }}>{a.userEmail}</div>}</div>,
+            page_: <Tag text={a.page || "System"} color={C.blue} sm />,
+            ip_: <span style={{ fontFamily:F.mono, fontSize:11, color:(a.ipAddress || a.ip_address || "").includes("pending") ? C.amber : C.tx1 }}>{a.ipAddress || a.ip_address || "IP pending"}</span>,
+            device_: <div style={{ fontSize:11, color:C.tx2 }}><b>{a.browser || a.deviceInfo?.browser || "Browser"}</b><br/><span style={{ color:C.tx3 }}>{a.os || a.deviceInfo?.os || "OS"} · {a.platform || a.deviceInfo?.platform || "Platform"}</span></div>,
+            severity_: <Tag text={a.severity || "info"} color={sevColor(a.severity || "info")} sm />,
+            action: <div><div style={{ fontWeight:700, color:C.tx1 }}>{a.action}</div>{a.details && <div style={{ fontSize:11, color:C.tx3 }}>{a.details}</div>}</div>
+          }))}
           empty="No actions logged yet" />
       </div>;
     }
@@ -6854,9 +6956,30 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         r.readAsText(file);
       };
 
-      const addAudit = useCallback(entry => { setAuditLog(p => [...p, { ...entry, timestamp: new Date().toLocaleString(), id: uid() }]); }, [setAuditLog]);
+      const addAudit = useCallback((entry = {}) => {
+        const localEntry = normalizeAuditEntry(entry, user, session);
+        setAuditLog(p => [...p, localEntry]);
+        getBrowserPublicIp().then(ip => {
+          setAuditLog(p => p.map(a => a.id === localEntry.id ? { ...a, ipAddress: ip, ip_address: ip } : a));
+          const serverPayload = { ...localEntry, ipAddress: ip, ip_address: ip };
+          supabase.functions.invoke("audit-log", { body: serverPayload }).then(({ data, error }) => {
+            if (!error && data && (data.ipAddress || data.ip_address)) {
+              const serverIp = data.ipAddress || data.ip_address;
+              setAuditLog(p => p.map(a => a.id === localEntry.id ? { ...a, ...data, ipAddress: serverIp, ip_address: serverIp, serverLogged: true } : a));
+            }
+          }).catch(() => {});
+        }).catch(() => {});
+      }, [setAuditLog, user, session]);
       const handleLogin = u => { setUser(u); setPage("today"); addAudit({ action: "Logged in", user: u.name, page: "Login" }); };
       const handleLogout = async () => { await supabase.auth.signOut(); addAudit({ action: "Logged out", user: user?.name || "Unknown", page: "System" }); setUser(null); setPage("today"); };
+      const lastPageAuditRef = useRef("");
+      useEffect(() => {
+        if (!user || !page) return;
+        if (lastPageAuditRef.current === page) return;
+        lastPageAuditRef.current = page;
+        addAudit({ action: `Viewed page: ${page}`, user: user.name, page: "Navigation", severity: "info" });
+      }, [page, user?.id, addAudit]);
+
       const billAlerts = bills.filter(b => { const d = Math.ceil((new Date(b.dueDate) - Date.now()) / 864e5); return d <= 7 && d >= 0 && b.status === "Unpaid"; }).length;
       const inStockPlantCount = plants.filter(p => String(p.status || "").trim() === "In Stock").length;
 
