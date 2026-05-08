@@ -6802,18 +6802,42 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
     };
 
     async function cloudRequest(path, options = {}) {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-        ...options,
-        headers: cloudHeaders(options.headers || {})
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`${res.status} ${res.statusText} ${txt}`);
+      /* Hardened cloud request:
+         - never hangs forever on startup
+         - gives a clear message for Supabase/PostgREST schema-cache outages
+         - works with sb_publishable_ keys by sending apikey only */
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+          ...options,
+          signal: options.signal || controller.signal,
+          headers: cloudHeaders(options.headers || {})
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          let friendly = `${res.status} ${res.statusText} ${txt}`;
+          if (txt.includes('PGRST002') || txt.toLowerCase().includes('schema cache')) {
+            friendly = `${res.status} Supabase schema cache unavailable (PGRST002). Local app fallback is active; check Supabase project health / restart PostgREST / wait for schema cache recovery. ${txt}`;
+          }
+          throw new Error(friendly);
+        }
+        if (res.status === 204) return null;
+        const txt = await res.text();
+        return txt ? JSON.parse(txt) : null;
+      } finally {
+        clearTimeout(timeout);
       }
-      if (res.status === 204) return null;
-      const txt = await res.text();
-      return txt ? JSON.parse(txt) : null;
     }
+
+    const safeCloudRows = async (table, fallback = []) => {
+      try { return await cloudFetchRows(table); }
+      catch (e) { console.warn(`Cloud table ${table} failed; using local fallback`, e); return fallback; }
+    };
+    const safeCloudState = async (key, fallback = null) => {
+      try { const v = await cloudFetchState(key); return v == null ? fallback : v; }
+      catch (e) { console.warn(`Cloud app_state ${key} failed; using local fallback`, e); return fallback; }
+    };
 
     async function cloudFetchRows(table) {
       /* Supabase/PostgREST only returns about 1000 rows by default.
@@ -7184,21 +7208,21 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         if (!silent) { setCloudStatus("loading"); setCloudMsg("Loading Supabase cloud data..."); }
         try {
           const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudExpenseReceipts, cloudPurchaseOrders, cloudRefunds, cloudBundles, cloudTimecards, cloudUsers, cloudSettings, cloudAudit, cloudInventoryReset, cloudCasdCerts, cloudCasdState] = await Promise.all([
-            cloudFetchRows("plants"),
-            cloudFetchRows("bills"),
-            cloudFetchRows("nurseries"),
-            cloudFetchRows("expenses"),
-            cloudFetchState("expenseReceipts").catch(e => { console.warn("expenseReceipts app_state load failed", e); return []; }),
-            cloudFetchState("purchaseOrders").catch(e => { console.warn("purchaseOrders app_state load failed", e); return []; }),
-            cloudFetchState("refunds").catch(e => { console.warn("refunds app_state load failed", e); return []; }),
-            cloudFetchState("bundles").catch(e => { console.warn("bundles app_state load failed", e); return []; }),
-            cloudFetchRows("timecards"),
-            cloudFetchState("users"),
-            cloudFetchState("settings"),
-            cloudFetchState("auditLog"),
-            cloudFetchState("inventoryResetAt"),
-            cloudFetchRows("casd_certs").catch(e => { console.warn("casd_certs table load failed", e); return []; }),
-            cloudFetchState("casdCerts").catch(e => { console.warn("casdCerts app_state load failed", e); return []; }),
+            safeCloudRows("plants", safeArray(saved?.plants)),
+            safeCloudRows("bills", safeArray(saved?.bills)),
+            safeCloudRows("nurseries", safeArray(saved?.nurseries)),
+            safeCloudRows("expenses", safeArray(saved?.expenses)),
+            safeCloudState("expenseReceipts", safeArray(saved?.expenseReceipts)),
+            safeCloudState("purchaseOrders", safeArray(saved?.purchaseOrders)),
+            safeCloudState("refunds", safeArray(saved?.refunds)),
+            safeCloudState("bundles", safeArray(saved?.bundles)),
+            safeCloudRows("timecards", safeArray(saved?.timecards)),
+            safeCloudState("users", safeUsers(saved?.users).length ? safeUsers(saved?.users) : DEFAULT_USERS),
+            safeCloudState("settings", safeSettings(saved?.settings)),
+            safeCloudState("auditLog", safeArray(saved?.auditLog)),
+            safeCloudState("inventoryResetAt", null),
+            safeCloudRows("casd_certs", []),
+            safeCloudState("casdCerts", safeArray(saved?.casdCerts)),
           ]);
 
           suppressCloudSaveRef.current = true;
@@ -7252,11 +7276,18 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         } catch (err) {
           console.error("Supabase load failed", err);
           cloudReadyRef.current = false;
+          suppressCloudSaveRef.current = false;
           const msg = err && err.message ? err.message : String(err);
           setCloudStatus("offline");
-          setCloudMsg("Supabase error: " + msg);
+          setCloudMsg("Supabase error: " + msg + " — opened from local backup.");
+          /* Important: do not leave users stuck on the Connecting screen when Supabase is down. */
+          try {
+            if (!safeArray(users).length) setUsersRaw(DEFAULT_USERS);
+            if (!safeArray(bills).length) setBillsRaw(DEFAULT_BILLS);
+            if (!safeArray(nurseries).length) setNurseriesRaw(DEFAULT_NURSERIES);
+          } catch (e) {}
         }
-      }, []);
+      }, [saved, users, bills, nurseries]);
 
       useEffect(() => {
         if (!session) return;
@@ -7266,10 +7297,15 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             console.warn("Cloud load timed out, opening with local data fallback.");
             setCloudStatus("offline");
             setCloudMsg("Cloud timed out — opened from local backup.");
+            try {
+              if (!safeArray(users).length) setUsersRaw(DEFAULT_USERS);
+              if (!safeArray(bills).length) setBillsRaw(DEFAULT_BILLS);
+              if (!safeArray(nurseries).length) setNurseriesRaw(DEFAULT_NURSERIES);
+            } catch (e) {}
           }
         }, 9000);
         loadFromCloud();
-        const timer = setInterval(() => loadFromCloud({ silent: true }), 30000);
+        const timer = setInterval(() => loadFromCloud({ silent: true }), 120000);
         return () => { cancelled = true; clearTimeout(fallback); clearInterval(timer); };
       }, [loadFromCloud, session]);
 
