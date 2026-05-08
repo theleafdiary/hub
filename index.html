@@ -240,6 +240,29 @@
       body { position: static !important; overflow-y: scroll !important; }
       #root, #root > div { overflow: visible !important; height: auto !important; min-height: 100vh !important; }
     }
+
+
+    /* Desktop + mobile scroll repair for long workspace pages */
+    html, body, #root {
+      min-height: 100%;
+      height: auto !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+    }
+
+    body {
+      position: static !important;
+      touch-action: pan-y;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .ld-page, .ld-scroll-page {
+      min-height: 100vh;
+      height: auto !important;
+      overflow-y: visible !important;
+      overflow-x: hidden !important;
+      padding-bottom: calc(130px + env(safe-area-inset-bottom, 0px)) !important;
+    }
 </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -646,7 +669,7 @@
     /* CLEAN GROUPED MENU + AI CENTER PATCH — visible in hamburger menu */
     function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {} }) {
       const allOwnerTabs = [
-        ["dash","🏠","Dashboard","Core"],["command","🚀","Command Center","Core"],["aihub","🤖","AI Center","Core"],["cashflow","💵","Cash Flow","Core"],
+        ["dash","🏠","Dashboard","Core"],["command","🚀","Command Center","Core"],["aihub","🤖","AI Center","Core"],["social","📣","Social Center","Core"],["cashflow","💵","Cash Flow","Core"],
         ["inv","🌿","Inventory","Plants"],["manual","✏️","Add Plants","Plants"],["upload","📸","Upload Invoice","Plants"],["labels","🏷️","Labels","Plants"],["care","🩺","Plant Care","Plants"],["locations","📍","Locations","Plants"],
         ["showbuilder","🎪","Show Builder","Live Selling"],["liveshow","🎥","Live Show","Live Selling"],["showimport","📦","Post-Show","Live Selling"],["bundles","🧺","Bundles","Live Selling"],["discounts","🏷️","Discounts","Live Selling"],
         ["ship","📦","Ready to Ship","Orders"],["customers","👥","Customers","Orders"],["retention","💚","Retention","Orders"],["refunds","↩️","Refunds","Orders"],["casd","📜","State Docs","Orders"],
@@ -656,7 +679,7 @@
         ["audit","🔍","Audit Log","Admin"],["admin","⚙️","Admin","Admin"],["cleanup","🧹","Data Cleanup","Admin"]
       ].map(([id,icon,l,group])=>({id,icon,l,group}));
       const mgrTabs = allOwnerTabs.filter(t => !["payroll","tax","audit","admin","bills","cashflow","command","commissions","goals","cleanup"].includes(t.id));
-      const empTabs = [["emp_dash","🏠","My Dashboard","Core"],["aihub","🤖","AI Help","Core"],["liveshow","🎥","Live Show","Daily Work"],["receipts","🧾","Receipts","Daily Work"],["upload","📸","Upload Invoice","Daily Work"],["manual","✏️","Add Plants","Daily Work"],["inv","🌿","Inventory","Daily Work"],["labels","🏷️","Labels","Daily Work"],["timecard","⏱️","My Timecard","Daily Work"]].map(([id,icon,l,group])=>({id,icon,l,group}));
+      const empTabs = [["emp_dash","🏠","My Dashboard","Core"],["aihub","🤖","AI Help","Core"],["social","📣","Social Drafts","Core"],["liveshow","🎥","Live Show","Daily Work"],["receipts","🧾","Receipts","Daily Work"],["upload","📸","Upload Invoice","Daily Work"],["manual","✏️","Add Plants","Daily Work"],["inv","🌿","Inventory","Daily Work"],["labels","🏷️","Labels","Daily Work"],["timecard","⏱️","My Timecard","Daily Work"]].map(([id,icon,l,group])=>({id,icon,l,group}));
       const tabs = user.role === "owner" ? allOwnerTabs : user.role === "manager" ? mgrTabs : empTabs;
       const [menuOpen, setMenuOpen] = useState(false), [openGroup, setOpenGroup] = useState(""), [menuSearch, setMenuSearch] = useState("");
       const defaultOwnerFooterTabs = ["dash","command","aihub","inv","upload"], defaultEmployeeFooterTabs = ["emp_dash","inv","upload","manual","timecard"];
@@ -4158,7 +4181,171 @@
     }
 
     
-    function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, receipts = [], users = [], settings, setSettings, casdCerts = [], user, setPage, addAudit }) {
+    
+    /* ══════════════════════════════════════════════════════════
+       SOCIAL MEDIA CENTER — AI POSTS FROM CRM PLANTS
+       Frontend-ready. Real posting requires Supabase Edge Functions:
+       social-oauth-start, social-post, social-scheduler.
+    ══════════════════════════════════════════════════════════ */
+    const SOCIAL_PLATFORMS = [
+      { id: "facebook", label: "Facebook Page", icon: "📘", color: C.blue },
+      { id: "instagram", label: "Instagram", icon: "📸", color: C.purple },
+      { id: "x", label: "X / Twitter", icon: "𝕏", color: C.tx1 },
+    ];
+    const socialPlantCode = p => String(p.plantId || p.plantCode || p.barcodeValue || p.id || "").trim();
+    const socialCaptionFor = (plant, platform, settings = {}) => {
+      const name = plant?.name || "Rare Plant";
+      const pot = plant?.potSize ? ` in a ${plant.potSize} pot` : "";
+      const price = (+plant?.suggestedPrice || +plant?.salePrice || 0) ? ` Available for ${$(+plant.suggestedPrice || +plant.salePrice)}.` : " Available now.";
+      const code = socialPlantCode(plant) ? ` Plant ID: ${socialPlantCode(plant)}.` : "";
+      const care = plant?.botanicalName ? ` ${plant.botanicalName} collectors, this one is worth a look.` : "";
+      const cta = platform === "x" ? "DM Leaf Diary to claim it 🌿" : "Message Leaf Diary to claim it or catch us live for rare plant drops 🌿";
+      const tags = settings?.defaultHashtags || "#LeafDiary #RarePlants #Houseplants";
+      if (platform === "x") return `${name}${pot}.${price} ${cta}`.slice(0, 260);
+      return `Fresh Leaf Diary drop 🌿\n\n${name}${pot}.${price}${code}${care}\n\n${cta}\n\n${tags}`;
+    };
+    function SocialMediaCenter({ plants, settings, setSettings, user, addAudit }) {
+      const socialSettings = { ...(DEFAULT_SETTINGS.socialSettings || {}), ...(settings.socialSettings || {}) };
+      const socialPosts = Array.isArray(settings.socialPosts) ? settings.socialPosts : [];
+      const [selectedIds, setSelectedIds] = useState([]);
+      const [search, setSearch] = useState("");
+      const [tone, setTone] = useState(socialSettings.defaultTone || "premium rare plant seller");
+      const [msg, setMsg] = useState("");
+      const [busy, setBusy] = useState("");
+      const [preview, setPreview] = useState(null);
+      const visiblePlants = plants
+        .filter(p => p.status === "In Stock")
+        .filter(p => (p.name || "").toLowerCase().includes(search.toLowerCase()) || socialPlantCode(p).toLowerCase().includes(search.toLowerCase()))
+        .sort((a,b) => Number(!!b.photoUrl) - Number(!!a.photoUrl) || String(a.name).localeCompare(String(b.name)))
+        .slice(0, 80);
+      const selectedPlants = plants.filter(p => selectedIds.includes(p.id));
+      const saveSocialSettings = patch => setSettings(prev => ({ ...prev, socialSettings: { ...(prev.socialSettings || DEFAULT_SETTINGS.socialSettings), ...patch } }));
+      const savePosts = nextPosts => setSettings(prev => ({ ...prev, socialPosts: nextPosts }));
+      const startConnect = async platform => {
+        setBusy(platform); setMsg("");
+        try {
+          const { data, error } = await supabase.functions.invoke("social-oauth-start", { body: { platform, redirectTo: window.location.href } });
+          if (error) throw error;
+          if (data?.url) window.location.href = data.url;
+          else throw new Error("OAuth URL was not returned.");
+        } catch (err) {
+          saveSocialSettings({ [`${platform}PendingSetup`]: true });
+          setMsg(`${platform.toUpperCase()} needs the social-oauth-start Edge Function before live connection. Frontend setting saved; no password or token is stored in the HTML.`);
+        } finally { setBusy(""); }
+      };
+      const toggleConnected = platform => saveSocialSettings({ [`${platform}Connected`]: !socialSettings[`${platform}Connected`] });
+      const togglePlatform = platform => {
+        const list = socialSettings.defaultPlatforms || [];
+        saveSocialSettings({ defaultPlatforms: list.includes(platform) ? list.filter(x => x !== platform) : [...list, platform] });
+      };
+      const generateForSelected = async () => {
+        if (!selectedPlants.length) { setMsg("Select at least one in-stock plant first."); return; }
+        const platforms = socialSettings.defaultPlatforms?.length ? socialSettings.defaultPlatforms : ["facebook"];
+        setBusy("generate"); setMsg("");
+        try {
+          let aiPosts = null;
+          try {
+            const { data, error } = await supabase.functions.invoke("leaf-ai", { body: { task: "social_post_generator", payload: { plants: selectedPlants, platforms, tone, socialSettings } } });
+            if (!error && data?.posts?.length) aiPosts = data.posts;
+          } catch (_) { }
+          const drafts = (aiPosts || selectedPlants.flatMap(plant => platforms.map(platform => ({ platform, plantId: plant.id, caption: socialCaptionFor(plant, platform, { ...socialSettings, defaultTone: tone }), imageUrl: plant.photoUrl || "" })))).map(post => {
+            const plant = plants.find(p => p.id === post.plantId) || selectedPlants[0] || {};
+            return { id: uid(), createdAt: new Date().toISOString(), status: socialSettings.approvalRequired ? "Draft" : "Scheduled", scheduledDate: socialSettings.nextPostDate || today(), scheduledTime: socialSettings.postTime || "19:00", plantId: plant.id, plantName: plant.name, plantCode: socialPlantCode(plant), imageUrl: post.imageUrl || plant.photoUrl || "", platform: post.platform, caption: post.caption || socialCaptionFor(plant, post.platform, socialSettings), createdBy: user?.name || "Leaf Diary" };
+          });
+          savePosts([...drafts, ...socialPosts]);
+          setPreview(drafts[0]);
+          addAudit?.({ action: `Social AI generated ${drafts.length} post draft(s)`, user: user.name, page: "Social Center" });
+          setMsg(`Created ${drafts.length} social draft(s). Review before posting.`);
+        } catch (err) { setMsg("Could not generate social posts: " + (err.message || err)); }
+        finally { setBusy(""); }
+      };
+      const autoBuildQueue = () => {
+        const candidates = plants.filter(p => p.status === "In Stock" && p.photoUrl).sort((a,b) => (dHeld(b.dateAdded)||0) - (dHeld(a.dateAdded)||0)).slice(0, 7);
+        if (!candidates.length) { setMsg("No in-stock plants with photos found. Add plant photos first."); return; }
+        setSelectedIds(candidates.map(p => p.id));
+        setMsg(`Selected ${candidates.length} photo-ready plants for the next content queue.`);
+      };
+      const updatePost = (id, patch) => savePosts(socialPosts.map(p => p.id === id ? { ...p, ...patch } : p));
+      const deletePost = id => savePosts(socialPosts.filter(p => p.id !== id));
+      const postNow = async post => {
+        setBusy(post.id); setMsg("");
+        try {
+          const { data, error } = await supabase.functions.invoke("social-post", { body: { post } });
+          if (error) throw error;
+          updatePost(post.id, { status: "Posted", postedAt: new Date().toISOString(), remoteId: data?.id || "posted" });
+          addAudit?.({ action: `Posted ${post.platform} social post for ${post.plantName}`, user: user.name, page: "Social Center" });
+          setMsg("Post sent successfully.");
+        } catch (err) {
+          updatePost(post.id, { status: "Needs Backend", lastError: "Deploy social-post Edge Function and connect platform account." });
+          setMsg("Post saved, but live posting needs the social-post Supabase Edge Function and connected account.");
+        } finally { setBusy(""); }
+      };
+      const copyPost = async post => { try { await navigator.clipboard.writeText(post.caption); setMsg("Caption copied."); } catch { setMsg("Could not copy on this browser."); } };
+      const connectionCard = sp => {
+        const connected = !!socialSettings[`${sp.id}Connected`];
+        return <Card key={sp.id} style={{ padding: 14, borderTop: `3px solid ${connected ? C.g500 : C.bd}` }}>
+          <Row between center wrap><div><div style={{ fontWeight: 800, color: C.g900 }}>{sp.icon} {sp.label}</div><div style={{ fontSize: 11, color: C.tx3 }}>{connected ? "Connected / ready" : "Not connected"}</div></div><Tag text={connected ? "CONNECTED" : "SETUP"} color={connected ? C.g600 : C.amber} /></Row>
+          <Row gap={8} wrap style={{ marginTop: 10 }}><Btn sz="sm" v={connected ? "soft" : "fill"} onClick={() => startConnect(sp.id)} disabled={busy === sp.id}>{busy === sp.id ? "Opening..." : "Connect"}</Btn><Btn sz="sm" v="ghost" onClick={() => toggleConnected(sp.id)}>{connected ? "Mark Off" : "Mark Connected"}</Btn></Row>
+        </Card>;
+      };
+      const upcoming = socialPosts.filter(p => ["Draft","Scheduled","Needs Backend"].includes(p.status)).slice(0, 20);
+      return <div className="ld-scroll-page" style={{ padding: "14px 14px 130px", background: C.bg, minHeight: "100vh" }}>
+        <SHdr icon="📣" title="Social Media Center" sub="Create AI posts from in-stock plants, use CRM photos, schedule content, and connect Facebook / Instagram / X safely." right={<Btn sz="sm" v="soft" onClick={autoBuildQueue}>⚡ Auto Pick Photo Plants</Btn>} />
+        {msg && <div style={{ background: C.g50, border: `1px solid ${C.g200}`, color: C.g800, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 12 }}>{msg}</div>}
+        <div style={{ display: "grid", gridTemplateColumns: "1.05fr 1fr", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 16, marginBottom: 10 }}>1) Connect Social Accounts</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>{SOCIAL_PLATFORMS.map(connectionCard)}</div>
+              <p style={{ fontSize: 11, color: C.tx3, margin: "10px 0 0" }}>Security: real OAuth tokens must live in Supabase Edge Functions, never inside this HTML file.</p>
+            </Card>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 16, marginBottom: 10 }}>2) Posting Settings</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Sel label="How often to post" value={socialSettings.frequency} onChange={v => saveSocialSettings({ frequency: v })} options={["daily","every 2 days","3x per week","weekly","manual only"]} />
+                <Inp label="Post time" type="time" value={socialSettings.postTime} onChange={v => saveSocialSettings({ postTime: v })} />
+                <Inp label="Next post date" type="date" value={socialSettings.nextPostDate} onChange={v => saveSocialSettings({ nextPostDate: v })} />
+                <Inp label="Default hashtags" value={socialSettings.defaultHashtags} onChange={v => saveSocialSettings({ defaultHashtags: v })} />
+              </div>
+              <div style={{ marginTop: 10 }}><label style={{ fontSize: 13, fontWeight: 700, color: C.tx2 }}>Platforms to create posts for</label><Row gap={8} wrap style={{ marginTop: 6 }}>{SOCIAL_PLATFORMS.map(sp => <button key={sp.id} onClick={() => togglePlatform(sp.id)} style={{ padding: "8px 11px", borderRadius: 20, border: `1px solid ${(socialSettings.defaultPlatforms || []).includes(sp.id) ? C.g600 : C.bd}`, background: (socialSettings.defaultPlatforms || []).includes(sp.id) ? C.g100 : C.card, color: C.tx1, fontWeight: 700 }}>{sp.icon} {sp.label}</button>)}</Row></div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={!!socialSettings.approvalRequired} onChange={e => saveSocialSettings({ approvalRequired: e.target.checked })} /> Require approval before posting</label>
+            </Card>
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 16, marginBottom: 10 }}>3) Choose Plants From Inventory</div>
+              <Inp label="Search plant name or ID" value={search} onChange={setSearch} placeholder="Monstera, P-022, Alocasia..." />
+              <div style={{ maxHeight: 430, overflowY: "auto", marginTop: 10, border: `1px solid ${C.bd}`, borderRadius: 12 }}>
+                {visiblePlants.map(p => <label key={p.id} style={{ display: "grid", gridTemplateColumns: "34px 54px 1fr auto", gap: 8, alignItems: "center", padding: 9, borderBottom: `1px solid ${C.bdS}`, cursor: "pointer", background: selectedIds.includes(p.id) ? C.g50 : C.card }}>
+                  <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={e => setSelectedIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))} />
+                  {p.photoUrl ? <img src={p.photoUrl} style={{ width: 46, height: 46, objectFit: "cover", borderRadius: 8 }} /> : <div style={{ width: 46, height: 46, borderRadius: 8, background: C.g100, display: "flex", alignItems: "center", justifyContent: "center" }}>🌿</div>}
+                  <div><div style={{ fontWeight: 800, color: C.g900, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: C.tx3 }}>{socialPlantCode(p)} · {p.potSize || "No size"} · {p.photoUrl ? "photo ready" : "needs photo"}</div></div>
+                  <div style={{ fontWeight: 800, color: C.gold }}>{$(+p.suggestedPrice || 0)}</div>
+                </label>)}
+              </div>
+              <Row gap={8} wrap style={{ marginTop: 10 }}><Btn onClick={generateForSelected} disabled={busy === "generate"}>{busy === "generate" ? "Generating..." : "🤖 Generate Posts"}</Btn><Btn v="ghost" onClick={() => setSelectedIds([])}>Clear</Btn></Row>
+            </Card>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Card style={{ background: C.g900, color: "#fff", border: "none" }}>
+              <div style={{ fontFamily: F.display, fontSize: 17, fontWeight: 800, marginBottom: 8 }}>Social Queue</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}><KPI label="Drafts" value={socialPosts.filter(p=>p.status==="Draft").length} color={C.gold} /><KPI label="Scheduled" value={socialPosts.filter(p=>p.status==="Scheduled").length} color={C.g500} /><KPI label="Posted" value={socialPosts.filter(p=>p.status==="Posted").length} color={C.blue} /></div>
+            </Card>
+            {preview && <Card><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 8 }}>Preview</div>{preview.imageUrl && <img src={preview.imageUrl} style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 12, marginBottom: 8 }} />}<textarea value={preview.caption} onChange={e => setPreview({ ...preview, caption: e.target.value })} style={{ width: "100%", minHeight: 120, padding: 10, border: `1px solid ${C.bd}`, borderRadius: 10, fontFamily: F.body }} /><Row gap={8} wrap style={{ marginTop: 8 }}><Btn sz="sm" onClick={() => updatePost(preview.id, { caption: preview.caption })}>Save Caption</Btn><Btn sz="sm" v="ghost" onClick={() => copyPost(preview)}>Copy</Btn></Row></Card>}
+            <Card>
+              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 16, marginBottom: 10 }}>Drafts & Scheduled Posts</div>
+              {upcoming.length === 0 ? <p style={{ color: C.tx3, fontSize: 12 }}>No social drafts yet. Select plants and generate posts.</p> : upcoming.map(post => <div key={post.id} style={{ border: `1px solid ${C.bdS}`, borderRadius: 12, padding: 10, marginBottom: 10, background: C.cardAlt }}>
+                <Row between center wrap><div><b>{SOCIAL_PLATFORMS.find(p=>p.id===post.platform)?.icon} {post.plantName}</b><div style={{ fontSize: 11, color: C.tx3 }}>{post.plantCode} · {post.platform} · {post.status}</div></div><Tag text={post.status} color={post.status === "Posted" ? C.g600 : post.status === "Needs Backend" ? C.amber : C.blue} /></Row>
+                <p style={{ whiteSpace: "pre-wrap", fontSize: 12, color: C.tx2 }}>{post.caption}</p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><Inp label="Date" type="date" value={post.scheduledDate} onChange={v => updatePost(post.id, { scheduledDate: v })} /><Inp label="Time" type="time" value={post.scheduledTime} onChange={v => updatePost(post.id, { scheduledTime: v })} /></div>
+                <Row gap={8} wrap style={{ marginTop: 8 }}><Btn sz="sm" onClick={() => setPreview(post)}>Edit</Btn><Btn sz="sm" v="soft" onClick={() => updatePost(post.id, { status: "Scheduled" })}>Schedule</Btn><Btn sz="sm" v="gold" onClick={() => postNow(post)} disabled={busy === post.id}>{busy === post.id ? "Posting..." : "Post Now"}</Btn><Btn sz="sm" v="ghost" onClick={() => copyPost(post)}>Copy</Btn><Btn sz="sm" v="danger" onClick={() => deletePost(post.id)}>Delete</Btn></Row>
+              </div>)}
+            </Card>
+          </div>
+        </div>
+        <style>{`@media(max-width:760px){ div[style*="grid-template-columns: repeat(3,1fr)"], div[style*="grid-template-columns: 1.05fr 1fr"], div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;} }`}</style>
+      </div>;
+    }
+
+function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, receipts = [], users = [], settings, setSettings, casdCerts = [], user, setPage, addAudit }) {
       const [busy, setBusy] = useState(""), [result, setResult] = useState(settings?.aiLastResults?.latest || null), [selected, setSelected] = useState("daily_check");
       const snapshot = buildLeafDataSnapshot({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts });
       const isOwner = user?.role === "owner";
@@ -5471,7 +5658,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {} };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [] };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -6306,6 +6493,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage} />}
           {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={setPage} />}
           {page === "aihub" && <AIAutomationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} setSettings={setSettings} casdCerts={casdCerts} user={user} setPage={setPage} addAudit={addAudit} />}
+          {page === "social" && <SocialMediaCenter plants={plants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} />}
           {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={setPage} />}
           {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
           {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
