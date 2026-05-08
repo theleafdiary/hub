@@ -43,6 +43,18 @@
 
     body {
       -webkit-text-size-adjust: 100%;
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .page-scroll-safe {
+      min-height: 100dvh;
+      height: auto;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: calc(130px + env(safe-area-inset-bottom, 0px)) !important;
+      touch-action: pan-y;
     }
 
     *, *::before, *::after {
@@ -3260,11 +3272,52 @@
 
         {tab === "footer" && <Card>
           <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, marginBottom: 8 }}>Footer Tabs</div>
-          <p style={{ fontSize: 12, color: C.tx3 }}>Choose exactly 5 tabs for the black bottom menu. Receipts can be added here too.</p>
-          {[["footerTabs", "Owner/Manager Footer"], ["employeeFooterTabs", "Employee Footer"]].map(([key, label]) => {
-            const all = user.role === "owner" ? ["dash","inv","upload","receipts","reports","bills","showbuilder","showimport","customers","nursery","expense","timecard","payroll","intel","tax","audit","admin","cleanup","casd"] : ["emp_dash","inv","upload","manual","labels","timecard","receipts"];
-            const current = Array.isArray(settings[key]) ? settings[key] : (key === "employeeFooterTabs" ? ["emp_dash","inv","upload","manual","timecard"] : ["dash","inv","upload","reports","bills"]);
-            return <div key={key} style={{ marginTop: 14, background: C.cardAlt, border: `1px solid ${C.bd}`, borderRadius: 10, padding: 12 }}><div style={{ fontWeight: 800, color: C.g800, marginBottom: 8 }}>{label}</div><Row gap={6} wrap>{all.map(id => <button key={id} onClick={() => setSettings(p => { const arr = Array.isArray(p[key]) ? [...p[key]] : [...current]; const exists = arr.includes(id); const next = exists ? arr.filter(x => x !== id) : [...arr, id].slice(0,5); return { ...p, [key]: next }; })} style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${current.includes(id) ? C.g700 : C.bd}`, background: current.includes(id) ? C.g700 : C.card, color: current.includes(id) ? "#fff" : C.tx2, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{id}</button>)}</Row><div style={{ fontSize: 11, color: C.tx3, marginTop: 8 }}>Selected: {current.join(", ")}</div></div>;
+          <p style={{ fontSize: 12, color: C.tx3, lineHeight: 1.45, overflowWrap: "anywhere" }}>Choose the 5 buttons that show in the black bottom menu. Use the dropdowns below so you can pick exactly what you want in each footer position.</p>
+          {[["footerTabs", "Owner / Manager Footer"], ["employeeFooterTabs", "Employee Footer"]].map(([key, label]) => {
+            const ownerChoices = [
+              ["dash", "🏠 Dashboard"], ["command", "🚀 Command Center"], ["cashflow", "💵 Cash Flow"], ["ship", "📦 Ready to Ship"],
+              ["inv", "🌿 Inventory"], ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Receipt Scanner"],
+              ["reports", "📈 Reports"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
+              ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
+              ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 Buy Intel"], ["tax", "🧾 Tax Center"],
+              ["audit", "🔍 Audit Log"], ["admin", "⚙️ Admin"], ["cleanup", "🧹 Data Cleanup"], ["casd", "📜 State Docs"]
+            ];
+            const employeeChoices = [
+              ["emp_dash", "🏠 My Dashboard"], ["liveshow", "🎥 Live Show"], ["receipts", "🧾 Receipts"], ["inv", "🌿 Inventory"],
+              ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["labels", "🏷️ Labels"], ["timecard", "⏱️ My Timecard"]
+            ];
+            const choices = key === "employeeFooterTabs" ? employeeChoices : ownerChoices;
+            const fallback = key === "employeeFooterTabs" ? ["emp_dash", "inv", "upload", "manual", "timecard"] : ["dash", "command", "inv", "upload", "reports"];
+            const currentRaw = Array.isArray(settings[key]) ? settings[key] : fallback;
+            const current = [...currentRaw, ...fallback].filter((id, idx, arr) => id && arr.indexOf(id) === idx).slice(0, 5);
+            const updateSlot = (slot, value) => setSettings(p => {
+              const base = Array.isArray(p[key]) ? [...p[key]] : [...current];
+              const next = [...base, ...fallback].filter(Boolean).slice(0, 5);
+              next[slot] = value;
+              return { ...p, [key]: next };
+            });
+            const resetFooter = () => setSettings(p => ({ ...p, [key]: fallback }));
+            return <div key={key} style={{ marginTop: 14, background: C.cardAlt, border: `1px solid ${C.bd}`, borderRadius: 12, padding: 12, maxWidth: "100%" }}>
+              <Row between center wrap gap={8} style={{ marginBottom: 10 }}>
+                <div style={{ fontWeight: 800, color: C.g800 }}>{label}</div>
+                <Btn sz="sm" v="ghost" onClick={resetFooter}>Reset</Btn>
+              </Row>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 8 }}>
+                {[0,1,2,3,4].map(i => <div key={i} style={{ minWidth: 0 }}>
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 800, color: C.tx3, marginBottom: 4, textTransform: "uppercase" }}>Slot {i + 1}</label>
+                  <select value={current[i] || ""} onChange={e => updateSlot(i, e.target.value)} style={{ width: "100%", maxWidth: "100%", padding: "10px 8px", borderRadius: 9, border: `1.5px solid ${C.bd}`, background: C.card, color: C.tx1, fontSize: 12, fontFamily: F.body, fontWeight: 700, minWidth: 0 }}>
+                    {choices.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                  </select>
+                </div>)}
+              </div>
+              <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: "#000", color: "#fff", display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 4 }}>
+                {current.map((id, i) => { const found = choices.find(c => c[0] === id); const labelText = found ? found[1] : id; const parts = labelText.split(" "); const icon = parts[0]; const name = parts.slice(1).join(" "); return <div key={i} style={{ textAlign: "center", minWidth: 0 }}>
+                  <div style={{ fontSize: 20, lineHeight: 1 }}>{icon}</div>
+                  <div style={{ fontSize: 9, color: i === 0 ? "#97d33e" : "rgba(255,255,255,.72)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</div>
+                </div>; })}
+              </div>
+              <style>{`@media(max-width:760px){ div[style*="grid-template-columns: repeat(5, minmax(0, 1fr))"]{grid-template-columns:1fr!important;} }`}</style>
+            </div>;
           })}
         </Card>}
 
@@ -3982,7 +4035,7 @@
         ["Goals", "goals", "🎯", "Revenue and profit progress"],
         ["Reports", "reports", "📈", "Full analytics"],
       ];
-      return <div style={{ padding:"14px 14px 90px", background:C.bg, minHeight:"100vh" }}>
+      return <div className="page-scroll-safe" style={{ padding:"14px 14px 150px", background:C.bg, minHeight:"100dvh", height:"auto", overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", touchAction:"pan-y" }}>
         <SHdr icon="🚀" title="Owner Command Center" sub="One screen for cash, shipping, warnings, goals, and operational action." />
         <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr", gap:10, marginBottom:14 }}>
           <div style={{ background:"#000", color:"#fff", borderRadius:16, padding:"18px 22px", border:`2px solid #97d33e`, boxShadow:"0 8px 26px rgba(0,0,0,.18)" }}>
@@ -5144,7 +5197,7 @@
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "inv", "upload", "reports", "bills"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15 };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "inv", "upload", "reports"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15 };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
