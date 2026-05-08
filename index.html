@@ -132,6 +132,63 @@
       return btoa(binary);
     }
 
+
+    const PLANT_PHOTO_BUCKET = "plant-photos";
+    const safeFilePart = v => String(v || "plant").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "plant";
+    async function resizeImageFile(file, maxDim = 1200, quality = 0.86) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            let w = img.width, h = img.height;
+            if (w > maxDim || h > maxDim) {
+              const scale = Math.min(maxDim / w, maxDim / h);
+              w = Math.round(w * scale); h = Math.round(h * scale);
+            }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+            canvas.toBlob(blob => {
+              URL.revokeObjectURL(url);
+              if (!blob) reject(new Error("Could not resize image."));
+              else resolve(blob);
+            }, "image/jpeg", quality);
+          } catch (err) { URL.revokeObjectURL(url); reject(err); }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not load image.")); };
+        img.src = url;
+      });
+    }
+    async function uploadPlantPhotoFile(file, plant) {
+      const blob = await resizeImageFile(file, 1200, 0.86);
+      const filename = `${safeFilePart(plant.plantId || plant.plantCode || plant.id)}-${Date.now()}.jpg`;
+      const path = `plants/${filename}`;
+      const { error } = await supabase.storage.from(PLANT_PHOTO_BUCKET).upload(path, blob, { contentType: "image/jpeg", upsert: true });
+      if (error) throw error;
+      const { data } = supabase.storage.from(PLANT_PHOTO_BUCKET).getPublicUrl(path);
+      return { photoUrl: data.publicUrl, photoPath: path, photoUploadedAt: new Date().toISOString() };
+    }
+    function imageFileToBase64(file, maxDim = 900, quality = 0.74) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = e => { img.src = e.target.result; };
+        reader.onerror = reject;
+        img.onload = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            let w = img.width, h = img.height;
+            if (w > maxDim || h > maxDim) { const sc = Math.min(maxDim / w, maxDim / h); w = Math.round(w * sc); h = Math.round(h * sc); }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          } catch (err) { reject(err); }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
     const fDate = d => { if (!d) return ""; const [y, m, day] = d.split("-"); return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }); };
     const toTC = s => (s || "").replace(/\w\S*/g, t => t[0].toUpperCase() + t.slice(1).toLowerCase());
     const gOf = name => { const n = (name || "").toLowerCase(); for (const g of GENERA.slice(0, -1)) if (n.includes(g.toLowerCase())) return g; return "Other"; };
@@ -282,7 +339,7 @@
       const ownerTabs = [
         { id: "dash", icon: "🏠", l: "Dashboard" }, { id: "upload", icon: "📸", l: "Upload Invoice" },
         { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "history", icon: "📋", l: "Past Invoices" },
-        { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "showbuilder", icon: "🎪", l: "Show Builder" },
+        { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "showbuilder", icon: "🎪", l: "Show Builder" }, { id: "liveshow", icon: "🎥", l: "Live Show" },
         { id: "sellthru", icon: "📊", l: "Sell-Through" }, { id: "showimport", icon: "📦", l: "Post-Show" },
         { id: "customers", icon: "👥", l: "Customers" }, { id: "nursery", icon: "🏪", l: "Nurseries" },
         { id: "bills", icon: "📅", l: "Bills" }, { id: "expense", icon: "💳", l: "Expenses" }, { id: "receipts", icon: "🧾", l: "Receipt Scanner" },
@@ -294,7 +351,7 @@
         { id: "casd", icon: "📜", l: "State Docs" },
       ];
       const mgrTabs = ownerTabs.filter(t => !["payroll", "tax", "audit", "admin", "bills"].includes(t.id));
-      const empTabs = [{ id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "receipts", icon: "🧾", l: "Receipts" }, { id: "upload", icon: "📸", l: "Upload Invoice" }, { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }];
+      const empTabs = [{ id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "liveshow", icon: "🎥", l: "Live Show" }, { id: "receipts", icon: "🧾", l: "Receipts" }, { id: "upload", icon: "📸", l: "Upload Invoice" }, { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }];
       const tabs = user.role === "owner" ? ownerTabs : user.role === "manager" ? mgrTabs : empTabs;
       const [menuOpen, setMenuOpen] = useState(false);
       const defaultOwnerFooterTabs = ["dash", "inv", "upload", "reports", "bills"];
@@ -489,6 +546,15 @@
       const gMap = {};
       sold.forEach(p => { const g = gOf(p.name); if (!gMap[g]) gMap[g] = { rev: 0, cost: 0, cnt: 0 }; gMap[g].rev += (+p.salePrice || +p.suggestedPrice || 0); gMap[g].cost += (+p.cost || 0); gMap[g].cnt++; });
       const topGenus = Object.entries(gMap).map(([g, d]) => ({ g, profit: d.rev - d.cost, cnt: d.cnt })).sort((a, b) => b.profit - a.profit).slice(0, 4);
+      const genusReorderMap = {};
+      plants.forEach(p => {
+        const g = gOf(p.name);
+        if (!genusReorderMap[g]) genusReorderMap[g] = { genus: g, total: 0, sold: 0, inStock: 0 };
+        genusReorderMap[g].total++;
+        if (p.status === "Sold") genusReorderMap[g].sold++;
+        if (p.status === "In Stock") genusReorderMap[g].inStock++;
+      });
+      const reorderAlerts = Object.values(genusReorderMap).map(g => ({ ...g, sellThru: g.total ? Math.round((g.sold / g.total) * 100) : 0 })).filter(g => g.sellThru >= 60 && g.inStock <= 2).sort((a, b) => b.sellThru - a.sellThru).slice(0, 6);
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="🏠" title="Business Dashboard" sub={`Showing ${dateChip}`}
@@ -534,6 +600,17 @@
           <KPI label="Needs Labels" value={needsLabel.length} color={needsLabel.length > 0 ? C.blue : C.tx3} onClick={() => setPage("labels")} />
           <KPI label="Dead/Damaged Loss" value={$(lostVal)} sub={dashPreset === "all" ? `${dead.length} all-time` : `${dead.length} in range`} color={dead.length > 0 ? C.red : C.tx3} />
         </div>
+
+        {reorderAlerts.length > 0 && <Card style={{ marginBottom: 18, background: C.g50, borderLeft: `5px solid ${C.g600}` }}>
+          <Row between wrap center style={{ marginBottom: 10 }}>
+            <div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16 }}>🔁 Restock Alerts — Plants Running Low</div><div style={{ fontSize: 12, color: C.tx3 }}>Fast-selling genera with 60%+ sell-through and 2 or fewer left in stock.</div></div>
+            <Btn sz="sm" v="soft" onClick={() => setPage("intel")}>View Buy Intel →</Btn>
+          </Row>
+          {reorderAlerts.map(r => <Row key={r.genus} between center style={{ padding: "7px 0", borderTop: `1px solid ${C.bdS}` }}>
+            <div style={{ fontWeight: 700, color: C.tx1 }}>{r.genus}</div>
+            <Row gap={8} center><Tag text={`${r.sellThru}% sell-through`} color={C.g600} /><Tag text={`${r.inStock} left`} color={r.inStock === 0 ? C.red : C.amber} /><Tag text="Buy More ✅" color={C.gold} /></Row>
+          </Row>)}
+        </Card>}
 
         <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1114,6 +1191,8 @@
       if (!p) { onBack(); return null; }
 
       const [edit, setEdit] = useState({ ...p });
+      const photoRef = useRef(null);
+      const [photoMsg, setPhotoMsg] = useState("");
       const updE = f => v => setEdit(prev => ({ ...prev, [f]: v }));
       const updCost = v => {
         const cost = +v || 0;
@@ -1125,6 +1204,27 @@
         });
       };
       const updPrice = v => setEdit(prev => ({ ...prev, suggestedPrice: v, margin: marg(+prev.cost || 0, +v || 0) }));
+      const handlePhotoFile = async file => {
+        if (!file) return;
+        setPhotoMsg("Uploading photo...");
+        try {
+          const uploaded = await uploadPlantPhotoFile(file, edit);
+          setEdit(prev => ({ ...prev, ...uploaded }));
+          setPhotoMsg("Photo saved to Supabase Storage ✓");
+        } catch (err) {
+          try {
+            const photoBase64 = await imageFileToBase64(file);
+            setEdit(prev => ({ ...prev, photoBase64, photoUploadedAt: new Date().toISOString() }));
+            setPhotoMsg("Cloud photo upload failed, saved local backup photo ✓");
+          } catch (err2) {
+            setPhotoMsg("Photo failed: " + (err?.message || err2?.message || "unknown error"));
+          }
+        }
+      };
+      const removePhoto = () => {
+        setEdit(prev => ({ ...prev, photoUrl: "", photoPath: "", photoBase64: "", photoUploadedAt: "" }));
+        setPhotoMsg("Photo removed. Click Save Changes to keep removal.");
+      };
       const saveEdit = () => {
         const saved = { ...edit, margin: marg(+edit.cost || 0, +edit.suggestedPrice || 0) };
         setPlants(pp => pp.map(x => x.id === plantId ? saved : x));
@@ -1156,6 +1256,25 @@
 
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)", gap: 14, maxWidth: 960 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+            <Card style={{ background: edit.photoUrl || edit.photoBase64 ? C.g50 : C.card }}>
+              <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>📷 Plant Photo</div>
+              <Row gap={12} center wrap>
+                <div style={{ width: 112, height: 112, borderRadius: 14, overflow: "hidden", background: C.g100, border: `1.5px dashed ${C.g300}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {(edit.photoUrl || edit.photoBase64) ? <img src={edit.photoUrl || edit.photoBase64} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 42 }}>🌿</span>}
+                </div>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ fontSize: 12, color: C.tx3, marginBottom: 10 }}>Add a plant photo for Live Show Mode, inventory previews, labels, and Palmstreet image exports. Create a public Supabase Storage bucket named <b>plant-photos</b>.</div>
+                  <Row gap={8} wrap>
+                    <Btn sz="sm" onClick={() => photoRef.current?.click()}>📸 Add / Change Photo</Btn>
+                    {(edit.photoUrl || edit.photoBase64) && <Btn sz="sm" v="ghost" onClick={removePhoto}>Remove</Btn>}
+                  </Row>
+                  {photoMsg && <div style={{ fontSize: 11, color: photoMsg.includes("failed") ? C.red : C.g700, marginTop: 8, fontWeight: 700 }}>{photoMsg}</div>}
+                  {edit.photoUploadedAt && <div style={{ fontSize: 10, color: C.tx3, marginTop: 4 }}>Last photo update: {new Date(edit.photoUploadedAt).toLocaleString()}</div>}
+                  <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePhotoFile(e.target.files?.[0])} />
+                </div>
+              </Row>
+            </Card>
 
             <Card>
               <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>{"🌿 Plant Identity"}</div>
@@ -3475,6 +3594,148 @@
     }
 
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       LIVE SHOW MODE — fullscreen Palmstreet/Whatnot presenter
+    ══════════════════════════════════════════════════════════ */
+    function LiveShowMode({ plants, setPlants, user, addAudit, setPage }) {
+      const inStock = plants.filter(p => String(p.status || "").trim() === "In Stock");
+      const [showFilter, setShowFilter] = useState("instock");
+      const [selectedGenus, setSelectedGenus] = useState("All");
+      const [queue, setQueue] = useState(inStock.map(p => p.id));
+      const [currentIndex, setCurrentIndex] = useState(0);
+      const [isActive, setIsActive] = useState(false);
+      const [overridePrice, setOverridePrice] = useState("");
+      const [soldInShow, setSoldInShow] = useState([]);
+      const [skippedPlants, setSkippedPlants] = useState([]);
+      const [showSummary, setShowSummary] = useState(false);
+      const [touchStart, setTouchStart] = useState(null);
+
+      const genera = ["All", ...Array.from(new Set(inStock.map(p => gOf(p.name)).filter(Boolean))).sort()];
+      const currentPlant = plants.find(p => p.id === queue[currentIndex]);
+      const queuedPlants = queue.map(id => plants.find(p => p.id === id)).filter(Boolean);
+      const estimatedRevenue = queuedPlants.reduce((s,p)=>s+(+p.suggestedPrice||0),0);
+      const soldRevenue = soldInShow.reduce((s,x)=>s+(+x.price||0),0);
+
+      useEffect(() => {
+        if (showFilter === "instock") setQueue(inStock.map(p => p.id));
+        if (showFilter === "genus") setQueue(inStock.filter(p => selectedGenus === "All" || gOf(p.name) === selectedGenus).map(p => p.id));
+        if (showFilter === "showbuilder") {
+          try {
+            const saved = JSON.parse(localStorage.getItem("ld_show_builder_ids") || "[]");
+            const ids = saved.map(code => (plants.find(p => String(p.plantId || p.plantCode || "").toLowerCase() === String(code).toLowerCase()) || {}).id).filter(Boolean);
+            setQueue(ids.length ? ids : inStock.map(p => p.id));
+          } catch { setQueue(inStock.map(p => p.id)); }
+        }
+        setCurrentIndex(0);
+      }, [showFilter, selectedGenus, plants.length]);
+
+      useEffect(() => {
+        const key = e => {
+          if (!isActive || showSummary) return;
+          if (e.key === "ArrowRight") handleSold();
+          if (e.key === "ArrowLeft") handleSkip();
+          if (e.key === "Escape") exitShow();
+        };
+        window.addEventListener("keydown", key);
+        return () => window.removeEventListener("keydown", key);
+      }, [isActive, showSummary, currentIndex, overridePrice, queue]);
+
+      const moveQueue = (idx, dir) => setQueue(prev => {
+        const n = [...prev]; const ni = idx + dir;
+        if (ni < 0 || ni >= n.length) return prev;
+        [n[idx], n[ni]] = [n[ni], n[idx]];
+        return n;
+      });
+      const removeFromQueue = id => setQueue(prev => prev.filter(x => x !== id));
+      const startShow = () => {
+        if (!queue.length) return alert("Add at least one in-stock plant to the live show queue.");
+        setCurrentIndex(0); setSoldInShow([]); setSkippedPlants([]); setShowSummary(false); setIsActive(true);
+        addAudit({ action: `Started Live Show Mode with ${queue.length} plants`, user: user.name, page: "Live Show" });
+      };
+      const exitShow = () => {
+        if (soldInShow.length && !confirm("Exit live show? Sold plants are already saved.")) return;
+        setIsActive(false); setShowSummary(false);
+      };
+      const handleSold = () => {
+        if (!currentPlant) return;
+        const price = +(overridePrice || currentPlant.suggestedPrice || currentPlant.salePrice || 0);
+        const soldAt = new Date().toISOString();
+        setSoldInShow(prev => [...prev, { plantId: currentPlant.id, plantCode: currentPlant.plantId || currentPlant.plantCode, name: currentPlant.name, price, soldAt }]);
+        setPlants(prev => prev.map(p => p.id === currentPlant.id ? { ...p, status: "Sold", salePrice: price, platform: p.platform || "Palmstreet", soldDate: today(), saleDate: today(), soldAt } : p));
+        addAudit({ action: `Live Show sold ${currentPlant.name} for ${$(price)}`, user: user.name, page: "Live Show" });
+        setOverridePrice("");
+        if (navigator.vibrate) navigator.vibrate(100);
+        if (currentIndex + 1 >= queue.length) setShowSummary(true); else setCurrentIndex(i => i + 1);
+      };
+      const handleSkip = () => {
+        if (!currentPlant || queue.length <= 1) return;
+        setSkippedPlants(prev => [...prev, currentPlant.id]);
+        setQueue(prev => { const rest = prev.filter(id => id !== currentPlant.id); return [...rest, currentPlant.id]; });
+      };
+      const exportShowSummary = () => {
+        const csv = ["Plant ID,Plant Name,Price,Sold At", ...soldInShow.map(s => [s.plantCode, s.name, s.price, s.soldAt].map(v => `"${String(v||"").replace(/"/g,'""')}"`).join(","))].join("\n");
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+        a.download = `leaf-diary-live-show-summary-${today()}.csv`;
+        a.click();
+      };
+      const endTouch = x => {
+        if (touchStart === null) return;
+        const dx = x - touchStart;
+        setTouchStart(null);
+        if (Math.abs(dx) < 80) return;
+        if (dx > 0) handleSold(); else handleSkip();
+      };
+
+      if (isActive) return <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: C.bg, fontFamily: F.body, display: "flex", flexDirection: "column" }}>
+        <div style={{ height: 50, background: C.g900, color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", flexShrink: 0 }}>
+          <div style={{ fontWeight: 800, color: C.red, display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: C.red, boxShadow: `0 0 10px ${C.red}` }} />LIVE</div>
+          <div style={{ fontFamily: F.mono, fontWeight: 800 }}>{Math.min(currentIndex + 1, queue.length)} / {queue.length}</div>
+          <Row gap={8}><Btn sz="sm" v="ghost" onClick={exitShow} style={{ color: "#fff", borderColor: "rgba(255,255,255,.35)" }}>Exit</Btn><Btn sz="sm" v="soft" onClick={handleSkip}>Skip →</Btn></Row>
+        </div>
+        {showSummary ? <div style={{ padding: 18, overflow: "auto" }}>
+          <Card style={{ maxWidth: 760, margin: "20px auto", textAlign: "center" }}>
+            <div style={{ fontSize: 42 }}>🎉</div><h1 style={{ fontFamily: F.display, color: C.g900 }}>Live Show Summary</h1>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, margin: "16px 0" }}><KPI label="Sold" value={soldInShow.length} color={C.g600} /><KPI label="Revenue" value={$(soldRevenue)} color={C.gold} /><KPI label="Unsold" value={Math.max(0, queue.length - soldInShow.length)} color={C.amber} /></div>
+            <Row gap={10} center style={{ justifyContent: "center" }}><Btn onClick={exportShowSummary}>Export Show CSV</Btn><Btn v="soft" onClick={() => { setIsActive(false); setPage("dash"); }}>Done — Dashboard</Btn></Row>
+          </Card>
+        </div> : currentPlant ? <div onTouchStart={e => setTouchStart(e.changedTouches[0].screenX)} onTouchEnd={e => endTouch(e.changedTouches[0].screenX)} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+          <div style={{ height: "38vh", minHeight: 220, background: C.g800, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>{(currentPlant.photoUrl || currentPlant.photoBase64) ? <img src={currentPlant.photoUrl || currentPlant.photoBase64} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 110 }}>🌿</span>}</div>
+          <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+            <h1 style={{ fontFamily: F.display, fontSize: "clamp(24px,6vw,38px)", color: C.g900, margin: 0, lineHeight: 1.05 }}>{currentPlant.name}</h1>
+            {currentPlant.botanicalName && <div style={{ fontStyle: "italic", color: C.tx3 }}>{currentPlant.botanicalName}</div>}
+            <div style={{ fontFamily: F.mono, color: C.g600, fontSize: 13 }}>{currentPlant.plantId || currentPlant.plantCode} · {currentPlant.potSize || "No pot size"} · {gOf(currentPlant.name)}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div style={{ fontFamily: F.display, fontSize: 54, fontWeight: 800, color: C.g900 }}>{$(+(overridePrice || currentPlant.suggestedPrice || 0))}</div><input type="number" value={overridePrice} onChange={e => setOverridePrice(e.target.value)} placeholder="Override price" style={{ padding: "12px 14px", border: `1.5px solid ${C.bd}`, borderRadius: 10, fontSize: 18, width: 160 }} /></div>
+            <Btn sz="lg" full onClick={handleSold} style={{ minHeight: 66, fontSize: 20 }}>✅ SOLD — Next Plant →</Btn>
+            <div style={{ fontSize: 12, color: C.tx3, textAlign: "center" }}>Swipe right = sold · Swipe left = skip · Arrow keys work on desktop</div>
+          </div>
+          <div style={{ height: 7, background: C.g100, marginTop: "auto" }}><div style={{ width: `${queue.length ? ((currentIndex + 1) / queue.length) * 100 : 0}%`, height: "100%", background: C.g600 }} /></div>
+        </div> : <div style={{ padding: 40 }}>No current plant.</div>}
+      </div>;
+
+      return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
+        <SHdr icon="🎥" title="Live Show Mode" sub="Fullscreen plant presenter with one-tap sold, skip, swipe controls, and show summary." right={<Btn onClick={startShow}>Start Show 🎥</Btn>} />
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, marginBottom: 12 }}>Queue Builder</div>
+          <Row gap={8} wrap center>
+            {[["instock","All In Stock"], ["showbuilder","From Show Builder"], ["genus","By Genus"]].map(([v,l]) => <button key={v} onClick={() => setShowFilter(v)} style={{ padding: "9px 12px", borderRadius: 9, border: `1.5px solid ${showFilter===v?C.g700:C.bd}`, background: showFilter===v?C.g700:C.card, color: showFilter===v?"#fff":C.tx2, fontWeight: 700, fontFamily: F.body }}>{l}</button>)}
+            {showFilter === "genus" && <select value={selectedGenus} onChange={e => setSelectedGenus(e.target.value)} style={{ padding: "10px 12px", borderRadius: 9, border: `1px solid ${C.bd}` }}>{genera.map(g => <option key={g}>{g}</option>)}</select>}
+          </Row>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 14 }}><KPI label="Queued" value={queue.length} color={C.g600} /><KPI label="Estimated Revenue" value={$(estimatedRevenue)} color={C.gold} /><KPI label="With Photos" value={queuedPlants.filter(p => p.photoUrl || p.photoBase64).length} color={C.blue} /></div>
+        </Card>
+        <Card>
+          <Row between center style={{ marginBottom: 10 }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900 }}>Show Order</div><Btn sz="sm" v="ghost" onClick={() => setQueue(inStock.map(p=>p.id))}>Reset</Btn></Row>
+          {queuedPlants.length === 0 ? <div style={{ padding: 40, textAlign: "center", color: C.tx3 }}>No in-stock plants match this queue.</div> : queuedPlants.map((p, i) => <div key={p.id} style={{ display: "grid", gridTemplateColumns: "42px 1fr auto", gap: 10, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${C.bdS}` }}>
+            <div style={{ width: 38, height: 38, borderRadius: 8, overflow: "hidden", background: C.g100, display: "flex", alignItems: "center", justifyContent: "center" }}>{(p.photoUrl || p.photoBase64) ? <img src={p.photoUrl || p.photoBase64} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🌿"}</div>
+            <div><div style={{ fontWeight: 700, color: C.tx1 }}>{i+1}. {p.name}</div><div style={{ fontSize: 11, color: C.tx3 }}>{p.plantId || p.plantCode} · {p.potSize || "—"} · {$(p.suggestedPrice || 0)}</div></div>
+            <Row gap={4}><button onClick={() => moveQueue(i,-1)}>↑</button><button onClick={() => moveQueue(i,1)}>↓</button><button onClick={() => removeFromQueue(p.id)} style={{ color: C.red }}>✕</button></Row>
+          </div>)}
+        </Card>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        SHOW BUILDER / PALMSTREET PREP EXPORT
     ══════════════════════════════════════════════════════════ */
@@ -5284,6 +5545,7 @@
           {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} setPage={setPage} />}
           {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={setPage} settings={settings} />}
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={setPage} />}
+          {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} />}
           {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
