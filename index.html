@@ -1599,7 +1599,11 @@
             .map((arr, i) => ({ arr, excelRow: i + 2 }))
             .filter(x => (x.arr || []).some(v => String(v || "").trim() !== ""));
 
-          const existingMap = new Map((plants || []).map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
+          const isCurrentInventoryForImport = p => {
+            const st = String(p?.status || "In Stock").toLowerCase();
+            return st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
+          };
+          const existingMap = new Map((plants || []).filter(isCurrentInventoryForImport).map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
           const seen = new Set();
           const mapped = [];
           const skipped = [];
@@ -1620,7 +1624,7 @@
             const suggestedPrice = cleanMoney(valAt(arr, ["Price", "Sell Price", "Sell Price:", "Suggested Price", "Retail Price"], 2));
             const prefix = ((plantNum.match(/^[A-Z]+/) || ["INV"])[0] || "INV").toUpperCase();
             mapped.push({
-              _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists,
+              _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && String(p.plantId || p.plantCode || "").trim().toUpperCase() === plantNum),
               nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPot(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
               cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
               status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDate(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
@@ -1631,7 +1635,8 @@
           setBulkSkipped(skipped);
           const updateCount = mapped.filter(r => r.existingInApp).length;
           const newCount = mapped.length - updateCount;
-          setBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} already in app and will be updated. ${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
+          const histDupCount = mapped.filter(r => r.duplicateHistoricalPlantNumber).length;
+          setBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. ${histDupCount ? histDupCount + " reused old sold/dead plant numbers and will be added as NEW current inventory." : ""} ${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
         } catch (e) {
           setBulkMsg("Inventory upload failed: " + e.message);
         }
@@ -1642,7 +1647,12 @@
         const incomingIds = new Set(rows.map(r => String(r.plantId || r.plantCode || "").trim().toUpperCase()).filter(Boolean));
         const updateCount = bulkRows.filter(r => r.existingInApp).length;
         const newCount = rows.length - updateCount;
-        setPlants(prev => [...(prev || []).filter(p => !incomingIds.has(String(p.plantId || p.plantCode || "").trim().toUpperCase())), ...rows]);
+        setPlants(prev => [...(prev || []).filter(p => {
+          const id = String(p.plantId || p.plantCode || "").trim().toUpperCase();
+          const st = String(p?.status || "In Stock").toLowerCase();
+          const isCurrent = st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
+          return !(incomingIds.has(id) && isCurrent);
+        }), ...rows]);
         addAudit({ action: `Bulk imported/updated ${rows.length} existing inventory plants with original plant numbers (${newCount} new, ${updateCount} updated)`, user: user.name, page: "Manual Entry" });
         setSaved(p => [...p, ...rows]);
         setBulkRows([]);
@@ -2151,7 +2161,11 @@
             .map((arr, i) => ({ arr, excelRow: i + 2 }))
             .filter(x => (x.arr || []).some(v => String(v || "").trim() !== ""));
 
-          const existingMap = new Map((plants || []).map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
+          const isCurrentInventoryForImport = p => {
+            const st = String(p?.status || "In Stock").toLowerCase();
+            return st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
+          };
+          const existingMap = new Map((plants || []).filter(isCurrentInventoryForImport).map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
           const seen = new Set();
           const mapped = [];
           const skipped = [];
@@ -2171,7 +2185,7 @@
             const suggestedPrice = cleanMoneyInv(valAt(arr, ["Price", "Sell Price", "Sell Price:", "Suggested Price", "Retail Price"], 2));
             const prefix = ((plantNum.match(/^[A-Z]+/) || ["INV"])[0] || "INV").toUpperCase();
             mapped.push({
-              _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists,
+              _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && String(p.plantId || p.plantCode || "").trim().toUpperCase() === plantNum),
               nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPotInv(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
               cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
               status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDateInv(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
@@ -2182,7 +2196,8 @@
           setInvBulkSkipped(skipped);
           const updateCount = mapped.filter(r => r.existingInApp).length;
           const newCount = mapped.length - updateCount;
-          setInvBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} already in app and will be updated. ${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
+          const histDupCount = mapped.filter(r => r.duplicateHistoricalPlantNumber).length;
+          setInvBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. ${histDupCount ? histDupCount + " reused old sold/dead plant numbers and will be added as NEW current inventory." : ""} ${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
         } catch (e) { setInvBulkMsg("Inventory upload failed: " + e.message); }
       };
       const saveExistingInventoryOnInventory = () => {
@@ -2191,7 +2206,12 @@
         const incomingIds = new Set(rows.map(r => String(r.plantId || r.plantCode || "").trim().toUpperCase()).filter(Boolean));
         const updateCount = invBulkRows.filter(r => r.existingInApp).length;
         const newCount = rows.length - updateCount;
-        setPlants(prev => [...(prev || []).filter(p => !incomingIds.has(String(p.plantId || p.plantCode || "").trim().toUpperCase())), ...rows]);
+        setPlants(prev => [...(prev || []).filter(p => {
+          const id = String(p.plantId || p.plantCode || "").trim().toUpperCase();
+          const st = String(p?.status || "In Stock").toLowerCase();
+          const isCurrent = st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
+          return !(incomingIds.has(id) && isCurrent);
+        }), ...rows]);
         addAudit && addAudit({ action: `Bulk imported/updated ${rows.length} existing inventory plants with original plant numbers (${newCount} new, ${updateCount} updated)`, user: user.name, page: "Inventory" });
         setInvBulkRows([]);
         setInvBulkSkipped([]);
@@ -4029,10 +4049,10 @@
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
           {dangerCard("Delete Customers Only", "Clears customer names, usernames, recipient names, and states from all records. Sales totals and inventory stay in place.", "Delete All Customers", "customers")}
-          {dangerCard("Delete Sales, Keep Inventory", "Deletes imported historical sale rows and resets matched sold inventory back to In Stock. Inventory plants stay in the app.", "Delete All Sales", "sales")}
+          {dangerCard("Delete Sales, Keep Inventory", "Deletes imported sold sale record rows and resets matched sold inventory back to In Stock. Inventory plants stay in the app.", "Delete All Sales", "sales")}
           {dangerCard("Delete Historical Imports Only", "Only removes old unmatched Palmstreet/Whatnot rows saved as HIST records. Matched inventory sales are not touched.", "Delete Historical Imports", "historical")}
           {dangerCard("Start Customers & Sales Over", "Best option before a clean re-import. Clears customers, deletes sales history, removes historical imports, and keeps inventory.", "Reset Customers + Sales", "all")}
-          {dangerCard("Delete ALL Inventory", "Removes every plant/inventory row from the app, including any historical sales rows stored with inventory. Keeps nurseries, employees, timecards, expenses, bills, and settings.", "Delete All Inventory", "inventory")}
+          {dangerCard("Delete ALL Inventory", "Removes every plant/inventory row from the app, including any sold sale records rows stored with inventory. Keeps nurseries, employees, timecards, expenses, bills, and settings.", "Delete All Inventory", "inventory")}
           {dangerCard("Full Plant Data Reset", "Most aggressive reset. Deletes inventory, sales, customers, and historical imports. Keeps nurseries, employees, timecards, expenses, bills, and app settings.", "Delete Inventory + Customers + Sales", "full")}
         </div>
       </div>;
@@ -5444,22 +5464,31 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         return keys.has(saleImportKey(sale)) || keys.has(saleLegacyKey(sale));
       };
       const safeLower = v => String(v || "").toLowerCase();
+      const isCurrentInventoryRecord = p => {
+        const st = String(p?.status || "In Stock").toLowerCase();
+        return st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
+      };
+      const crmOrderNumberForSale = sale => {
+        const ship = cleanText(sale.shipmentId || sale.shipment_id || sale.shipmentManifest || sale.shipment_manifest || "");
+        return ship ? `SHIPMENT-${ship}` : (sale.orderNo || sale.orderNum || "");
+      };
       const findInventoryMatch = sale => {
         const code = sale.extractedPlantCode;
         if (code) {
-          const byCode = plants.find(p =>
+          const byCurrentCode = plants.find(p => isCurrentInventoryRecord(p) && (
             plantCodeMatches(p.plantId, code) ||
             plantCodeMatches(p.plantCode, code) ||
             plantCodeMatches(p.barcodeValue, code) ||
             safeLower(p.plantId) === safeLower(code) ||
             safeLower(p.plantCode) === safeLower(code) ||
             safeLower(p.barcodeValue) === safeLower(code)
-          );
-          if (byCode) return byCode;
+          ));
+          if (byCurrentCode) return byCurrentCode;
+          return null; // old sold/dead/history records with the same plant number must NOT steal this sale
         }
         const title = safeLower(sale.productVariant);
         if (!title || importMode === "historical") return null;
-        return plants.find(p => p.status === "In Stock" && (
+        return plants.find(p => isCurrentInventoryRecord(p) && (
           title.includes(safeLower(p.plantId)) ||
           title.includes(safeLower(p.plantCode)) ||
           title.includes(safeLower(p.barcodeValue)) ||
@@ -5520,6 +5549,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             shippingFee: money(rowVal(r, ["Shipping Fee Amount", "Shipping Fee", "Shipping"])),
             trackingCode: cleanText(rowVal(r, ["tracking_code", "Tracking", "Tracking Number"])),
             shipmentId: cleanText(rowVal(r, ["shipment_id", "Shipment ID"])),
+            shipmentManifest: cleanText(rowVal(r, ["shipment_manifest", "Shipment Manifest"])),
             costPerItem: money(rowVal(r, ["cost_per_item", "Cost Per Item", "Cost"])),
             paymentFee: money(rowVal(r, ["Payment Fee", "Stripe and BNPL Fee", "Stripe Fee"])),
             palmstreetFee: money(rowVal(r, ["Palmstreet Selling Fee", "PlantStory Selling Fee", "Selling Fee"])),
@@ -5672,7 +5702,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           shippingState: sale.customerState || sale.buyerState || sale.state || "",
           shippingZip: sale.customerZip || sale.zip || "",
           fullShippingAddress: [sale.customerName || sale.recipientName || "", sale.customerAddress1 || sale.address1 || "", sale.customerAddress2 || sale.address2 || "", sale.customerCity || sale.city || "", sale.customerState || sale.buyerState || sale.state || "", sale.customerZip || sale.zip || ""].filter(Boolean).join(", "),
-          orderNumber: sale.orderNo || sale.orderNum || "",
+          orderNumber: crmOrderNumberForSale(sale),
+          whatnotOrderId: sale.orderNo || sale.orderNum || "",
           saleImportKey: sale.saleImportKey || saleImportKey(sale),
           saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
           sourceFileName: fileName || "",
@@ -5684,6 +5715,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           refundAmount: sale.refundAmount || 0,
           historicalImport: true,
           matchStatus: "unmatched",
+          needsReview: true,
+          reviewReason: "No current in-stock inventory match found. If this plant number existed in old history, a new sold record was created instead of overwriting history.",
+          duplicateHistoricalPlantNumber: (plants || []).some(p => !isCurrentInventoryRecord(p) && (plantCodeMatches(p.plantId, code) || plantCodeMatches(p.plantCode, code))),
           rawProductVariant: sale.productVariant || sale.title || "",
           showEmployeeId: showEmployeeId !== "none" ? showEmployeeId : "",
           showEmployeeName: selectedShowEmployee?.name || "",
@@ -5761,7 +5795,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             trackingNumber: sale.trackingCode || p.trackingNumber || "",
             shipmentId: sale.shipmentId || p.shipmentId || "",
             ...customerAddressFieldsFromSale(sale),
-            orderNumber: sale.orderNo || sale.orderNum || "",
+            orderNumber: crmOrderNumberForSale(sale),
+          whatnotOrderId: sale.orderNo || sale.orderNum || "",
             saleImportKey: sale.saleImportKey || saleImportKey(sale),
             saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
             sourceFileName: fileName || "",
@@ -5788,9 +5823,11 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         });
 
         const historicalRows = unmatchedSales.map((sale, idx) => makeHistoricalSalePlant(sale, idx));
+        const historicalDuplicateNumbers = historicalRows.filter(p => p.duplicateHistoricalPlantNumber).length;
         const result = {
           matchedAdded: matchedSales.length,
           historicalAdded: historicalRows.length,
+          historicalDuplicateNumbers,
           duplicateSkipped: duplicates.length,
           duplicateOrders: duplicates.slice(0, 25).map(d => d.orderNo || d.orderNum || d.productVariant || d.title || "Duplicate row")
         };
@@ -5830,8 +5867,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         setPlants([...soldInventory, ...historicalRows]);
         setLastImportResult({ ...result, commissionAmount, commissionEmployee: selectedShowEmployee?.name || "" });
         setDuplicateInfo(result.duplicateSkipped ? result : null);
-        addAudit({ action: `Sales import: ${result.matchedAdded} matched inventory + ${result.historicalAdded} historical unmatched + ${result.duplicateSkipped} duplicates skipped from ${platform}${showEmployeeId !== "none" ? ` · commission ${$(commissionAmount)} to ${selectedShowEmployee?.name || "employee"}` : ""}`, user: user.name, page: "Show Import" });
-        setImportMsg(`Saved ${result.matchedAdded + result.historicalAdded} new sales. ${result.duplicateSkipped} duplicates skipped. Syncing to Supabase in 500-row batches...`);
+        addAudit({ action: `Sales import: ${result.matchedAdded} matched inventory + ${result.historicalAdded} created sold / needs review + ${result.duplicateSkipped} duplicates skipped from ${platform}${showEmployeeId !== "none" ? ` · commission ${$(commissionAmount)} to ${selectedShowEmployee?.name || "employee"}` : ""}`, user: user.name, page: "Show Import" });
+        setImportMsg(`Saved ${result.matchedAdded + result.historicalAdded} new sales. ${result.duplicateSkipped} duplicates skipped. ${result.historicalDuplicateNumbers || 0} reused/historical plant number(s) flagged for review. Syncing to Supabase in 500-row batches...`);
         setStep("done");
 
         /* ── AUTO-GENERATE STATE DOCS for CA/AZ/TX/LA shipments ── */
@@ -5894,7 +5931,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const applied_count = matched.filter(r => r.apply && !r.duplicate).length;
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="📦" title="Post-Show Import" sub="Upload Palmstreet/Whatnot sales. Old files can import as historical sales even without inventory matches." />
+        <SHdr icon="📦" title="Post-Show Import" sub="Upload Palmstreet/Whatnot sales. Old files can import as sold sale records even without inventory matches." />
 
         {step === "paste" && <div>
           <Card style={{ marginBottom: 14 }}>
@@ -5947,7 +5984,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 4 }}>Import Summary</div>
             <div style={{ fontSize: 28, fontWeight: 700, fontFamily: F.display }}>{$(totalRev)}</div>
             {showEmployeeId !== "none" && <div style={{ fontSize: 13, opacity: .95, marginTop: 4, color: "#fff" }}>👷 {selectedShowEmployee?.name || "Employee"} commission estimate: {$(matched.filter(r => r.apply && !r.duplicate).reduce((s,r)=>s+showNetAfterFees(r),0) * ((+showCommissionPercent||0)/100))} · {showCommissionPercent || 0}% after fees</div>}
-            <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>{matched.length} plant sales found · {matched_count} matched to inventory · {unmatched_count} historical unmatched · {duplicate_count} duplicates already imported · {skipped.length} skipped non-plant/bad rows</div>
+            <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>{matched.length} plant sales found · {matched_count} matched to inventory · {unmatched_count} created sold / needs review · {duplicate_count} duplicates already imported · {skipped.length} skipped non-plant/bad rows</div>
             {matched.length > 1000 && <div style={{ fontSize: 12, opacity: .9, marginTop: 6 }}>✅ Large file mode active: all {matched.length} rows will import/save. Preview only shows first 350 rows for speed.</div>}
           </div>
 
@@ -5956,11 +5993,11 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
               <Row between center style={{ marginBottom: 6 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.g900 }}>{r.title}</div>
-                  <div style={{ fontSize: 12, color: C.tx3 }}>Order {r.orderNo || "—"} · {r.state || "No state"} · {String(r.orderDate || "").slice(0, 10)}</div>
+                  <div style={{ fontSize: 12, color: C.tx3 }}>Order {r.orderNo || "—"}{r.shipmentId ? ` · Shipment ${r.shipmentId}` : ""} · {r.state || "No state"} · {String(r.orderDate || "").slice(0, 10)}</div>
                   {r.extractedPlantCode && <div style={{ fontSize: 11, color: C.blue, marginTop: 2 }}>Code found: {r.extractedPlantCode}</div>}
                   {r.duplicate && <div style={{ fontSize: 11, color: C.red, marginTop: 2 }}>🚫 Duplicate detected — this order row was already imported and will be skipped.</div>}
                   {!r.duplicate && r.matched && <div style={{ fontSize: 11, color: C.g600, marginTop: 2 }}>✅ Matched → {r.matched.name} ({r.matched.plantId})</div>}
-                  {!r.duplicate && !r.matched && <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>⚠️ No inventory match — will import as historical sale unless you select a plant.</div>}
+                  {!r.duplicate && !r.matched && <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>⚠️ No CURRENT in-stock inventory match — will create a sold record and flag for review. Old sold/dead records with the same number will not be overwritten.</div>}
                 </div>
                 <Row gap={8} center>
                   <span style={{ fontWeight: 700, color: C.g700, fontSize: 16 }}>{$(r.price)}</span>
@@ -5971,7 +6008,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
                 </Row>
               </Row>
               {!r.duplicate && !r.matched && <select onChange={e => setMatch(r._id, e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.bd}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, marginTop: 6 }}>
-                <option value="">— Leave unmatched as historical sale —</option>
+                <option value="">— Leave unmatched as sold sale record —</option>
                 {plants.filter(p => p.status === "In Stock").map(p => <option key={p.id} value={p.id}>{p.name} · {p.plantId} · {$(p.suggestedPrice)}</option>)}
               </select>}
             </Card>)}
@@ -5988,8 +6025,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         {step === "done" && <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
           <h2 style={{ fontFamily: F.display, color: C.g900, marginBottom: 8 }}>Sales Imported!</h2>
-          <p style={{ color: C.tx3, marginBottom: 6 }}>{lastImportResult ? `${lastImportResult.matchedAdded} inventory plants marked sold · ${lastImportResult.historicalAdded} historical sales saved` : `${matched_count} inventory plants marked sold · ${unmatched_count} historical sales saved`}</p>
+          <p style={{ color: C.tx3, marginBottom: 6 }}>{lastImportResult ? `${lastImportResult.matchedAdded} inventory plants marked sold · ${lastImportResult.historicalAdded} sold sale records saved` : `${matched_count} inventory plants marked sold · ${unmatched_count} sold sale records saved`}</p>
           {lastImportResult?.duplicateSkipped > 0 && <p style={{ color: C.red, marginBottom: 6, fontWeight: 700 }}>{lastImportResult.duplicateSkipped} duplicate rows skipped — already imported before.</p>}
+          {lastImportResult?.historicalDuplicateNumbers > 0 && <p style={{ color: C.amber, marginBottom: 6, fontWeight: 700 }}>{lastImportResult.historicalDuplicateNumbers} reused historical plant number(s) imported as new sold records and flagged for review.</p>}
           {lastImportResult?.commissionEmployee && <p style={{ color: C.g700, marginBottom: 6, fontWeight: 800 }}>👷 Commission created for {lastImportResult.commissionEmployee}: {$(lastImportResult.commissionAmount)}</p>}
           <p style={{ color: C.gold, fontWeight: 700, fontSize: 18, marginBottom: 22 }}>{$(totalRev)} in new selected sales reviewed</p>
           <Row gap={10} style={{ justifyContent: "center" }}>
@@ -6099,7 +6137,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         c.orders.push(p);
         c.total += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || +p.suggestedPrice || 0);
         c.plants++;
-        if (p.orderNumber || p.orderNo) c.uniqueOrders.add(p.orderNumber || p.orderNo);
+        const customerOrderKey = p.shipmentId ? `SHIPMENT-${p.shipmentId}` : (p.orderNumber || p.orderNo || p.whatnotOrderId || p.saleImportKey || `${p.rawProductVariant || p.name}-${p.soldDate || p.saleDate || p.dateAdded}`);
+        if (customerOrderKey) c.uniqueOrders.add(customerOrderKey);
         if (!c.notes && p.customerNotes) c.notes = p.customerNotes;
         if (p.customerStatus && p.customerStatus !== "green") c.status = p.customerStatus;
         const d = p.soldDate || p.saleDate || p.orderDate || p.dateAdded || "";
@@ -6124,12 +6163,13 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const stateMap = {};
       saleRecords.filter(p => p.customerState || p.buyerState || p.state || p.shippingState).forEach(p => {
         const s = p.customerState || p.buyerState || p.state || p.shippingState;
-        if (!stateMap[s]) stateMap[s] = { state: s, revenue: 0, orders: 0, customers: new Set() };
+        if (!stateMap[s]) stateMap[s] = { state: s, revenue: 0, orders: 0, orderKeys: new Set(), customers: new Set() };
         stateMap[s].revenue += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || 0);
-        stateMap[s].orders++;
+        const stateOrderKey = p.shipmentId ? `SHIPMENT-${p.shipmentId}` : (p.orderNumber || p.orderNo || p.whatnotOrderId || p.saleImportKey || `${p.rawProductVariant || p.name}-${p.soldDate || p.saleDate || p.dateAdded}`);
+        if (stateOrderKey) stateMap[s].orderKeys.add(stateOrderKey);
         stateMap[s].customers.add(getCustomerKey(p) || "?");
       });
-      const states = Object.values(stateMap).map(s => ({ ...s, customers: s.customers.size })).sort((a, b) => b.revenue - a.revenue);
+      const states = Object.values(stateMap).map(s => ({ ...s, orders: s.orderKeys?.size || s.orders || 0, customers: s.customers.size })).sort((a, b) => b.revenue - a.revenue);
       const maxRev = Math.max(...states.map(s => s.revenue), 1);
 
       const openCustomer = c => {
