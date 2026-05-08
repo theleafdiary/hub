@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Leaf Diary" />
   <meta name="theme-color" content="#174D2F" />
-  <title>Leaf Diary Business Hub — Streamlined + Whatnot Fixed</title>
+  <title>Leaf Diary Business Hub — Inventory Cost + Nursery Fixed</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -427,17 +427,6 @@
     };
 
     const uid = () => Math.random().toString(36).slice(2, 9);
-
-    /* Crash-safe data helpers — lets the app boot even after inventory/customers were wiped. */
-    const safeArray = (v) => Array.isArray(v) ? v : [];
-    const safeObject = (v) => (v && typeof v === "object" && !Array.isArray(v)) ? v : {};
-    const safeSettings = (v) => ({ ...DEFAULT_SETTINGS, ...safeObject(v) });
-    const safeUsers = (v) => Array.isArray(v) ? v : [];
-    const safeNurseries = (v) => migrateNurseries(Array.isArray(v) && v.length ? v : DEFAULT_NURSERIES);
-    const resetBrokenNavStorage = () => {
-      try { localStorage.setItem("leafDiaryLastPage", "today"); localStorage.setItem("leafDiaryNavHistory", "[]"); } catch (e) {}
-    };
-
     const supabaseUrl = 'https://yyklidmefiguzrbvrnmp.supabase.co';
     const supabaseKey = 'sb_publishable_8vyVQt8Ay3S8kJ4cI9U5YA_eB6l2CUu';
     const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
@@ -1572,6 +1561,17 @@
         return isNaN(d) ? today() : d.toISOString().split("T")[0];
       };
       const cleanHeader = v => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const COST_COLUMN_NAMES = ["Cost Per Item", "Cost", "cost", "Your Cost", "Item Cost", "Plant Cost", "My Cost", "Paid", "Paid Price", "Buy Price", "Purchase Price", "Wholesale", "Wholesale Cost", "COGS", "Unit Cost", "Cost Each", "Cost Per Plant"];
+      const PRICE_COLUMN_NAMES = ["Price", "Sell Price", "Sell Price:", "sell price:", "Selling Price", "List Price", "Suggested Price", "Retail Price", "Sale Price", "Whatnot Price", "Palmstreet Price", "Ask Price", "Live Price"];
+      const NURSERY_COLUMN_NAMES = ["Nursery", "nursery", "Nursery Name", "Supplier", "Supplier Name", "Vendor", "Vendor Name", "Grower", "Source", "Bought From", "Purchased From", "Where Bought", "Store", "Farm"];
+      const normalizeNurseryName = v => String(v || "").trim();
+      const resolveNurseryCode = (rawNursery, fallbackPrefix) => {
+        const rn = normalizeNurseryName(rawNursery);
+        if (!rn) return fallbackPrefix;
+        const clean = x => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const hit = (nurseries || []).find(n => clean(n.name) === clean(rn) || clean(n.code) === clean(rn));
+        return hit?.code || fallbackPrefix;
+      };
       const findCol = (row, names) => {
         const keys = Object.keys(row || {});
         const normalized = keys.reduce((a,k)=>{ a[cleanHeader(k)] = k; return a; }, {});
@@ -1631,12 +1631,16 @@
             const existingPlant = existingMap.get(plantNum);
             const alreadyExists = !!existingPlant;
             const name = toTC((rawTitle || explicitId).replace(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b\s*$/i, "").trim());
-            const cost = cleanMoney(valAt(arr, ["Cost Per Item", "Cost", "Your Cost", "Item Cost"], 1));
-            const suggestedPrice = cleanMoney(valAt(arr, ["Price", "Sell Price", "Sell Price:", "Suggested Price", "Retail Price"], 2));
+            const costRaw = valAt(arr, COST_COLUMN_NAMES, 1);
+            const priceRaw = valAt(arr, PRICE_COLUMN_NAMES, 2);
+            const rawNursery = normalizeNurseryName(valAt(arr, NURSERY_COLUMN_NAMES, 5));
+            const cost = cleanMoney(costRaw);
+            const suggestedPrice = cleanMoney(priceRaw);
             const prefix = ((plantNum.match(/^[A-Z]+/) || ["INV"])[0] || "INV").toUpperCase();
+            const nurseryCode = resolveNurseryCode(rawNursery, prefix);
             mapped.push({
               _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && String(p.plantId || p.plantCode || "").trim().toUpperCase() === plantNum),
-              nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPot(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
+              nurseryCode, nurseryName: rawNursery || ((nurseries || []).find(n => n.code === nurseryCode)?.name || nurseryCode), supplier: rawNursery || ((nurseries || []).find(n => n.code === nurseryCode)?.name || nurseryCode), purchaseNursery: rawNursery || ((nurseries || []).find(n => n.code === nurseryCode)?.name || nurseryCode), name: name || rawTitle || plantNum, botanicalName: "", potSize: normPot(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
               cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
               status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDate(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
               platform: "", rack: "", shelf: "", notes: "Imported current inventory; kept original plant number.", labelPrinted: true, addedBy: user.name, importedExistingInventory: true
@@ -1647,7 +1651,9 @@
           const updateCount = mapped.filter(r => r.existingInApp).length;
           const newCount = mapped.length - updateCount;
           const histDupCount = mapped.filter(r => r.duplicateHistoricalPlantNumber).length;
-          setBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. ${histDupCount ? histDupCount + " reused old sold/dead plant numbers and will be added as NEW current inventory." : ""} ${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
+          const missingCostCount = mapped.filter(r => !(+r.cost > 0)).length;
+          const uploadCostTotal = mapped.reduce((sum, r) => sum + (+r.cost || 0), 0);
+          setBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. Total cost detected: ${$(uploadCostTotal)}. ${missingCostCount ? missingCostCount + " row(s) are missing cost. " : ""}${histDupCount ? histDupCount + " reused old sold/dead plant numbers and will be added as NEW current inventory. " : ""}${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
         } catch (e) {
           setBulkMsg("Inventory upload failed: " + e.message);
         }
@@ -1715,9 +1721,14 @@
             </Row>
             {bulkMsg && <div style={{ marginTop: 10, fontSize: 12, color: bulkMsg.includes("failed") ? C.red : C.blue, fontWeight: 700 }}>{bulkMsg}</div>}
             {bulkRows.length > 0 && <div style={{ marginTop: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 8, marginBottom: 8 }}>
+                <KPI label="Rows Ready" value={bulkRows.length} sub="plants to import" color={C.g600} />
+                <KPI label="Cost Detected" value={$(bulkRows.reduce((s,r)=>s+(+r.cost||0),0))} sub={`${bulkRows.filter(r => !(+r.cost > 0)).length} missing cost`} color={bulkRows.some(r => !(+r.cost > 0)) ? C.amber : C.gold} />
+                <KPI label="Sell Value" value={$(bulkRows.reduce((s,r)=>s+(+r.suggestedPrice||0),0))} sub="uploaded price" color={C.blue} />
+              </div>
               <Tbl cols={[
-                { k: "plantId", l: "Plant #" }, { k: "name", l: "Plant" }, { k: "potSize", l: "Size" }, { k: "suggestedPrice", l: "Price", right: true }
-              ]} rows={bulkRows.slice(0, 8).map(r => ({ ...r, suggestedPrice: $(r.suggestedPrice) }))} />
+                { k: "plantId", l: "Plant #" }, { k: "name", l: "Plant" }, { k: "potSize", l: "Size" }, { k: "cost", l: "Cost", right: true }, { k: "suggestedPrice", l: "Price", right: true }, { k: "nurseryName", l: "Nursery" }
+              ]} rows={bulkRows.slice(0, 8).map(r => ({ ...r, cost: $(r.cost), suggestedPrice: $(r.suggestedPrice), nurseryName: r.nurseryName || r.nurseryCode || "—" }))} />
               {bulkRows.length > 8 && <div style={{ fontSize: 11, color: C.tx3, marginTop: 6 }}>Showing first 8 of {bulkRows.length} rows.</div>}
               {bulkSkipped.length > 0 && <div style={{ marginTop: 8, background: C.amberBg, border: `1px solid ${C.amber}40`, borderRadius: 8, padding: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.amber }}>Skipped rows</div>
@@ -2197,7 +2208,7 @@
             const prefix = ((plantNum.match(/^[A-Z]+/) || ["INV"])[0] || "INV").toUpperCase();
             mapped.push({
               _k: `${plantNum}-${excelRow}`, id: existingPlant?.id || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && String(p.plantId || p.plantCode || "").trim().toUpperCase() === plantNum),
-              nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPotInv(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
+              nurseryCode, nurseryName: rawNursery || ((nurseries || []).find(n => n.code === nurseryCode)?.name || nurseryCode), supplier: rawNursery || ((nurseries || []).find(n => n.code === nurseryCode)?.name || nurseryCode), purchaseNursery: rawNursery || ((nurseries || []).find(n => n.code === nurseryCode)?.name || nurseryCode), name: name || rawTitle || plantNum, botanicalName: "", potSize: normPotInv(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
               cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
               status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDateInv(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
               platform: "", rack: "", shelf: "", notes: "Imported current inventory; kept original plant number.", labelPrinted: true, addedBy: user.name, importedExistingInventory: true
@@ -2276,7 +2287,7 @@
       const exportMasterInventory = () => {
         const headers = ['Plant Code', 'Barcode Value', 'Barcode Type', 'Nursery Code', 'Nursery Name', 'Plant Name', 'Pot Size', 'Cost', 'Suggested Price', 'Status', 'Rack', 'Shelf', 'Date Added'];
         const rows = list.map(p => {
-          const nur = (nurseries || []).find(n => n.code === p.nurseryCode)?.name || p.nurseryCode;
+          const nur = p.nurseryName || p.purchaseNursery || p.supplier || (nurseries || []).find(n => n.code === p.nurseryCode)?.name || p.nurseryCode;
           return [p.plantCode || safePlantId(p), p.barcodeValue || safePlantId(p), p.barcodeType || 'CODE128', p.nurseryCode || '', nur || '', toTC(p.name), p.potSize || '', p.cost || '', p.suggestedPrice || '', p.status || '', p.rack || '', p.shelf || '', p.dateAdded || ''].map(csvCell).join(',');
         });
         downloadCSVFile(`master-inventory-${today()}.csv`, headers.map(csvCell).join(',') + '\n' + rows.join('\n'));
@@ -2374,7 +2385,7 @@
                   {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{$(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
                   <td style={{ padding: "8px 10px" }}><SBadge s={p.status} /></td>
                   <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 11, color: C.tx3 }}>{p.rack || "—"}</td>
-                  <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{p.nurseryCode}</td>
+                  <td style={{ padding: "8px 10px", fontSize: 10, color: C.tx3 }}><div style={{ fontWeight: 800, fontFamily: F.mono }}>{p.nurseryCode}</div>{(p.nurseryName || p.purchaseNursery || p.supplier) && <div>{p.nurseryName || p.purchaseNursery || p.supplier}</div>}</td>
                   <td style={{ padding: "8px 10px", color: C.tx3, fontSize: 11 }}>{p.dateAdded}</td>
                   <td style={{ padding: "8px 10px" }}><span style={{ fontSize: 11, fontWeight: alert60 || warn30 ? 700 : 400, color: alert60 ? C.red : warn30 ? C.amber : C.tx3 }}>{fDays(days)}</span></td>
                   <td style={{ padding: "8px 10px" }}><Btn sz="sm" v="ghost" onClick={e => { e.stopPropagation(); setDetail(p.id); }}>View</Btn></td>
@@ -6894,31 +6905,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       </div>;
     }
 
-    /* App crash guard — prevents one bad/empty dataset from taking down the whole app. */
-    class LeafDiaryErrorBoundary extends React.Component {
-      constructor(props) { super(props); this.state = { error: null }; }
-      static getDerivedStateFromError(error) { return { error }; }
-      componentDidCatch(error, info) { console.error("Leaf Diary render error", error, info); }
-      render() {
-        if (this.state.error) {
-          const msg = this.state.error?.message || String(this.state.error || "Unknown error");
-          return <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:F.body }}>
-            <Card style={{ maxWidth:520, textAlign:"center", borderTop:`5px solid ${C.red}` }}>
-              <div style={{ fontSize:42 }}>🛠️</div>
-              <h2 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0" }}>Leaf Diary startup repaired needed</h2>
-              <p style={{ color:C.tx3 }}>The app hit bad or missing data after the CRM reset. Use the repair button below, then refresh.</p>
-              <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}44`, borderRadius:10, padding:10, fontSize:12, marginBottom:12, textAlign:"left" }}>{msg}</div>
-              <Row center gap={8} wrap style={{ justifyContent:"center" }}>
-                <Btn onClick={() => { resetBrokenNavStorage(); window.location.reload(); }}>Repair Navigation + Refresh</Btn>
-                <Btn v="outline" onClick={() => window.location.reload()}>Refresh</Btn>
-              </Row>
-            </Card>
-          </div>;
-        }
-        return this.props.children;
-      }
-    }
-
     /* ══════════════════════════════════════════════════════════
        ROOT APP — Supabase cloud sync + localStorage backup
     ══════════════════════════════════════════════════════════ */
@@ -6936,19 +6922,19 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const [page, setPageRaw] = useState(() => { try { return localStorage.getItem("leafDiaryLastPage") || saved?.settings?.lastPage || "today"; } catch(e) { return "today"; } });
       const [navHistory, setNavHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("leafDiaryNavHistory") || "[]"); } catch(e) { return []; } });
       const [navDir, setNavDir] = useState("forward");
-      const [plants, setPlantsRaw] = useState(safeArray(saved?.plants));
-      const [expenses, setExpensesRaw] = useState(safeArray(saved?.expenses));
-      const [expenseReceipts, setExpenseReceiptsRaw] = useState(safeArray(saved?.expenseReceipts));
-      const [purchaseOrders, setPurchaseOrdersRaw] = useState(safeArray(saved?.purchaseOrders));
-      const [refunds, setRefundsRaw] = useState(safeArray(saved?.refunds));
-      const [bundles, setBundlesRaw] = useState(safeArray(saved?.bundles));
-      const [timecards, setTimecardsRaw] = useState(safeArray(saved?.timecards));
-      const [auditLog, setAuditLogRaw] = useState(safeArray(saved?.auditLog));
-      const [bills, setBillsRaw] = useState(safeArray(saved?.bills).length ? safeArray(saved?.bills) : DEFAULT_BILLS);
-      const [nurseries, setNurseriesRaw] = useState(safeNurseries(saved?.nurseries));
-      const [users, setUsersRaw] = useState(safeUsers(saved?.users).length ? safeUsers(saved?.users) : DEFAULT_USERS);
-      const [settings, setSettingsRaw] = useState(safeSettings(saved?.settings));
-      const [casdCerts, setCasdCertsRaw] = useState(mergeCasdCertLists(safeArray(saved?.casdCerts), loadCasdCertsFromLocalBackup()));
+      const [plants, setPlantsRaw] = useState(saved?.plants || []);
+      const [expenses, setExpensesRaw] = useState(saved?.expenses || []);
+      const [expenseReceipts, setExpenseReceiptsRaw] = useState(saved?.expenseReceipts || []);
+      const [purchaseOrders, setPurchaseOrdersRaw] = useState(saved?.purchaseOrders || []);
+      const [refunds, setRefundsRaw] = useState(saved?.refunds || []);
+      const [bundles, setBundlesRaw] = useState(saved?.bundles || []);
+      const [timecards, setTimecardsRaw] = useState(saved?.timecards || []);
+      const [auditLog, setAuditLogRaw] = useState(saved?.auditLog || []);
+      const [bills, setBillsRaw] = useState(saved?.bills || DEFAULT_BILLS);
+      const [nurseries, setNurseriesRaw] = useState(migrateNurseries(saved?.nurseries || DEFAULT_NURSERIES));
+      const [users, setUsersRaw] = useState(saved?.users || DEFAULT_USERS);
+      const [settings, setSettingsRaw] = useState({ ...DEFAULT_SETTINGS, ...(saved?.settings || {}) });
+      const [casdCerts, setCasdCertsRaw] = useState(mergeCasdCertLists(saved?.casdCerts || [], loadCasdCertsFromLocalBackup()));
       const [saveMsg, setSaveMsg] = useState("");
       const [cloudStatus, setCloudStatus] = useState("loading");
       const [cloudMsg, setCloudMsg] = useState("Connecting to Supabase cloud...");
@@ -6959,7 +6945,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       const cloudCollectionSetter = useCallback((table, rawSetter) => (updater) => {
         rawSetter(prev => {
-          const next = safeArray(applyUpdater(updater, prev));
+          const next = applyUpdater(updater, prev) || [];
           if (cloudReadyRef.current && !suppressCloudSaveRef.current) {
             const removed = missingIds(prev, next);
             setCloudStatus("syncing");
@@ -7167,9 +7153,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           if (Array.isArray(cloudRefunds) && cloudRefunds.length) setRefundsRaw(cloudRefunds);
           if (Array.isArray(cloudBundles) && cloudBundles.length) setBundlesRaw(cloudBundles);
           if (cloudTimecards.length) setTimecardsRaw(cloudTimecards);
-          if (Array.isArray(cloudUsers)) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
-          if (cloudSettings && typeof cloudSettings === "object" && !Array.isArray(cloudSettings)) setSettingsRaw(safeSettings(cloudSettings)); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
-          if (Array.isArray(cloudAudit)) setAuditLogRaw(cloudAudit);
+          if (Array.isArray(cloudUsers) && cloudUsers.length) setUsersRaw(cloudUsers); else if (!saved?.users || !Array.isArray(saved.users) || !saved.users.length) setUsersRaw(DEFAULT_USERS);
+          if (cloudSettings) setSettingsRaw({ ...DEFAULT_SETTINGS, ...cloudSettings }); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
+          if (cloudAudit) setAuditLogRaw(cloudAudit);
           const liveCasdCerts = window.__casdCertsSnapshot || [];
           const localCasdCerts = loadCasdCertsFromLocalBackup();
           const restoredCasdCerts = mergeCasdCertLists(
@@ -7305,12 +7291,12 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         addAudit({ action: `Viewed page: ${page}`, user: user.name, page: "Navigation", severity: "info" });
       }, [page, user?.id, addAudit]);
 
-      const billAlerts = bills.filter(b => { const d = Math.ceil((new Date(b.dueDate) - Date.now()) / 864e5); return d <= 7 && d >= 0 && b.status === "Unpaid"; }).length;
-      const inStockPlantCount = plants.filter(p => String(p.status || "").trim() === "In Stock").length;
+      const billAlerts = (Array.isArray(bills) ? bills : []).filter(b => { const d = Math.ceil((new Date(b.dueDate) - Date.now()) / 864e5); return d <= 7 && d >= 0 && b.status === "Unpaid"; }).length;
+      const inStockPlantCount = (Array.isArray(plants) ? plants : []).filter(p => String(p.status || "").trim() === "In Stock").length;
 
       if (session === undefined) return <div style={{ height: "100vh", background: C.bg }}></div>;
       if (!session) return <AuthScreen />;
-      if (cloudStatus === "loading" || !user) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16, padding: 22, textAlign: "center" }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div><div>Connecting to Leaf Diary Cloud...</div><button onClick={() => { resetBrokenNavStorage(); setUsersRaw([]); setCloudStatus("synced"); }} style={{ marginTop: 8, background: C.g700, color: "#fff", border: "none", borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Repair Startup</button><div style={{ maxWidth: 380, fontSize: 12, color: C.tx3 }}>Use Repair Startup only if the app stays on this screen after deleting data. It does not restore deleted inventory; it just lets the app open cleanly.</div></div>;
+      if (cloudStatus === "loading" || !user) return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16 }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div>Connecting to Leaf Diary Cloud...</div>;
       if (user?.blocked || user?.active === false) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, padding: 20 }}><Card style={{ maxWidth: 420, textAlign: "center" }}><div style={{ fontSize: 38 }}>🚫</div><h2 style={{ fontFamily: F.display, color: C.red, margin: "8px 0" }}>Access Disabled</h2><p style={{ color: C.tx3 }}>This user is disabled in Leaf Diary. Contact the owner to re-enable access.</p><Btn v="danger" onClick={handleLogout}>Log Out</Btn></Card></div>;
 
       const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit };
@@ -7392,7 +7378,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
     }
     const container = document.getElementById('root');
     const root = ReactDOM.createRoot(container);
-    root.render(React.createElement(LeafDiaryErrorBoundary, null, React.createElement(App)));
+    root.render(React.createElement(App));
   </script>
 </body>
 
