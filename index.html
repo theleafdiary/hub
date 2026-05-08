@@ -5352,6 +5352,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const [importMsg, setImportMsg] = useState("");
       const [duplicateInfo, setDuplicateInfo] = useState(null);
       const [lastImportResult, setLastImportResult] = useState(null);
+      const [importAudit, setImportAudit] = useState(null);
       const fileRef = useRef();
       const commissionEmployees = (users || []).filter(u => u.role !== "owner" && u.active !== false);
       const defaultShowCommissionPercent = +(settings?.defaultShowCommissionPercent ?? 1) || 1;
@@ -5377,6 +5378,67 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           if (v !== undefined && v !== null && String(v).trim() !== "") return v;
         }
         return "";
+      };
+      const detectShowPlatform = (rows = [], fallback = platform) => {
+        const sample = rows.find(r => r && Object.keys(r).length) || {};
+        const keys = Object.keys(sample).map(normKey).join("|");
+        if (keys.includes("buyerusername") && (keys.includes("productname") || keys.includes("originalitemprice") || keys.includes("shipmentid"))) return "Whatnot";
+        if (keys.includes("palmstreetusername") || keys.includes("itemtitle") || keys.includes("orderdatepdt") || keys.includes("zippostalcode")) return "Palmstreet";
+        return fallback || "Palmstreet";
+      };
+      const sourceRowFingerprint = (sale) => [
+        sale.platform || platform,
+        sale.orderNo || sale.orderNum || "NO_ORDER",
+        sale.shipmentId || "NO_SHIPMENT",
+        sale.productVariant || sale.title || "NO_PRODUCT",
+        sale.price || sale.productAmount || sale.orderAmount || 0,
+        sale.customerUsername || sale.customerName || "NO_CUSTOMER",
+        sale.saleDateTime || sale.saleDate || sale.orderDate || "NO_DATE"
+      ].map(compactKey).join("|");
+      const buildShowImportAuditCsv = (rows = matched, audit = importAudit) => {
+        const header = ["Import Status","Match Status","Platform","Source File","Source Row","Order No","Shipment ID","Plant Code Found","Inventory Plant ID","Inventory Plant Name","Product / Item Title","SKU","Quantity","Sale Price","Net After Fees","Commission","Customer Username","Customer Name","State","Zip","Sale Date","Duplicate","Skip Reason","Needs Review"];
+        const body = (rows || []).map((r, idx) => [
+          r.apply && !r.duplicate ? "selected" : r.duplicate ? "duplicate_skipped" : "not_selected",
+          r.matched ? "matched_inventory" : "unmatched_needs_review",
+          r.platform || platform,
+          fileName || "pasted import",
+          r.sourceRowNumber || idx + 2,
+          r.orderNo || r.orderNum || "",
+          r.shipmentId || "",
+          r.extractedPlantCode || "",
+          r.matched?.plantId || "",
+          r.matched?.name || "",
+          r.productVariant || r.title || "",
+          r.sku || "",
+          r.quantity || 1,
+          r.price || 0,
+          showNetAfterFees(r),
+          showCommissionForSale(r),
+          r.customerUsername || "",
+          r.customerName || r.recipientName || "",
+          r.state || r.customerState || "",
+          r.customerZip || r.zip || "",
+          r.saleDate || r.orderDate || "",
+          r.duplicate ? "yes" : "no",
+          r.duplicateReason || r.skipReason || "",
+          !r.matched && !r.duplicate ? "yes" : "no"
+        ].map(csvCell).join(','));
+        const summary = audit ? [
+          ["SUMMARY"],
+          ["Platform", audit.platform],
+          ["File", audit.fileName],
+          ["Raw Rows", audit.rawRows],
+          ["Valid Plant Sales", audit.validSales],
+          ["Matched Inventory", audit.matchedInventory],
+          ["Unmatched Needs Review", audit.unmatched],
+          ["Duplicate Skipped", audit.duplicates],
+          ["Skipped Bad/Non-Plant", audit.skipped],
+          ["Gross Sales", audit.grossSales],
+          ["Net After Fees", audit.netAfterFees],
+          ["Commission", audit.commissionAmount || 0],
+          [],
+        ].map(r => r.map(csvCell).join(',')) : [];
+        return [...summary, header.map(csvCell).join(','), ...body].join('\n');
       };
       const parseDateTimeValue = v => {
         if (!v) return "";
@@ -5481,7 +5543,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       };
       const compactKey = v => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
       const saleImportKey = sale => [
-        platform,
+        sale.platform || platform,
         sale.orderNo || sale.orderNum || "NO_ORDER",
         sale.productVariant || sale.title || "NO_PRODUCT",
         sale.price || sale.productAmount || sale.orderAmount || sale.sellerIncome || 0,
@@ -5575,39 +5637,57 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           return obj;
         });
       };
-      const normalizeSalesRows = rows => {
+      const normalizeSalesRows = (rows, forcedPlatform = null) => {
+        const importPlatform = forcedPlatform || detectShowPlatform(rows, platform);
         const good = [], bad = [];
         (rows || []).forEach((r, idx) => {
+          const sourceRowNumber = idx + 2;
           const productVariant = cleanText(rowVal(r, ["product_name", "Product Name", "Product Variants", "Product Variant", "Item Title", "Item", "Title", "Product", "Listing Title", "Name"]));
-          if (isNonPlantVariant(productVariant)) { bad.push({ row: idx + 1, productVariant, reason: "non-plant row" }); return; }
+          const orderStatus = cleanText(rowVal(r, ["cancelled_or_failed", "Cancelled or Failed", "Order Status", "Status"]));
+          const isCancelled = /^(true|yes|y|1)$/i.test(orderStatus) || /cancel|failed|void|refunded/i.test(orderStatus);
+          if (isCancelled) { bad.push({ row: sourceRowNumber, productVariant, reason: "cancelled/failed/refunded row" }); return; }
+          if (isNonPlantVariant(productVariant)) { bad.push({ row: sourceRowNumber, productVariant, reason: "non-plant row" }); return; }
           const orderNo = cleanText(rowVal(r, ["order_id", "order_numeric_id", "Order No", "Order number", "Order Number", "Order ID", "Order"]));
           const saleDateRaw = rowVal(r, ["placed_at", "Order Created Time(EST)", "Order Date(PDT)", "Order Date", "Date", "Created Time"]);
           const saleDateTime = parseDateTimeValue(saleDateRaw);
           const saleDate = parseDateValue(saleDateRaw);
+          const quantity = Math.max(1, parseInt(String(rowVal(r, ["product_quantity", "Quantity", "Qty", "Item Quantity"]) || "1").replace(/[^0-9]/g, ""), 10) || 1);
           const productAmount = money(rowVal(r, ["original_item_price", "Product Amount", "Product ", "Item Price", "Price", "Subtotal"]));
           const orderAmount = money(rowVal(r, ["total_cost", "Order Amount", "Order Total", "Total"]));
-          const sellerIncome = money(rowVal(r, ["Seller Income", "Payout", "Net"]));
+          const sellerIncome = money(rowVal(r, ["Seller Income", "Payout", "Net", "Seller Net"]));
           const price = productAmount || orderAmount || sellerIncome;
-          if (!productVariant || !price) { bad.push({ row: idx + 1, productVariant, reason: "missing product or price" }); return; }
-          const extractedPlantCode = extractPlantCode(productVariant);
+          if (!productVariant || price <= 0) { bad.push({ row: sourceRowNumber, productVariant, reason: "missing product or positive sale price" }); return; }
+          const extractedPlantCode = extractPlantCode(productVariant) || extractPlantCode(rowVal(r, ["sku", "SKU"]));
           const whatnotAddr = parseWhatnotAddress(rowVal(r, ["shipping_address", "Shipping Address"]));
           const sale = {
             _id: uid(),
+            platform: importPlatform,
+            sourceRowNumber,
             orderNo,
-            orderStatus: cleanText(rowVal(r, ["Order Status", "Status"])),
+            orderStatus,
             saleDate,
             saleDateTime,
             orderCreatedAt: saleDateTime,
             buyerState: cleanText(rowVal(r, ["Buyer State", "State"])),
             orderAmount,
             productAmount,
+            quantity,
             shippingFee: money(rowVal(r, ["Shipping Fee Amount", "Shipping Fee", "Shipping"])),
             trackingCode: cleanText(rowVal(r, ["tracking_code", "Tracking", "Tracking Number"])),
             shipmentId: cleanText(rowVal(r, ["shipment_id", "Shipment ID"])),
             shipmentManifest: cleanText(rowVal(r, ["shipment_manifest", "Shipment Manifest"])),
+            shipmentMethod: cleanText(rowVal(r, ["Shipment Method", "Shipping Method"])),
+            labelOnly: cleanText(rowVal(r, ["label_only", "Label Only"])),
+            bundled: cleanText(rowVal(r, ["bundled", "Bundled"])),
+            sku: cleanText(rowVal(r, ["sku", "SKU"])),
+            productDescription: cleanText(rowVal(r, ["product_description", "Product Description", "Description"])),
+            itemCurrency: cleanText(rowVal(r, ["Item Currency", "Currency"])),
+            sellerOrderNote: cleanText(rowVal(r, ["Seller Order Note"])),
+            buyerOrderNote: cleanText(rowVal(r, ["Buyer Order Note"])),
             costPerItem: money(rowVal(r, ["cost_per_item", "Cost Per Item", "Cost"])),
             paymentFee: money(rowVal(r, ["Payment Fee", "Stripe and BNPL Fee", "Stripe Fee"])),
             palmstreetFee: money(rowVal(r, ["Palmstreet Selling Fee", "PlantStory Selling Fee", "Selling Fee"])),
+            platformFee: money(rowVal(r, ["Platform Fee", "Whatnot Fee"])),
             sellingFeeDeductions: money(rowVal(r, ["Selling Fee Deductions"])),
             taxAmount: money(rowVal(r, ["Tax Amount", "Sales Tax Collected", "Tax"])),
             sellerIncome,
@@ -5639,8 +5719,10 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             orderDateTime: saleDateTime,
             shipping: sale.shippingFee
           };
+          enrichedSale.sourceFingerprint = sourceRowFingerprint(enrichedSale);
           const duplicate = isDuplicateSale(enrichedSale);
           const match = findInventoryMatch(enrichedSale);
+          const canApply = !duplicate && (importMode !== "exact" || !!match);
           good.push({
             ...enrichedSale,
             matched: match,
@@ -5649,10 +5731,30 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             duplicateReason: duplicate ? "Already imported from a previous Palmstreet/Whatnot upload" : "",
             saleImportKey: saleImportKey(enrichedSale),
             saleLegacyKey: saleLegacyKey(enrichedSale),
-            apply: !duplicate,
-            historicalImport: !match
+            apply: canApply,
+            historicalImport: !match,
+            needsReview: !match
           });
         });
+        const grossSales = good.reduce((sum, r) => sum + money(r.price), 0);
+        const audit = {
+          id: uid(),
+          platform: importPlatform,
+          fileName: fileName || "pasted import",
+          importedPreviewAt: new Date().toISOString(),
+          rawRows: (rows || []).length,
+          validSales: good.length,
+          matchedInventory: good.filter(r => r.matched && !r.duplicate).length,
+          unmatched: good.filter(r => !r.matched && !r.duplicate).length,
+          duplicates: good.filter(r => r.duplicate).length,
+          skipped: bad.length,
+          grossSales,
+          netAfterFees: good.filter(r => !r.duplicate).reduce((sum, r) => sum + showNetAfterFees(r), 0),
+          commissionAmount: showEmployeeId !== "none" ? +(good.filter(r => r.apply && !r.duplicate).reduce((s,r)=>s+showNetAfterFees(r),0) * ((+showCommissionPercent||0)/100)).toFixed(2) : 0,
+          skippedRows: bad.slice(0, 100)
+        };
+        setImportAudit(audit);
+        if (importPlatform !== platform) setPlatform(importPlatform);
         return { good, bad };
       };
 
@@ -5674,13 +5776,18 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
               const wb = window.XLSX.read(new Uint8Array(e.target.result), { type: "array", cellDates: true });
               const sheetName = wb.SheetNames.includes("Order Details") ? "Order Details" : wb.SheetNames[0];
               const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "", raw: false });
-              const { good, bad } = normalizeSalesRows(rows);
+              const detected = detectShowPlatform(rows, platform);
+              setPlatform(detected);
+              const { good, bad } = normalizeSalesRows(rows, detected);
               setParsed(rows); setMatched(good); setSkipped(bad); setStep("review");
             } else {
               const text = e.target.result;
               setRaw(text);
-              const { good, bad } = parseCSV(text);
-              setParsed(good); setMatched(good); setSkipped(bad); setStep("review");
+              const csvRows = parseCSVRows(text);
+              const detected = detectShowPlatform(csvRows, platform);
+              setPlatform(detected);
+              const { good, bad } = normalizeSalesRows(csvRows, detected);
+              setParsed(csvRows); setMatched(good); setSkipped(bad); setStep("review");
             }
           } catch (err) {
             setImportMsg("Import failed: " + (err.message || String(err)));
@@ -5692,9 +5799,12 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const runMatch = () => {
         if (!raw.trim()) return;
         setDuplicateInfo(null); setLastImportResult(null);
-        const { good, bad } = parseCSV(raw);
+        const csvRows = parseCSVRows(raw);
+        const detected = detectShowPlatform(csvRows, platform);
+        setPlatform(detected);
+        const { good, bad } = normalizeSalesRows(csvRows, detected);
         setMatched(good);
-        setParsed(good);
+        setParsed(csvRows);
         setSkipped(bad);
         setStep("review");
       };
@@ -5726,7 +5836,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           shippingCost: sale.shippingFee || sale.shipping || 0,
           trackingNumber: sale.trackingCode || "",
           shipmentId: sale.shipmentId || "",
-          platform,
+          platform: sale.platform || platform,
           status: "Sold",
           soldDate: sale.saleDate || sale.orderDate || today(),
           soldAt: sale.saleDateTime || sale.orderDateTime || sale.orderCreatedAt || "",
@@ -5774,6 +5884,14 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           reviewReason: "No current in-stock inventory match found. If this plant number existed in old history, a new sold record was created instead of overwriting history.",
           duplicateHistoricalPlantNumber: (plants || []).some(p => !isCurrentInventoryRecord(p) && (plantCodeMatches(p.plantId, code) || plantCodeMatches(p.plantCode, code))),
           rawProductVariant: sale.productVariant || sale.title || "",
+          quantitySold: sale.quantity || 1,
+          sku: sale.sku || "",
+          shipmentMethod: sale.shipmentMethod || "",
+          itemCurrency: sale.itemCurrency || "",
+          sellerOrderNote: sale.sellerOrderNote || "",
+          buyerOrderNote: sale.buyerOrderNote || "",
+          rawImportJson: JSON.stringify(sale.raw || {}),
+          sourceRowNumber: sale.sourceRowNumber || "",
           showEmployeeId: showEmployeeId !== "none" ? showEmployeeId : "",
           showEmployeeName: selectedShowEmployee?.name || "",
           showCommissionPercent: showEmployeeId !== "none" ? (+showCommissionPercent || 0) : 0,
@@ -5826,6 +5944,11 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
         const matchedSales = selected.filter(r => r.matched);
         const unmatchedSales = selected.filter(r => !r.matched);
+        const activeImportPlatform = selected[0]?.platform || matched[0]?.platform || platform;
+        if (importMode === "exact" && unmatchedSales.length) {
+          setImportMsg(`Import stopped: Exact Inventory Match Only is on, but ${unmatchedSales.length} sale row(s) are not matched to current inventory. Match them manually or switch to Historical Import - Save Unmatched.`);
+          return;
+        }
 
         let soldInventory = plants.map(p => {
           const duplicateSale = duplicates.find(s => existingPlantMatchesSale(p, s));
@@ -5844,7 +5967,15 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             ...p,
             status: "Sold",
             salePrice: sale.price,
-            platform,
+            platform: sale.platform || platform,
+            quantitySold: sale.quantity || 1,
+            sku: sale.sku || p.sku || "",
+            shipmentMethod: sale.shipmentMethod || "",
+            itemCurrency: sale.itemCurrency || "",
+            sellerOrderNote: sale.sellerOrderNote || "",
+            buyerOrderNote: sale.buyerOrderNote || "",
+            rawImportJson: JSON.stringify(sale.raw || {}),
+            sourceRowNumber: sale.sourceRowNumber || "",
             shippingCost: sale.shippingFee || sale.shipping || 0,
             cost: (+p.cost || 0) || (+sale.costPerItem || 0),
             trackingNumber: sale.trackingCode || p.trackingNumber || "",
@@ -5867,6 +5998,14 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             historicalImport: false,
             matchStatus: "matched",
             rawProductVariant: sale.productVariant || sale.title || "",
+            quantitySold: sale.quantity || 1,
+            sku: sale.sku || p.sku || "",
+            shipmentMethod: sale.shipmentMethod || "",
+            itemCurrency: sale.itemCurrency || "",
+            sellerOrderNote: sale.sellerOrderNote || "",
+            buyerOrderNote: sale.buyerOrderNote || "",
+            rawImportJson: JSON.stringify(sale.raw || {}),
+            sourceRowNumber: sale.sourceRowNumber || "",
             showEmployeeId: showEmployeeId !== "none" ? showEmployeeId : "",
             showEmployeeName: selectedShowEmployee?.name || "",
             showCommissionPercent: showEmployeeId !== "none" ? (+showCommissionPercent || 0) : 0,
@@ -5884,7 +6023,13 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           historicalAdded: historicalRows.length,
           historicalDuplicateNumbers,
           duplicateSkipped: duplicates.length,
-          duplicateOrders: duplicates.slice(0, 25).map(d => d.orderNo || d.orderNum || d.productVariant || d.title || "Duplicate row")
+          duplicateOrders: duplicates.slice(0, 25).map(d => d.orderNo || d.orderNum || d.productVariant || d.title || "Duplicate row"),
+          expectedSelected: selected.length,
+          importedSaved: matchedSales.length + unmatchedSales.length,
+          grossSales: selected.reduce((sum, sale) => sum + money(sale.price || sale.productAmount || sale.orderAmount), 0),
+          netAfterFees: selected.reduce((sum, sale) => sum + showNetAfterFees(sale), 0),
+          platform: activeImportPlatform,
+          fileName: fileName || "pasted sales import"
         };
 
         const commissionableSales = [...matchedSales, ...unmatchedSales];
@@ -5902,7 +6047,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
                 id: showCommissionId,
                 employeeId: showEmployeeId,
                 employeeName: selectedShowEmployee?.name || "Employee",
-                platform,
+                platform: activeImportPlatform,
                 sourceFileName: fileName || "pasted sales import",
                 importedAt: new Date().toISOString(),
                 saleDate: commissionableSales.map(s => s.saleDate || s.orderDate || "").filter(Boolean).sort()[0] || today(),
@@ -5919,10 +6064,34 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           }));
         }
 
+        const finalAudit = {
+          ...(importAudit || {}),
+          id: uid(),
+          platform: activeImportPlatform,
+          fileName: fileName || "pasted sales import",
+          importedAt: new Date().toISOString(),
+          importedBy: user.name,
+          rawRows: importAudit?.rawRows ?? parsed.length,
+          validSales: matched.length,
+          selectedSales: selected.length,
+          matchedInventory: matchedSales.length,
+          unmatched: unmatchedSales.length,
+          duplicateSkipped: duplicates.length,
+          skippedRows: skipped.length,
+          grossSales: result.grossSales,
+          netAfterFees: result.netAfterFees,
+          commissionEmployee: selectedShowEmployee?.name || "",
+          commissionAmount,
+          auditCsv: buildShowImportAuditCsv(selected, importAudit)
+        };
+        if (setSettings) {
+          setSettings(prev => ({ ...prev, showImportAudits: [finalAudit, ...(prev.showImportAudits || [])].slice(0, 50) }));
+        }
         setPlants([...soldInventory, ...historicalRows]);
-        setLastImportResult({ ...result, commissionAmount, commissionEmployee: selectedShowEmployee?.name || "" });
+        setLastImportResult({ ...result, commissionAmount, commissionEmployee: selectedShowEmployee?.name || "", audit: finalAudit });
+        setImportAudit(finalAudit);
         setDuplicateInfo(result.duplicateSkipped ? result : null);
-        addAudit({ action: `Sales import: ${result.matchedAdded} matched inventory + ${result.historicalAdded} created sold / needs review + ${result.duplicateSkipped} duplicates skipped from ${platform}${showEmployeeId !== "none" ? ` · commission ${$(commissionAmount)} to ${selectedShowEmployee?.name || "employee"}` : ""}`, user: user.name, page: "Show Import" });
+        addAudit({ action: `Sales import: ${result.matchedAdded} matched inventory + ${result.historicalAdded} created sold / needs review + ${result.duplicateSkipped} duplicates skipped from ${activeImportPlatform}${showEmployeeId !== "none" ? ` · commission ${$(commissionAmount)} to ${selectedShowEmployee?.name || "employee"}` : ""}`, user: user.name, page: "Show Import" });
         setImportMsg(`Saved ${result.matchedAdded + result.historicalAdded} new sales. ${result.duplicateSkipped} duplicates skipped. ${result.historicalDuplicateNumbers || 0} reused/historical plant number(s) flagged for review. Syncing to Supabase in 500-row batches...`);
         setStep("done");
 
@@ -6040,6 +6209,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             <div style={{ fontSize: 28, fontWeight: 700, fontFamily: F.display }}>{$(totalRev)}</div>
             {showEmployeeId !== "none" && <div style={{ fontSize: 13, opacity: .95, marginTop: 4, color: "#fff" }}>👷 {selectedShowEmployee?.name || "Employee"} commission estimate: {$(matched.filter(r => r.apply && !r.duplicate).reduce((s,r)=>s+showNetAfterFees(r),0) * ((+showCommissionPercent||0)/100))} · {showCommissionPercent || 0}% after fees</div>}
             <div style={{ fontSize: 13, opacity: .85, marginTop: 4 }}>{matched.length} plant sales found · {matched_count} matched to inventory · {unmatched_count} created sold / needs review · {duplicate_count} duplicates already imported · {skipped.length} skipped non-plant/bad rows</div>
+            {importAudit && <div style={{ fontSize: 12, opacity: .92, marginTop: 6 }}>Audit lock: {importAudit.platform} · raw rows {importAudit.rawRows} · valid sales {importAudit.validSales} · gross {$(importAudit.grossSales)} · net {$(importAudit.netAfterFees)}</div>}
+            {importMode === "exact" && unmatched_count > 0 && <div style={{ fontSize: 12, opacity: .98, marginTop: 6, color: "#FFD580" }}>⚠️ Exact mode is on: unmatched rows are NOT selected. Match them manually or switch to Historical Import to save them as needs-review sale records.</div>}
             {matched.length > 1000 && <div style={{ fontSize: 12, opacity: .9, marginTop: 6 }}>✅ Large file mode active: all {matched.length} rows will import/save. Preview only shows first 350 rows for speed.</div>}
           </div>
 
@@ -6072,7 +6243,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
           <Row gap={8} wrap>
             <Btn onClick={applyImport} disabled={applied_count === 0}>✅ Import {applied_count} Sales</Btn>
-            <Btn v="outline" onClick={() => downloadCSVFile(`leaf-diary-import-preview-${today()}.csv`, ["Status","Order No","Plant Code","Product","Price","State","Date"].join(',') + '\n' + matched.map(r => [r.matched ? "matched" : "historical", r.orderNo || "", r.extractedPlantCode || "", r.title || "", r.price || 0, r.state || "", r.orderDate || ""].map(csvCell).join(',')).join('\n'))}>📥 Export Preview</Btn>
+            <Btn v="outline" onClick={() => downloadCSVFile(`leaf-diary-show-import-audit-${today()}.csv`, buildShowImportAuditCsv(matched, importAudit))}>📥 Export Full Audit</Btn>
             <Btn v="ghost" onClick={() => setStep("paste")}>Back</Btn>
           </Row>
         </div>}
@@ -6086,7 +6257,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {lastImportResult?.commissionEmployee && <p style={{ color: C.g700, marginBottom: 6, fontWeight: 800 }}>👷 Commission created for {lastImportResult.commissionEmployee}: {$(lastImportResult.commissionAmount)}</p>}
           <p style={{ color: C.gold, fontWeight: 700, fontSize: 18, marginBottom: 22 }}>{$(totalRev)} in new selected sales reviewed</p>
           <Row gap={10} style={{ justifyContent: "center" }}>
-            <Btn onClick={() => { setRaw(""); setMatched([]); setSkipped([]); setStep("paste"); }}>Import Another File</Btn>
+            <Btn v="outline" onClick={() => downloadCSVFile(`leaf-diary-show-import-audit-${today()}.csv`, buildShowImportAuditCsv(matched, importAudit))}>📥 Download Import Audit</Btn>
+            <Btn onClick={() => { setRaw(""); setMatched([]); setSkipped([]); setImportAudit(null); setStep("paste"); }}>Import Another File</Btn>
           </Row>
         </div>}
       </div>;
