@@ -89,6 +89,8 @@
     const GENERA = ["Aglaonema", "Alocasia", "Anthurium", "Begonia", "Caladium", "Epipremnum", "Hoya", "Monstera", "Peperomia", "Philodendron", "Scindapsus", "Syngonium", "Tillandsia", "Other"];
     const BILL_CATS = ["Platform Fee", "Software", "Rent", "Utilities", "Internet", "Phone", "Insurance", "Loan", "Supplier", "Payroll", "Taxes", "Other"];
     const BILL_FREQ = ["One-Time", "Weekly", "Monthly", "Quarterly", "Annually"];
+    const RECEIPT_CATS = ["Gas & Mileage", "Soil & Amendments", "Pots & Containers", "Packaging Supplies", "Labels & Printer Supplies", "Shipping Supplies", "Heat/Cold Packs", "Plant Care Supplies", "Tools & Equipment", "Shelving & Storage", "Cleaning Supplies", "Office Supplies", "Software & Website", "Advertising & Marketing", "Vehicle & Trailer", "Rent & Utilities", "Payroll Related", "Bank Fees", "Taxes & Licenses", "Repairs & Maintenance", "Other"];
+    const RECEIPT_PURPOSES = ["Plant supply purchase", "Shipping supplies", "Nursery run gas", "Live show supplies", "Office/admin expense", "Website/software expense", "Trailer/business vehicle expense", "Packaging materials", "Employee supplies", "Other business expense"];
     const PERM_LABELS = {
       canUploadInvoice: "Upload invoice photos", canAddPlants: "Add plants manually",
       canPrintLabels: "Print & export labels", canMarkSold: "Mark plants as sold",
@@ -283,7 +285,7 @@
         { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "showbuilder", icon: "🎪", l: "Show Builder" },
         { id: "sellthru", icon: "📊", l: "Sell-Through" }, { id: "showimport", icon: "📦", l: "Post-Show" },
         { id: "customers", icon: "👥", l: "Customers" }, { id: "nursery", icon: "🏪", l: "Nurseries" },
-        { id: "bills", icon: "📅", l: "Bills" }, { id: "expense", icon: "💳", l: "Expenses" },
+        { id: "bills", icon: "📅", l: "Bills" }, { id: "expense", icon: "💳", l: "Expenses" }, { id: "receipts", icon: "🧾", l: "Receipt Scanner" },
         { id: "timecard", icon: "⏱️", l: "Timecard" }, { id: "payroll", icon: "👥", l: "Payroll" },
         { id: "intel", icon: "💡", l: "Buy Intel" }, { id: "reports", icon: "📈", l: "Reports" },
         { id: "tax", icon: "🧾", l: "Tax Center" }, { id: "audit", icon: "🔍", l: "Audit Log" },
@@ -292,7 +294,7 @@
         { id: "casd", icon: "📜", l: "State Docs" },
       ];
       const mgrTabs = ownerTabs.filter(t => !["payroll", "tax", "audit", "admin", "bills"].includes(t.id));
-      const empTabs = [{ id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "upload", icon: "📸", l: "Upload Invoice" }, { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }];
+      const empTabs = [{ id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "receipts", icon: "🧾", l: "Receipts" }, { id: "upload", icon: "📸", l: "Upload Invoice" }, { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }];
       const tabs = user.role === "owner" ? ownerTabs : user.role === "manager" ? mgrTabs : empTabs;
       const [menuOpen, setMenuOpen] = useState(false);
       const defaultOwnerFooterTabs = ["dash", "inv", "upload", "reports", "bills"];
@@ -2140,6 +2142,189 @@
       </div>;
     }
 
+
+    /* ══════════════════════════════════════════════════════════
+       AI EXPENSE RECEIPT SCANNER — non-plant business receipts
+    ══════════════════════════════════════════════════════════ */
+    function ReceiptScanner({ receipts = [], setReceipts, expenses, setExpenses, addAudit, user }) {
+      const isOwner = user?.role === "owner" || user?.role === "manager";
+      const fRef = useRef();
+      const [step, setStep] = useState("upload");
+      const [img, setImg] = useState("");
+      const [fileName, setFileName] = useState("");
+      const [busy, setBusy] = useState(false);
+      const [msg, setMsg] = useState("");
+      const [filter, setFilter] = useState({ q: "", cat: "All", status: "All", from: "", to: "" });
+      const blank = { vendor_name: "", vendor_address: "", vendor_phone: "", receipt_date: today(), receipt_time: "", subtotal: "", tax: "", total: "", payment_method: "Cash", card_last4: "", receipt_number: "", main_category: "Other", business_purpose: "Other business expense", notes: "", deductible: true, review_status: "Needs Review", ai_confidence: 0.72, items: [{ item_name: "Business supplies", quantity: 1, unit_price: "", line_total: "", category: "Other", deductible: true, notes: "" }] };
+      const [form, setForm] = useState(blank);
+      const upd = f => v => setForm(p => ({ ...p, [f]: v }));
+      const updItem = (i, f, v) => setForm(p => ({ ...p, items: (p.items || []).map((it, idx) => idx === i ? { ...it, [f]: v } : it) }));
+      const addItem = () => setForm(p => ({ ...p, items: [...(p.items || []), { item_name: "", quantity: 1, unit_price: "", line_total: "", category: p.main_category || "Other", deductible: true, notes: "" }] }));
+      const delItem = i => setForm(p => ({ ...p, items: (p.items || []).filter((_, idx) => idx !== i) }));
+      const cleanMoney = v => +(String(v || "").replace(/[^0-9.\-]/g, "")) || 0;
+      const slug = s => String(s || "receipt").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 45) || "receipt";
+      const guessCategory = vendor => {
+        const v = String(vendor || "").toLowerCase();
+        if (/shell|racetrac|wawa|chevron|exxon|circle k|bp|mobil|sunoco/.test(v)) return "Gas & Mileage";
+        if (/home depot|lowe|ace|tractor|harbor freight/.test(v)) return "Tools & Equipment";
+        if (/uline|ups|usps|pirate ship|fedex/.test(v)) return "Shipping Supplies";
+        if (/shopify|canva|openai|cloudflare|google|meta/.test(v)) return "Software & Website";
+        if (/walmart|amazon|target|dollar/.test(v)) return "Packaging Supplies";
+        return "Other";
+      };
+      const loadFile = file => {
+        if (!file) return;
+        setFileName(file.name || "receipt.jpg");
+        const r = new FileReader();
+        r.onload = e => { setImg(e.target.result); setStep("preview"); setMsg(""); };
+        r.readAsDataURL(file);
+      };
+      const runScan = async () => {
+        if (!img) return;
+        setBusy(true); setMsg("Scanning receipt...");
+        try {
+          const b64 = String(img).split(",")[1] || img;
+          let data = null;
+          try {
+            const res = await supabase.functions.invoke('process-receipt', { body: { imageBase64: b64, fileName } });
+            if (res.error) throw res.error;
+            data = res.data;
+          } catch (aiErr) {
+            console.warn("process-receipt function unavailable; using editable manual review fallback", aiErr);
+          }
+          const guessedVendor = data?.vendor_name || fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").replace(/\b\w/g, m => m.toUpperCase());
+          const cat = data?.main_category || guessCategory(guessedVendor);
+          const total = cleanMoney(data?.total || "");
+          setForm({
+            ...blank,
+            vendor_name: guessedVendor,
+            vendor_address: data?.vendor_address || "",
+            vendor_phone: data?.vendor_phone || "",
+            receipt_date: data?.receipt_date || today(),
+            receipt_time: data?.receipt_time || "",
+            subtotal: data?.subtotal || (total ? (total / 1.07).toFixed(2) : ""),
+            tax: data?.tax || (total ? (total - total / 1.07).toFixed(2) : ""),
+            total: data?.total || "",
+            payment_method: data?.payment_method || "Cash",
+            card_last4: data?.card_last4 || "",
+            receipt_number: data?.receipt_number || "",
+            main_category: cat,
+            business_purpose: data?.business_purpose || (cat === "Gas & Mileage" ? "Nursery run gas" : cat.includes("Shipping") ? "Shipping supplies" : "Plant supply purchase"),
+            notes: data?.notes || "AI scanned receipt. Review before saving.",
+            deductible: data?.deductible !== false,
+            review_status: data?.confidence && data.confidence >= .85 ? "Reviewed" : "Needs Review",
+            ai_confidence: data?.confidence || .72,
+            items: Array.isArray(data?.items) && data.items.length ? data.items.map(it => ({ item_name: it.item_name || "", quantity: it.quantity || 1, unit_price: it.unit_price || "", line_total: it.line_total || "", category: it.category || cat, deductible: it.deductible !== false, notes: it.notes || "" })) : [{ item_name: "Business expense", quantity: 1, unit_price: total || "", line_total: total || "", category: cat, deductible: true, notes: "" }]
+          });
+          setStep("review"); setMsg("Review the scan, fix anything wrong, then save.");
+        } catch (e) {
+          setMsg("Scan failed: " + (e?.message || e));
+        } finally { setBusy(false); }
+      };
+      const uploadImage = async (id, rec) => {
+        if (!img || !String(img).startsWith("data:")) return { url: "", path: "", fallbackData: img || "" };
+        try {
+          const [meta, b64] = String(img).split(",");
+          const mime = (meta.match(/data:(.*?);/) || [])[1] || "image/jpeg";
+          const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+          const y = (rec.receipt_date || today()).slice(0, 4), m = (rec.receipt_date || today()).slice(5, 7);
+          const path = `receipts/${y}/${m}/${slug(rec.vendor_name)}-${rec.receipt_date || today()}-${String(rec.total || "0").replace(/[^0-9]/g, "")}-${id}.jpg`;
+          const { error } = await supabase.storage.from("expense-receipts").upload(path, bytes, { contentType: mime, upsert: true });
+          if (error) throw error;
+          const { data } = supabase.storage.from("expense-receipts").getPublicUrl(path);
+          return { url: data?.publicUrl || "", path, fallbackData: "" };
+        } catch (e) {
+          console.warn("Receipt cloud image upload failed. Keeping local image backup in receipt record.", e);
+          return { url: "", path: "", fallbackData: img || "" };
+        }
+      };
+      const possibleDupes = receipts.filter(r => r.vendor_name && form.vendor_name && String(r.vendor_name).toLowerCase() === String(form.vendor_name).toLowerCase() && String(r.receipt_date) === String(form.receipt_date) && Math.abs((+r.total || 0) - cleanMoney(form.total)) < .01);
+      const saveReceipt = async (addAnother=false, force=false) => {
+        if (!form.vendor_name || !cleanMoney(form.total)) { setMsg("Vendor and total are required."); return; }
+        if (possibleDupes.length && !force) { setMsg("Possible duplicate found. Review the warning and click Save Anyway if this is a new receipt."); return; }
+        setBusy(true); setMsg("Saving receipt and expense...");
+        const id = uid();
+        const base = { ...form, id, created_at: new Date().toISOString(), uploaded_by: user?.name || "Unknown", total: cleanMoney(form.total), subtotal: cleanMoney(form.subtotal), tax: cleanMoney(form.tax), ai_scanned: true, source: "Receipt Scanner", synced_to_expenses: true };
+        const stored = await uploadImage(id, base);
+        const rec = { ...base, receipt_image_url: stored.url, receipt_image_path: stored.path, receipt_image_data: stored.fallbackData, items: (base.items || []).map((it, idx) => ({ ...it, id: it.id || `${id}-item-${idx+1}`, receipt_id: id, line_total: cleanMoney(it.line_total), unit_price: cleanMoney(it.unit_price), quantity: +it.quantity || 1 })) };
+        const exp = { id: "exp-" + id, vendor: rec.vendor_name, date: rec.receipt_date || today(), amount: rec.total, category: rec.main_category || "Other", payMethod: rec.payment_method || "Cash", cardLast4: rec.card_last4 || "", notes: `${rec.business_purpose || "Receipt scan"}${rec.notes ? " — " + rec.notes : ""}`, taxDed: !!rec.deductible, receiptId: id, receiptImageUrl: rec.receipt_image_url, receiptImagePath: rec.receipt_image_path, aiScanned: true, addedBy: user?.name || "Unknown" };
+        setReceipts(p => [rec, ...(p || [])]);
+        setExpenses(p => [...(p || []), exp]);
+        addAudit && addAudit({ action: `Receipt scanned: ${rec.vendor_name} ${$(rec.total)}`, user: user?.name || "Unknown", page: "Receipt Scanner" });
+        setBusy(false); setMsg("✅ Receipt saved, synced to Expenses, and backed up.");
+        if (addAnother) { setImg(""); setFileName(""); setForm(blank); setStep("upload"); } else setStep("archive");
+      };
+      const exportCSV = () => {
+        const headers = ["Date","Vendor","Category","Purpose","Total","Tax","Payment","Card Last4","Deductible","Review Status","Receipt #","Uploaded By","Image URL"];
+        const rows = receipts.map(r => [r.receipt_date,r.vendor_name,r.main_category,r.business_purpose,r.total,r.tax,r.payment_method,r.card_last4,r.deductible ? "Yes" : "No",r.review_status,r.receipt_number,r.uploaded_by,r.receipt_image_url].map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(","));
+        const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv" })), download: `leaf-diary-expense-receipts-${today()}.csv` });
+        a.click();
+      };
+      const inRange = r => (!filter.from || r.receipt_date >= filter.from) && (!filter.to || r.receipt_date <= filter.to);
+      const shown = receipts.filter(r => inRange(r) && (filter.cat === "All" || r.main_category === filter.cat) && (filter.status === "All" || r.review_status === filter.status) && (!filter.q || JSON.stringify(r).toLowerCase().includes(filter.q.toLowerCase())));
+      const month = today().slice(0,7);
+      const monthReceipts = receipts.filter(r => String(r.receipt_date || "").slice(0,7) === month);
+      const totalMonth = monthReceipts.reduce((s,r)=>s+(+r.total||0),0);
+      const needsReview = receipts.filter(r => r.review_status !== "Reviewed" || !r.receipt_image_url && !r.receipt_image_data).length;
+      const byVendor = [...new Set(receipts.map(r => r.vendor_name).filter(Boolean))].map(v => ({ v, t: receipts.filter(r=>r.vendor_name===v).reduce((s,r)=>s+(+r.total||0),0) })).sort((a,b)=>b.t-a.t).slice(0,5);
+      return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
+        <SHdr icon="🧾" title="Expense Receipt Scanner" sub="Scan gas, soil, pots, boxes, tape, labels, tools, software, and store supply receipts"
+          right={<Row gap={8} wrap><Btn onClick={() => { setStep("upload"); setMsg(""); }}>📸 Scan Receipt</Btn><Btn v="soft" onClick={() => setStep("archive")}>Archive</Btn><Btn v="ghost" onClick={exportCSV}>Export CSV</Btn></Row>} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
+          <KPI label="Receipts This Month" value={monthReceipts.length} color={C.blue} />
+          <KPI label="Expense Total" value={$(totalMonth)} color={C.red} />
+          <KPI label="Needs Review" value={needsReview} color={needsReview ? C.amber : C.g600} />
+          <KPI label="Receipt Archive" value={receipts.length} color={C.g600} />
+        </div>
+        {msg && <div style={{ background: msg.startsWith("✅") ? C.g50 : C.amberBg, border: `1px solid ${msg.startsWith("✅") ? C.g200 : C.amber}55`, borderRadius: 10, padding: "10px 14px", color: msg.startsWith("✅") ? C.g800 : C.amber, fontSize: 13, fontWeight: 700, marginBottom: 14 }}>{msg}</div>}
+        {step === "upload" && <Card style={{ maxWidth: 760 }}>
+          <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20, marginBottom: 8 }}>Take or Upload Receipt Photo</div>
+          <p style={{ color: C.tx3, fontSize: 13, lineHeight: 1.6 }}>Use this for non-plant expenses only: gas, store supplies, soil, pots, labels, shipping supplies, tools, software, and business purchases.</p>
+          <input ref={fRef} type="file" accept="image/*,.pdf" capture="environment" style={{ display: "none" }} onChange={e => loadFile(e.target.files[0])} />
+          <div onClick={() => fRef.current.click()} style={{ border: `2px dashed ${C.g300}`, borderRadius: 14, padding: "42px 20px", textAlign: "center", background: C.g50, cursor: "pointer" }}>
+            <div style={{ fontSize: 42, marginBottom: 8 }}>📸</div>
+            <div style={{ fontWeight: 800, color: C.g800 }}>Tap to take photo or upload receipt</div>
+            <div style={{ fontSize: 12, color: C.tx3, marginTop: 4 }}>The original image is saved with the expense record.</div>
+          </div>
+        </Card>}
+        {step === "preview" && <Card style={{ maxWidth: 900 }}>
+          <Row between center wrap style={{ marginBottom: 14 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20 }}>Receipt Preview</div><div style={{ fontSize: 12, color: C.tx3 }}>{fileName}</div></div><Row gap={8}><Btn onClick={runScan} disabled={busy}>{busy ? "Scanning..." : "🤖 AI Scan Receipt"}</Btn><Btn v="ghost" onClick={() => setStep("upload")}>Change Photo</Btn></Row></Row>
+          {img && <img src={img} style={{ maxWidth: "100%", maxHeight: 520, borderRadius: 12, border: `1px solid ${C.bd}` }} />}
+        </Card>}
+        {step === "review" && <Card style={{ maxWidth: 1080 }}>
+          <Row between center wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20 }}>Receipt Review</div><div style={{ fontSize: 12, color: C.tx3 }}>Fix anything wrong before saving. Confidence: {Math.round((+form.ai_confidence || 0) * 100)}%</div></div><Tag text={form.review_status} color={form.review_status === "Reviewed" ? C.g600 : C.amber} /></Row>
+          {possibleDupes.length > 0 && <div style={{ background: C.redBg, color: C.red, border: `1px solid ${C.red}55`, borderRadius: 10, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>⚠️ Possible duplicate receipt found for same vendor, date, and amount.</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginBottom: 10 }}>
+            <Inp label="Vendor *" value={form.vendor_name} onChange={upd("vendor_name")} />
+            <Inp label="Date" type="date" value={form.receipt_date} onChange={upd("receipt_date")} />
+            <Inp label="Time" value={form.receipt_time} onChange={upd("receipt_time")} />
+            <Inp label="Subtotal" type="number" value={form.subtotal} onChange={upd("subtotal")} />
+            <Inp label="Tax" type="number" value={form.tax} onChange={upd("tax")} />
+            <Inp label="Total *" type="number" value={form.total} onChange={upd("total")} />
+            <Sel label="Category" value={form.main_category} onChange={upd("main_category")} options={RECEIPT_CATS} />
+            <Sel label="Payment" value={form.payment_method} onChange={upd("payment_method")} options={PAY_METHS} />
+            <Inp label="Card Last 4" value={form.card_last4} onChange={upd("card_last4")} />
+            <Inp label="Receipt #" value={form.receipt_number} onChange={upd("receipt_number")} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10, marginBottom: 10 }}><Inp label="Vendor Address" value={form.vendor_address} onChange={upd("vendor_address")} /><Inp label="Vendor Phone" value={form.vendor_phone} onChange={upd("vendor_phone")} /><Sel label="Business Purpose" value={form.business_purpose} onChange={upd("business_purpose")} options={RECEIPT_PURPOSES} /></div>
+          <Inp label="Notes" value={form.notes} onChange={upd("notes")} style={{ marginBottom: 10 }} />
+          <Row gap={8} wrap style={{ marginBottom: 12 }}>{RECEIPT_PURPOSES.slice(0,8).map(p => <Btn key={p} sz="sm" v={form.business_purpose === p ? "fill" : "soft"} onClick={() => upd("business_purpose")(p)}>{p}</Btn>)}</Row>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14 }}><input type="checkbox" checked={!!form.deductible} onChange={e => upd("deductible")(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.g700 }} /> Tax deductible business expense</label>
+          <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 10 }}>Item Lines</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>{(form.items || []).map((it, i) => <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr .7fr .8fr .8fr 1.2fr auto", gap: 7, alignItems: "end", background: C.cardAlt, padding: 10, borderRadius: 10 }}><Inp label={i===0?"Item":""} value={it.item_name} onChange={v => updItem(i,"item_name",v)} /><Inp label={i===0?"Qty":""} type="number" value={it.quantity} onChange={v => updItem(i,"quantity",v)} /><Inp label={i===0?"Unit":""} type="number" value={it.unit_price} onChange={v => updItem(i,"unit_price",v)} /><Inp label={i===0?"Line Total":""} type="number" value={it.line_total} onChange={v => updItem(i,"line_total",v)} /><Sel label={i===0?"Category":""} value={it.category} onChange={v => updItem(i,"category",v)} options={RECEIPT_CATS} /><Btn sz="sm" v="ghost" onClick={() => delItem(i)}>✕</Btn></div>)}</div>
+          <Row gap={8} wrap><Btn v="soft" onClick={addItem}>+ Add Item</Btn><Btn onClick={() => saveReceipt(false, false)} disabled={busy}>{busy ? "Saving..." : "Save Expense"}</Btn><Btn v="fill" onClick={() => saveReceipt(true, false)} disabled={busy}>Save & Add Another</Btn>{possibleDupes.length > 0 && <Btn v="danger" onClick={() => saveReceipt(false, true)} disabled={busy}>Save Anyway</Btn>}<Btn v="ghost" onClick={() => setStep("preview")}>Rescan</Btn><Btn v="ghost" onClick={() => upd("deductible")(false)}>Mark Personal / Do Not Deduct</Btn></Row>
+        </Card>}
+        {step === "archive" && <div>
+          <Card style={{ marginBottom: 14 }}><Row between center wrap><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 18 }}>Tax Receipt Vault</div><div style={{ fontSize: 12, color: C.tx3 }}>Search, filter, export, and view all scanned business receipts.</div></div><Btn v="ghost" onClick={() => window.print()}>Print / PDF</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 12 }}><Inp label="Search" value={filter.q} onChange={v=>setFilter(p=>({...p,q:v}))} /><Inp label="From" type="date" value={filter.from} onChange={v=>setFilter(p=>({...p,from:v}))} /><Inp label="To" type="date" value={filter.to} onChange={v=>setFilter(p=>({...p,to:v}))} /><Sel label="Category" value={filter.cat} onChange={v=>setFilter(p=>({...p,cat:v}))} options={["All",...RECEIPT_CATS]} /><Sel label="Status" value={filter.status} onChange={v=>setFilter(p=>({...p,status:v}))} options={["All","Needs Review","Reviewed"]} /></div></Card>
+          {byVendor.length > 0 && <Card style={{ marginBottom: 14 }}><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 10 }}>Top Vendors by Spend</div><BarLine data={byVendor} lk="v" vk="t" fmtV={$} /></Card>}
+          <Tbl cols={[{k:"date",l:"Date"},{k:"vendor",l:"Vendor"},{k:"cat",l:"Category"},{k:"total",l:"Total",right:true},{k:"pay",l:"Payment"},{k:"status",l:"Status"},{k:"img",l:"Receipt"}]}
+            rows={shown.map(r => ({ date: r.receipt_date || "—", vendor: <b>{r.vendor_name}</b>, cat: <Tag text={r.main_category || "Other"} color={C.gold} sm />, total: <b style={{ color: C.red }}>{$(r.total)}</b>, pay: `${r.payment_method || ""}${r.card_last4 ? " ···" + r.card_last4 : ""}`, status: <Tag text={r.review_status || "Needs Review"} color={(r.review_status === "Reviewed") ? C.g600 : C.amber} sm />, img: r.receipt_image_url ? <a href={r.receipt_image_url} target="_blank">View</a> : r.receipt_image_data ? <button onClick={() => { const w=window.open(); w.document.write(`<img src="${r.receipt_image_data}" style="max-width:100%">`); }}>View</button> : "Missing" }))}
+            empty="No scanned receipts yet" />
+        </div>}
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"]{grid-template-columns:1fr 1fr!important;} div[style*="grid-template-columns: 2fr .7fr .8fr .8fr 1.2fr auto"]{grid-template-columns:1fr!important;}}`}</style>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        TIMECARD
     ══════════════════════════════════════════════════════════ */
@@ -2683,13 +2868,13 @@
         { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "history", icon: "📋", l: "Past Invoices" }, { id: "labels", icon: "🏷️", l: "Labels" },
         { id: "showbuilder", icon: "🎪", l: "Show Builder" }, { id: "sellthru", icon: "📊", l: "Sell-Through" }, { id: "showimport", icon: "📦", l: "Post-Show" },
         { id: "customers", icon: "👥", l: "Customers" }, { id: "nursery", icon: "🏪", l: "Nurseries" }, { id: "bills", icon: "📅", l: "Bills" },
-        { id: "expense", icon: "💳", l: "Expenses" }, { id: "timecard", icon: "⏱️", l: "Timecard" }, { id: "payroll", icon: "👥", l: "Payroll" },
+        { id: "expense", icon: "💳", l: "Expenses" }, { id: "receipts", icon: "🧾", l: "Receipt Scanner" }, { id: "timecard", icon: "⏱️", l: "Timecard" }, { id: "payroll", icon: "👥", l: "Payroll" },
         { id: "intel", icon: "💡", l: "Buy Intel" }, { id: "reports", icon: "📈", l: "Reports Pro" }, { id: "tax", icon: "🧾", l: "Tax Center" },
         { id: "audit", icon: "🔍", l: "Audit Log" }, { id: "admin", icon: "⚙️", l: "Admin" }, { id: "cleanup", icon: "🧹", l: "Data Cleanup" }, { id: "casd", icon: "📜", l: "State Docs" }
       ];
       const EMP_FOOTER_OPTIONS = [
         { id: "emp_dash", icon: "🏠", l: "My Dashboard" }, { id: "inv", icon: "🌿", l: "Inventory / Plants" }, { id: "upload", icon: "📸", l: "Upload Invoice" },
-        { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }
+        { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "receipts", icon: "🧾", l: "Receipts" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "timecard", icon: "⏱️", l: "My Timecard" }
       ];
       const getFooterSelection = key => {
         const fallback = key === "employeeFooterTabs" ? DEFAULT_SETTINGS.employeeFooterTabs : DEFAULT_SETTINGS.footerTabs;
@@ -4857,6 +5042,7 @@
       const [page, setPage] = useState("dash");
       const [plants, setPlantsRaw] = useState(saved?.plants || []);
       const [expenses, setExpensesRaw] = useState(saved?.expenses || []);
+      const [expenseReceipts, setExpenseReceiptsRaw] = useState(saved?.expenseReceipts || []);
       const [timecards, setTimecardsRaw] = useState(saved?.timecards || []);
       const [auditLog, setAuditLogRaw] = useState(saved?.auditLog || []);
       const [bills, setBillsRaw] = useState(saved?.bills || DEFAULT_BILLS);
@@ -4908,6 +5094,7 @@
 
       const setPlants = cloudCollectionSetter("plants", setPlantsRaw);
       const setExpenses = cloudCollectionSetter("expenses", setExpensesRaw);
+      const setExpenseReceipts = cloudStateSetter("expenseReceipts", setExpenseReceiptsRaw);
       const setTimecards = cloudCollectionSetter("timecards", setTimecardsRaw);
       const setBills = cloudCollectionSetter("bills", setBillsRaw);
       const setNurseries = cloudCollectionSetter("nurseries", setNurseriesRaw);
@@ -4979,8 +5166,8 @@
 
       /* Always keep a local backup on this device too */
       useEffect(() => {
-        saveLS({ plants, expenses, timecards, auditLog, bills, nurseries, users, settings, casdCerts });
-      }, [plants, expenses, timecards, auditLog, bills, nurseries, users, settings, casdCerts]);
+        saveLS({ plants, expenses, expenseReceipts, timecards, auditLog, bills, nurseries, users, settings, casdCerts });
+      }, [plants, expenses, expenseReceipts, timecards, auditLog, bills, nurseries, users, settings, casdCerts]);
 
       /* Load fonts */
       useEffect(() => {
@@ -4993,11 +5180,12 @@
       const loadFromCloud = useCallback(async ({ silent = false } = {}) => {
         if (!silent) { setCloudStatus("loading"); setCloudMsg("Loading Supabase cloud data..."); }
         try {
-          const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudTimecards, cloudUsers, cloudSettings, cloudAudit, cloudInventoryReset, cloudCasdCerts, cloudCasdState] = await Promise.all([
+          const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudExpenseReceipts, cloudTimecards, cloudUsers, cloudSettings, cloudAudit, cloudInventoryReset, cloudCasdCerts, cloudCasdState] = await Promise.all([
             cloudFetchRows("plants"),
             cloudFetchRows("bills"),
             cloudFetchRows("nurseries"),
             cloudFetchRows("expenses"),
+            cloudFetchState("expenseReceipts").catch(e => { console.warn("expenseReceipts app_state load failed", e); return []; }),
             cloudFetchRows("timecards"),
             cloudFetchState("users"),
             cloudFetchState("settings"),
@@ -5014,6 +5202,7 @@
           if (cloudBills.length) setBillsRaw(cloudBills); else if (!saved?.bills) setBillsRaw(DEFAULT_BILLS);
           if (cloudNurseries.length) setNurseriesRaw(migrateNurseries(cloudNurseries)); else if (!saved?.nurseries) setNurseriesRaw(DEFAULT_NURSERIES);
           if (cloudExpenses.length) setExpensesRaw(cloudExpenses);
+          if (Array.isArray(cloudExpenseReceipts) && cloudExpenseReceipts.length) setExpenseReceiptsRaw(cloudExpenseReceipts);
           if (cloudTimecards.length) setTimecardsRaw(cloudTimecards);
           if (cloudUsers) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
           if (cloudSettings) setSettingsRaw({ ...DEFAULT_SETTINGS, ...cloudSettings }); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
@@ -5039,6 +5228,7 @@
           if (!cloudBills.length && saved?.bills?.length) await cloudUpsertRows("bills", saved.bills);
           if (!cloudNurseries.length && saved?.nurseries?.length) await cloudUpsertRows("nurseries", saved.nurseries);
           if (!cloudExpenses.length && saved?.expenses?.length) await cloudUpsertRows("expenses", saved.expenses);
+          if ((!Array.isArray(cloudExpenseReceipts) || !cloudExpenseReceipts.length) && saved?.expenseReceipts?.length) await cloudUpsertState("expenseReceipts", saved.expenseReceipts);
           if (!cloudTimecards.length && saved?.timecards?.length) await cloudUpsertRows("timecards", saved.timecards);
           if (!cloudUsers && saved?.users) await cloudUpsertState("users", saved.users);
           if (!cloudSettings && saved?.settings) await cloudUpsertState("settings", saved.settings);
@@ -5065,7 +5255,7 @@
 
       /* Manual backup — exports all data as JSON file */
       const exportBackup = () => {
-        const data = { plants, expenses, timecards, bills, nurseries, users, settings, auditLog, casdCerts, exportDate: new Date().toISOString() };
+        const data = { plants, expenses, expenseReceipts, timecards, bills, nurseries, users, settings, auditLog, casdCerts, exportDate: new Date().toISOString() };
         const a = Object.assign(document.createElement("a"), {
           href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })),
           download: `leafdiary-backup-${today()}.json`
@@ -5085,6 +5275,7 @@
             suppressCloudSaveRef.current = true;
             if (d.plants) setPlantsRaw(d.plants);
             if (d.expenses) setExpensesRaw(d.expenses);
+            if (d.expenseReceipts) setExpenseReceiptsRaw(d.expenseReceipts);
             if (d.timecards) setTimecardsRaw(d.timecards);
             if (d.bills) setBillsRaw(d.bills);
             if (d.nurseries) setNurseriesRaw(d.nurseries);
@@ -5098,6 +5289,7 @@
             await Promise.all([
               d.plants ? cloudUpsertRows("plants", d.plants) : null,
               d.expenses ? cloudUpsertRows("expenses", d.expenses) : null,
+              d.expenseReceipts ? cloudUpsertState("expenseReceipts", d.expenseReceipts) : null,
               d.timecards ? cloudUpsertRows("timecards", d.timecards) : null,
               d.bills ? cloudUpsertRows("bills", d.bills) : null,
               d.nurseries ? cloudUpsertRows("nurseries", d.nurseries) : null,
@@ -5127,7 +5319,7 @@
       if (!session) return <AuthScreen />;
       if (cloudStatus === "loading" || !user) return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16 }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div>Connecting to Leaf Diary Cloud...</div>;
 
-      const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, timecards, setTimecards, bills, setBills, user, addAudit };
+      const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit };
       const cloudDot = cloudStatus === "synced" ? C.g400 : cloudStatus === "syncing" || cloudStatus === "loading" ? C.gold : C.amber;
       const cloudLabel = cloudStatus === "synced" ? "☁️ Supabase cloud synced" : cloudStatus === "syncing" ? "🔄 Saving to Supabase..." : cloudStatus === "loading" ? "🔄 Loading cloud..." : `⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
 
@@ -5167,6 +5359,7 @@
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
           {page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
+          {page === "receipts" && <ReceiptScanner receipts={expenseReceipts} setReceipts={setExpenseReceipts} expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
           {page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} />}
           {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} />}
           {page === "intel" && CAN.seeReports(user.role) && <BuyIntel plants={plants} settings={settings} />}
