@@ -785,6 +785,9 @@
       const [dashPreset, setDashPreset] = useState("month");
       const [customStart, setCustomStart] = useState(today());
       const [customEnd, setCustomEnd] = useState(today());
+      const [inventoryPreset, setInventoryPreset] = useState("all");
+      const [inventoryCustomStart, setInventoryCustomStart] = useState(today());
+      const [inventoryCustomEnd, setInventoryCustomEnd] = useState(today());
       const range = getDashDateRange(dashPreset, customStart, customEnd);
       const dateChip = dashPreset === "all" ? "All Time" : range.label;
 
@@ -809,6 +812,12 @@
       const payrollCost = timecardsInRange.reduce((s, t) => s + (+t.totalPay || 0), 0);
       const netProfit = trueGross - totalExp;
       const stockVal = inStock.reduce((s, p) => s + (+p.suggestedPrice || 0), 0);
+      const currentInventoryCost = inStock.reduce((s, p) => s + (+p.cost || 0), 0);
+      const currentInventoryPotentialProfit = stockVal - currentInventoryCost;
+      const inventoryRange = getDashDateRange(inventoryPreset, inventoryCustomStart, inventoryCustomEnd);
+      const inventoryFiltered = inventoryPreset === "all" ? inStock : inStock.filter(p => inDashRange(p, inventoryRange, ["dateAdded", "createdAt", "invoiceDate", "purchaseDate"]));
+      const inventoryFilteredCost = inventoryFiltered.reduce((s, p) => s + (+p.cost || 0), 0);
+      const inventoryFilteredSellValue = inventoryFiltered.reduce((s, p) => s + (+p.suggestedPrice || 0), 0);
       const lostVal = dead.reduce((s, p) => s + (+p.cost || 0), 0);
       const avgOrder = sold.length ? soldRev / sold.length : 0;
       const avgProfit = sold.length ? trueGross / sold.length : 0;
@@ -849,6 +858,30 @@
             <Inp label="Start Date" type="date" value={customStart} onChange={setCustomStart} />
             <Inp label="End Date" type="date" value={customEnd} onChange={setCustomEnd} />
           </Row>}
+        </Card>
+
+        <Card style={{ marginBottom: 14, borderLeft: `5px solid ${C.gold}`, background: "#fffdf5" }}>
+          <Row between wrap center gap={10} style={{ marginBottom: 12 }}>
+            <div>
+              <div style={{ fontFamily: F.display, fontSize: 18, fontWeight: 700, color: C.g900 }}>💰 Current Inventory Cost</div>
+              <div style={{ fontSize: 12, color: C.tx3, marginTop: 2 }}>Owner view: money currently tied up in plants that are still In Stock. Use the range below to see current inventory bought during a period.</div>
+            </div>
+            <Row gap={7} wrap center>
+              {[
+                ["week", "Bought This Week"], ["month", "Bought This Month"], ["year", "Bought This Year"], ["all", "All Current Stock"], ["custom", "Custom"]
+              ].map(([v, l]) => <button key={v} onClick={() => setInventoryPreset(v)} style={{ padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${inventoryPreset === v ? C.gold : C.bd}`, background: inventoryPreset === v ? C.gold : C.card, color: inventoryPreset === v ? "#fff" : C.tx2, fontFamily: F.body, fontSize: 11, fontWeight: 800, cursor: "pointer" }}>{l}</button>)}
+            </Row>
+          </Row>
+          {inventoryPreset === "custom" && <Row gap={10} wrap style={{ marginBottom: 12 }}>
+            <Inp label="Inventory Start Date" type="date" value={inventoryCustomStart} onChange={setInventoryCustomStart} />
+            <Inp label="Inventory End Date" type="date" value={inventoryCustomEnd} onChange={setInventoryCustomEnd} />
+          </Row>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+            <KPI label="All In-Stock Cost" value={$(currentInventoryCost)} sub={`${inStock.length} plants currently in stock`} color={C.gold} />
+            <KPI label="All In-Stock Sell Value" value={$(stockVal)} sub="Suggested sale value" color={C.g600} />
+            <KPI label="Potential Profit" value={$(currentInventoryPotentialProfit)} sub="Sell value minus cost" color={currentInventoryPotentialProfit >= 0 ? C.g700 : C.red} />
+            <KPI label={inventoryPreset === "all" ? "Filtered Cost" : "Bought In Range Cost"} value={$(inventoryFilteredCost)} sub={`${inventoryFiltered.length} current plants · ${$(inventoryFilteredSellValue)} sell value`} color={C.blue} />
+          </div>
         </Card>
 
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 10, marginBottom: 10 }}>
@@ -4898,6 +4931,12 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             const today2 = new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"numeric"});
             const newCerts = [];
             for (const ship of shipments) {
+              const existingCertsForShipment = [...(window.__casdCertsSnapshot || []), ...newCerts].filter(c => {
+                const sameKey = c.shipmentKey && ship.shipmentKey && c.shipmentKey === ship.shipmentKey;
+                const sameLegacy = !c.shipmentKey && !ship.shipmentId && c.destination === ship.state && String(c.consigneeName||"").toLowerCase() === String(ship.consignee.name||"").toLowerCase() && String(c.consigneeAddress||"").toLowerCase().includes(String(ship.consignee.address1||"").toLowerCase());
+                return sameKey || sameLegacy;
+              });
+              if (existingCertsForShipment.length) continue;
               const certNumber = reserveCasdNumber([...(window.__casdCertsSnapshot||[]), ...newCerts]);
               const pdfBytes = await fillCasdPdf({ certNumber, date: today2, destination: ship.state, consignee: ship.consignee, plants: ship.plants });
               const docPrefix = ["TX","LA"].includes(ship.state) ? "TX-LA-FDACS-08270" : "CA-AZ-CASD";
@@ -4908,6 +4947,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
                 consigneeName: ship.consignee.name,
                 consigneeAddress: [ship.consignee.address1, ship.consignee.address2].filter(Boolean).join(", "),
                 consigneePhone: ship.consignee.phone||"",
+                shipmentKey: ship.shipmentKey || ship.key || "", shipmentId: ship.shipmentId || "",
                 plants: ship.plants, plantCount: ship.plants.length,
                 pdfFilename: filename, ...cloudPdf,
                 createdAt: new Date().toISOString(), createdBy: user.name,
@@ -5554,32 +5594,52 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       return merged;
     }
 
-    /* Group sales by order then by state, merge plants per shipment */
+    /* Group sales by actual shipment then by state, merge plants per package.
+       Whatnot can have many order_id values inside one bundled shipment_id, so
+       shipment_id must win. This prevents duplicate certificates for one box. */
     function buildCasdShipments(sales) {
-      const byOrder = {};
+      const byShipment = {};
+      const clean = v => String(v || "").trim();
+      const norm = v => clean(v).toLowerCase().replace(/[^a-z0-9]+/g, "");
       (sales||[]).forEach(sale => {
-        const state = (sale.customerState||sale.buyerState||sale.state||"").toUpperCase().trim();
+        const state = clean(sale.customerState||sale.buyerState||sale.state||"").toUpperCase();
         if (!CASD_STATES.includes(state)) return;
-        const key = (sale.orderNo||sale.orderNum||sale.orderNumber||"NO_ORDER") + "|" + state;
-        if (!byOrder[key]) {
-          byOrder[key] = {
-            key, state,
+        const name = clean(sale.customerName||sale.recipientName||sale.customerUsername||sale.customer||"Unknown Customer");
+        const addr1 = clean(sale.customerAddress1||"");
+        const city = clean(sale.customerCity||"");
+        const zip = clean(sale.customerZip||sale.postalCode||sale.postal_code||"");
+        const shipmentId = clean(sale.shipmentId || sale.shipment_id || "");
+        const soldDay = clean(sale.saleDate || sale.orderDate || sale.soldDate || today()).slice(0, 10);
+        const key = shipmentId
+          ? `SHIPMENT:${shipmentId}|${state}`
+          : `ADDR:${norm(name)}|${norm(addr1)}|${norm(city)}|${norm(zip)}|${soldDay}|${state}`;
+        if (!byShipment[key]) {
+          byShipment[key] = {
+            key, shipmentKey: key, shipmentId, state,
             consignee: {
-              name: sale.customerName||sale.recipientName||sale.customerUsername||sale.customer||"",
-              address1: sale.customerAddress1||"",
-              address2: [sale.customerCity, sale.customerState||state, sale.customerZip].filter(Boolean).join(", "),
-              phone: sale.customerPhone||""
+              name,
+              address1: addr1,
+              address2: [city, state, zip].filter(Boolean).join(", "),
+              phone: clean(sale.customerPhone||"")
             },
-            plants: []
+            plants: [],
+            _plantKeys: new Set()
           };
         }
-        byOrder[key].plants.push({
-          qty: String(sale.qty||1),
-          name: (sale.productVariant||sale.title||sale.name||"Plant").trim(),
+        const plantName = clean(sale.productVariant||sale.title||sale.name||"Plant");
+        const plantCodeMatch = plantName.match(/\b[A-Z]{1,4}[-\s]*0*\d{1,5}\b/i);
+        const plantKey = norm(plantCodeMatch ? plantCodeMatch[0] : plantName);
+        if (byShipment[key]._plantKeys.has(plantKey)) return;
+        byShipment[key]._plantKeys.add(plantKey);
+        byShipment[key].plants.push({
+          qty: String(sale.qty||sale.productQuantity||1),
+          name: plantName,
           size: sale.potSize||sale.size||""
         });
       });
-      return Object.values(byOrder).filter(s => s.consignee.name && s.plants.length);
+      return Object.values(byShipment)
+        .map(s => { const { _plantKeys, ...rest } = s; return rest; })
+        .filter(s => s.consignee.name && s.plants.length);
     }
 
 
