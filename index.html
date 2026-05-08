@@ -33,6 +33,112 @@
     textarea {
       font-size: 16px !important;
     }
+
+    /* Mobile hardening for iPhone-first single-file app */
+    html, body, #root {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden !important;
+    }
+
+    body {
+      -webkit-text-size-adjust: 100%;
+    }
+
+    *, *::before, *::after {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    div, section, article, header, footer, main, aside, nav, p, span, label, h1, h2, h3, h4, h5, h6, button, td, th {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    img, canvas, video, svg {
+      max-width: 100%;
+      height: auto;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      max-width: 100%;
+      white-space: normal;
+    }
+
+    button {
+      max-width: 100%;
+      white-space: normal !important;
+    }
+
+    table {
+      max-width: 100%;
+    }
+
+    @supports (padding-bottom: env(safe-area-inset-bottom)) {
+      body { padding-bottom: env(safe-area-inset-bottom); }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        width: 100vw;
+        overflow-x: hidden !important;
+      }
+
+      /* Make every inline React grid collapse to one column on phones */
+      div[style*="grid-template-columns"],
+      section[style*="grid-template-columns"],
+      article[style*="grid-template-columns"] {
+        grid-template-columns: 1fr !important;
+      }
+
+      div[style*="display: grid"],
+      section[style*="display: grid"],
+      article[style*="display: grid"] {
+        grid-template-columns: 1fr !important;
+      }
+
+      /* Cards/rows/forms must never push wider than the phone */
+      div[style*="max-width: 980"],
+      div[style*="max-width: 960"],
+      div[style*="max-width: 860"],
+      div[style*="max-width: 640"],
+      div[style*="width: 380"],
+      div[style*="width: 560"],
+      div[style*="width: 860"] {
+        width: 100% !important;
+        max-width: calc(100vw - 28px) !important;
+      }
+
+      div[style*="padding: 52px 32px"] {
+        padding: 28px 16px !important;
+      }
+
+      input, select, textarea {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+
+      .mobile-stack, .mobile-stack > * {
+        width: 100% !important;
+      }
+
+      .mobile-hide-overflow {
+        overflow-x: hidden !important;
+      }
+
+      .mobile-scroll-x {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+
+    @media (max-width: 480px) {
+      h1 { font-size: 22px !important; }
+      h2 { font-size: 18px !important; }
+      div[style*="font-size: 32px"] { font-size: 26px !important; }
+      div[style*="font-size: 48px"] { font-size: 38px !important; }
+    }
   </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -630,7 +736,7 @@
           </Row>}
         </Card>
 
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 10, marginBottom: 10 }}>
           <div style={{ background: C.g800, borderRadius: 14, padding: "18px 22px", color: "#fff" }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 6 }}>Net Profit for Selected Range</div>
             <div style={{ fontSize: 32, fontWeight: 700, fontFamily: F.display, lineHeight: 1, marginBottom: 6 }}>{$(netProfit)}</div>
@@ -640,13 +746,13 @@
           <KPI label="Avg Sale" value={$(avgOrder)} sub={`Avg gross ${$(avgProfit)}`} color={C.blue} />
           <KPI label="Stock Value" value={$(stockVal)} sub={`${inStock.length} current in stock`} color={C.g600} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 22 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 22 }}>
           <KPI label="Platform Fees" value={$(soldFees)} color={C.red} />
           <KPI label="Expenses" value={$(totalExp)} color={C.red} />
           <KPI label="Payroll" value={$(payrollCost)} color={C.purple} />
           <KPI label="Sell-Through" value={`${sellThrough}%`} sub={`${sold.length} sold / ${addedInRange.length} added`} color={sellThrough >= 60 ? C.g600 : sellThrough >= 30 ? C.gold : C.amber} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 22 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 22 }}>
           <KPI label="Aging 30+ days" value={aging30.length} color={aging30.length > 0 ? C.amber : C.tx3} onClick={() => setPage("inv")} />
           <KPI label="Aging 60+ days" value={aging60.length} color={aging60.length > 0 ? C.red : C.tx3} onClick={() => setPage("inv")} />
           <KPI label="Needs Labels" value={needsLabel.length} color={needsLabel.length > 0 ? C.blue : C.tx3} onClick={() => setPage("labels")} />
@@ -664,7 +770,7 @@
           </Row>)}
         </Card>}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 14 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Card>
               <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>💰 Revenue by Platform — {dateChip}</div>
@@ -746,7 +852,7 @@
         {todayTC && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 10, padding: "11px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.g500, boxShadow: `0 0 6px ${C.g400}` }} /><span style={{ fontWeight: 700, color: C.g800 }}>Clocked in since {todayTC.in}</span>
         </div>}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 20 }}>
           <KPI label="In Stock" value={inStock.length} color={C.g600} />
           <KPI label="Needs Labels" value={inStock.filter(p => !p.labelPrinted).length} color={C.amber} />
           <KPI label="This Week Hrs" value={`${weekHrs.toFixed(1)}h`} color={C.blue} />
@@ -1100,14 +1206,14 @@
       const nursery = nurseries.find(n => n.code === form.nurseryCode);
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="✏️" title="Add Plants Manually" sub="Add existing inventory — enter your cost, where you bought it, and the date" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20, maxWidth: 980 }}>
+        <div className="mobile-hide-overflow" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 300px)", gap: 20, maxWidth: 980, width: "100%", overflowX: "hidden" }}>
           <Card style={{ gridColumn: "1 / -1", marginBottom: 14, background: C.blueBg, border: `1px solid ${C.blue}40` }}>
-            <Row between wrap center gap={10}>
-              <div>
-                <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15 }}>📥 Bulk Upload Current Inventory</div>
-                <div style={{ fontSize: 12, color: C.tx3, marginTop: 3 }}>Use this for plants that already have plant numbers. The app will NOT auto-assign new numbers; it keeps the number from your file.</div>
+            <Row between wrap center gap={10} style={{ width: "100%", overflowX: "hidden" }}>
+              <div style={{ flex: "1 1 240px", minWidth: 0, maxWidth: "100%" }}>
+                <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, lineHeight: 1.25 }}>📥 Bulk Upload Current Inventory</div>
+                <div style={{ fontSize: 12, color: C.tx3, marginTop: 3, lineHeight: 1.35, overflowWrap: "anywhere", wordBreak: "break-word" }}>Import plants that already have plant numbers. Your existing numbers stay the same.</div>
               </div>
-              <input ref={bulkRef} type="file" accept=".csv,.xlsx,.xls" onChange={e => parseExistingInventoryFile(e.target.files?.[0])} style={{ fontSize: 12, maxWidth: 260 }} />
+              <input ref={bulkRef} type="file" accept=".csv,.xlsx,.xls" onChange={e => parseExistingInventoryFile(e.target.files?.[0])} style={{ fontSize: 12, width: "100%", maxWidth: 260, minWidth: 0, flex: "1 1 180px" }} />
             </Row>
             {bulkMsg && <div style={{ marginTop: 10, fontSize: 12, color: bulkMsg.includes("failed") ? C.red : C.blue, fontWeight: 700 }}>{bulkMsg}</div>}
             {bulkRows.length > 0 && <div style={{ marginTop: 12 }}>
@@ -1119,7 +1225,7 @@
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.amber }}>Skipped rows</div>
                 <div style={{ fontSize: 11, color: C.tx3, marginTop: 4, maxHeight: 110, overflowY: "auto" }}>{bulkSkipped.slice(0, 25).map((x, idx) => <div key={idx}>{x}</div>)}{bulkSkipped.length > 25 && <div>...and {bulkSkipped.length - 25} more</div>}</div>
               </div>}
-              <Row gap={8} style={{ marginTop: 10 }}>
+              <Row gap={8} wrap style={{ marginTop: 10, width: "100%" }}>
                 <Btn onClick={saveBulkInventory}>✅ Import {bulkRows.length} Existing Plants</Btn>
                 <Btn v="ghost" onClick={() => { setBulkRows([]); setBulkSkipped([]); setBulkMsg(""); if (bulkRef.current) bulkRef.current.value = ""; }}>Cancel</Btn>
               </Row>
@@ -1134,7 +1240,7 @@
                 <div style={{ width: 96, height: 96, borderRadius: 12, overflow: "hidden", background: C.g100, border: `1px solid ${C.bd}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {manualPhotoPreview ? <img src={manualPhotoPreview} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 36 }}>🌿</span>}
                 </div>
-                <div style={{ flex: 1, minWidth: 210 }}>
+                <div style={{ flex: "1 1 190px", minWidth: 0 }}>
                   <div style={{ fontSize: 12, color: C.tx3, marginBottom: 8 }}>Take a fresh iPhone photo or upload one from your library. The photo saves with the plant and uploads to the <b>plant-photos</b> bucket.</div>
                   <Row gap={8} wrap>
                     <Btn sz="sm" onClick={() => manualCameraRef.current?.click()}>📸 Take Photo</Btn>
@@ -1155,7 +1261,7 @@
               </div>
               {nursery && <div style={{ marginTop: 8, background: C.g50, borderRadius: 7, padding: "6px 11px", fontSize: 12, color: C.tx2 }}>📍 {nursery.address || "No address saved"} {nursery.contact && `· 👤 ${nursery.contact}`}</div>}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 10 }}>
               <Inp label="Plant Name *" value={form.name} onChange={upd("name")} placeholder="e.g. Philodendron Pink Princess" required />
               <Inp label="Botanical Name" value={form.botanicalName} onChange={upd("botanicalName")} placeholder="optional" />
             </div>
@@ -1384,7 +1490,7 @@
 
             <Card>
               <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>{"🌿 Plant Identity"}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 10 }}>
                 <Inp label="Plant Name" value={edit.name} onChange={updE("name")} required />
                 <Inp label="Botanical Name" value={edit.botanicalName || ""} onChange={updE("botanicalName")} placeholder="optional" />
               </div>
@@ -1425,7 +1531,7 @@
                   <span style={{ fontSize: 11, color: C.tx3 }}>{"True profit: "}<b style={{ color: tp > 0 ? C.g600 : C.red }}>{"$" + tp.toFixed(2)}</b></span>
                 </Row>
               </div>}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
                 <Inp label="Shipping Cost" type="number" value={edit.shippingCost || ""} onChange={updE("shippingCost")} placeholder="0.00" />
                 <Sel label="Platform" value={edit.platform || ""} onChange={updE("platform")} options={["", ...PLATFORMS]} />
               </div>
@@ -1446,7 +1552,7 @@
               <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>{"📍 Status & Location"}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <Sel label="Status" value={edit.status} onChange={updE("status")} options={STATUSES} />
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
                   <Inp label="Rack" value={edit.rack || ""} onChange={updE("rack")} placeholder="R1" />
                   <Inp label="Shelf" value={edit.shelf || ""} onChange={updE("shelf")} placeholder="S2" />
                 </div>
@@ -1689,7 +1795,7 @@
               <div style={{ fontSize: 12, fontWeight: 700, color: C.amber }}>Skipped rows</div>
               <div style={{ fontSize: 11, color: C.tx3, marginTop: 4, maxHeight: 110, overflowY: "auto" }}>{invBulkSkipped.slice(0, 25).map((x, idx) => <div key={idx}>{x}</div>)}{invBulkSkipped.length > 25 && <div>...and {invBulkSkipped.length - 25} more</div>}</div>
             </div>}
-            <Row gap={8} style={{ marginTop: 10 }}>
+            <Row gap={8} wrap style={{ marginTop: 10, width: "100%" }}>
               <Btn onClick={saveExistingInventoryOnInventory}>✅ Import {invBulkRows.length} Existing Plants</Btn>
               <Btn v="ghost" onClick={() => { setInvBulkRows([]); setInvBulkSkipped([]); setInvBulkMsg(""); if (invBulkRef.current) invBulkRef.current.value = ""; }}>Cancel</Btn>
             </Row>
@@ -2132,7 +2238,7 @@
         </div>
 
         {/* Quick KPIs */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
           <KPI label="In Stock" value={inStock.length} sub="plants unsold" color={C.g600} />
           <KPI label="Avg Days to Sell" value={avgDays ? `${avgDays}d` : "—"} sub="from add to sold" color={C.gold} />
           <KPI label="Dead / Damaged" value={dead.length} sub={`$${dead.reduce((s, p) => s + (+p.cost || 0), 0).toFixed(0)} lost`} color={dead.length > 0 ? C.red : C.tx3} />
@@ -2248,7 +2354,7 @@
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="📅" title="Bills & Upcoming Payments" sub="Track what you owe, to who, and when — countdown timers for every bill"
           right={<Btn onClick={() => { setShow(p => !p); setEditId(null); setForm(blank); }}>{show && !editId ? "Cancel" : "+ Add Bill"}</Btn>} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 20 }}>
           <KPI label="Total Due (unpaid)" value={$(totalDue)} color={C.red} />
           <KPI label="Due This Week" value={$(dueSoon7.reduce((s, b) => s + (+b.amount || 0), 0))} sub={`${dueSoon7.length} bills`} color={dueSoon7.length > 0 ? C.amber : C.tx3} />
           <KPI label="Overdue" value={$(overdue.reduce((s, b) => s + (+b.amount || 0), 0))} sub={`${overdue.length} bills`} color={overdue.length > 0 ? C.red : C.tx3} />
@@ -2340,7 +2446,7 @@
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="💳" title="Expenses" sub="Tax-ready records for your Florida business"
           right={<Btn onClick={() => setShow(p => !p)}>{show ? "Cancel" : "+ Add Expense"}</Btn>} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
           <KPI label="Total Expenses" value={$(total)} color={C.red} />
           <KPI label="Tax Deductible" value={$(taxDed)} color={C.g600} />
           <KPI label="Non-Deductible" value={$(total - taxDed)} color={C.tx3} />
@@ -2495,7 +2601,7 @@
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="🧾" title="Expense Receipt Scanner" sub="Scan gas, soil, pots, boxes, tape, labels, tools, software, and store supply receipts"
           right={<Row gap={8} wrap><Btn onClick={() => { setStep("upload"); setMsg(""); }}>📸 Scan Receipt</Btn><Btn v="soft" onClick={() => setStep("archive")}>Archive</Btn><Btn v="ghost" onClick={exportCSV}>Export CSV</Btn></Row>} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
           <KPI label="Receipts This Month" value={monthReceipts.length} color={C.blue} />
           <KPI label="Expense Total" value={$(totalMonth)} color={C.red} />
           <KPI label="Needs Review" value={needsReview} color={needsReview ? C.amber : C.g600} />
@@ -2572,7 +2678,7 @@
           right={<Row gap={6}><Btn sz="sm" v="ghost" onClick={() => setShowAdd(p => !p)}>+ Manual Entry</Btn>{!isOwner && !todayTC && <Btn sz="sm" onClick={clockIn}>🟢 Clock In</Btn>}{!isOwner && todayTC && <Btn sz="sm" v="outline" onClick={clockOut}>🔴 Clock Out</Btn>}</Row>} />
         {isOwner && <div style={{ marginBottom: 14, maxWidth: 280 }}><Sel label="View Employee" value={selEmp} onChange={setSelEmp} options={employees.map(e => ({ v: e.id, l: `${e.name} (${e.role})` }))} /></div>}
         {todayTC && !isOwner && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 9, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: C.g500 }} /><span style={{ fontWeight: 700, color: C.g800 }}>Clocked in since {todayTC.in}</span></div>}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
           <KPI label="This Week Hours" value={`${wkHrs.toFixed(1)}h`} color={C.blue} />
           <KPI label="This Week Pay" value={$(wkPay)} color={C.gold} />
           <KPI label="This Month Pay" value={$(moPay)} color={C.g600} />
@@ -2590,7 +2696,7 @@
             <Inp label="Break (min)" type="number" value={manual.break_} onChange={v => setManual(p => ({ ...p, break_: v }))} />
             <Inp label="Notes" value={manual.notes} onChange={v => setManual(p => ({ ...p, notes: v }))} />
           </div>
-          <Row gap={8} style={{ marginTop: 10 }}><Btn onClick={addManual}>Add Shift</Btn><Btn v="ghost" onClick={() => setShowAdd(false)}>Cancel</Btn></Row>
+          <Row gap={8} wrap style={{ marginTop: 10, width: "100%" }}><Btn onClick={addManual}>Add Shift</Btn><Btn v="ghost" onClick={() => setShowAdd(false)}>Cancel</Btn></Row>
         </Card>}
         <Tbl cols={[{ k: "date", l: "Date" }, { k: "in_", l: "In" }, { k: "out_", l: "Out" }, { k: "brk", l: "Break" }, { k: "hrs", l: "Hours" }, { k: "rate_", l: "Rate" }, { k: "pay_", l: "Pay" }]}
           rows={myTC.slice().reverse().map(t => ({ date: t.date, in_: t.in, out_: t.out || <Tag text="Active" color={C.g500} sm />, brk: t.break_ ? `${t.break_}m` : "—", hrs: t.hours ? `${t.hours}h` : "—", rate_: `$${t.rate || rate}/hr`, pay_: t.totalPay ? <span style={{ fontWeight: 700, color: C.gold }}>{$(t.totalPay)}</span> : "—" }))}
@@ -2862,18 +2968,18 @@
         <Card style={{ marginBottom: 14, background: cardBg, borderColor: line }}><Row between wrap center><Row gap={8} wrap>{[["today", "Today"], ["week", "Week"], ["month", "Month"], ["quarter", "Quarter"], ["year", "Year"], ["all", "All Time"], ["custom", "Custom"]].map(([v, l]) => <button key={v} onClick={() => setRangePreset(v)} style={{ padding: "9px 12px", borderRadius: 9, border: `1px solid ${rangePreset === v ? C.g600 : line}`, background: rangePreset === v ? C.g700 : cardAlt, color: rangePreset === v ? "#fff" : textMain, fontWeight: 800, cursor: "pointer" }}>{l}</button>)}</Row><label style={{ display: "flex", alignItems: "center", gap: 7, color: textMuted, fontSize: 12, fontWeight: 700 }}><input type="checkbox" checked={safeMode} onChange={e => setSafeMode(e.target.checked)} /> Employee-safe money view</label></Row>{rangePreset === "custom" && <Row gap={10} wrap style={{ marginTop: 12 }}><Inp label="Start" type="date" value={rangeStart} onChange={setRangeStart} /><Inp label="End" type="date" value={rangeEnd} onChange={setRangeEnd} /></Row>}</Card>
         <div style={{ display: "flex", gap: 0, marginBottom: 18, borderBottom: `1px solid ${line}`, flexWrap: "wrap" }}>{tabs.map(([id, l]) => <button key={id} onClick={() => setTab(id)} style={{ padding: "12px 14px", background: tab === id ? (dark ? "#102015" : C.g100) : "transparent", border: "none", borderBottom: `3px solid ${tab === id ? C.g600 : "transparent"}`, color: tab === id ? (dark ? "#97d33e" : C.g800) : textMuted, fontWeight: 800, cursor: "pointer" }}>{l}</button>)}</div>
         {tab === "executive" && <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}><KPI label="Sales Today" value={money(salesToday)} color={C.g600} /><KPI label="Sales Week" value={money(salesWeek)} color={C.blue} /><KPI label="Sales Month" value={money(salesMonth)} color={C.gold} /><KPI label="Sales Year" value={money(salesYear)} color={C.purple} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}><KPI label="Sales Today" value={money(salesToday)} color={C.g600} /><KPI label="Sales Week" value={money(salesWeek)} color={C.blue} /><KPI label="Sales Month" value={money(salesMonth)} color={C.gold} /><KPI label="Sales Year" value={money(salesYear)} color={C.purple} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10, marginBottom: 12 }}><div style={{ background: dark ? "linear-gradient(135deg,#08130C,#12391E)" : C.g800, color: "#fff", borderRadius: 16, padding: 22 }}><div style={{ opacity: .75, fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase" }}>Net Profit</div><div style={{ fontFamily: F.display, fontSize: 38, fontWeight: 900 }}>{money(netProfit)}</div><div style={{ opacity: .75, fontSize: 12 }}>Revenue {money(soldRev)} · Fees {money(soldFees)} · Expenses {money(totalExp)} · Payroll {money(payrollCost)}</div></div><KPI label="Inventory Value" value={money(stockVal)} sub={`${inStock.length} in stock · cost ${money(inventoryCost)}`} color={C.g600} /><KPI label="Cash Flow" value={money(cashFlow)} sub={`Margin ${pct(margin)}`} color={cashFlow >= 0 ? C.g600 : C.red} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}><KPI label="Dead/Damaged Loss" value={money(lostVal)} sub={`${dead.length} plants`} color={C.red} /><KPI label="Best Platform" value={bestPlatform} sub={byPlatform[0] ? money(byPlatform[0].rev) : "No sales"} color={C.blue} /><KPI label="Best Genus" value={bestGenus} sub={byGenus[0] ? money(byGenus[0].profit) : "No sales"} color={C.gold} /><KPI label="Avg Order" value={money(avgOrder)} sub={`${sold.length} sold`} color={C.teal} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}><KPI label="Dead/Damaged Loss" value={money(lostVal)} sub={`${dead.length} plants`} color={C.red} /><KPI label="Best Platform" value={bestPlatform} sub={byPlatform[0] ? money(byPlatform[0].rev) : "No sales"} color={C.blue} /><KPI label="Best Genus" value={bestGenus} sub={byGenus[0] ? money(byGenus[0].profit) : "No sales"} color={C.gold} /><KPI label="Avg Order" value={money(avgOrder)} sub={`${sold.length} sold`} color={C.teal} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12 }}><LineChart data={trend.slice(-30)} valueKey="revenue" valueKey2="expense" title="Revenue vs Expenses Trend" /><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Top Alerts</div><div style={{ display: "flex", flexDirection: "column", gap: 9 }}>{missingDocAlerts > 0 && <Tag text={`${missingDocAlerts} possible missing state docs`} color={C.red} />}{discountCandidates.length > 0 && <Tag text={`${discountCandidates.length} plants should be discounted`} color={C.amber} />}{reorderCandidates.length > 0 && <Tag text={`${reorderCandidates.length} genera may need reorder`} color={C.blue} />}{slowestMovers.length > 0 && <Tag text={`${slowestMovers[0].days} days oldest in-stock plant`} color={C.purple} />}</div></Card></div>
         </div>}
-        {tab === "charts" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><LineChart data={trend.slice(-45)} valueKey="revenue" title="Revenue Line Chart" /><LineChart data={trend.slice(-45)} valueKey="profit" valueKey2="expense" title="Profit vs Expenses" /><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Platform Pie Chart</div><Donut data={byPlatform} /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Nursery Profit</div><MiniBar data={byNursery.slice(0, 8).map(n => ({ label: n.name, value: n.profit }))} labelKey="label" valueKey="value" moneyFmt /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Inventory Age</div><MiniBar data={ageBuckets.map(b => ({ label: b.label, value: b.count }))} labelKey="label" valueKey="value" /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Dead/Damaged Loss by Genus</div><MiniBar data={byGenus.filter(g => g.dead > 0).map(g => ({ label: g.genus, value: g.dead })).slice(0, 8)} labelKey="label" valueKey="value" /></Card></div>}
-        {tab === "plants" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Best Selling Plants</h3><ReportTable cols={[{ k: "name", l: "Plant" }, { k: "count", l: "Sold", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={bestSellingPlants} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Highest Profit Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "truePro", l: "Profit", right: true, f: r => money(r.truePro) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }]} rows={perPlant.slice(0, 10)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Slowest Moving Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Price", right: true, f: r => money(r.suggestedPrice) }]} rows={slowestMovers} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Lowest Margin / Discount</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "expectedMargin", l: "Margin", right: true, f: r => pct(r.expectedMargin) }, { k: "cost", l: "Cost", right: true, f: r => money(r.cost) }]} rows={lowestMargin} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Discounted</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Current Price", right: true, f: r => money(r.suggestedPrice) }]} rows={discountCandidates} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Reordered</h3><ReportTable cols={[{ k: "genus", l: "Genus" }, { k: "sellThru", l: "Sell-Through", right: true, f: r => pct(r.sellThru) }, { k: "inStock", l: "Left", right: true }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={reorderCandidates} /></Card></div>}
+        {tab === "charts" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><LineChart data={trend.slice(-45)} valueKey="revenue" title="Revenue Line Chart" /><LineChart data={trend.slice(-45)} valueKey="profit" valueKey2="expense" title="Profit vs Expenses" /><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Platform Pie Chart</div><Donut data={byPlatform} /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Nursery Profit</div><MiniBar data={byNursery.slice(0, 8).map(n => ({ label: n.name, value: n.profit }))} labelKey="label" valueKey="value" moneyFmt /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Inventory Age</div><MiniBar data={ageBuckets.map(b => ({ label: b.label, value: b.count }))} labelKey="label" valueKey="value" /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Dead/Damaged Loss by Genus</div><MiniBar data={byGenus.filter(g => g.dead > 0).map(g => ({ label: g.genus, value: g.dead })).slice(0, 8)} labelKey="label" valueKey="value" /></Card></div>}
+        {tab === "plants" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Best Selling Plants</h3><ReportTable cols={[{ k: "name", l: "Plant" }, { k: "count", l: "Sold", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={bestSellingPlants} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Highest Profit Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "truePro", l: "Profit", right: true, f: r => money(r.truePro) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }]} rows={perPlant.slice(0, 10)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Slowest Moving Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Price", right: true, f: r => money(r.suggestedPrice) }]} rows={slowestMovers} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Lowest Margin / Discount</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "expectedMargin", l: "Margin", right: true, f: r => pct(r.expectedMargin) }, { k: "cost", l: "Cost", right: true, f: r => money(r.cost) }]} rows={lowestMargin} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Discounted</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Current Price", right: true, f: r => money(r.suggestedPrice) }]} rows={discountCandidates} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Reordered</h3><ReportTable cols={[{ k: "genus", l: "Genus" }, { k: "sellThru", l: "Sell-Through", right: true, f: r => pct(r.sellThru) }, { k: "inStock", l: "Left", right: true }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={reorderCandidates} /></Card></div>}
         {tab === "nursery" && <Card style={{ background: cardBg, borderColor: line }}><h3>Nursery Performance</h3><ReportTable cols={[{ k: "name", l: "Nursery" }, { k: "spent", l: "Total Spent", right: true, f: r => money(r.spent) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }, { k: "deathRate", l: "Death Rate", right: true, f: r => pct(r.deathRate) }, { k: "avgDays", l: "Avg Days To Sell", right: true, f: r => r.avgDays ?? "—" }]} rows={byNursery} /></Card>}
-        {tab === "shows" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Profit Per Live Show</h3><ReportTable cols={[{ k: "show", l: "Show" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Sales", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "avg", l: "Avg Order", right: true, f: r => money(r.avg) }]} rows={showGroups.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Whatnot vs Palmstreet</h3><MiniBar data={byPlatform.filter(p => ["Whatnot", "Palmstreet"].includes(p.platform)).map(p => ({ label: p.platform, value: p.profit }))} labelKey="label" valueKey="value" moneyFmt /><h3 style={{ marginTop: 22 }}>Sales by Date</h3><MiniBar data={salesByDate.slice(-12).map(d => ({ label: d.date, value: d.rev }))} labelKey="label" valueKey="value" moneyFmt /></Card></div>}
-        {tab === "customers" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Top Customers / Lifetime Value</h3><ReportTable cols={[{ k: "customer", l: "Customer" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Spend", right: true, f: r => money(r.rev) }, { k: "avg", l: "Avg", right: true, f: r => money(r.avg) }, { k: "rare", l: "Rare Buys", right: true }]} rows={byCustomer.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Customers by State</h3><ReportTable cols={[{ k: "state", l: "State" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }]} rows={customersByState.slice(0, 25)} /></Card></div>}
-        {tab === "legal" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><Row between center><h3>State Docs Compliance</h3><Btn v="outline" onClick={exportLegalCSV}>Download Docs CSV</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>{certStates.map(s => <KPI key={s.state} label={`${s.state} Docs`} value={s.count} color={s.count ? C.g600 : C.amber} />)}</div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}><KPI label="Possible Missing Docs" value={Math.max(0, missingDocAlerts)} color={missingDocAlerts > 0 ? C.red : C.g600} /><KPI label="Certificate Range" value={certNums.length ? `${certNums[0]}–${certNums[certNums.length - 1]}` : "None"} color={C.blue} /></div><p style={{ color: textMuted, fontSize: 12 }}>Retention tracker: keep every CA/AZ/TX/LA document for at least 3 years. Use the State Docs archive for the actual PDF downloads.</p></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Certificate Number History</h3><ReportTable cols={[{ k: "num", l: "Doc #", f: r => r.certNumber || r.documentNumber || r.number || "—" }, { k: "state", l: "State", f: r => r.state || r.destinationState || "—" }, { k: "customer", l: "Customer", f: r => r.customerName || r.shipToName || "—" }, { k: "date", l: "Date", f: r => r.createdAt || r.date || "—" }]} rows={certHistory} /></Card></div>}
-        {tab === "options" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Display Options</h3><p style={{ color: textMuted }}>Use Neon mode for a dark Leaf Diary look. Use employee-safe view when screen sharing so cost and profit are hidden.</p><Row gap={8} wrap><Btn onClick={() => setTheme("classic")}>Classic</Btn><Btn v="gold" onClick={() => setTheme("neon")}>Neon Dark</Btn><Btn v="soft" onClick={() => setSafeMode(!safeMode)}>{safeMode ? "Show Money" : "Hide Money"}</Btn></Row></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Exports</h3><p style={{ color: textMuted }}>CSV export, legal archive export, and Print / Save PDF are built in. Browser print can save the report as a PDF.</p><Row gap={8} wrap><Btn v="outline" onClick={exportCSV}>Export Report CSV</Btn><Btn v="outline" onClick={exportLegalCSV}>Export Legal CSV</Btn><Btn v="soft" onClick={() => window.print()}>Print / PDF</Btn></Row></Card></div>}
+        {tab === "shows" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Profit Per Live Show</h3><ReportTable cols={[{ k: "show", l: "Show" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Sales", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "avg", l: "Avg Order", right: true, f: r => money(r.avg) }]} rows={showGroups.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Whatnot vs Palmstreet</h3><MiniBar data={byPlatform.filter(p => ["Whatnot", "Palmstreet"].includes(p.platform)).map(p => ({ label: p.platform, value: p.profit }))} labelKey="label" valueKey="value" moneyFmt /><h3 style={{ marginTop: 22 }}>Sales by Date</h3><MiniBar data={salesByDate.slice(-12).map(d => ({ label: d.date, value: d.rev }))} labelKey="label" valueKey="value" moneyFmt /></Card></div>}
+        {tab === "customers" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Top Customers / Lifetime Value</h3><ReportTable cols={[{ k: "customer", l: "Customer" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Spend", right: true, f: r => money(r.rev) }, { k: "avg", l: "Avg", right: true, f: r => money(r.avg) }, { k: "rare", l: "Rare Buys", right: true }]} rows={byCustomer.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Customers by State</h3><ReportTable cols={[{ k: "state", l: "State" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }]} rows={customersByState.slice(0, 25)} /></Card></div>}
+        {tab === "legal" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><Row between center><h3>State Docs Compliance</h3><Btn v="outline" onClick={exportLegalCSV}>Download Docs CSV</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>{certStates.map(s => <KPI key={s.state} label={`${s.state} Docs`} value={s.count} color={s.count ? C.g600 : C.amber} />)}</div><div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}><KPI label="Possible Missing Docs" value={Math.max(0, missingDocAlerts)} color={missingDocAlerts > 0 ? C.red : C.g600} /><KPI label="Certificate Range" value={certNums.length ? `${certNums[0]}–${certNums[certNums.length - 1]}` : "None"} color={C.blue} /></div><p style={{ color: textMuted, fontSize: 12 }}>Retention tracker: keep every CA/AZ/TX/LA document for at least 3 years. Use the State Docs archive for the actual PDF downloads.</p></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Certificate Number History</h3><ReportTable cols={[{ k: "num", l: "Doc #", f: r => r.certNumber || r.documentNumber || r.number || "—" }, { k: "state", l: "State", f: r => r.state || r.destinationState || "—" }, { k: "customer", l: "Customer", f: r => r.customerName || r.shipToName || "—" }, { k: "date", l: "Date", f: r => r.createdAt || r.date || "—" }]} rows={certHistory} /></Card></div>}
+        {tab === "options" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Display Options</h3><p style={{ color: textMuted }}>Use Neon mode for a dark Leaf Diary look. Use employee-safe view when screen sharing so cost and profit are hidden.</p><Row gap={8} wrap><Btn onClick={() => setTheme("classic")}>Classic</Btn><Btn v="gold" onClick={() => setTheme("neon")}>Neon Dark</Btn><Btn v="soft" onClick={() => setSafeMode(!safeMode)}>{safeMode ? "Show Money" : "Hide Money"}</Btn></Row></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Exports</h3><p style={{ color: textMuted }}>CSV export, legal archive export, and Print / Save PDF are built in. Browser print can save the report as a PDF.</p><Row gap={8} wrap><Btn v="outline" onClick={exportCSV}>Export Report CSV</Btn><Btn v="outline" onClick={exportLegalCSV}>Export Legal CSV</Btn><Btn v="soft" onClick={() => window.print()}>Print / PDF</Btn></Row></Card></div>}
         <style>{`@media(max-width:900px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 2fr 1fr 1fr"],div[style*="grid-template-columns: 1.5fr 1fr"],div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}} @media print{button,nav,.no-print{display:none!important;} body{background:#fff!important;} }`}</style>
       </div>;
     }
@@ -2899,7 +3005,7 @@
         <div style={{ background: C.g50, border: `1px solid ${C.g200}`, borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
           <b style={{ color: C.g800 }}>🌴 Florida: </b><span style={{ fontSize: 13, color: C.tx2 }}>No state income tax. You owe federal SE tax (15.3%) + federal income tax. Sales tax (7%) remitted quarterly. Quarterly due dates: Jan 20, Apr 20, Jul 20, Oct 20.</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 }}>
           <Card>
             <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>📋 P&L Summary</div>
             {[["Gross Revenue", soldRev, C.gold, false], ["Platform Fees", -soldFees, C.red, false], ["Cost of Goods", -soldCogs, C.red, false], ["= True Gross", gross, gross >= 0 ? C.g600 : C.red, true], ["Operating Expenses", -taxDedExp, C.red, false], ["= Net Profit", net, net >= 0 ? C.g800 : C.red, true]].map(([l, v, c, bold]) => (
@@ -3173,7 +3279,7 @@
           <p style={{ fontSize: 12, color: C.tx3, marginTop: 10 }}>Until that Edge Function is deployed, Create User will still save the app profile but the password cannot be created automatically.</p>
         </Card>}
 
-        {tab === "cleanup" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {tab === "cleanup" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
           <Card style={{ gridColumn: "1/-1", background: C.redBg, border: `1px solid ${C.red}44` }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.red }}>Bulk Cleanup Safety</div><p style={{ fontSize: 12, color: C.tx3 }}>Make a backup first. Type DELETE to enable cleanup tools.</p><Inp label="Confirmation" value={confirmText} onChange={setConfirmText} placeholder="DELETE" />{actionMsg && <div style={{ marginTop: 8, fontSize: 12, color: actionMsg.startsWith("✅") ? C.g700 : C.red }}>{actionMsg}</div>}</Card>
           <Card><div style={{ fontWeight: 700, color: C.g900 }}>Customer Info</div><p style={{ fontSize: 12, color: C.tx3 }}>Found {customerCount} customer keys across {saleCount} sale records.</p><Btn v="danger" full disabled={confirmText !== "DELETE"} onClick={() => runBulkDelete("customers")}>Delete Customer Info</Btn></Card>
           <Card><div style={{ fontWeight: 700, color: C.g900 }}>Historical Imports</div><p style={{ fontSize: 12, color: C.tx3 }}>Found {historicalCount} historical imported records.</p><Btn v="danger" full disabled={confirmText !== "DELETE"} onClick={() => runBulkDelete("historical")}>Delete Historical Sales</Btn></Card>
@@ -4879,7 +4985,7 @@
           </Row>}
         </Card>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
           <KPI label="Customers" value={customers.length} sub={customerDateLabel} color={C.g600} />
           <KPI label="Good" value={counts.green} color={C.g600} />
           <KPI label="Issues" value={counts.yellow} color={C.amber} />
@@ -4935,7 +5041,7 @@
         </div>}
 
         {detail && <Modal title={`Customer: ${detail.username ? `@${detail.username}` : detail.displayName}`} onClose={() => setDetail(null)} wide>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginBottom: 14 }}>
             <Card style={{ background: customerStatusInfo(draft.status).bg, border: `1px solid ${customerStatusInfo(draft.status).color}55` }}>
               <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 8 }}>Customer Status</div>
               <Sel label="Color / Status" value={draft.status} onChange={v => setDraft(d => ({ ...d, status: v }))} options={[{ v: "green", l: "🟢 Good Customer" }, { v: "yellow", l: "🟡 Issue / Watch" }, { v: "red", l: "🔴 Blocked / Do Not Sell" }]} />
