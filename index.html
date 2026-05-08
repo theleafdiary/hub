@@ -936,11 +936,28 @@
       const [form, setForm] = useState(blank);
       const [qty, setQty] = useState(1);
       const [saved, setSaved] = useState([]);
+      const [manualPhotoFile, setManualPhotoFile] = useState(null);
+      const [manualPhotoPreview, setManualPhotoPreview] = useState("");
+      const [manualPhotoMsg, setManualPhotoMsg] = useState("");
+      const manualCameraRef = useRef(null);
+      const manualUploadRef = useRef(null);
       const [bulkRows, setBulkRows] = useState([]);
       const [bulkSkipped, setBulkSkipped] = useState([]);
       const [bulkMsg, setBulkMsg] = useState("");
       const bulkRef = useRef(null);
       const upd = f => v => { setForm(p => { const u = { ...p, [f]: v }; if (f === "cost") { const sp = sprice(+v); u.suggestedPrice = sp; u.margin = marg(+v, sp); } if (f === "suggestedPrice") u.margin = marg(+p.cost, +v); return u; }); };
+      const handleManualPhotoPick = async file => {
+        if (!file) return;
+        setManualPhotoFile(file);
+        setManualPhotoMsg("Photo ready — it will save when you add the plant.");
+        try { setManualPhotoPreview(await imageFileToBase64(file, 900, 0.74)); }
+        catch (err) { setManualPhotoMsg("Could not preview photo: " + (err?.message || "unknown error")); }
+      };
+      const clearManualPhoto = () => {
+        setManualPhotoFile(null); setManualPhotoPreview(""); setManualPhotoMsg("");
+        if (manualCameraRef.current) manualCameraRef.current.value = "";
+        if (manualUploadRef.current) manualUploadRef.current.value = "";
+      };
 
       const cleanMoney = v => {
         if (v === null || v === undefined || v === "") return 0;
@@ -1050,18 +1067,33 @@
         setBulkMsg(`Imported/updated ${rows.length} plants. Original plant numbers were kept. ${newCount} new, ${updateCount} updated.`);
         if (bulkRef.current) bulkRef.current.value = "";
       };
-      const save = () => {
+      const save = async () => {
         if (!form.name.trim() || !form.nurseryCode) return;
         let ctr = getNextId(plants, form.nurseryCode);
         const newPlants = Array.from({ length: Math.max(1, +qty || 1) }, (_, i) => {
           ctr++;
           const idx = ctr, cost = +form.cost || 0, sp = +form.suggestedPrice || sprice(cost);
-          return { id: uid(), plantId: pid(form.nurseryCode, idx), plantCode: pid(form.nurseryCode, idx), barcodeValue: pid(form.nurseryCode, idx), barcodeType: "CODE128", ...form, name: toTC(form.name), cost, suggestedPrice: sp, margin: marg(cost, sp), labelPrinted: false, addedBy: user.name };
+          return { id: uid(), plantId: pid(form.nurseryCode, idx), plantCode: pid(form.nurseryCode, idx), barcodeValue: pid(form.nurseryCode, idx), barcodeType: "CODE128", ...form, name: toTC(form.name), cost, suggestedPrice: sp, margin: marg(cost, sp), labelPrinted: false, addedBy: user.name, photoBase64: manualPhotoPreview || form.photoBase64 || "", photoUploadedAt: manualPhotoPreview ? new Date().toISOString() : (form.photoUploadedAt || "") };
         });
         setPlants(p => [...p, ...newPlants]);
-        addAudit({ action: `Manually added ${newPlants.length}× ${form.name}`, user: user.name, page: "Manual Entry" });
+        addAudit({ action: `Manually added ${newPlants.length}× ${form.name}${manualPhotoFile ? " with photo" : ""}`, user: user.name, page: "Manual Entry" });
         setSaved(p => [...p, ...newPlants]);
+
+        if (manualPhotoFile) {
+          setManualPhotoMsg("Uploading photo to cloud...");
+          try {
+            const uploadedList = await Promise.all(newPlants.map(np => uploadPlantPhotoFile(manualPhotoFile, np).then(up => ({ id: np.id, up }))));
+            setPlants(prev => prev.map(pl => { const hit = uploadedList.find(x => x.id === pl.id); return hit ? { ...pl, ...hit.up, photoBase64: pl.photoBase64 || "" } : pl; }));
+            setSaved(prev => prev.map(pl => { const hit = uploadedList.find(x => x.id === pl.id); return hit ? { ...pl, ...hit.up, photoBase64: pl.photoBase64 || "" } : pl; }));
+            setManualPhotoMsg("Photo uploaded to plant-photos bucket ✓");
+          } catch (err) {
+            setManualPhotoMsg("Cloud photo upload failed — local backup photo was saved. Check plant-photos bucket/policies. " + (err?.message || ""));
+          }
+        }
         setForm({ ...blank, nurseryCode: form.nurseryCode }); setQty(1);
+        setManualPhotoFile(null); setManualPhotoPreview("");
+        if (manualCameraRef.current) manualCameraRef.current.value = "";
+        if (manualUploadRef.current) manualUploadRef.current.value = "";
       };
       const fee = platFee(form.platform || "", +form.suggestedPrice || 0);
       const mc = form.margin >= 65 ? C.g600 : form.margin >= 45 ? C.gold : C.red;
@@ -1096,6 +1128,25 @@
 
           <Card>
             <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 14 }}>Plant Details</div>
+            <div style={{ background: manualPhotoPreview ? C.g50 : C.cardAlt, border: `1.5px dashed ${manualPhotoPreview ? C.g300 : C.bd}`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: C.g900, fontSize: 13, marginBottom: 8 }}>📷 Plant Photo</div>
+              <Row gap={12} center wrap>
+                <div style={{ width: 96, height: 96, borderRadius: 12, overflow: "hidden", background: C.g100, border: `1px solid ${C.bd}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {manualPhotoPreview ? <img src={manualPhotoPreview} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 36 }}>🌿</span>}
+                </div>
+                <div style={{ flex: 1, minWidth: 210 }}>
+                  <div style={{ fontSize: 12, color: C.tx3, marginBottom: 8 }}>Take a fresh iPhone photo or upload one from your library. The photo saves with the plant and uploads to the <b>plant-photos</b> bucket.</div>
+                  <Row gap={8} wrap>
+                    <Btn sz="sm" onClick={() => manualCameraRef.current?.click()}>📸 Take Photo</Btn>
+                    <Btn sz="sm" v="soft" onClick={() => manualUploadRef.current?.click()}>⬆️ Upload Photo</Btn>
+                    {manualPhotoPreview && <Btn sz="sm" v="ghost" onClick={clearManualPhoto}>Remove</Btn>}
+                  </Row>
+                  {manualPhotoMsg && <div style={{ fontSize: 11, color: manualPhotoMsg.includes("failed") || manualPhotoMsg.includes("Could not") ? C.red : C.g700, fontWeight: 700, marginTop: 7 }}>{manualPhotoMsg}</div>}
+                  <input ref={manualCameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handleManualPhotoPick(e.target.files?.[0])} />
+                  <input ref={manualUploadRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleManualPhotoPick(e.target.files?.[0])} />
+                </div>
+              </Row>
+            </div>
             {/* WHERE YOU BOUGHT IT */}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: C.tx3, display: "block", marginBottom: 7 }}>Where You Bought It *</label>
@@ -1243,7 +1294,8 @@
       if (!p) { onBack(); return null; }
 
       const [edit, setEdit] = useState({ ...p });
-      const photoRef = useRef(null);
+      const photoCameraRef = useRef(null);
+      const photoUploadRef = useRef(null);
       const [photoMsg, setPhotoMsg] = useState("");
       const updE = f => v => setEdit(prev => ({ ...prev, [f]: v }));
       const updCost = v => {
@@ -1318,12 +1370,14 @@
                 <div style={{ flex: 1, minWidth: 200 }}>
                   <div style={{ fontSize: 12, color: C.tx3, marginBottom: 10 }}>Add a plant photo for Live Show Mode, inventory previews, labels, and Palmstreet image exports. Create a public Supabase Storage bucket named <b>plant-photos</b>.</div>
                   <Row gap={8} wrap>
-                    <Btn sz="sm" onClick={() => photoRef.current?.click()}>📸 Add / Change Photo</Btn>
+                    <Btn sz="sm" onClick={() => photoCameraRef.current?.click()}>📸 Take Photo</Btn>
+                    <Btn sz="sm" v="soft" onClick={() => photoUploadRef.current?.click()}>⬆️ Upload Photo</Btn>
                     {(edit.photoUrl || edit.photoBase64) && <Btn sz="sm" v="ghost" onClick={removePhoto}>Remove</Btn>}
                   </Row>
                   {photoMsg && <div style={{ fontSize: 11, color: photoMsg.includes("failed") ? C.red : C.g700, marginTop: 8, fontWeight: 700 }}>{photoMsg}</div>}
                   {edit.photoUploadedAt && <div style={{ fontSize: 10, color: C.tx3, marginTop: 4 }}>Last photo update: {new Date(edit.photoUploadedAt).toLocaleString()}</div>}
-                  <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePhotoFile(e.target.files?.[0])} />
+                  <input ref={photoCameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePhotoFile(e.target.files?.[0])} />
+                  <input ref={photoUploadRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handlePhotoFile(e.target.files?.[0])} />
                 </div>
               </Row>
             </Card>
@@ -3801,6 +3855,72 @@
       return <div style={{ display:"grid", gap:8, marginBottom:14 }}>{alerts.map(a => <Card key={a.id} style={{ borderLeft:`5px solid ${sevColor[a.severity]||C.blue}`, background: a.severity === "critical" ? C.redBg : a.severity === "warning" ? C.amberBg : C.blueBg }}><Row between wrap center><div><div style={{ fontWeight:800, color:sevColor[a.severity]||C.tx1 }}>{a.title}</div><div style={{ fontSize:12, color:C.tx2 }}>{a.body}</div></div>{a.actionPage && <Btn sz="sm" v="outline" onClick={() => setPage(a.actionPage)}>{a.actionLabel || "Open"}</Btn>}</Row></Card>)}</div>;
     }
 
+    function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setPage }) {
+      const alerts = computeAlerts(plants, expenses, bills, timecards, settings);
+      const soldMonth = plants.filter(p => p.status === "Sold" && monthKey(plantSaleDate(p)) === monthKey());
+      const revenue = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
+      const cogs = soldMonth.reduce((s,p)=>s+(+p.cost||0),0);
+      const fees = soldMonth.reduce((s,p)=>s+platFee(p.platform||"", +p.salePrice||+p.suggestedPrice||0),0);
+      const expMonth = expenses.filter(e => monthKey(e.date || e.createdAt) === monthKey()).reduce((s,e)=>s+(+e.amount||0),0);
+      const net = revenue - cogs - fees - expMonth;
+      const inStock = plants.filter(p=>p.status==="In Stock");
+      const readyOrders = groupSalesIntoOrders(plants).filter(o => o.plants.some(x => !x.trackingNumber));
+      const oldStock = inStock.filter(p => dHeld(p.dateAdded) >= 60);
+      const dueBills = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).sort((a,b)=>daysUntil(a.dueDate)-daysUntil(b.dueDate));
+      const quarantine = plants.filter(p => ["Quarantine","Pest/Disease"].includes(p.healthStatus));
+      const quick = [
+        ["Cash Flow", "cashflow", "💵", "Money in/out + safe nursery spend"],
+        ["Ready to Ship", "ship", "📦", `${readyOrders.length} order(s) need tracking`],
+        ["Discounts", "discounts", "🏷️", `${oldStock.length} aging plant(s)`],
+        ["Care / Quarantine", "care", "🩺", `${quarantine.length} flagged plant(s)`],
+        ["Goals", "goals", "🎯", "Revenue and profit progress"],
+        ["Reports", "reports", "📈", "Full analytics"],
+      ];
+      return <div style={{ padding:"14px 14px 90px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="🚀" title="Owner Command Center" sub="One screen for cash, shipping, warnings, goals, and operational action." />
+        <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr", gap:10, marginBottom:14 }}>
+          <div style={{ background:"#000", color:"#fff", borderRadius:16, padding:"18px 22px", border:`2px solid #97d33e`, boxShadow:"0 8px 26px rgba(0,0,0,.18)" }}>
+            <div style={{ fontSize:11, letterSpacing:1, opacity:.75, textTransform:"uppercase", marginBottom:6 }}>Net This Month</div>
+            <div style={{ fontFamily:F.display, fontSize:36, fontWeight:800, color: net >= 0 ? "#97d33e" : "#fb6392" }}>{$(net)}</div>
+            <div style={{ fontSize:12, opacity:.75, marginTop:5 }}>{$(revenue)} revenue · {$(expMonth)} expenses · {$(fees)} platform fees</div>
+          </div>
+          <KPI label="Inventory Value" value={$(inStock.reduce((s,p)=>s+(+p.suggestedPrice||0),0))} sub={`${inStock.length} in stock`} color={C.g600} onClick={()=>setPage("inv")} />
+          <KPI label="Ready to Ship" value={readyOrders.length} sub="orders missing tracking" color={readyOrders.length ? C.amber : C.g600} onClick={()=>setPage("ship")} />
+          <KPI label="Health Alerts" value={alerts.length} sub="warnings/info" color={alerts.some(a=>a.severity==="critical") ? C.red : alerts.length ? C.amber : C.g600} />
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1.2fr .8fr", gap:14 }}>
+          <Card>
+            <div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:16, marginBottom:12 }}>⚠️ Priority Alerts</div>
+            {alerts.length === 0 ? <div style={{ color:C.g700, fontWeight:700, fontSize:13 }}>All clear — no urgent business alerts right now ✅</div> : alerts.slice(0,8).map(a => {
+              const color = a.severity === "critical" ? C.red : a.severity === "warning" ? C.amber : C.blue;
+              return <div key={a.id} style={{ background: color + "12", border:`1px solid ${color}44`, borderRadius:12, padding:12, marginBottom:9 }}>
+                <Row between center wrap gap={8}><div><div style={{ fontWeight:800, color, fontSize:13 }}>{a.title}</div><div style={{ fontSize:12, color:C.tx2, marginTop:3 }}>{a.body}</div></div>{a.actionPage && <Btn sz="sm" v="soft" onClick={()=>setPage(a.actionPage)}>{a.actionLabel || "Open"}</Btn>}</Row>
+              </div>;
+            })}
+          </Card>
+          <Card>
+            <div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:16, marginBottom:12 }}>⚡ Quick Actions</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>
+              {quick.map(([label,pageId,icon,sub]) => <button key={pageId} onClick={()=>setPage(pageId)} style={{ textAlign:"left", background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:"12px 13px", cursor:"pointer", fontFamily:F.body }}>
+                <Row gap={10} center><span style={{ fontSize:22 }}>{icon}</span><div><div style={{ fontWeight:800, color:C.g900, fontSize:13 }}>{label}</div><div style={{ fontSize:11, color:C.tx3 }}>{sub}</div></div></Row>
+              </button>)}
+            </div>
+          </Card>
+          <Card>
+            <div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:16, marginBottom:12 }}>📦 Shipping Snapshot</div>
+            {readyOrders.length === 0 ? <div style={{ fontSize:13, color:C.g700, fontWeight:700 }}>No unshipped orders ✅</div> : readyOrders.slice(0,6).map(o => <div key={o.orderId} style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}>
+              <Row between center><div><div style={{ fontWeight:700, fontSize:13 }}>{o.customerName}</div><div style={{ fontSize:11, color:C.tx3 }}>{o.state || "No state"} · {o.plants.length} plant(s)</div></div><div style={{ fontWeight:800, color:C.gold }}>{$(o.totalValue)}</div></Row>
+            </div>)}
+          </Card>
+          <Card>
+            <div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:16, marginBottom:12 }}>📅 Bills Due Soon</div>
+            {dueBills.length === 0 ? <div style={{ fontSize:13, color:C.g700, fontWeight:700 }}>No bills due in the next 14 days ✅</div> : dueBills.slice(0,6).map(b => <Row key={b.id} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><div><div style={{ fontWeight:700, fontSize:13 }}>{b.name}</div><div style={{ fontSize:11, color:C.tx3 }}>{daysUntil(b.dueDate)} day(s)</div></div><div style={{ fontWeight:800, color:C.red }}>{$(b.amount)}</div></Row>)}
+          </Card>
+        </div>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: 2fr 1fr 1fr 1fr"],div[style*="grid-template-columns: 1.2fr .8fr"]{grid-template-columns:1fr!important;}}`}</style>
+      </div>;
+    }
+
     function CashFlowDashboard({ plants, expenses, bills, timecards, settings, setSettings, setPage }) {
       const thisMonth = today().slice(0,7);
       const soldMonth = plants.filter(p => p.status === "Sold" && String(plantSaleDate(p)||"").startsWith(thisMonth));
@@ -5731,6 +5851,7 @@
 
         <div>
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage} />}
+          {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setPage={setPage} />}
           {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={setPage} />}
           {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
           {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
