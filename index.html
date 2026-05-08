@@ -235,6 +235,58 @@
       seeAudit: r => r === "owner" || r === "manager",
     };
 
+
+    /* ══════════════════════════════════════════════════════════
+       PART 2 BUSINESS OPS HELPERS
+    ══════════════════════════════════════════════════════════ */
+    const monthKey = (d = new Date()) => (d instanceof Date ? d.toISOString() : String(d || today())).slice(0, 7);
+    const daysUntil = d => d ? Math.ceil((new Date(d + "T12:00:00") - new Date()) / 864e5) : 9999;
+    const dateInLast = (d, days) => d ? (Date.now() - new Date(String(d).includes("T") ? d : d + "T12:00:00")) <= days * 864e5 : false;
+    const plantSaleDate = p => p.soldDate || p.saleDate || p.dateSold || p.updatedAt || p.dateAdded;
+    const moneyNum = v => +String(v || 0).replace(/[^0-9.-]/g, "") || 0;
+    const orderKeyOf = p => p.orderNumber || p.orderId || `${p.customerUsername || p.customerName || "Unknown"}-${(plantSaleDate(p) || "").slice(0, 10)}`;
+    const groupSalesIntoOrders = (plants = []) => {
+      const map = {};
+      (plants || []).filter(p => p.status === "Sold").forEach(p => {
+        const key = orderKeyOf(p);
+        if (!map[key]) map[key] = { orderId: key, customerName: p.customerName || p.customerUsername || "Unknown Customer", customerUsername: p.customerUsername || "", address1: p.address1 || p.shippingAddress1 || "", address2: p.address2 || p.shippingAddress2 || "", city: p.city || p.shippingCity || "", state: p.state || p.shippingState || "", zip: p.zip || p.shippingZip || "", soldDate: (plantSaleDate(p) || today()).slice(0, 10), plants: [], totalValue: 0 };
+        map[key].plants.push({ id: p.id, name: p.name, potSize: p.potSize, plantId: p.plantId || p.plantCode, salePrice: +p.salePrice || +p.suggestedPrice || 0, trackingNumber: p.trackingNumber || "", carrier: p.carrier || "", shippedDate: p.shippedDate || "", deliveredDate: p.deliveredDate || "", includesHeatPack: !!p.includesHeatPack, packingSlipGenerated: !!p.packingSlipGenerated });
+        map[key].totalValue += (+p.salePrice || +p.suggestedPrice || 0);
+      });
+      return Object.values(map).sort((a,b) => String(b.soldDate).localeCompare(String(a.soldDate)));
+    };
+    const trackingUrl = (carrier, number) => {
+      if (!number) return "";
+      const n = encodeURIComponent(number);
+      if (carrier === "USPS") return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${n}`;
+      if (carrier === "UPS") return `https://www.ups.com/track?tracknum=${n}`;
+      if (carrier === "FedEx") return `https://www.fedex.com/fedextrack/?tracknumbers=${n}`;
+      return "";
+    };
+    const computeAlerts = (plants = [], expenses = [], bills = [], timecards = [], settings = {}) => {
+      const alerts = [];
+      const balance = +settings.currentBankBalance || 0;
+      const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
+      const payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
+      if (balance && balance < due14 + payrollWeek) alerts.push({ id:"cash-low", severity:"critical", title:"Cash is tight", body:`Bank balance ${$(balance)} is lower than bills/payroll due soon (${$(due14 + payrollWeek)}).`, actionLabel:"Open Cash Flow", actionPage:"cashflow" });
+      const ready = groupSalesIntoOrders(plants).filter(o => o.plants.some(p => !p.trackingNumber));
+      if (ready.length) alerts.push({ id:"ready-ship", severity:"warning", title:"Orders ready to ship", body:`${ready.length} order(s) are sold but missing tracking numbers.`, actionLabel:"Pack Orders", actionPage:"ship" });
+      const old = plants.filter(p => p.status === "In Stock" && dHeld(p.dateAdded) >= 60);
+      if (old.length) alerts.push({ id:"aging", severity:"warning", title:"Aging inventory", body:`${old.length} plant(s) are 60+ days old and may need discounting.`, actionLabel:"Discount Engine", actionPage:"discounts" });
+      const quarantine = plants.filter(p => ["Quarantine","Pest/Disease"].includes(p.healthStatus));
+      if (quarantine.length) alerts.push({ id:"quarantine", severity: quarantine.length > 3 ? "critical" : "warning", title:"Plant health issue", body:`${quarantine.length} plant(s) are quarantined or flagged for pests/disease.`, actionLabel:"Care Log", actionPage:"care" });
+      const genus = {};
+      plants.forEach(p => { const g = gOf(p.name); genus[g] = genus[g] || { inStock:0, sold30:0 }; if (p.status === "In Stock") genus[g].inStock++; if (p.status === "Sold" && dateInLast(plantSaleDate(p), 30)) genus[g].sold30++; });
+      Object.values(genus).forEach(g => { if (g.sold30 >= 3 && g.inStock <= 2) alerts.push({ id:`low-${gOf(g.name)}`, severity:"info", title:"Possible reorder needed", body:"A fast-selling genus is nearly out of stock.", actionLabel:"Reorder Alerts", actionPage:"cashflow" }); });
+      return alerts;
+    };
+    const downloadCsv = (filename, rows) => {
+      const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const csv = rows.map(r => r.map(esc).join(",")).join("\n");
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type:"text/csv" })), download: filename });
+      a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 800);
+    };
+
     /* ══════════════════════════════════════════════════════════
        SHARED UI COMPONENTS
     ══════════════════════════════════════════════════════════ */
@@ -337,15 +389,15 @@
     ══════════════════════════════════════════════════════════ */
     function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {} }) {
       const ownerTabs = [
-        { id: "dash", icon: "🏠", l: "Dashboard" }, { id: "upload", icon: "📸", l: "Upload Invoice" },
+        { id: "dash", icon: "🏠", l: "Dashboard" }, { id: "cashflow", icon: "💵", l: "Cash Flow" }, { id: "ship", icon: "📦", l: "Ready to Ship" }, { id: "upload", icon: "📸", l: "Upload Invoice" },
         { id: "manual", icon: "✏️", l: "Add Plants" }, { id: "history", icon: "📋", l: "Past Invoices" },
-        { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "showbuilder", icon: "🎪", l: "Show Builder" }, { id: "liveshow", icon: "🎥", l: "Live Show" },
+        { id: "inv", icon: "🌿", l: "Inventory" }, { id: "labels", icon: "🏷️", l: "Labels" }, { id: "showbuilder", icon: "🎪", l: "Show Builder" }, { id: "liveshow", icon: "🎥", l: "Live Show" }, { id: "bundles", icon: "🧺", l: "Bundles" },
         { id: "sellthru", icon: "📊", l: "Sell-Through" }, { id: "showimport", icon: "📦", l: "Post-Show" },
-        { id: "customers", icon: "👥", l: "Customers" }, { id: "nursery", icon: "🏪", l: "Nurseries" },
+        { id: "customers", icon: "👥", l: "Customers" }, { id: "retention", icon: "💚", l: "Retention" }, { id: "refunds", icon: "↩️", l: "Refunds" }, { id: "nursery", icon: "🏪", l: "Nurseries" }, { id: "pos", icon: "📋", l: "Purchase Orders" },
         { id: "bills", icon: "📅", l: "Bills" }, { id: "expense", icon: "💳", l: "Expenses" }, { id: "receipts", icon: "🧾", l: "Receipt Scanner" },
         { id: "timecard", icon: "⏱️", l: "Timecard" }, { id: "payroll", icon: "👥", l: "Payroll" },
         { id: "intel", icon: "💡", l: "Buy Intel" }, { id: "reports", icon: "📈", l: "Reports" },
-        { id: "tax", icon: "🧾", l: "Tax Center" }, { id: "audit", icon: "🔍", l: "Audit Log" },
+        { id: "tax", icon: "🧾", l: "Tax Center" }, { id: "goals", icon: "🎯", l: "Goals" }, { id: "care", icon: "🩺", l: "Plant Care" }, { id: "content", icon: "✨", l: "AI Content" }, { id: "discounts", icon: "🏷️", l: "Discounts" }, { id: "locations", icon: "📍", l: "Locations" }, { id: "commissions", icon: "🤝", l: "Commissions" }, { id: "audit", icon: "🔍", l: "Audit Log" },
         { id: "admin", icon: "⚙️", l: "Admin" },
         { id: "cleanup", icon: "🧹", l: "Data Cleanup" },
         { id: "casd", icon: "📜", l: "State Docs" },
@@ -3739,6 +3791,127 @@
     /* ══════════════════════════════════════════════════════════
        SHOW BUILDER / PALMSTREET PREP EXPORT
     ══════════════════════════════════════════════════════════ */
+
+    /* ══════════════════════════════════════════════════════════
+       PART 2 BUSINESS OPERATIONS CENTER
+    ══════════════════════════════════════════════════════════ */
+    function AlertPanel({ alerts, setPage }) {
+      if (!alerts.length) return <Card style={{ background: C.g50, border: `1px solid ${C.g200}`, marginBottom: 14 }}><b style={{ color:C.g800 }}>✅ Business Health:</b> No critical warnings right now.</Card>;
+      const sevColor = { critical: C.red, warning: C.amber, info: C.blue };
+      return <div style={{ display:"grid", gap:8, marginBottom:14 }}>{alerts.map(a => <Card key={a.id} style={{ borderLeft:`5px solid ${sevColor[a.severity]||C.blue}`, background: a.severity === "critical" ? C.redBg : a.severity === "warning" ? C.amberBg : C.blueBg }}><Row between wrap center><div><div style={{ fontWeight:800, color:sevColor[a.severity]||C.tx1 }}>{a.title}</div><div style={{ fontSize:12, color:C.tx2 }}>{a.body}</div></div>{a.actionPage && <Btn sz="sm" v="outline" onClick={() => setPage(a.actionPage)}>{a.actionLabel || "Open"}</Btn>}</Row></Card>)}</div>;
+    }
+
+    function CashFlowDashboard({ plants, expenses, bills, timecards, settings, setSettings, setPage }) {
+      const thisMonth = today().slice(0,7);
+      const soldMonth = plants.filter(p => p.status === "Sold" && String(plantSaleDate(p)||"").startsWith(thisMonth));
+      const cashInMonth = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
+      const cashInWeek = plants.filter(p => p.status === "Sold" && dateInLast(plantSaleDate(p),7)).reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
+      const expMonth = expenses.filter(e => String(e.date || e.createdAt || "").startsWith(thisMonth)).reduce((s,e)=>s+(+e.amount||0),0);
+      const paidBills = bills.filter(b => b.status === "Paid" && String(b.paidDate || b.dueDate || "").startsWith(thisMonth)).reduce((s,b)=>s+(+b.amount||0),0);
+      const payrollMonth = timecards.filter(t => String(t.date || "").startsWith(thisMonth)).reduce((s,t)=>s+(+t.totalPay||0),0);
+      const cashOutMonth = expMonth + paidBills + payrollMonth;
+      const netMonth = cashInMonth - cashOutMonth;
+      const obligations = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
+      const payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
+      const buffer = (obligations + payrollWeek) * ((+settings.cashSafetyBuffer || 15)/100);
+      const safeSpend = (+settings.currentBankBalance || 0) - obligations - payrollWeek - buffer;
+      const trailingWeekly = plants.filter(p => p.status === "Sold" && dateInLast(plantSaleDate(p), 56)).reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0) / 8;
+      const weeks = [0,1,2,3].map(i => { const out = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) >= i*7 && daysUntil(b.dueDate) < (i+1)*7).reduce((s,b)=>s+(+b.amount||0),0) + (i===0 ? payrollWeek : payrollWeek*.65); return { label:`Week ${i+1}`, in: trailingWeekly, out, net: trailingWeekly - out }; });
+      const alerts = computeAlerts(plants, expenses, bills, timecards, settings);
+      const updateBalance = v => setSettings(s => ({ ...s, currentBankBalance: moneyNum(v) }));
+      return <div style={{ padding:"14px 14px 90px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="💵" title="Cash Flow Dashboard" sub="Know what came in, what is going out, and what is safe to spend before nursery runs." right={<Btn sz="sm" onClick={()=>setPage("ship")}>📦 Ready to Ship</Btn>} />
+        <AlertPanel alerts={alerts} setPage={setPage} />
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:14 }}><KPI label="Cash In This Month" value={$(cashInMonth)} sub={`${soldMonth.length} sales`} color={C.g600}/><KPI label="Cash Out This Month" value={$(cashOutMonth)} sub="Expenses + bills + payroll" color={C.red}/><KPI label="Net This Month" value={$(netMonth)} color={netMonth>=0?C.g700:C.red}/></div>
+        <Card style={{ marginBottom:14 }}><h3 style={{ marginTop:0, fontFamily:F.display }}>Next 30 Days</h3><div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>{weeks.map(w => <div key={w.label} style={{ border:`1px solid ${C.bd}`, borderRadius:10, padding:10 }}><b>{w.label}</b><div style={{ fontSize:12, color:w.net>=0?C.g700:C.red }}>Net {$(w.net)}</div><div style={{ height:8, background:C.g100, borderRadius:9, margin:"10px 0 4px" }}><div style={{ width:`${Math.min(100, w.in/(w.in+w.out||1)*100)}%`, height:8, background:C.g600, borderRadius:9 }}/></div><div style={{ height:8, background:C.redBg, borderRadius:9 }}><div style={{ width:`${Math.min(100, w.out/(w.in+w.out||1)*100)}%`, height:8, background:C.red, borderRadius:9 }}/></div><div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:C.tx3, marginTop:5 }}><span>In {$(w.in)}</span><span>Out {$(w.out)}</span></div></div>)}</div></Card>
+        <div style={{ display:"grid", gridTemplateColumns:"1.2fr 1fr", gap:14 }}><Card><h3 style={{ marginTop:0, fontFamily:F.display }}>Upcoming Obligations</h3>{bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 30).sort((a,b)=>daysUntil(a.dueDate)-daysUntil(b.dueDate)).map(b => <div key={b.id} style={{ padding:10, borderRadius:8, marginBottom:6, background:daysUntil(b.dueDate)<0?C.redBg:daysUntil(b.dueDate)<=7?C.amberBg:C.cardAlt }}><Row between><span><b>{b.name}</b><br/><small>{daysUntil(b.dueDate)<0 ? `${Math.abs(daysUntil(b.dueDate))} days overdue` : `Due in ${daysUntil(b.dueDate)} days`}</small></span><b>{$(b.amount)}</b></Row></div>)}<div style={{ padding:10, borderRadius:8, background:C.purpleBg }}><Row between><span><b>Estimated Payroll This Week</b><br/><small>From current timecards</small></span><b>{$(payrollWeek)}</b></Row></div></Card><Card style={{ background:safeSpend>=0?C.g50:C.redBg, border:`2px solid ${safeSpend>=0?C.g300:C.red}` }}><h3 style={{ marginTop:0, fontFamily:F.display }}>Nursery Run Budget</h3><Inp label="Current Bank Balance" type="number" value={settings.currentBankBalance || 0} onChange={updateBalance}/><div style={{ fontFamily:F.display, fontSize:32, fontWeight:800, color:safeSpend>=0?C.g700:C.red, marginTop:14 }}>{safeSpend>=0 ? `Safe to spend: ${$(safeSpend)}` : "Not a good week for a nursery run"}</div><p style={{ fontSize:12, color:C.tx3 }}>Balance {$(settings.currentBankBalance)} | Bills {$(obligations)} | Payroll {$(payrollWeek)} | Buffer {$(buffer)}</p></Card></div>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 1.2fr 1fr"]{grid-template-columns:1fr!important}}`}</style>
+      </div>;
+    }
+
+    function PackingShippingCenter({ plants, setPlants, user, addAudit }) {
+      const [trackOrder, setTrackOrder] = useState(null), [carrier, setCarrier] = useState("USPS"), [shipDate, setShipDate] = useState(today()), [tracking, setTracking] = useState(""), [heat, setHeat] = useState(false), [bulk, setBulk] = useState(false), [bulkMap, setBulkMap] = useState({});
+      const orders = groupSalesIntoOrders(plants); const ready = orders.filter(o => o.plants.some(p => !p.trackingNumber)); const shipped = orders.filter(o => o.plants.some(p => p.trackingNumber));
+      const printSlip = (order) => { const care = [...new Set(order.plants.map(p=>p.name))].map(n=>`<li><b>${n}:</b> Bright indirect light. Water when the top inch is lightly dry. Avoid direct sun after shipping.</li>`).join(""); const html = `<html><head><title>Packing Slip ${order.orderId}</title><style>body{font-family:Arial;padding:32px;color:#123} h1{letter-spacing:2px}.row{display:flex;justify-content:space-between}.box{border:1px solid #bbb;padding:12px;margin:14px 0} table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:7px;text-align:left}</style></head><body><div class="row"><div><h1>LEAF DIARY</h1><p>Rare Plant Specialist<br/>theleafdiary@gmail.com</p></div><div><h2>PACKING SLIP</h2><p>${order.soldDate}</p></div></div><hr/><div class="box"><b>SHIP TO</b><br/>${order.customerName}<br/>${order.address1}<br/>${order.address2||""}<br/>${order.city||""} ${order.state||""} ${order.zip||""}</div><table><tr><th>Plant</th><th>Pot</th><th>ID</th><th>Price</th></tr>${order.plants.map(p=>`<tr><td>${p.name}</td><td>${p.potSize||""}</td><td>${p.plantId||""}</td><td>$${(+p.salePrice||0).toFixed(2)}</td></tr>`).join("")}</table><div class="box"><b>Care Notes</b><ul>${care}</ul></div><p>Thank you for your order! Questions? theleafdiary@gmail.com | @theleafdiary</p><script>window.print()<\/script></body></html>`; const w = window.open("", "_blank"); w.document.write(html); w.document.close(); setPlants(prev=>prev.map(p=>order.plants.some(x=>x.id===p.id)?{...p, packingSlipGenerated:true}:p)); addAudit&&addAudit({action:`Packing slip printed for ${order.orderId}`, user:user.name, page:"Shipping"}); };
+      const saveTracking = (order, num = tracking) => { if (!num) return alert("Enter tracking number"); setPlants(prev=>prev.map(p=>order.plants.some(x=>x.id===p.id)?{...p, trackingNumber:num, carrier, shippedDate:shipDate, includesHeatPack:heat}:p)); addAudit&&addAudit({action:`Tracking added for ${order.orderId}: ${carrier} ${num}`, user:user.name, page:"Shipping"}); setTrackOrder(null); setTracking(""); };
+      const saveBulk = () => { setPlants(prev=>prev.map(p=>{ const o=ready.find(o=>o.plants.some(x=>x.id===p.id)); const num=o && bulkMap[o.orderId]; return num?{...p, trackingNumber:num, carrier, shippedDate:shipDate}:p; })); addAudit&&addAudit({action:`Bulk tracking saved for ${Object.values(bulkMap).filter(Boolean).length} orders`, user:user.name, page:"Shipping"}); setBulk(false); setBulkMap({}); };
+      return <div style={{ padding:"14px 14px 90px", background:C.bg, minHeight:"100vh" }}><SHdr icon="📦" title="Ready to Ship & Tracking" sub="Print packing slips, add tracking numbers, and confirm delivery." right={<Btn sz="sm" onClick={()=>setBulk(!bulk)}>Bulk Tracking</Btn>} />
+        {ready.length===0 ? <Card style={{ background:C.g50 }}><b>✅ All caught up — no orders waiting to ship.</b></Card> : <div style={{ display:"grid", gap:10 }}>{bulk && <Card><h3 style={{ marginTop:0 }}>Bulk Tracking Entry</h3><Row gap={10} wrap><Sel label="Carrier" value={carrier} onChange={setCarrier} options={["USPS","UPS","FedEx","Other"]}/><Inp label="Ship Date" type="date" value={shipDate} onChange={setShipDate}/></Row>{ready.map(o=><Inp key={o.orderId} label={`${o.customerName} · ${o.state} · ${o.plants.length} plants`} value={bulkMap[o.orderId]||""} onChange={v=>setBulkMap(m=>({...m,[o.orderId]:v}))}/>) }<Btn onClick={saveBulk}>Save All Tracking</Btn></Card>}{ready.map(o => <Card key={o.orderId}><Row between wrap><div><b>{o.customerName}</b> <Tag text={o.state||"No State"} sm/><div style={{fontSize:12,color:C.tx3}}>{o.plants.length} plants · {$(o.totalValue)} · {o.orderId}</div></div><Row gap={8}><Btn sz="sm" v="soft" onClick={()=>printSlip(o)}>Print Packing Slip</Btn><Btn sz="sm" onClick={()=>setTrackOrder(trackOrder===o.orderId?null:o.orderId)}>Add Tracking</Btn></Row></Row>{trackOrder===o.orderId && <div style={{ marginTop:12, padding:12, background:C.cardAlt, borderRadius:10 }}><Row gap={10} wrap><Inp label="Tracking Number" value={tracking} onChange={setTracking}/><Sel label="Carrier" value={carrier} onChange={setCarrier} options={["USPS","UPS","FedEx","Other"]}/><Inp label="Ship Date" type="date" value={shipDate} onChange={setShipDate}/></Row><label style={{fontSize:12}}><input type="checkbox" checked={heat} onChange={e=>setHeat(e.target.checked)}/> Heat pack included</label><br/><Btn sz="sm" onClick={()=>saveTracking(o)}>Save Tracking</Btn></div>}</Card>)}</div>}
+        <Card style={{ marginTop:14 }}><h3 style={{ marginTop:0, fontFamily:F.display }}>Shipped Orders</h3>{shipped.length===0 ? <p>No shipped orders yet.</p> : shipped.slice(0,50).map(o=><div key={o.orderId} style={{ padding:8, borderBottom:`1px solid ${C.bdS}` }}><Row between><span><b>{o.customerName}</b> · {o.plants[0]?.carrier} {o.plants[0]?.trackingNumber && (trackingUrl(o.plants[0].carrier,o.plants[0].trackingNumber)?<a href={trackingUrl(o.plants[0].carrier,o.plants[0].trackingNumber)} target="_blank">{o.plants[0].trackingNumber}</a>:o.plants[0].trackingNumber)}</span><Btn sz="sm" v="soft" onClick={()=>setPlants(prev=>prev.map(p=>o.plants.some(x=>x.id===p.id)?{...p, deliveredDate: today()}:p))}>Delivered?</Btn></Row></div>)}</Card>
+      </div>;
+    }
+
+    function PlantBundles({ plants, setPlants, bundles, setBundles, user, addAudit }) {
+      const [name,setName]=useState(""), [ids,setIds]=useState(""), [price,setPrice]=useState("");
+      const inStock=plants.filter(p=>p.status==="In Stock");
+      const selected=ids.split(/[\s,]+/).map(s=>s.trim().toLowerCase()).filter(Boolean).map(id=>plants.find(p=>String(p.plantId||p.plantCode||"").toLowerCase()===id || String(p.id).toLowerCase()===id)).filter(Boolean);
+      const save=()=>{ const b={id:uid(), name:name||`Bundle ${bundles.length+1}`, plantIds:selected.map(p=>p.id), plantCodes:selected.map(p=>p.plantId||p.plantCode), bundlePrice:+price||selected.reduce((s,p)=>s+(+p.suggestedPrice||0),0), status:"Draft", createdAt:new Date().toISOString(), createdBy:user.name}; setBundles(prev=>[b,...prev]); setName(""); setIds(""); setPrice(""); addAudit&&addAudit({action:`Created plant bundle ${b.name}`, user:user.name, page:"Bundles"}); };
+      const markSold=b=>{ setPlants(prev=>prev.map(p=>b.plantIds.includes(p.id)?{...p,status:"Sold", salePrice:(+b.bundlePrice||0)/(b.plantIds.length||1), soldDate:today(), platform:"Bundle"}:p)); setBundles(prev=>prev.map(x=>x.id===b.id?{...x,status:"Sold", soldAt:new Date().toISOString()}:x)); };
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="🧺" title="Plant Bundle Pricing" sub="Create multi-plant combo deals and track bundle sales."/><Card style={{marginBottom:14}}><Row gap={10} wrap><Inp label="Bundle Name" value={name} onChange={setName}/><Inp label="Plant IDs" value={ids} onChange={setIds} placeholder="P-001, P-002"/><Inp label="Bundle Price" type="number" value={price} onChange={setPrice}/></Row><p style={{fontSize:12,color:C.tx3}}>Selected: {selected.map(p=>p.name).join(", ") || "none"}</p><Btn onClick={save} disabled={!selected.length}>Save Bundle</Btn></Card>{bundles.map(b=><Card key={b.id} style={{marginBottom:8}}><Row between wrap><div><b>{b.name}</b> <Tag text={b.status} sm/><div style={{fontSize:12,color:C.tx3}}>{(b.plantCodes||[]).join(", ")} · {$(b.bundlePrice)}</div></div><Btn sz="sm" onClick={()=>markSold(b)} disabled={b.status==="Sold"}>Mark Bundle Sold</Btn></Row></Card>)}</div>;
+    }
+
+    function PurchaseOrders({ purchaseOrders, setPurchaseOrders, nurseries, user, addAudit }) {
+      const [form,setForm]=useState({ nurseryCode:nurseries[0]?.code||"", expectedDelivery:"", notes:"", item:"", qty:1, cost:"" });
+      const nextNo=()=>`PO-${today().slice(0,7)}-${String((purchaseOrders||[]).length+1).padStart(3,"0")}`;
+      const create=()=>{ const po={id:uid(), poNumber:nextNo(), nurseryCode:form.nurseryCode, status:"Draft", createdAt:new Date().toISOString(), createdBy:user.name, expectedDelivery:form.expectedDelivery, notes:form.notes, items:[{plantName:form.item, genus:gOf(form.item), qty:+form.qty||1, expectedCost:+form.cost||0, receivedQty:0, receivedCost:0}]}; setPurchaseOrders(p=>[po,...p]); addAudit&&addAudit({action:`Created purchase order ${po.poNumber}`, user:user.name, page:"Purchase Orders"}); };
+      const upd=(id,patch)=>setPurchaseOrders(p=>p.map(po=>po.id===id?{...po,...patch}:po));
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="📋" title="Supplier Purchase Orders" sub="Track what you ordered, what arrived, and what still needs receiving."/><Card style={{marginBottom:14}}><Row gap={10} wrap><Sel label="Nursery" value={form.nurseryCode} onChange={v=>setForm(f=>({...f,nurseryCode:v}))} options={nurseries.map(n=>({v:n.code,l:`${n.code} · ${n.name}`}))}/><Inp label="Expected Delivery" type="date" value={form.expectedDelivery} onChange={v=>setForm(f=>({...f,expectedDelivery:v}))}/><Inp label="Plant / Item" value={form.item} onChange={v=>setForm(f=>({...f,item:v}))}/><Inp label="Qty" type="number" value={form.qty} onChange={v=>setForm(f=>({...f,qty:v}))}/><Inp label="Expected Cost" type="number" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))}/></Row><Btn onClick={create} disabled={!form.item}>Create PO</Btn></Card>{purchaseOrders.map(po=><Card key={po.id} style={{marginBottom:8}}><Row between wrap><div><b>{po.poNumber}</b> <Tag text={po.status} sm color={po.status==="Received"?C.g600:po.status==="Sent"?C.blue:C.amber}/><div style={{fontSize:12,color:C.tx3}}>{po.nurseryCode} · {po.items?.length||0} line(s) · Expected {po.expectedDelivery||"—"}</div></div><Row gap={6}><Btn sz="sm" v="soft" onClick={()=>upd(po.id,{status:"Sent"})}>Sent</Btn><Btn sz="sm" onClick={()=>upd(po.id,{status:"Received", receivedAt:new Date().toISOString(), items:(po.items||[]).map(i=>({...i,receivedQty:i.qty,receivedCost:i.expectedCost}))})}>Received</Btn><Btn sz="sm" v="danger" onClick={()=>upd(po.id,{status:"Cancelled"})}>Cancel</Btn></Row></Row>{(po.items||[]).map((i,idx)=><div key={idx} style={{fontSize:12,marginTop:6}}>{i.qty} × {i.plantName} @ {$(i.expectedCost)}</div>)}</Card>)}</div>;
+    }
+
+    function RefundManager({ refunds, setRefunds, plants, setPlants, user, addAudit }) {
+      const [form,setForm]=useState({customerUsername:"", refundAmount:"", refundDate:today(), reason:"Customer Request", platform:"Palmstreet", notes:""});
+      const create=()=>{ const r={id:uid(),...form,refundAmount:+form.refundAmount||0,status:"Pending",createdAt:new Date().toISOString(),createdBy:user.name}; setRefunds(p=>[r,...p]); addAudit&&addAudit({action:`Refund record created ${$(r.refundAmount)}`, user:user.name, page:"Refunds"}); };
+      const upd=(id,patch)=>setRefunds(p=>p.map(r=>r.id===id?{...r,...patch}:r));
+      const thisMonth=refunds.filter(r=>String(r.refundDate||"").startsWith(today().slice(0,7)) && r.status==="Issued").reduce((s,r)=>s+(+r.refundAmount||0),0);
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="↩️" title="Return & Refund Manager" sub="Track DOA, wrong plant, shipping damage, and platform refunds."/><KPI label="Issued This Month" value={$(thisMonth)} color={C.red}/><Card style={{margin:"14px 0"}}><Row gap={10} wrap><Inp label="Customer" value={form.customerUsername} onChange={v=>setForm(f=>({...f,customerUsername:v}))}/><Inp label="Amount" type="number" value={form.refundAmount} onChange={v=>setForm(f=>({...f,refundAmount:v}))}/><Inp label="Date" type="date" value={form.refundDate} onChange={v=>setForm(f=>({...f,refundDate:v}))}/><Sel label="Reason" value={form.reason} onChange={v=>setForm(f=>({...f,reason:v}))} options={["DOA","Wrong Plant","Shipping Damage","Customer Request","Other"]}/></Row><Btn onClick={create}>Add Refund</Btn></Card>{refunds.map(r=><Card key={r.id} style={{marginBottom:8}}><Row between wrap><div><b>{r.customerUsername||"Unknown"}</b> <span style={{color:C.red,fontWeight:800}}>{$(r.refundAmount)}</span><div style={{fontSize:12,color:C.tx3}}>{r.refundDate} · {r.reason}</div></div><Sel label="Status" value={r.status} onChange={v=>upd(r.id,{status:v})} options={["Pending","Issued","Disputed"]}/></Row></Card>)}</div>;
+    }
+
+    function ProfitGoals({ plants, expenses, settings, setSettings }) {
+      const goals={ monthlyRevenue:0, monthlyProfit:0, annualRevenue:0, annualProfit:0, ...(settings.goals||{})};
+      const setGoal=(k,v)=>setSettings(s=>({...s,goals:{...(s.goals||{}),[k]:moneyNum(v)}}));
+      const month=today().slice(0,7), year=today().slice(0,4); const soldM=plants.filter(p=>p.status==="Sold"&&String(plantSaleDate(p)||"").startsWith(month)); const soldY=plants.filter(p=>p.status==="Sold"&&String(plantSaleDate(p)||"").startsWith(year));
+      const revM=soldM.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0), revY=soldY.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0); const profM=soldM.reduce((s,p)=>s+trueProfit(p),0)-expenses.filter(e=>String(e.date||"").startsWith(month)).reduce((s,e)=>s+(+e.amount||0),0); const profY=soldY.reduce((s,p)=>s+trueProfit(p),0)-expenses.filter(e=>String(e.date||"").startsWith(year)).reduce((s,e)=>s+(+e.amount||0),0);
+      const bar=(label,cur,target)=> <div style={{marginBottom:12}}><Row between><b>{label}</b><span>{$(cur)} / {$(target)}</span></Row><div style={{height:10,borderRadius:20,background:C.g100,overflow:"hidden"}}><div style={{width:`${Math.min(100,target?cur/target*100:0)}%`,height:"100%",background:cur>=target?C.g600:cur>=target*.8?C.gold:C.red}}/></div></div>;
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="🎯" title="Profit Goals" sub="Set monthly and annual revenue/profit targets and watch progress."/><Card style={{marginBottom:14}}><Row gap={10} wrap><Inp label="Monthly Revenue Goal" type="number" value={goals.monthlyRevenue} onChange={v=>setGoal("monthlyRevenue",v)}/><Inp label="Monthly Profit Goal" type="number" value={goals.monthlyProfit} onChange={v=>setGoal("monthlyProfit",v)}/><Inp label="Annual Revenue Goal" type="number" value={goals.annualRevenue} onChange={v=>setGoal("annualRevenue",v)}/><Inp label="Annual Profit Goal" type="number" value={goals.annualProfit} onChange={v=>setGoal("annualProfit",v)}/></Row></Card><Card>{bar("Monthly Revenue",revM,goals.monthlyRevenue)}{bar("Monthly Profit",profM,goals.monthlyProfit)}{bar("Annual Revenue",revY,goals.annualRevenue)}{bar("Annual Profit",profY,goals.annualProfit)}</Card></div>;
+    }
+
+    function PlantCareCenter({ plants, setPlants, user, addAudit }) {
+      const [q,setQ]=useState(""), [status,setStatus]=useState("All"), [note,setNote]=useState({}); const list=plants.filter(p=>(status==="All"||(p.healthStatus||"Healthy")===status)&&(!q||String(p.name).toLowerCase().includes(q.toLowerCase())||String(p.plantId||"").toLowerCase().includes(q.toLowerCase())));
+      const upd=(id,patch)=>setPlants(prev=>prev.map(p=>p.id===id?{...p,...patch}:p));
+      const addNote=(p)=>{ const n=(note[p.id]||"").trim(); if(!n) return; upd(p.id,{careLog:[{date:today(),note:n,addedBy:user.name},...((p.careLog)||[])]}); setNote(m=>({...m,[p.id]:""})); addAudit&&addAudit({action:`Care note added for ${p.plantId||p.name}`, user:user.name, page:"Plant Care"}); };
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="🩺" title="Plant Care & Quarantine Log" sub="Flag stressed plants, quarantine pests, and keep care notes."/><Row gap={10} wrap style={{marginBottom:14}}><Inp label="Search" value={q} onChange={setQ}/><Sel label="Health Status" value={status} onChange={setStatus} options={["All","Healthy","Stressed","Pest/Disease","Quarantine","Recovering"]}/></Row>{list.map(p=><Card key={p.id} style={{marginBottom:8, borderLeft:["Pest/Disease","Quarantine"].includes(p.healthStatus)?`5px solid ${C.red}`:undefined}}><Row between wrap><div><b>{p.name}</b> <Tag text={p.healthStatus||"Healthy"} sm color={(p.healthStatus==="Healthy"||!p.healthStatus)?C.g600:["Pest/Disease","Quarantine"].includes(p.healthStatus)?C.red:C.amber}/><div style={{fontSize:12,color:C.tx3}}>{p.plantId} · {p.potSize}</div></div><Sel label="Status" value={p.healthStatus||"Healthy"} onChange={v=>upd(p.id,{healthStatus:v})} options={["Healthy","Stressed","Pest/Disease","Quarantine","Recovering"]}/></Row><Row gap={8} style={{marginTop:8}}><Inp value={note[p.id]||""} onChange={v=>setNote(m=>({...m,[p.id]:v}))} placeholder="Add care note..."/><Btn sz="sm" onClick={()=>addNote(p)}>Add Note</Btn></Row>{(p.careLog||[]).slice(0,3).map((n,i)=><div key={i} style={{fontSize:11,color:C.tx3,marginTop:4}}>{n.date} · {n.addedBy}: {n.note}</div>)}</Card>)}</div>;
+    }
+
+    function AIContentGenerator({ plants }) {
+      const [plantId,setPlantId]=useState(""), [type,setType]=useState("Palmstreet Listing"), [out,setOut]=useState(""); const p=plants.find(x=>x.id===plantId)||plants[0];
+      const gen=()=>{ if(!p) return; const price=$(+p.suggestedPrice||0); const base=`${p.name} in a ${p.potSize||"plant"} pot. This is a beautiful rare houseplant with strong Leaf Diary energy. Best for bright indirect light and careful watering.`; const text= type==="Instagram Caption"?`🌿 New Leaf Diary drop: ${p.name}\n\n${base}\n\nAvailable during our next live show. rare roots, real love.`: type==="TikTok Hook"?`Stop scrolling — this ${p.name} is the plant collectors are going to fight over in tonight's live show.`:`${p.name} · ${p.potSize||""} · ${price}. ${base} Perfect for collectors who want something special without guessing on care.`; setOut(text); };
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="✨" title="AI Social Media Content Generator" sub="Create Palmstreet listings, Instagram captions, and short video hooks."/><Card><Row gap={10} wrap><Sel label="Plant" value={plantId||p?.id||""} onChange={setPlantId} options={plants.slice(0,500).map(x=>({v:x.id,l:`${x.plantId||""} · ${x.name}`}))}/><Sel label="Content Type" value={type} onChange={setType} options={["Palmstreet Listing","Instagram Caption","TikTok Hook"]}/></Row><Btn onClick={gen}>Generate Content</Btn>{out&&<textarea value={out} onChange={e=>setOut(e.target.value)} style={{width:"100%",minHeight:160,marginTop:14,padding:12,borderRadius:10,border:`1px solid ${C.bd}`,fontSize:14}}/>}</Card></div>;
+    }
+
+    function SmartDiscountEngine({ plants, setPlants, user, addAudit, settings, setSettings }) {
+      const rules=settings.autoDiscountRules||[]; const candidates=plants.filter(p=>p.status==="In Stock"&&dHeld(p.dateAdded)>=30).map(p=>{ const rule=rules.filter(r=>r.enabled&&dHeld(p.dateAdded)>=r.days&&(+(p.lastAutoDiscountDays||0)<r.days)).sort((a,b)=>b.days-a.days)[0]; return {...p,rule}; }).filter(p=>p.rule);
+      const apply=()=>{ setPlants(prev=>prev.map(p=>{ const c=candidates.find(x=>x.id===p.id); if(!c) return p; const np=Math.max(5, Math.round((+p.suggestedPrice||0)*(1-c.rule.percent/100)/5)*5); return {...p,preDiscountPrice:p.suggestedPrice,suggestedPrice:np,autoDiscounted:true,lastAutoDiscountDays:c.rule.days,discountAppliedAt:today(),discountReason:`${c.rule.days}-day aging auto`}; })); addAudit&&addAudit({action:`Smart Discount Engine applied ${candidates.length} discounts`, user:user.name, page:"Discount Engine"}); };
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="🏷️" title="Smart Discount Engine" sub="Apply aging rules in one click."/><Card style={{marginBottom:14}}>{rules.map((r,i)=><Row key={i} gap={8} center><label><input type="checkbox" checked={r.enabled} onChange={e=>setSettings(s=>({...s,autoDiscountRules:(s.autoDiscountRules||rules).map((x,idx)=>idx===i?{...x,enabled:e.target.checked}:x)}))}/> {r.days} days</label><Inp type="number" value={r.percent} onChange={v=>setSettings(s=>({...s,autoDiscountRules:(s.autoDiscountRules||rules).map((x,idx)=>idx===i?{...x,percent:+v||0}:x)}))}/><span>% off</span></Row>)}</Card><Card><Row between><h3 style={{marginTop:0}}>Candidates: {candidates.length}</h3><Btn onClick={apply} disabled={!candidates.length}>Apply Discounts</Btn></Row>{candidates.map(p=><div key={p.id} style={{padding:8,borderBottom:`1px solid ${C.bdS}`}}>{p.plantId} · {p.name} · {dHeld(p.dateAdded)} days · {$(p.suggestedPrice)} → {$(Math.max(5,Math.round((+p.suggestedPrice||0)*(1-p.rule.percent/100)/5)*5))}</div>)}</Card></div>;
+    }
+
+    function RetentionAlerts({ plants }) {
+      const map={}; plants.filter(p=>p.status==="Sold").forEach(p=>{const c=p.customerUsername||p.customerName||"Unknown"; map[c]=map[c]||{name:c,spent:0,count:0,last:""}; map[c].spent+=+p.salePrice||+p.suggestedPrice||0; map[c].count++; const d=plantSaleDate(p)||""; if(d>map[c].last) map[c].last=d;}); const rows=Object.values(map).filter(c=>c.spent>=200 && (!c.last||daysUntil(c.last)<-30)).sort((a,b)=>b.spent-a.spent);
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="💚" title="Customer Retention Alerts" sub="VIP buyers who have gone quiet."/>{rows.length?rows.map(c=><Card key={c.name} style={{marginBottom:8}}><Row between><div><b>{c.name}</b><div style={{fontSize:12,color:C.tx3}}>{c.count} orders · {$(c.spent)} lifetime · Last purchase {c.last||"unknown"}</div></div><Tag text="VIP follow-up" color={C.gold}/></Row></Card>):<Card>✅ No VIP retention warnings.</Card>}</div>;
+    }
+
+    function MultiLocationCenter({ plants, setPlants, settings, setSettings, user, addAudit }) {
+      const [name,setName]=useState(""), [type,setType]=useState("Greenhouse"), [selected,setSelected]=useState(""), [target,setTarget]=useState(settings.locations?.[0]?.id||""); const locs=settings.locations||[];
+      const add=()=>{ if(!name) return; setSettings(s=>({...s,locations:[...(s.locations||[]),{id:uid(),name,type,notes:"",isDefault:false}]})); setName(""); };
+      const transfer=()=>{ const ids=selected.split(/[\s,]+/).filter(Boolean); setPlants(prev=>prev.map(p=>ids.includes(p.plantId)||ids.includes(p.plantCode)||ids.includes(p.id)?{...p,locationId:target}:p)); addAudit&&addAudit({action:`Transferred ${ids.length} plants to location`,user:user.name,page:"Locations"}); };
+      const counts=locs.map(l=>({l,plants:plants.filter(p=>(p.locationId||"main")===l.id)}));
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="📍" title="Multi-Location Inventory" sub="Track plants across greenhouse, storage, vehicle, show venue, and more."/><div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14}}>{counts.map(x=><KPI key={x.l.id} label={x.l.name} value={x.plants.length} sub={$(x.plants.reduce((s,p)=>s+(+p.suggestedPrice||0),0))}/>)}</div><Card style={{marginBottom:14}}><h3 style={{marginTop:0}}>Add Location</h3><Row gap={10} wrap><Inp label="Name" value={name} onChange={setName}/><Sel label="Type" value={type} onChange={setType} options={["Greenhouse","Storage","Home","Show Venue","Vehicle","Other"]}/><Btn onClick={add}>Add</Btn></Row></Card><Card><h3 style={{marginTop:0}}>Transfer Plants</h3><Inp label="Plant IDs" value={selected} onChange={setSelected} placeholder="P-001 P-002"/><Sel label="Move To" value={target} onChange={setTarget} options={locs.map(l=>({v:l.id,l:l.name}))}/><Btn onClick={transfer}>Transfer</Btn></Card><style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(3,1fr)"]{grid-template-columns:1fr!important}}`}</style></div>;
+    }
+
+    function CommissionCenter({ plants, timecards, users, settings, setSettings }) {
+      const commissions=settings.commissions||{}; const soldMonth=plants.filter(p=>p.status==="Sold"&&String(plantSaleDate(p)||"").startsWith(today().slice(0,7))); const sales=soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
+      const setCom=(id,patch)=>setSettings(s=>({...s,commissions:{...(s.commissions||{}),[id]:{...(s.commissions?.[id]||{}),...patch}}}));
+      return <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}><SHdr icon="🤝" title="Commission & Profit Sharing" sub="Add show/sales commission on top of hourly pay."/><KPI label="This Month Sales Basis" value={$(sales)} color={C.gold}/>{users.filter(u=>u.role!=="owner").map(u=>{const c=commissions[u.id]||{percent:0,basis:"None"}; const pay=sales*((+c.percent||0)/100); return <Card key={u.id} style={{marginTop:10}}><Row between wrap><div><b>{u.name}</b><div style={{fontSize:12,color:C.tx3}}>{u.role} · Estimated commission {$(pay)}</div></div><Row gap={8}><Inp label="Commission %" type="number" value={c.percent||0} onChange={v=>setCom(u.id,{percent:+v||0})}/><Sel label="Basis" value={c.basis||"None"} onChange={v=>setCom(u.id,{basis:v})} options={["None","All Sales","Show Sales"]}/></Row></Row></Card>})}</div>;
+    }
     function ShowBuilder({ plants, setPlants, user, addAudit }) {
       const [showName, setShowName] = useState(`Leaf Diary Show ${today()}`);
       const [ids, setIds] = useState(getSavedShowIds());
@@ -4745,7 +4918,7 @@
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "inv", "upload", "reports", "bills"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"] };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "inv", "upload", "reports", "bills"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15 };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -5224,6 +5397,9 @@
       const [plants, setPlantsRaw] = useState(saved?.plants || []);
       const [expenses, setExpensesRaw] = useState(saved?.expenses || []);
       const [expenseReceipts, setExpenseReceiptsRaw] = useState(saved?.expenseReceipts || []);
+      const [purchaseOrders, setPurchaseOrdersRaw] = useState(saved?.purchaseOrders || []);
+      const [refunds, setRefundsRaw] = useState(saved?.refunds || []);
+      const [bundles, setBundlesRaw] = useState(saved?.bundles || []);
       const [timecards, setTimecardsRaw] = useState(saved?.timecards || []);
       const [auditLog, setAuditLogRaw] = useState(saved?.auditLog || []);
       const [bills, setBillsRaw] = useState(saved?.bills || DEFAULT_BILLS);
@@ -5276,6 +5452,9 @@
       const setPlants = cloudCollectionSetter("plants", setPlantsRaw);
       const setExpenses = cloudCollectionSetter("expenses", setExpensesRaw);
       const setExpenseReceipts = cloudStateSetter("expenseReceipts", setExpenseReceiptsRaw);
+      const setPurchaseOrders = cloudStateSetter("purchaseOrders", setPurchaseOrdersRaw);
+      const setRefunds = cloudStateSetter("refunds", setRefundsRaw);
+      const setBundles = cloudStateSetter("bundles", setBundlesRaw);
       const setTimecards = cloudCollectionSetter("timecards", setTimecardsRaw);
       const setBills = cloudCollectionSetter("bills", setBillsRaw);
       const setNurseries = cloudCollectionSetter("nurseries", setNurseriesRaw);
@@ -5357,8 +5536,8 @@
 
       /* Always keep a local backup on this device too */
       useEffect(() => {
-        saveLS({ plants, expenses, expenseReceipts, timecards, auditLog, bills, nurseries, users, settings, casdCerts });
-      }, [plants, expenses, expenseReceipts, timecards, auditLog, bills, nurseries, users, settings, casdCerts]);
+        saveLS({ plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts });
+      }, [plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts]);
 
       /* Load fonts */
       useEffect(() => {
@@ -5371,12 +5550,15 @@
       const loadFromCloud = useCallback(async ({ silent = false } = {}) => {
         if (!silent) { setCloudStatus("loading"); setCloudMsg("Loading Supabase cloud data..."); }
         try {
-          const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudExpenseReceipts, cloudTimecards, cloudUsers, cloudSettings, cloudAudit, cloudInventoryReset, cloudCasdCerts, cloudCasdState] = await Promise.all([
+          const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudExpenseReceipts, cloudPurchaseOrders, cloudRefunds, cloudBundles, cloudTimecards, cloudUsers, cloudSettings, cloudAudit, cloudInventoryReset, cloudCasdCerts, cloudCasdState] = await Promise.all([
             cloudFetchRows("plants"),
             cloudFetchRows("bills"),
             cloudFetchRows("nurseries"),
             cloudFetchRows("expenses"),
             cloudFetchState("expenseReceipts").catch(e => { console.warn("expenseReceipts app_state load failed", e); return []; }),
+            cloudFetchState("purchaseOrders").catch(e => { console.warn("purchaseOrders app_state load failed", e); return []; }),
+            cloudFetchState("refunds").catch(e => { console.warn("refunds app_state load failed", e); return []; }),
+            cloudFetchState("bundles").catch(e => { console.warn("bundles app_state load failed", e); return []; }),
             cloudFetchRows("timecards"),
             cloudFetchState("users"),
             cloudFetchState("settings"),
@@ -5394,6 +5576,9 @@
           if (cloudNurseries.length) setNurseriesRaw(migrateNurseries(cloudNurseries)); else if (!saved?.nurseries) setNurseriesRaw(DEFAULT_NURSERIES);
           if (cloudExpenses.length) setExpensesRaw(cloudExpenses);
           if (Array.isArray(cloudExpenseReceipts) && cloudExpenseReceipts.length) setExpenseReceiptsRaw(cloudExpenseReceipts);
+          if (Array.isArray(cloudPurchaseOrders) && cloudPurchaseOrders.length) setPurchaseOrdersRaw(cloudPurchaseOrders);
+          if (Array.isArray(cloudRefunds) && cloudRefunds.length) setRefundsRaw(cloudRefunds);
+          if (Array.isArray(cloudBundles) && cloudBundles.length) setBundlesRaw(cloudBundles);
           if (cloudTimecards.length) setTimecardsRaw(cloudTimecards);
           if (cloudUsers) setUsersRaw(cloudUsers); else if (!saved?.users) setUsersRaw(DEFAULT_USERS);
           if (cloudSettings) setSettingsRaw({ ...DEFAULT_SETTINGS, ...cloudSettings }); else if (!saved?.settings) setSettingsRaw(DEFAULT_SETTINGS);
@@ -5420,6 +5605,9 @@
           if (!cloudNurseries.length && saved?.nurseries?.length) await cloudUpsertRows("nurseries", saved.nurseries);
           if (!cloudExpenses.length && saved?.expenses?.length) await cloudUpsertRows("expenses", saved.expenses);
           if ((!Array.isArray(cloudExpenseReceipts) || !cloudExpenseReceipts.length) && saved?.expenseReceipts?.length) await cloudUpsertState("expenseReceipts", saved.expenseReceipts);
+          if ((!Array.isArray(cloudPurchaseOrders) || !cloudPurchaseOrders.length) && saved?.purchaseOrders?.length) await cloudUpsertState("purchaseOrders", saved.purchaseOrders);
+          if ((!Array.isArray(cloudRefunds) || !cloudRefunds.length) && saved?.refunds?.length) await cloudUpsertState("refunds", saved.refunds);
+          if ((!Array.isArray(cloudBundles) || !cloudBundles.length) && saved?.bundles?.length) await cloudUpsertState("bundles", saved.bundles);
           if (!cloudTimecards.length && saved?.timecards?.length) await cloudUpsertRows("timecards", saved.timecards);
           if (!cloudUsers && saved?.users) await cloudUpsertState("users", saved.users);
           if (!cloudSettings && saved?.settings) await cloudUpsertState("settings", saved.settings);
@@ -5446,7 +5634,7 @@
 
       /* Manual backup — exports all data as JSON file */
       const exportBackup = () => {
-        const data = { plants, expenses, expenseReceipts, timecards, bills, nurseries, users, settings, auditLog, casdCerts, exportDate: new Date().toISOString() };
+        const data = { plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, bills, nurseries, users, settings, auditLog, casdCerts, exportDate: new Date().toISOString() };
         const a = Object.assign(document.createElement("a"), {
           href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })),
           download: `leafdiary-backup-${today()}.json`
@@ -5467,6 +5655,9 @@
             if (d.plants) setPlantsRaw(d.plants);
             if (d.expenses) setExpensesRaw(d.expenses);
             if (d.expenseReceipts) setExpenseReceiptsRaw(d.expenseReceipts);
+            if (d.purchaseOrders) setPurchaseOrdersRaw(d.purchaseOrders);
+            if (d.refunds) setRefundsRaw(d.refunds);
+            if (d.bundles) setBundlesRaw(d.bundles);
             if (d.timecards) setTimecardsRaw(d.timecards);
             if (d.bills) setBillsRaw(d.bills);
             if (d.nurseries) setNurseriesRaw(d.nurseries);
@@ -5481,6 +5672,9 @@
               d.plants ? cloudUpsertRows("plants", d.plants) : null,
               d.expenses ? cloudUpsertRows("expenses", d.expenses) : null,
               d.expenseReceipts ? cloudUpsertState("expenseReceipts", d.expenseReceipts) : null,
+              d.purchaseOrders ? cloudUpsertState("purchaseOrders", d.purchaseOrders) : null,
+              d.refunds ? cloudUpsertState("refunds", d.refunds) : null,
+              d.bundles ? cloudUpsertState("bundles", d.bundles) : null,
               d.timecards ? cloudUpsertRows("timecards", d.timecards) : null,
               d.bills ? cloudUpsertRows("bills", d.bills) : null,
               d.nurseries ? cloudUpsertRows("nurseries", d.nurseries) : null,
@@ -5537,6 +5731,18 @@
 
         <div>
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={setPage} />}
+          {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={setPage} />}
+          {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
+          {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
+          {page === "pos" && CAN.seeReports(user.role) && <PurchaseOrders purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} user={user} addAudit={addAudit} />}
+          {page === "refunds" && CAN.seeReports(user.role) && <RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
+          {page === "goals" && user.role === "owner" && <ProfitGoals plants={plants} expenses={expenses} settings={settings} setSettings={setSettings} />}
+          {page === "care" && CAN.seeReports(user.role) && <PlantCareCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
+          {page === "content" && CAN.seeReports(user.role) && <AIContentGenerator plants={plants} />}
+          {page === "discounts" && user.role === "owner" && <SmartDiscountEngine plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} />}
+          {page === "retention" && CAN.seeReports(user.role) && <RetentionAlerts plants={plants} />}
+          {page === "locations" && user.role === "owner" && <MultiLocationCenter plants={plants} setPlants={setPlants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} />}
+          {page === "commissions" && user.role === "owner" && <CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} />}
           {page === "emp_dash" && <EmpDash plants={plants} user={user} timecards={timecards} />}
           {page === "dash" && user.role === "employee" && <EmpDash plants={plants} user={user} timecards={timecards} />}
           {page === "upload" && <InvoiceUpload {...P} />}
