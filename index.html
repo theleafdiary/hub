@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Leaf Diary" />
   <meta name="theme-color" content="#174D2F" />
-  <title>Leaf Diary Business Hub — AI Menu Scroll Fixed</title>
+  <title>Leaf Diary Business Hub — Streamlined + Whatnot Fixed</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -202,6 +202,37 @@
       }
     }
 
+
+    /* FINAL DESKTOP SCROLL OVERRIDE — laptop pages must scroll normally */
+    html, body {
+      min-height: 100% !important;
+      height: auto !important;
+      overflow-y: scroll !important;
+      overflow-x: hidden !important;
+      position: static !important;
+    }
+    #root {
+      min-height: 100vh !important;
+      height: auto !important;
+      overflow: visible !important;
+      position: static !important;
+    }
+    #root > div:not([style*="position: fixed"]) {
+      min-height: 100vh !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
+    .ld-page, .page-scroll-safe {
+      min-height: 100vh !important;
+      height: auto !important;
+      overflow: visible !important;
+      padding-bottom: calc(150px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+    @media (min-width: 761px) {
+      body { overflow-y: scroll !important; }
+      .ld-page, .page-scroll-safe { padding-bottom: 150px !important; }
+    }
+
   </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -290,6 +321,18 @@
     const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
     const $ = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(+n || 0);
     const today = () => new Date().toISOString().split("T")[0];
+    function repairPageScroll() {
+      try {
+        document.documentElement.style.overflowY = "scroll";
+        document.documentElement.style.height = "auto";
+        document.body.style.overflowY = "scroll";
+        document.body.style.height = "auto";
+        document.body.style.position = "static";
+        const root = document.getElementById("root");
+        if (root) { root.style.overflow = "visible"; root.style.height = "auto"; root.style.minHeight = "100vh"; }
+      } catch (e) {}
+    }
+    repairPageScroll();
 
     function bytesToBase64(bytes) {
       let binary = "";
@@ -608,7 +651,7 @@
       const mgrTabs = allOwnerTabs.filter(t => !["payroll","tax","audit","admin","bills","cashflow","command","commissions","goals","cleanup"].includes(t.id));
       const empTabs = [["emp_dash","🏠","My Dashboard","Core"],["aihub","🤖","AI Help","Core"],["liveshow","🎥","Live Show","Daily Work"],["receipts","🧾","Receipts","Daily Work"],["upload","📸","Upload Invoice","Daily Work"],["manual","✏️","Add Plants","Daily Work"],["inv","🌿","Inventory","Daily Work"],["labels","🏷️","Labels","Daily Work"],["timecard","⏱️","My Timecard","Daily Work"]].map(([id,icon,l,group])=>({id,icon,l,group}));
       const tabs = user.role === "owner" ? allOwnerTabs : user.role === "manager" ? mgrTabs : empTabs;
-      const [menuOpen, setMenuOpen] = useState(false), [openGroup, setOpenGroup] = useState("Core"), [menuSearch, setMenuSearch] = useState("");
+      const [menuOpen, setMenuOpen] = useState(false), [openGroup, setOpenGroup] = useState(""), [menuSearch, setMenuSearch] = useState("");
       const defaultOwnerFooterTabs = ["dash","command","aihub","inv","upload"], defaultEmployeeFooterTabs = ["emp_dash","inv","upload","manual","timecard"];
       const savedFooterIds = user.role === "employee" ? (Array.isArray(settings.employeeFooterTabs) ? settings.employeeFooterTabs : defaultEmployeeFooterTabs) : (Array.isArray(settings.footerTabs) ? settings.footerTabs : defaultOwnerFooterTabs);
       const fallbackFooterIds = user.role === "employee" ? defaultEmployeeFooterTabs : defaultOwnerFooterTabs;
@@ -627,7 +670,7 @@
         </div>
         {menuOpen && <div style={{ position:"fixed", inset:0, zIndex:400, background:"rgba(0,0,0,.35)" }} onClick={()=>setMenuOpen(false)}>
           <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:56, right:0, left:0, background:"#000", maxHeight:"calc(100dvh - 110px)", overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", boxShadow:"0 8px 32px rgba(0,0,0,.4)", paddingBottom:18 }}>
-            <div style={{ padding:"12px 16px", borderBottom:"1px solid rgba(255,255,255,.08)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}><div><span style={{ color:"#fff", fontWeight:900, fontSize:16 }}>🌿 Leaf Diary Menu — Clean Groups</span><div style={{ color:"#97d33e", fontSize:11, fontWeight:700 }}>AI Center + Core tools are at the top. Open each group for the rest.</div></div><div style={{ display:"flex", gap:8 }}><button onClick={()=>{setMenuOpen(false); onChangePassword();}} style={{ background:"transparent", border:"1px solid rgba(255,255,255,.3)", borderRadius:8, padding:"7px 10px", color:"#fff", cursor:"pointer", fontFamily:F.body, fontWeight:600, fontSize:12 }}>Password</button><button onClick={onLogout} style={{ background:"rgba(255,255,255,.15)", border:"none", borderRadius:8, padding:"7px 14px", color:"#fff", cursor:"pointer", fontFamily:F.body, fontWeight:600, fontSize:13 }}>Logout</button></div></div>
+            <div style={{ padding:"12px 16px", borderBottom:"1px solid rgba(255,255,255,.08)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}><div><span style={{ color:"#fff", fontWeight:900, fontSize:16 }}>🌿 Leaf Diary Workspaces</span><div style={{ color:"#97d33e", fontSize:11, fontWeight:700 }}>Simple view: use the big buttons first. Open More Tools only when needed.</div></div><div style={{ display:"flex", gap:8 }}><button onClick={()=>{setMenuOpen(false); onChangePassword();}} style={{ background:"transparent", border:"1px solid rgba(255,255,255,.3)", borderRadius:8, padding:"7px 10px", color:"#fff", cursor:"pointer", fontFamily:F.body, fontWeight:600, fontSize:12 }}>Password</button><button onClick={onLogout} style={{ background:"rgba(255,255,255,.15)", border:"none", borderRadius:8, padding:"7px 14px", color:"#fff", cursor:"pointer", fontFamily:F.body, fontWeight:600, fontSize:13 }}>Logout</button></div></div>
             <div style={{ padding:"12px 12px 0" }}><input value={menuSearch} onChange={e=>setMenuSearch(e.target.value)} placeholder="Search pages..." style={{ width:"100%", background:"#121212", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:12, padding:"12px 13px", fontFamily:F.body, fontSize:16, outline:"none" }} /></div>
             {!menuSearch && <div style={{ padding:12, borderBottom:"1px solid rgba(255,255,255,.08)" }}><div style={{ color:"rgba(255,255,255,.55)", fontSize:11, fontWeight:800, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Most Used</div><div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>{coreTabs.map(t => <button key={t.id} onClick={()=>openPage(t.id)} style={{ background:page===t.id?"rgba(151,211,62,.18)":"#111", border:`1px solid ${page===t.id?"#97d33e":"rgba(255,255,255,.12)"}`, borderRadius:14, padding:"13px 8px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:5, color:"#fff", fontFamily:F.body }}><span style={{ fontSize:25 }}>{t.icon}</span><span style={{ fontSize:11, fontWeight:800 }}>{t.l}</span></button>)}</div></div>}
             <div style={{ padding:"10px 12px 18px" }}>{groupedTabs.map(g => <div key={g.group} style={{ marginBottom:8 }}><button onClick={()=>setOpenGroup(openGroup===g.group?"":g.group)} style={{ width:"100%", background:openGroup===g.group?"#151515":"#0b0b0b", color:"#fff", border:"1px solid rgba(255,255,255,.12)", borderRadius:12, padding:"12px 13px", display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:F.body, fontWeight:800, cursor:"pointer" }}><span>{g.group}</span><span style={{ color:"#97d33e", fontSize:12 }}>{g.items.length} pages {openGroup===g.group?"▲":"▼"}</span></button>{(openGroup===g.group || menuSearch) && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:6, padding:"8px 2px" }}>{g.items.map(t => <button key={t.id} onClick={()=>openPage(t.id)} style={{ textAlign:"left", background:page===t.id?"rgba(251,99,146,.16)":"rgba(255,255,255,.045)", border:`1px solid ${page===t.id?"#fb6392":"rgba(255,255,255,.10)"}`, borderRadius:11, padding:"11px 10px", color:"#fff", cursor:"pointer", fontFamily:F.body }}><div style={{ display:"flex", alignItems:"center", gap:8 }}><span style={{ fontSize:18 }}>{t.icon}</span><span style={{ fontSize:12, fontWeight:800 }}>{t.l}</span></div></button>)}</div>}</div>)}</div>
@@ -4444,6 +4487,25 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         if (!match) return null;
         return `${match[1]}-${String(parseInt(match[2], 10)).padStart(3, "0")}`;
       };
+      const normalizePlantCode = v => {
+        const m = String(v || "").toUpperCase().replace(/[_#]/g, " ").match(/\b([A-Z]{1,4})\s*-?\s*(\d{1,4})\b/);
+        return m ? `${m[1]}-${parseInt(m[2], 10)}` : "";
+      };
+      const plantCodeMatches = (a, b) => {
+        const na = normalizePlantCode(a), nb = normalizePlantCode(b);
+        return !!na && !!nb && na === nb;
+      };
+      const parseWhatnotAddress = v => {
+        const parts = String(v || "").split(",").map(x => cleanText(x)).filter(Boolean);
+        if (!parts.length) return {};
+        const country = parts[parts.length - 1] || "";
+        const zip = parts[parts.length - 2] || "";
+        const state = parts[parts.length - 3] || "";
+        const city = parts[parts.length - 4] || "";
+        const name = parts[0] || "";
+        const address1 = parts.slice(1, Math.max(1, parts.length - 4)).join(", ");
+        return { name, address1, city, state, zip, country };
+      };
       const compactKey = v => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
       const saleImportKey = sale => [
         platform,
@@ -4479,6 +4541,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         const code = sale.extractedPlantCode;
         if (code) {
           const byCode = plants.find(p =>
+            plantCodeMatches(p.plantId, code) ||
+            plantCodeMatches(p.plantCode, code) ||
+            plantCodeMatches(p.barcodeValue, code) ||
             safeLower(p.plantId) === safeLower(code) ||
             safeLower(p.plantCode) === safeLower(code) ||
             safeLower(p.barcodeValue) === safeLower(code)
@@ -4522,18 +4587,19 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const normalizeSalesRows = rows => {
         const good = [], bad = [];
         (rows || []).forEach((r, idx) => {
-          const productVariant = cleanText(rowVal(r, ["Product Variants", "Product Variant", "Item Title", "Item", "Title", "Product", "Listing Title", "Name"]));
+          const productVariant = cleanText(rowVal(r, ["product_name", "Product Name", "Product Variants", "Product Variant", "Item Title", "Item", "Title", "Product", "Listing Title", "Name"]));
           if (isNonPlantVariant(productVariant)) { bad.push({ row: idx + 1, productVariant, reason: "non-plant row" }); return; }
-          const orderNo = cleanText(rowVal(r, ["Order No", "Order number", "Order Number", "Order ID", "Order"]));
-          const saleDateRaw = rowVal(r, ["Order Created Time(EST)", "Order Date(PDT)", "Order Date", "Date", "Created Time"]);
+          const orderNo = cleanText(rowVal(r, ["order_id", "order_numeric_id", "Order No", "Order number", "Order Number", "Order ID", "Order"]));
+          const saleDateRaw = rowVal(r, ["placed_at", "Order Created Time(EST)", "Order Date(PDT)", "Order Date", "Date", "Created Time"]);
           const saleDateTime = parseDateTimeValue(saleDateRaw);
           const saleDate = parseDateValue(saleDateRaw);
-          const productAmount = money(rowVal(r, ["Product Amount", "Product ", "Item Price", "Price", "Subtotal"]));
-          const orderAmount = money(rowVal(r, ["Order Amount", "Order Total", "Total"]));
+          const productAmount = money(rowVal(r, ["original_item_price", "Product Amount", "Product ", "Item Price", "Price", "Subtotal"]));
+          const orderAmount = money(rowVal(r, ["total_cost", "Order Amount", "Order Total", "Total"]));
           const sellerIncome = money(rowVal(r, ["Seller Income", "Payout", "Net"]));
           const price = productAmount || orderAmount || sellerIncome;
           if (!productVariant || !price) { bad.push({ row: idx + 1, productVariant, reason: "missing product or price" }); return; }
           const extractedPlantCode = extractPlantCode(productVariant);
+          const whatnotAddr = parseWhatnotAddress(rowVal(r, ["shipping_address", "Shipping Address"]));
           const sale = {
             _id: uid(),
             orderNo,
@@ -4545,6 +4611,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             orderAmount,
             productAmount,
             shippingFee: money(rowVal(r, ["Shipping Fee Amount", "Shipping Fee", "Shipping"])),
+            trackingCode: cleanText(rowVal(r, ["tracking_code", "Tracking", "Tracking Number"])),
+            shipmentId: cleanText(rowVal(r, ["shipment_id", "Shipment ID"])),
+            costPerItem: money(rowVal(r, ["cost_per_item", "Cost Per Item", "Cost"])),
             paymentFee: money(rowVal(r, ["Payment Fee", "Stripe and BNPL Fee", "Stripe Fee"])),
             palmstreetFee: money(rowVal(r, ["Palmstreet Selling Fee", "PlantStory Selling Fee", "Selling Fee"])),
             sellingFeeDeductions: money(rowVal(r, ["Selling Fee Deductions"])),
@@ -4553,18 +4622,18 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             refundAmount: money(rowVal(r, ["Refund Amount", "Refund"])),
             productVariant,
             extractedPlantCode,
-            customer: cleanText(rowVal(r, ["Palmstreet UserName", "Palmstreet Username", "User Name", "Username", "Buyer", "Buyer Username", "Customer", "Customer Username"])),
-            customerUsername: cleanText(rowVal(r, ["Palmstreet UserName", "Palmstreet Username", "User Name", "Username", "Buyer", "Buyer Username", "Customer", "Customer Username"])),
-            recipientName: cleanText(rowVal(r, ["Recipient Name", "Recipient", "Ship To Name", "Customer Name", "Name"])),
-            customerName: cleanText(rowVal(r, ["Recipient Name", "Recipient", "Ship To Name", "Customer Name", "Name"])),
+            customer: cleanText(rowVal(r, ["buyer_username", "Palmstreet UserName", "Palmstreet Username", "User Name", "Username", "Buyer", "Buyer Username", "Customer", "Customer Username"])),
+            customerUsername: cleanText(rowVal(r, ["buyer_username", "Palmstreet UserName", "Palmstreet Username", "User Name", "Username", "Buyer", "Buyer Username", "Customer", "Customer Username"])),
+            recipientName: cleanText(rowVal(r, ["Recipient Name", "Recipient", "Ship To Name", "Customer Name", "Name"])) || whatnotAddr.name,
+            customerName: cleanText(rowVal(r, ["Recipient Name", "Recipient", "Ship To Name", "Customer Name", "Name"])) || whatnotAddr.name,
             customerEmail: cleanText(rowVal(r, ["Email", "Customer Email", "Buyer Email"])),
             customerPhone: cleanText(rowVal(r, ["Phone", "Customer Phone", "Buyer Phone"])),
-            customerAddress1: cleanText(rowVal(r, ["Street Line 1", "Address 1", "Address Line 1", "Ship Address 1", "Shipping Address 1"])),
+            customerAddress1: cleanText(rowVal(r, ["Street Line 1", "Address 1", "Address Line 1", "Ship Address 1", "Shipping Address 1"])) || whatnotAddr.address1,
             customerAddress2: cleanText(rowVal(r, ["Street Line 2", "Address 2", "Address Line 2", "Ship Address 2", "Shipping Address 2"])),
-            customerCity: cleanText(rowVal(r, ["City", "Ship City", "Shipping City"])),
-            customerState: cleanText(rowVal(r, ["State", "Buyer State", "Ship State", "Shipping State"])),
-            customerCountry: cleanText(rowVal(r, ["Country", "Ship Country", "Shipping Country"])),
-            customerZip: cleanText(rowVal(r, ["Zip/Postal Code", "Zip", "Postal Code", "Customer Zip", "Shipping Zip"])),
+            customerCity: cleanText(rowVal(r, ["City", "Ship City", "Shipping City"])) || whatnotAddr.city,
+            customerState: cleanText(rowVal(r, ["State", "Buyer State", "Ship State", "Shipping State"])) || whatnotAddr.state,
+            customerCountry: cleanText(rowVal(r, ["Country", "Ship Country", "Shipping Country"])) || whatnotAddr.country,
+            customerZip: cleanText(rowVal(r, ["postal_code", "Zip/Postal Code", "Zip", "Postal Code", "Customer Zip", "Shipping Zip"])) || whatnotAddr.zip,
             raw: r,
           };
           const enrichedSale = { ...sale, title: productVariant, price, state: sale.buyerState, orderNum: orderNo, orderDate: saleDate, orderDateTime: saleDateTime, shipping: sale.shippingFee };
@@ -4594,6 +4663,10 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         const r = new FileReader();
         r.onload = e => {
           try {
+            if (!isXlsx && String(e.target.result || "").toLowerCase().includes("buyer_username") && String(e.target.result || "").toLowerCase().includes("product_name")) {
+              setPlatform("Whatnot");
+              setImportMode("historical");
+            }
             if (isXlsx) {
               if (!window.XLSX) throw new Error("Excel parser did not load. Refresh the page and try again.");
               const wb = window.XLSX.read(new Uint8Array(e.target.result), { type: "array", cellDates: true });
@@ -4643,12 +4716,14 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           name: toTC(sale.productVariant || sale.title || "Historical Palmstreet Sale"),
           botanicalName: "",
           potSize: "",
-          cost: 0,
-          costSource: "unknown historical import",
+          cost: sale.costPerItem || 0,
+          costSource: sale.costPerItem ? "whatnot import" : "unknown historical import",
           verifiedCost: false,
           suggestedPrice: sale.price,
           salePrice: sale.price,
           shippingCost: sale.shippingFee || sale.shipping || 0,
+          trackingNumber: sale.trackingCode || "",
+          shipmentId: sale.shipmentId || "",
           platform,
           status: "Sold",
           soldDate: sale.saleDate || sale.orderDate || today(),
@@ -4760,6 +4835,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             salePrice: sale.price,
             platform,
             shippingCost: sale.shippingFee || sale.shipping || 0,
+            cost: (+p.cost || 0) || (+sale.costPerItem || 0),
+            trackingNumber: sale.trackingCode || p.trackingNumber || "",
+            shipmentId: sale.shipmentId || p.shipmentId || "",
             customerUsername: sale.customerUsername || sale.customer || "",
             customerName: sale.customerName || sale.recipientName || "",
             buyerName: sale.customerName || sale.recipientName || "",
