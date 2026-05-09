@@ -4358,6 +4358,7 @@
       const [genError, setGenError]     = useState("");
       const [search, setSearch]         = useState("");
       const fileRef = useRef();
+      const canDeleteCert = user?.role === "owner" || user?.role === "admin";
 
       const nextNum = () => casdNextNum(casdCerts);
 
@@ -4390,6 +4391,8 @@
         if (!consignee.name||!consignee.address1) { setGenError("Consignee name and address required."); return; }
         const ps = plantRows.filter(r=>r.name.trim());
         if (!ps.length) { setGenError("Add at least one plant."); return; }
+        const missingPotSizeRows = ps.filter(r => !String(r.size || "").trim());
+        if (missingPotSizeRows.length) { setGenError("Pot size is required for every plant row before creating the document."); return; }
         setGenerating(true); setGenError("");
         try {
           const certNumber = reserveCasdNumber(casdCerts);
@@ -4425,6 +4428,27 @@
           const w=window.open(url); if(w) w.onload=()=>w.print();
           setTimeout(()=>URL.revokeObjectURL(url),5000);
         } catch(e) { alert("Could not open saved PDF: " + e.message); }
+      };
+
+      const deleteCert = async cert => {
+        if (!canDeleteCert) { alert("Only an admin/owner can delete archived state documents."); return; }
+        const label = `Certificate #${cert.certNumber || cert.documentNumber || cert.id}`;
+        const customer = cert.consigneeName || cert.customerName || "this customer";
+        const ok = confirm(`Delete ${label} for ${customer}? This removes it from the State Docs archive. Download a backup first if you may need it for compliance records.`);
+        if (!ok) return;
+        try {
+          const next = (casdCerts || []).filter(c => String(c.id) !== String(cert.id));
+          saveCasdCertsToLocalBackup(next);
+          setCasdCerts(() => next);
+          try { await cloudDeleteRows("casd_certs", [cert.id]); } catch (e) { console.warn("CASD cloud row delete failed", e); }
+          try { await cloudUpsertState("casdCerts", next); } catch (e) { console.warn("CASD app_state delete backup update failed", e); }
+          if (cert.pdfStorageBucket && cert.pdfStoragePath) {
+            try { await supabase.storage.from(cert.pdfStorageBucket).remove([cert.pdfStoragePath]); } catch (e) { console.warn("CASD storage PDF delete failed", e); }
+          }
+          addAudit && addAudit({ action:`Deleted archived State Document ${label} for ${customer}`, user:user?.name || "Admin", page:"State Docs" });
+        } catch(e) {
+          alert("Could not delete document: " + (e?.message || e));
+        }
       };
       const resetForm = () => { setStep("form"); setCsvMode(false); setCsvText(""); setCsvOrders([]); setConsignee({name:"",address1:"",address2:"",phone:""}); setPlantRows([{id:uid(),qty:"1",name:"",size:""}]); setGenError(""); setDest("CA"); };
 
@@ -4512,6 +4536,7 @@
                         <Row gap={8} style={{flexShrink:0,flexWrap:"wrap",alignSelf:"flex-start"}}>
                           <Btn sz="sm" v="outline" onClick={()=>downloadCert(cert)}>📥 Download</Btn>
                           <Btn sz="sm" onClick={()=>printCert(cert)}>🖨️ Print</Btn>
+                          {canDeleteCert && <Btn sz="sm" v="danger" onClick={()=>deleteCert(cert)}>🗑️ Delete</Btn>}
                         </Row>
                       </Row>
                     </Card>
@@ -4605,7 +4630,7 @@
                 <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:4}}>Plants Being Shipped</div>
                 <div style={{fontSize:12,color:C.tx3,marginBottom:14}}>TX/LA: attachment page 1 holds 6 plants · addendum page is only used for plant 7+ (27 total max per cert)</div>
                 <div style={{display:"grid",gridTemplateColumns:"60px 1fr 80px 36px",gap:8,marginBottom:8,padding:"0 4px",fontSize:10,fontWeight:700,color:C.tx3,textTransform:"uppercase",letterSpacing:.5}}>
-                  <div>Qty</div><div>Plant Name (as certified)</div><div>Pot Size</div><div></div>
+                  <div>Qty</div><div>Plant Name (as certified)</div><div>Pot Size *</div><div></div>
                 </div>
                 {plantRows.map(row=>(
                   <div key={row.id} style={{display:"grid",gridTemplateColumns:"60px 1fr 80px 36px",gap:8,marginBottom:8,alignItems:"center"}}>
@@ -4613,14 +4638,15 @@
                       style={{padding:"8px",border:`1.5px solid ${C.bd}`,borderRadius:8,fontSize:13,textAlign:"center",fontFamily:F.body,outline:"none"}}/>
                     <input value={row.name} onChange={e=>updRow(row.id,"name",e.target.value)} placeholder="e.g. Monstera Deliciosa"
                       style={{padding:"8px 10px",border:`1.5px solid ${C.bd}`,borderRadius:8,fontSize:13,fontFamily:F.body,outline:"none",width:"100%",boxSizing:"border-box"}}/>
-                    <input value={row.size} onChange={e=>updRow(row.id,"size",e.target.value)} placeholder='4"'
-                      style={{padding:"8px",border:`1.5px solid ${C.bd}`,borderRadius:8,fontSize:13,fontFamily:F.body,outline:"none"}}/>
+                    <input value={row.size} onChange={e=>updRow(row.id,"size",e.target.value)} placeholder='Required'
+                      style={{padding:"8px",border:`1.5px solid ${row.name.trim() && !String(row.size||"").trim() ? C.red : C.bd}`,borderRadius:8,fontSize:13,fontFamily:F.body,outline:"none",background:row.name.trim() && !String(row.size||"").trim() ? C.redBg : C.card}}/>
                     <button onClick={()=>delRow(row.id)} disabled={plantRows.length===1}
                       style={{background:"none",border:`1px solid ${C.bd}`,borderRadius:7,color:C.red,cursor:plantRows.length===1?"not-allowed":"pointer",width:32,height:32,fontSize:15,opacity:plantRows.length===1?.4:1}}>✕</button>
                   </div>
                 ))}
                 <Btn v="soft" sz="sm" onClick={addRow} style={{marginTop:6}}>+ Add Plant Row</Btn>
                 <div style={{marginTop:12,padding:"10px 14px",background:C.g50,borderRadius:8,fontSize:12,color:C.tx3}}>
+                  <b style={{color:C.red}}>Pot size is required for every plant row.</b><br/>
                   Nematode #: <b style={{color:C.tx1}}>04717449</b> · IFA#: <b style={{color:C.tx1}}>0206</b> (auto-filled on all rows)
                 </div>
               </Card>
@@ -4629,7 +4655,7 @@
 
               <Row gap={10} style={{justifyContent:"flex-end"}}>
                 <Btn v="ghost" onClick={()=>setStep("form")}>← Back</Btn>
-                <Btn onClick={generateCert} disabled={generating}>
+                <Btn onClick={generateCert} disabled={generating || plantRows.filter(r=>r.name.trim()).some(r=>!String(r.size||"").trim())}>
                   {generating?"⏳ Generating PDF…":"📜 Generate & Download"}
                 </Btn>
               </Row>
