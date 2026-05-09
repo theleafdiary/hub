@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Leaf Diary" />
   <meta name="theme-color" content="#174D2F" />
-  <title>Leaf Diary CRM — Phase 1 Simplified</title>
+  <title>Leaf Diary CRM — Phase 3 Scan + Photo Ready</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -352,6 +352,7 @@
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 
 <body>
@@ -844,6 +845,7 @@
       { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Today", roles:["owner"] },
       { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Today", roles:["employee"] },
       { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
+      { id:"scanplant", icon:"📸", l:"Scan Plant", group:"Plants", roles:["owner","manager","employee"] },
       { id:"manual", icon:"✏️", l:"Add Plants", group:"Plants", roles:["owner","manager","employee"] },
       { id:"upload", icon:"📸", l:"Upload Invoice", group:"Plants", roles:["owner","manager","employee"] },
       { id:"labels", icon:"🏷️", l:"Labels", group:"Plants", roles:["owner","manager","employee"] },
@@ -884,7 +886,7 @@
     const ROOT_PAGES = ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
       today:"today", dash:"today", command:"today", aihub:"today", dataai:"today", cashflow:"today", emp_dash:"today",
-      plants_ws:"plants_ws", inv:"plants_ws", manual:"plants_ws", upload:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
+      plants_ws:"plants_ws", inv:"plants_ws", scanplant:"plants_ws", manual:"plants_ws", upload:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
       shows_ws:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", showimport:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
       orders_ws:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
@@ -978,7 +980,7 @@
       const readyForShow = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || 0));
       const soldToday = plants.filter(p => p.status === "Sold" && String(plantSaleDate(p) || "").slice(0,10) === today());
       const buttons = [
-        ["Scan Plant Label", "inv", "📸", "Open inventory search/scan and pull up one plant fast."],
+        ["Scan Plant Label", "scanplant", "📸", "Scan QR/barcode and open the plant card fast."],
         ["Take Plant Photo", "inv", "📷", `${noPhoto.length} plant(s) need photos before they are show-ready.`],
         ["Print Labels Needed", "labels", "🏷️", `${needsLabel.length} plant label(s) need to be printed.`],
         ["Build Today's Show", "showbuilder", "🎪", `${readyForShow.length} plant(s) look ready for Palmstreet or Whatnot.`],
@@ -1564,6 +1566,168 @@
     /* ══════════════════════════════════════════════════════════
        MANUAL PLANT ENTRY
     ══════════════════════════════════════════════════════════ */
+
+
+    /* ══════════════════════════════════════════════════════════
+       PHASE 3 — SCAN LABEL → PLANT CARD → PHOTO → READY FOR SHOW
+       Safe single-file implementation. Works with phone camera, Bluetooth HID scanner,
+       and manual search fallback. Keeps employee view money-safe.
+    ══════════════════════════════════════════════════════════ */
+    function Phase3PlantScanner({ plants = [], setPlants, user, addAudit, setPage }) {
+      const [mode, setMode] = useState("scan");
+      const [manualCode, setManualCode] = useState("");
+      const [query, setQuery] = useState("");
+      const [selected, setSelected] = useState(null);
+      const [msg, setMsg] = useState("");
+      const [warn, setWarn] = useState("");
+      const [busy, setBusy] = useState(false);
+      const [scanActive, setScanActive] = useState(false);
+      const hidRef = useRef(null);
+      const qrBoxRef = useRef(null);
+      const qrRef = useRef(null);
+      const canSeeMoney = user?.role === "owner" || user?.role === "manager";
+      const canEditLocation = user?.role !== "employee" || user?.permissions?.canEditLocation;
+      const plantCodeOf = p => String(p?.plantId || p?.plantCode || p?.plant_id || p?.sku || p?.id || "").trim();
+      const normalizeCode = v => String(v || "").trim().replace(/^https?:\/\/[^/]+\/plant\//i, "").replace(/^LD:/i, "").trim();
+      const findPlant = code => {
+        const clean = normalizeCode(code).toLowerCase();
+        if (!clean) return null;
+        return (plants || []).find(p => [plantCodeOf(p), p.id, p.sku, p.plant_id, p.plantCode, p.plantId].some(x => String(x || "").trim().toLowerCase() === clean)) || null;
+      };
+      const openPlant = (code, source = "scan") => {
+        const clean = normalizeCode(code);
+        if (!clean) { setWarn("Scan was blank. Try again or search inventory."); return; }
+        const p = findPlant(clean);
+        if (!p) { setSelected(null); setWarn(`Plant not found for ${clean}. Try again, search inventory, or report missing label.`); setMsg(""); return; }
+        setSelected(p); setWarn(""); setMsg(`Opened ${p.name || "plant"} · ${plantCodeOf(p)}`);
+        try { addAudit && addAudit({ action: `Scanned plant ${plantCodeOf(p)} by ${source}`, user: user?.name || "Unknown", page: "Scan Plant", severity: "info" }); } catch(e) {}
+      };
+      const startCamera = async () => {
+        setMode("camera"); setWarn(""); setMsg("Starting camera scanner...");
+        setTimeout(async () => {
+          try {
+            if (!window.Html5Qrcode) throw new Error("html5-qrcode library not loaded yet. Use HID/manual search or refresh.");
+            if (qrRef.current) { try { await qrRef.current.stop(); } catch(e) {} }
+            const elId = "leaf-diary-phase3-qr-reader";
+            qrRef.current = new Html5Qrcode(elId);
+            await qrRef.current.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 }, decoded => {
+              openPlant(decoded, "camera");
+              setMsg("Scan found. Camera paused so you can work on this plant.");
+              stopCamera();
+            }, () => {});
+            setScanActive(true); setMsg("Camera scanner active. Point at the QR/barcode label.");
+          } catch (e) { setWarn("Camera scanner could not start: " + (e?.message || e)); setScanActive(false); setMsg("Use Bluetooth scanner or search fallback below."); }
+        }, 80);
+      };
+      const stopCamera = async () => {
+        try { if (qrRef.current) await qrRef.current.stop(); } catch(e) {}
+        try { if (qrRef.current) await qrRef.current.clear(); } catch(e) {}
+        qrRef.current = null; setScanActive(false);
+      };
+      useEffect(() => () => { try { if (qrRef.current) qrRef.current.stop(); } catch(e) {} }, []);
+      useEffect(() => { if (mode === "hid" && hidRef.current) setTimeout(() => hidRef.current.focus(), 50); }, [mode]);
+      const searchResults = (plants || []).filter(p => {
+        const q = query.trim().toLowerCase();
+        if (!q) return false;
+        return [p.name, plantCodeOf(p), p.nurseryCode, p.location, p.rack, p.shelf, p.potSize, p.status].some(v => String(v || "").toLowerCase().includes(q));
+      }).slice(0, 20);
+      const updatePlant = patch => {
+        if (!selected) return;
+        const id = selected.id;
+        setPlants(prev => (prev || []).map(p => p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p));
+        setSelected(prev => prev ? { ...prev, ...patch, updatedAt: new Date().toISOString() } : prev);
+      };
+      const handlePhoto = async file => {
+        if (!file || !selected) return;
+        setBusy(true); setWarn(""); setMsg("Uploading plant photo...");
+        try {
+          const img = new Image();
+          const objectUrl = URL.createObjectURL(file);
+          const dims = await new Promise(resolve => { img.onload = () => resolve({ w: img.width, h: img.height }); img.onerror = () => resolve({ w: 0, h: 0 }); img.src = objectUrl; });
+          URL.revokeObjectURL(objectUrl);
+          if (dims.w && dims.w < 400) setWarn("Photo may be too small for export. Retake if possible.");
+          const up = await uploadPlantPhotoFile(file, selected);
+          const hasPrice = (+selected.suggestedPrice || +selected.salePrice || 0) > 0;
+          const patch = { photoUrl: up.photoUrl, photo_url: up.photoUrl, photoPath: up.photoPath, photoUploadedAt: up.photoUploadedAt, previousPhotoUrl: selected.photoUrl || selected.photo_url || "", readyForShow: !!hasPrice, status: selected.status === "Needs Photo" ? "In Stock" : (selected.status || "In Stock") };
+          updatePlant(patch);
+          setMsg(hasPrice ? "Photo saved. Plant is ready for show." : "Photo saved. Add a price before exporting to a show.");
+          try { addAudit && addAudit({ action: `Photo uploaded for ${plantCodeOf(selected)}`, user: user?.name || "Unknown", page: "Scan Plant", severity: "info" }); } catch(e) {}
+        } catch (e) {
+          setWarn("Photo upload failed: " + (e?.message || e));
+        } finally { setBusy(false); }
+      };
+      const addToShow = () => {
+        if (!selected) return;
+        if (String(selected.status || "") === "Sold" && user?.role !== "owner") { setWarn("This plant is already Sold. It cannot be added to a show without owner override."); return; }
+        const code = plantCodeOf(selected);
+        const q = JSON.parse(localStorage.getItem("leafDiaryPendingShowQueue") || "[]");
+        const next = Array.from(new Set([...q, code]));
+        localStorage.setItem("leafDiaryPendingShowQueue", JSON.stringify(next));
+        updatePlant({ readyForShow: true, showQueued: true, showQueuedAt: new Date().toISOString() });
+        setMsg(`${code} added to today's pending show queue. Open Show Builder when ready to export.`);
+      };
+      const markDamaged = () => { updatePlant({ status: "Damaged", readyForShow: false }); setMsg("Marked damaged. Plant will not be show-ready."); };
+      const saveNote = () => {
+        const note = prompt("Add plant note:", "");
+        if (note) { updatePlant({ notes: `${selected?.notes || ""}${selected?.notes ? "\n" : ""}${new Date().toLocaleString()}: ${note}` }); setMsg("Note added."); }
+      };
+      const changeLocation = () => {
+        const loc = prompt("Rack / shelf / location:", selected?.location || selected?.rack || "");
+        if (loc !== null) { updatePlant({ location: loc, rack: loc }); setMsg("Location updated."); }
+      };
+      const printOneLabel = () => {
+        if (!selected) return;
+        const code = plantCodeOf(selected);
+        const qrUrl = `https://app.theleafdiary.com/plant/${encodeURIComponent(code)}`;
+        const w = window.open("", "_blank");
+        w.document.write(`<html><head><title>Leaf Diary Label ${code}</title><style>body{font-family:Arial;margin:0;padding:16px}.label{width:3in;height:1.25in;border:1px solid #111;padding:8px;display:flex;gap:8px;align-items:center}.id{font-size:18px;font-weight:900}.name{font-size:12px}.qr{font-size:9px;word-break:break-all}</style></head><body><div class="label"><div><div class="id">${code}</div><div class="name">${selected.name || "Plant"}</div><div class="name">${selected.potSize || ""}</div></div><div class="qr">QR: ${qrUrl}</div></div><script>window.print()<\/script></body></html>`);
+        w.document.close();
+        updatePlant({ labelPrinted: true, labelPrintedAt: new Date().toISOString(), print_count: (+selected.print_count || +selected.printCount || 0) + 1 });
+      };
+      const photo = selected ? (selected.photoUrl || selected.photo_url || selected.photoBase64) : "";
+      return <div className="ld-page page-scroll-safe" style={{ padding: "18px 16px 120px", maxWidth: 980, margin: "0 auto" }}>
+        <SHdr icon="📸" title="Scan Plant Label" sub="Scan a QR/barcode label, open the plant card, take a photo, and make it ready for Palmstreet or Whatnot." right={<Row gap={8} wrap><Btn v="soft" onClick={() => { setMode("hid"); setMsg("Bluetooth scanner mode ready. Scan a label and it will type here automatically."); }}>Bluetooth Scanner</Btn><Btn onClick={startCamera}>Camera Scan</Btn></Row>} />
+        {msg && <div style={{ background: C.g100, border: `1px solid ${C.g300}`, borderRadius: 10, padding: "10px 14px", color: C.g800, fontSize: 13, fontWeight: 800, marginBottom: 12 }}>{msg}</div>}
+        {warn && <div style={{ background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 800, marginBottom: 12 }}>⚠️ {warn}</div>}
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 14 }}>
+          <Card>
+            <div style={{ fontWeight: 900, color: C.g900, marginBottom: 8 }}>Scanner</div>
+            {mode === "camera" && <div><div id="leaf-diary-phase3-qr-reader" ref={qrBoxRef} style={{ width: "100%", minHeight: 260, background: C.g900, borderRadius: 12, overflow: "hidden" }}></div><Row gap={8} wrap style={{ marginTop: 10 }}><Btn v="ghost" onClick={stopCamera}>Stop Camera</Btn><Btn v="soft" onClick={startCamera}>{scanActive ? "Restart" : "Start"}</Btn></Row></div>}
+            {mode === "hid" && <div><p style={{ fontSize: 12, color: C.tx3 }}>Bluetooth HID scanners act like a keyboard. Keep this box focused, scan the label, and press/receive Enter.</p><Inp label="Scanner input" value={manualCode} onChange={setManualCode} placeholder="Scan or type Plant ID" onKeyDown={e => { if (e.key === "Enter") { openPlant(manualCode, "bluetooth-hid"); setManualCode(""); } }} /><input ref={hidRef} value={manualCode} onChange={e=>setManualCode(e.target.value)} onKeyDown={e=>{ if(e.key === "Enter"){ openPlant(manualCode, "bluetooth-hid"); setManualCode(""); } }} style={{ position:"absolute", opacity:0, height:1, width:1 }} /><Btn full style={{ marginTop: 8 }} onClick={() => { openPlant(manualCode, "manual-code"); setManualCode(""); }}>Open Plant</Btn></div>}
+            {mode === "scan" && <div><Btn full onClick={startCamera}>📷 Start Camera Scanner</Btn><Btn full v="soft" style={{ marginTop: 8 }} onClick={() => setMode("hid")}>🔫 Use Bluetooth Scanner</Btn></div>}
+            <div style={{ marginTop: 16, borderTop: `1px solid ${C.bd}`, paddingTop: 12 }}>
+              <Inp label="Search fallback" value={query} onChange={setQuery} placeholder="Plant ID, name, nursery code, rack/shelf" />
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 360, overflowY: "auto" }}>
+                {query && searchResults.length === 0 && <div style={{ fontSize: 12, color: C.tx3 }}>No search results.</div>}
+                {searchResults.map(p => <button key={p.id} onClick={() => { setSelected(p); setWarn(""); setMsg(`Opened ${p.name}`); }} style={{ textAlign: "left", background: C.cardAlt, border: `1px solid ${C.bd}`, borderRadius: 10, padding: 10, cursor: "pointer" }}><div style={{ fontWeight: 900, color: C.g900 }}>{p.name}</div><div style={{ fontSize: 12, color: C.tx3 }}>{plantCodeOf(p)} · {p.potSize || "No size"} · {p.status || "In Stock"}</div></button>)}
+              </div>
+              {warn && <Row gap={8} wrap style={{ marginTop: 10 }}><Btn v="soft" onClick={startCamera}>Try Again</Btn><Btn v="ghost" onClick={() => setQuery(normalizeCode(manualCode))}>Search Inventory</Btn><Btn v="danger" onClick={() => setMsg("Missing label reported. Owner should reprint or merge this plant ID.")}>Report Missing Label</Btn></Row>}
+            </div>
+          </Card>
+          <Card style={{ minHeight: 420 }}>
+            {!selected ? <div style={{ textAlign: "center", padding: "60px 20px", color: C.tx3 }}><div style={{ fontSize: 70 }}>🌿</div><h2 style={{ fontFamily: F.display, color: C.g900 }}>No plant selected</h2><p>Scan a label or search inventory to open the plant card.</p></div> : <div>
+              <Row between center wrap style={{ marginBottom: 12 }}><div><h2 style={{ fontFamily: F.display, color: C.g900, margin: 0 }}>{selected.name || "Unnamed Plant"}</h2><div style={{ fontFamily: F.mono, color: C.tx3, fontSize: 13 }}>{plantCodeOf(selected)}</div></div><SBadge s={selected.status || "In Stock"} /></Row>
+              <div style={{ display: "grid", gridTemplateColumns: "220px minmax(0,1fr)", gap: 14 }}>
+                <div style={{ width: "100%", aspectRatio: "1 / 1", borderRadius: 14, background: C.g100, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>{photo ? <img src={photo} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 70 }}>🌿</span>}</div>
+                <div>
+                  <Tbl cols={[{k:"k",l:"Field"},{k:"v",l:"Value"}]} rows={[
+                    {k:"Pot Size", v:selected.potSize || "—"}, {k:"Status", v:selected.status || "In Stock"}, {k:"Location", v:selected.location || selected.rack || selected.shelf || "—"}, {k:"Photo", v:photo ? "Saved" : "Missing"}, {k:"Ready", v:(selected.readyForShow || (photo && (+selected.suggestedPrice||0))) ? "Ready For Show" : "Needs photo/price"}, ...(canSeeMoney ? [{k:"Price", v:$(selected.suggestedPrice || 0)}] : [])
+                  ]} />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10, marginTop: 14 }}>
+                <label style={{ ...({}), background: C.g700, color: "#fff", borderRadius: 10, padding: "13px 12px", textAlign: "center", fontWeight: 900, cursor: busy ? "not-allowed" : "pointer" }}>📷 {busy ? "Uploading..." : "Take Photo"}<input type="file" accept="image/*" capture="environment" disabled={busy} style={{ display: "none" }} onChange={e => handlePhoto(e.target.files?.[0])} /></label>
+                <Btn full v="gold" onClick={addToShow}>🎪 Add To Show</Btn>
+                <Btn full v="soft" onClick={printOneLabel}>🏷️ Print New Label</Btn>
+              </div>
+              <Row gap={8} wrap style={{ marginTop: 10 }}><Btn v="ghost" onClick={markDamaged}>Mark Damaged</Btn><Btn v="ghost" onClick={saveNote}>Add Note</Btn>{canEditLocation && <Btn v="ghost" onClick={changeLocation}>Change Location</Btn>}<Btn v="outline" onClick={() => setSelected(null)}>Scan Next Plant</Btn></Row>
+              <div style={{ marginTop: 12, fontSize: 12, color: C.tx3 }}>Employee-safe card: cost, profit, margin, invoice totals, nursery financial data, and delete actions are hidden.</div>
+            </div>}
+          </Card>
+        </div>
+      </div>;
+    }
+
     function ManualEntry({ plants, setPlants, nurseries, addAudit, user }) {
       const blank = { name: "", botanicalName: "", potSize: "", cost: "", suggestedPrice: "", salePrice: "", shippingCost: "", status: "In Stock", nurseryCode: nurseries[0]?.code || "", platform: "", rack: "", shelf: "", dateAdded: today(), invoiceNumber: "", notes: "" };
       const [form, setForm] = useState(blank);
@@ -3997,7 +4161,7 @@
           {[["footerTabs", "Owner / Manager Footer"], ["employeeFooterTabs", "Employee Footer"]].map(([key, label]) => {
             const ownerChoices = [
               ["dash", "🏠 Dashboard"], ["command", "🚀 Command Center"], ["aihub", "🤖 AI Center"], ["social", "📣 Social Center"], ["cashflow", "💵 Cash Flow"], ["ship", "📦 Order Fulfillment"],
-              ["inv", "🌿 Inventory"], ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Receipt Scanner"],
+              ["inv", "🌿 Inventory"], ["scanplant", "📸 Scan Plant"], ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Receipt Scanner"],
               ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
               ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
               ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 Buy Intel"], ["tax", "🧾 Tax Center"],
@@ -7817,6 +7981,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "commissions" && user.role === "owner" && <CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} />}
           {page === "emp_dash" && <EmpDash plants={plants} user={user} timecards={timecards} />}
           {page === "dash" && user.role === "employee" && <EmpDash plants={plants} user={user} timecards={timecards} />}
+          {page === "scanplant" && <Phase3PlantScanner plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "upload" && <InvoiceUpload {...P} />}
           {page === "manual" && <ManualEntry {...P} />}
           {page === "history" && <PastInvoices {...P} />}
