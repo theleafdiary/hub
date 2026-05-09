@@ -1017,7 +1017,7 @@
       { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
       { id:"manual", icon:"✏️", l:"Add Plants", group:"Plants", roles:["owner","manager","employee"] },
       { id:"upload", icon:"📸", l:"Upload Invoice", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"invoicetrainer", icon:"🧾", l:"Purchase Intake Trainer", group:"Plants", roles:["owner","manager"] },
+      { id:"invoicetrainer", icon:"🧾", l:"Purchase Intake Trainer", group:"Plants", roles:["owner"] },
       { id:"labels", icon:"🏷️", l:"Labels", group:"Plants", roles:["owner","manager","employee"] },
       { id:"care", icon:"🩺", l:"Plant Care", group:"Plants", roles:["owner","manager"] },
       { id:"locations", icon:"📍", l:"Locations", group:"Plants", roles:["owner"] },
@@ -1050,7 +1050,7 @@
       { id:"audit", icon:"🔍", l:"Audit Log", group:"Admin", roles:["owner","manager"] },
       { id:"admin", icon:"⚙️", l:"Admin Panel", group:"Admin", roles:["owner"] },
       { id:"cleanup", icon:"🧹", l:"Data Cleanup", group:"Admin", roles:["owner"] },
-      { id:"devtools", icon:"🧪", l:"Phase 2 Test Console", group:"Admin", roles:["owner"] },
+      { id:"devtools", icon:"🧪", l:"Test Console", group:"Admin", roles:["owner"] },
       { id:"ollama", icon:"🧠", l:"Ollama AI Connector", group:"Admin", roles:["owner"] },
       { id:"aigateway", icon:"🌐", l:"AI Gateway", group:"Admin", roles:["owner"] },
       { id:"airouter", icon:"🧭", l:"AI Router", group:"Admin", roles:["owner"] },
@@ -1102,6 +1102,43 @@
       const workspaceById = Object.fromEntries(WORKSPACES.map(w => [w.id, w]));
       const openPage = id => { setPage(id); setMenuOpen(false); setAddOpen(false); setAiMenuOpen(false); setMenuSearch(""); };
       const phaseStatusItems = Array.isArray(cloudControls.phaseStatusItems) ? cloudControls.phaseStatusItems : [];
+      const isOwner = role === "owner";
+      const isManager = role === "manager";
+      const roleLabel = isOwner ? "Owner" : isManager ? "Manager" : "Employee";
+      const gatewayStatusItem = phaseStatusItems.find(i => String(i.id || i.title || "").toLowerCase().includes("gateway") || String(i.title || "").toLowerCase().includes("gateway"));
+      const costGuardOn = !!(settings?.aiGateway?.costSaverMode || settings?.aiGateway?.costGuardEnabled || settings?.aiCostGuard?.enabled);
+      const dailyLimit = settings?.aiGateway?.dailyLimit || settings?.aiGateway?.dailyAiLimit || 8;
+      const aiOpen = id => openPage(id);
+      const aiPrimaryItems = isOwner ? [
+        { id:"overnight", icon:"🌅", title:"Morning Briefing", sub:"What to do first today" },
+        { id:"dataai", icon:"💬", title:"Ask Business AI", sub:"Ask questions about the business" },
+        { id:"showbuilder", icon:"🎪", title:"Build AI Show", sub:"Plan Whatnot / Palmstreet" },
+        { id:"receipts", icon:"🧾", title:"Receipt AI", sub:"Scan receipts and bills" },
+        { id:"cashflow", icon:"💵", title:"Financial Forecast", sub:"Cash, bills, safe spend" },
+        { id:"upload", icon:"📸", title:"Upload Plant Invoice", sub:"Add plant purchases" }
+      ] : isManager ? [
+        { id:"dataai", icon:"💬", title:"Ask Business AI", sub:"Operational helper" },
+        { id:"showbuilder", icon:"🎪", title:"Build Show", sub:"Plan live selling" },
+        { id:"receipts", icon:"🧾", title:"Receipt Scanner", sub:"Upload business receipts" },
+        { id:"upload", icon:"📸", title:"Upload Invoice", sub:"Add plant purchases" },
+        { id:"labels", icon:"🏷️", title:"Labels", sub:"Print plant labels" },
+        { id:"liveshow", icon:"🎥", title:"Live Show", sub:"On-screen selling mode" }
+      ] : [
+        { id:"today", icon:"🏠", title:"Today's Tasks", sub:"Start here" },
+        { id:"dataai", icon:"💬", title:"Ask Leaf Diary", sub:"Get help with daily work" },
+        { id:"upload", icon:"📸", title:"Upload Invoice", sub:"Add plant purchase photo" },
+        { id:"inv", icon:"📷", title:"Take Plant Photos", sub:"Find plants needing photos" },
+        { id:"labels", icon:"🏷️", title:"Print Labels", sub:"Label plants" },
+        { id:"timecard", icon:"⏱️", title:"Timecard", sub:"Clock in and out" }
+      ];
+      const ownerSettingsItems = [
+        { id:"aigateway", icon:"🌐", title:"AI Gateway", sub:"API, token, cost guard" },
+        { id:"airouter", icon:"🧭", title:"AI Router", sub:"Route each AI task" },
+        { id:"ollama", icon:"🧠", title:"Ollama Connector", sub:"Local/cloud AI settings" },
+        { id:"invoicetrainer", icon:"🧾", title:"Purchase Trainer", sub:"Invoice pot-size rules" },
+        { id:"devtools", icon:"🧪", title:"Test Console", sub:"Diagnostics" },
+        { id:"cleanup", icon:"🧹", title:"Data Cleanup", sub:"Fix duplicate or bad data" }
+      ];
       const AIChipIcon = () => <svg viewBox="0 0 64 64" aria-hidden="true" style={{ width:24, height:24, display:"block" }}>
         <rect x="14" y="14" width="36" height="36" rx="8" fill="#97d33e"/>
         <rect x="21" y="21" width="22" height="22" rx="5" fill="#000"/>
@@ -1131,64 +1168,98 @@
         </div>
 
         {aiMenuOpen && <div style={{ position:"fixed", inset:0, zIndex:720, background:"rgba(0,0,0,.38)" }} onClick={()=>setAiMenuOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:55, right:8, width:"min(420px, calc(100vw - 16px))", maxHeight:"calc(100dvh - 82px)", overflowY:"auto", WebkitOverflowScrolling:"touch", background:"#050505", color:"#fff", border:"1px solid rgba(151,211,62,.42)", borderRadius:20, boxShadow:"0 24px 70px rgba(0,0,0,.58)", padding:"14px 14px 16px" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:55, right:8, width:"min(430px, calc(100vw - 16px))", maxHeight:"calc(100dvh - 82px)", overflowY:"auto", WebkitOverflowScrolling:"touch", background:"#050505", color:"#fff", border:"1px solid rgba(151,211,62,.42)", borderRadius:20, boxShadow:"0 24px 70px rgba(0,0,0,.58)", padding:"14px 14px 16px" }}>
             <Row between center style={{ marginBottom:12 }}>
               <Row gap={10} center>
-                <div style={{ width:42, height:42, borderRadius:14, background:"rgba(151,211,62,.12)", border:"1px solid rgba(151,211,62,.35)", display:"flex", alignItems:"center", justifyContent:"center" }}><AIChipIcon /></div>
-                <div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:22, fontWeight:900 }}>AI Command Menu</div><div style={{ fontSize:11, color:"rgba(255,255,255,.62)", fontWeight:700 }}>All AI status, settings, and tools in one clean place.</div></div>
+                <div style={{ width:42, height:42, borderRadius:14, background:"rgba(151,211,62,.12)", border:"1px solid rgba(151,211,62,.35)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><AIChipIcon /></div>
+                <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:22, fontWeight:900 }}>{isOwner ? "AI Tools" : isManager ? "Team Helper" : "Leaf Diary Helper"}</div><div style={{ fontSize:11, color:"rgba(255,255,255,.62)", fontWeight:700 }}>{roleLabel} view · simple tools only</div></div>
               </Row>
               <button onClick={()=>setAiMenuOpen(false)} style={{ background:"rgba(255,255,255,.1)", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:12, padding:"7px 10px", fontSize:18, cursor:"pointer" }}>×</button>
             </Row>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom:12 }}>
-              <button onClick={()=>openPage("dataai")} style={{ background:"#101010", border:"1px solid rgba(255,255,255,.12)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer" }}>💬 Ask Business AI</button>
-              <button onClick={()=>openPage("execai")} style={{ background:"#101010", border:"1px solid rgba(151,211,62,.35)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer" }}>🧠 Executive AI</button>
-              <button onClick={()=>openPage("aigateway")} style={{ background:"#101010", border:"1px solid rgba(126,231,255,.35)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer" }}>🌐 AI Gateway</button>
-              <button onClick={()=>openPage("aihub")} style={{ background:"#101010", border:"1px solid rgba(255,255,255,.12)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer" }}>🤖 AI Center</button>
+
+            <div style={{ background:"rgba(151,211,62,.09)", border:"1px solid rgba(151,211,62,.22)", borderRadius:16, padding:"10px 11px", marginBottom:12 }}>
+              <Row between center gap={8} wrap>
+                <div><div style={{ fontSize:12, color:"#97d33e", fontWeight:900 }}>AI Status</div><div style={{ fontSize:10, color:"rgba(255,255,255,.58)", marginTop:2 }}>{isOwner ? `Gateway ${gatewayStatusItem?.value || "ready"} · Cost Guard ${costGuardOn ? "ON" : "manual"}` : "Settings are protected by owner access."}</div></div>
+                {isOwner && <Tag text={`Daily limit ${dailyLimit}`} color="#97d33e" sm />}
+              </Row>
             </div>
-            {phaseStatusItems.length > 0 && <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {phaseStatusItems.map(item => <div key={item.id || item.title} style={{ background:"#0b0b0b", border:`1px solid ${item.border || "rgba(255,255,255,.12)"}`, borderRadius:14, padding:"10px 11px" }}>
-                <Row between gap={8} center>
-                  <div style={{ minWidth:0 }}>
-                    <div style={{ fontSize:12, color:item.color || "#97d33e", fontWeight:900 }}>{item.icon || "•"} {item.title}</div>
-                    {item.value && <div style={{ fontSize:11, color:"rgba(255,255,255,.72)", marginTop:2, fontWeight:700 }}>{item.value}</div>}
-                    {item.sub && <div style={{ fontSize:10, color:"rgba(255,255,255,.46)", marginTop:2 }}>{item.sub}</div>}
-                  </div>
-                  {item.onClick && <button className="ld-ai-status-open" onClick={()=>{ setAiMenuOpen(false); try { item.onClick(); } catch(e) { console.warn("AI menu action failed", e); } }} style={{ background:"transparent", border:"1px solid rgba(255,255,255,.2)", color:"#fff", borderRadius:999, padding:"6px 7px", fontSize:9, lineHeight:1, minWidth:42, flexShrink:0, fontWeight:900, cursor:"pointer", fontFamily:F.body }}>{item.actionLabel || "Open"}</button>}
-                </Row>
-              </div>)}
-            </div>}
-            <div style={{ marginTop:12, padding:"10px 11px", borderRadius:14, background:"rgba(151,211,62,.08)", border:"1px solid rgba(151,211,62,.22)", color:"rgba(255,255,255,.7)", fontSize:11, lineHeight:1.35 }}>The header stays clean. Open this chip any time for AI setup, gateway status, router tools, diagnostics, and executive decisions.</div>
+
+            <div style={{ fontSize:11, color:"rgba(255,255,255,.48)", fontWeight:900, letterSpacing:.8, textTransform:"uppercase", margin:"0 0 8px 2px" }}>{isOwner ? "Daily AI Tools" : "Quick Tools"}</div>
+            <div className="ld-clean-ai-grid" style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom: isOwner ? 12 : 0 }}>
+              {aiPrimaryItems.map(item => <button key={item.id + item.title} onClick={()=>aiOpen(item.id)} style={{ background:"#101010", border:"1px solid rgba(255,255,255,.12)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer", minHeight:68 }}>
+                <div style={{ fontSize:14, lineHeight:1.15 }}>{item.icon} {item.title}</div>
+                <div style={{ fontSize:10, color:"rgba(255,255,255,.52)", marginTop:4, fontWeight:700, lineHeight:1.25 }}>{item.sub}</div>
+              </button>)}
+            </div>
+
+            {isOwner && <>
+              <details style={{ background:"#0b0b0b", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, marginTop:10, overflow:"hidden" }}>
+                <summary style={{ cursor:"pointer", padding:"12px 13px", fontWeight:900, color:"#fff", listStyle:"none" }}>🔒 Owner AI Settings <span style={{ float:"right", color:"#97d33e", fontSize:11 }}>protected</span></summary>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:7, padding:"0 10px 12px" }}>
+                  {ownerSettingsItems.map(item => <button key={item.id} onClick={()=>aiOpen(item.id)} style={{ background:"rgba(255,255,255,.055)", border:"1px solid rgba(255,255,255,.1)", color:"#fff", borderRadius:12, padding:"10px 9px", textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><div style={{ fontWeight:900, fontSize:12 }}>{item.icon} {item.title}</div><div style={{ fontSize:10, color:"rgba(255,255,255,.46)", marginTop:3 }}>{item.sub}</div></button>)}
+                </div>
+              </details>
+
+              <details style={{ background:"#0b0b0b", border:"1px solid rgba(151,211,62,.18)", borderRadius:16, marginTop:9, overflow:"hidden" }}>
+                <summary style={{ cursor:"pointer", padding:"12px 13px", fontWeight:900, color:"#fff", listStyle:"none" }}>🩺 System Health <span style={{ float:"right", color:"#97d33e", fontSize:11 }}>{phaseStatusItems.length} checks</span></summary>
+                <div style={{ display:"flex", flexDirection:"column", gap:8, padding:"0 10px 12px" }}>
+                  {phaseStatusItems.slice(0, 12).map(item => <div key={item.id || item.title} style={{ background:"rgba(255,255,255,.04)", border:`1px solid ${item.border || "rgba(255,255,255,.1)"}`, borderRadius:12, padding:"9px 10px" }}>
+                    <Row between gap={8} center>
+                      <div style={{ minWidth:0 }}><div style={{ fontSize:11, color:item.color || "#97d33e", fontWeight:900 }}>{item.icon || "•"} {item.title}</div>{item.value && <div style={{ fontSize:10, color:"rgba(255,255,255,.62)", marginTop:2 }}>{item.value}</div>}</div>
+                      {item.onClick && <button className="ld-ai-status-open" onClick={()=>{ setAiMenuOpen(false); try { item.onClick(); } catch(e) { console.warn("AI menu action failed", e); } }} style={{ background:"transparent", border:"1px solid rgba(255,255,255,.2)", color:"#fff", borderRadius:999, padding:"5px 7px", fontSize:8, lineHeight:1, minWidth:36, flexShrink:0, fontWeight:900, cursor:"pointer", fontFamily:F.body }}>Open</button>}
+                    </Row>
+                  </div>)}
+                </div>
+              </details>
+            </>}
+
+            {!isOwner && <div style={{ marginTop:12, padding:"10px 11px", borderRadius:14, background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", color:"rgba(255,255,255,.65)", fontSize:11, lineHeight:1.35 }}>Advanced AI settings, API keys, cost controls, router settings, and diagnostics are hidden from this role so the business settings stay safe.</div>}
           </div>
         </div>}
 
         {addOpen && <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:700, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={()=>setAddOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:520, background:"#050505", color:"#fff", borderRadius:"24px 24px 0 0", padding:"18px 16px calc(22px + env(safe-area-inset-bottom,0px))", borderTop:"2px solid #97d33e", boxShadow:"0 -18px 60px rgba(0,0,0,.5)" }}>
-            <Row between center style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:22, color:"#97d33e", fontWeight:900 }}>Cloud Controls</div><div style={{ fontSize:12, color:"rgba(255,255,255,.65)" }}>Sync, backup, restore, and cloud safety.</div></div><button onClick={()=>setAddOpen(false)} style={{ background:"rgba(255,255,255,.1)", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:12, padding:"8px 12px", fontSize:18 }}>×</button></Row>
-            {cloudControls && <div style={{ marginTop:0, paddingTop:0 }}>
-              <div style={{ fontSize:12, fontWeight:900, color:"#97d33e", letterSpacing:.7, textTransform:"uppercase", marginBottom:9 }}>Cloud & Backup Controls</div>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:540, background:"#050505", color:"#fff", borderRadius:"24px 24px 0 0", padding:"18px 16px calc(22px + env(safe-area-inset-bottom,0px))", borderTop:"2px solid #97d33e", boxShadow:"0 -18px 60px rgba(0,0,0,.5)", maxHeight:"calc(100dvh - 65px)", overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
+            <Row between center style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:22, color:"#97d33e", fontWeight:900 }}>{isOwner ? "Owner Controls" : "Quick Actions"}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.65)" }}>{isOwner ? "Safe sync, backup, and protected advanced settings." : "Simple daily tools. Settings are hidden."}</div></div><button onClick={()=>setAddOpen(false)} style={{ background:"rgba(255,255,255,.1)", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:12, padding:"8px 12px", fontSize:18 }}>×</button></Row>
+
+            {!isOwner && <div>
+              <div style={{ fontSize:12, fontWeight:900, color:"#97d33e", letterSpacing:.7, textTransform:"uppercase", marginBottom:9 }}>Daily Work</div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:9 }}>
-                {cloudControls.toggleSafeMode && <button onClick={cloudControls.toggleSafeMode} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>{cloudControls.cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Cloud ON"}</button>}
-                {cloudControls.toggleTeamSync && <button onClick={cloudControls.toggleTeamSync} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>{cloudControls.teamSafeSync ? `👥 Team Sync ON${cloudControls.pendingSyncCount ? ` (${cloudControls.pendingSyncCount})` : ""}` : "👥 Team Sync OFF"}</button>}
+                {[
+                  { id:"upload", icon:"📸", title:"Upload Invoice" },
+                  { id:"inv", icon:"📷", title:"Take Photos" },
+                  { id:"labels", icon:"🏷️", title:"Print Labels" },
+                  { id:"receipts", icon:"🧾", title:"Receipt" },
+                  { id:"timecard", icon:"⏱️", title:"Timecard" },
+                  { id:"liveshow", icon:"🎥", title:"Live Show" }
+                ].map(item => <button key={item.id} onClick={()=>openPage(item.id)} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"13px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>{item.icon} {item.title}</button>)}
+              </div>
+              <div style={{ marginTop:12, padding:"10px 11px", borderRadius:14, background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", color:"rgba(255,255,255,.62)", fontSize:11, lineHeight:1.35 }}>Cloud sync, force save, API setup, cost controls, and developer tools are owner-only.</div>
+            </div>}
+
+            {isOwner && cloudControls && <div style={{ marginTop:0, paddingTop:0 }}>
+              <div style={{ fontSize:12, fontWeight:900, color:"#97d33e", letterSpacing:.7, textTransform:"uppercase", marginBottom:9 }}>Safe Daily Controls</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:9 }}>
                 {cloudControls.loadFromCloud && <button onClick={cloudControls.loadFromCloud} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>⬇️ Load From Cloud</button>}
                 {cloudControls.saveChanges && <button onClick={cloudControls.saveChanges} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>💾 Save Changes{cloudControls.pendingSyncCount ? ` (${cloudControls.pendingSyncCount})` : ""}</button>}
-                {cloudControls.mergeChanges && cloudControls.syncConflict && <button onClick={cloudControls.mergeChanges} style={{ background:"#111", border:"1px solid #C0570A", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🔀 Merge Changes</button>}
-                {cloudControls.forceSave && user?.role === "owner" && <button onClick={cloudControls.forceSave} style={{ background:"#111", border:"1px solid #BE3535", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>⚠️ Owner Force Save</button>}
-                {cloudControls.testCloud && <button onClick={cloudControls.testCloud} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Test Cloud</button>}
-                {cloudControls.phase1Snapshot && <button onClick={cloudControls.phase1Snapshot} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧯 Save Safety Snapshot</button>}
-                {cloudControls.phase1Health && <button onClick={cloudControls.phase1Health} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🩺 Download Health Report</button>}
-                {cloudControls.phase2Console && <button onClick={cloudControls.phase2Console} style={{ background:"#111", border:"1px solid #fb6392", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Phase 2 Test Console</button>}
-                {cloudControls.phase3Console && <button onClick={cloudControls.phase3Console} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧠 Ollama Connector</button>}
-                {cloudControls.phase61Gateway && <button onClick={cloudControls.phase61Gateway} style={{ background:"#111", border:"1px solid #7EE7FF", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🌐 AI Gateway</button>}
-                {cloudControls.phase7ShowBuilder && <button onClick={cloudControls.phase7ShowBuilder} style={{ background:"#111", border:"1px solid #fb6392", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🎪 Phase 7 AI Show Builder</button>}
-                {cloudControls.phase8Receipts && <button onClick={cloudControls.phase8Receipts} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧾 Phase 8 Receipt AI</button>}
-                {cloudControls.phase9Finance && <button onClick={cloudControls.phase9Finance} style={{ background:"#111", border:"1px solid #f5c542", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>💵 Phase 9 Forecast</button>}
-                {cloudControls.phase101Trainer && <button onClick={cloudControls.phase101Trainer} style={{ background:"#111", border:"1px solid #f5c542", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧾 Purchase Trainer</button>}
-                {cloudControls.phase10Morning && <button onClick={cloudControls.phase10Morning} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🌅 Phase 10 Morning Briefing</button>}
-                {cloudControls.phase4Console && <button onClick={cloudControls.phase4Console} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧭 AI Router</button>}
-                {cloudControls.phase6Console && <button onClick={cloudControls.phase6Console} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧠 Executive AI</button>}
                 {cloudControls.backup && <button onClick={cloudControls.backup} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>📥 Backup</button>}
                 {cloudControls.restore && <button onClick={cloudControls.restore} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>📤 Restore</button>}
+                {cloudControls.toggleSafeMode && <button onClick={cloudControls.toggleSafeMode} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>{cloudControls.cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Cloud ON"}</button>}
+                {cloudControls.toggleTeamSync && <button onClick={cloudControls.toggleTeamSync} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>{cloudControls.teamSafeSync ? `👥 Team Sync ON${cloudControls.pendingSyncCount ? ` (${cloudControls.pendingSyncCount})` : ""}` : "👥 Team Sync OFF"}</button>}
               </div>
+
+              <details style={{ background:"#080808", border:"1px solid rgba(255,255,255,.1)", borderRadius:16, marginTop:12, overflow:"hidden" }}>
+                <summary style={{ cursor:"pointer", padding:"13px 14px", fontWeight:900, color:"#fff", listStyle:"none" }}>🔒 Advanced Owner Tools <span style={{ float:"right", color:"#97d33e", fontSize:11 }}>tap to open</span></summary>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:9, padding:"0 10px 12px" }}>
+                  {cloudControls.testCloud && <button onClick={cloudControls.testCloud} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Test Cloud</button>}
+                  {cloudControls.phase1Snapshot && <button onClick={cloudControls.phase1Snapshot} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧯 Safety Snapshot</button>}
+                  {cloudControls.phase1Health && <button onClick={cloudControls.phase1Health} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🩺 Health Report</button>}
+                  {cloudControls.phase61Gateway && <button onClick={cloudControls.phase61Gateway} style={{ background:"#111", border:"1px solid #7EE7FF", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🌐 AI Gateway</button>}
+                  {cloudControls.phase4Console && <button onClick={cloudControls.phase4Console} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧭 AI Router</button>}
+                  {cloudControls.phase3Console && <button onClick={cloudControls.phase3Console} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧠 Ollama</button>}
+                  {cloudControls.phase2Console && <button onClick={cloudControls.phase2Console} style={{ background:"#111", border:"1px solid #fb6392", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Test Console</button>}
+                  {cloudControls.forceSave && <button onClick={cloudControls.forceSave} style={{ background:"#111", border:"1px solid #BE3535", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>⚠️ Force Save</button>}
+                </div>
+              </details>
             </div>}
           </div>
         </div>}
@@ -1206,7 +1277,7 @@
         </div>}
 
         <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const active = page === id || (id === "today" && ["dash","command","execai","aihub","cashflow","overnight","emp_dash"].includes(page)) || (id === "plants_ws" && ["inv","manual","upload","invoicetrainer","labels","care","locations","sellthru"].includes(page)) || (id === "shows_ws" && ["showbuilder","liveshow","showimport","bundles","discounts","social","content"].includes(page)) || (id === "orders_ws" && ["ship","customers","retention","refunds","casd"].includes(page)) || (id === "money_ws" && ["expense","receipts","bills","timecard","payroll","tax","goals","commissions"].includes(page)); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
-        <style>{`body{margin:0}.pg-pad{padding:14px 14px 96px!important}.ld-workspace-card{transition:transform .12s ease, box-shadow .12s ease}.ld-workspace-card:active{transform:scale(.985)}.ld-ai-status-open{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;text-align:center!important}.ld-ai-status-open *{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}@media(max-width:760px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}.ld-ai-status-open{font-size:8px!important;min-width:38px!important;padding:6px 6px!important;}}@media(max-width:380px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
+        <style>{`body{margin:0}.pg-pad{padding:14px 14px 96px!important}.ld-workspace-card{transition:transform .12s ease, box-shadow .12s ease}.ld-workspace-card:active{transform:scale(.985)}.ld-ai-status-open{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;text-align:center!important}.ld-clean-ai-grid button{white-space:normal!important;word-break:normal!important;overflow-wrap:anywhere!important}.ld-ai-status-open *{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}@media(max-width:760px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}.ld-ai-status-open{font-size:8px!important;min-width:38px!important;padding:6px 6px!important;}}@media(max-width:380px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </>;
     }
 
@@ -8527,7 +8598,7 @@ Cancel if you want to save money.`);
       </div>;
     }
 
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 10.1 Purchase Intake Trainer Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — Phase 10.2 Role-Safe UX Cleanup Build 2026-05-09";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
