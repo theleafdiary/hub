@@ -809,6 +809,94 @@
       return { ok:true, task, summary: summaryMap[task] || `AI completed ${task.replace(/_/g," ")}: ${actions.length} actions, ${warnings.length} warnings, ${recommendations.length} opportunities.`, actions, warnings, recommendations, generatedAt:new Date().toISOString() };
     }
     async function runLeafAI(task, payload) { try { const { data, error } = await supabase.functions.invoke("leaf-ai", { body:{ task, payload } }); if (!error && data && data.ok) return data; } catch (err) { console.warn("leaf-ai unavailable, using local fallback", err); } return localLeafAI(task, payload); }
+
+    /* ══════════════════════════════════════════════════════════
+       PHASE 10.1 — PURCHASE INTAKE TRAINER
+       Local/free invoice training rules for nursery, pot size, and corrections.
+       No paid cloud AI is required for these safeguards.
+    ══════════════════════════════════════════════════════════ */
+    const DEFAULT_PURCHASE_TRAINING = {
+      enabled: true,
+      defaultPotSize: '4"',
+      assumeDefaultWhenMissing: true,
+      requireNurseryBeforeSave: true,
+      markAssumedSizesForReview: true,
+      rememberCorrections: true,
+      rules: [
+        { id: "pt-4in", nurseryCode: "*", type: "potSize", match: "4IN", value: '4"', notes: "Common 4 inch invoice shorthand", enabled: true, createdAt: "system" },
+        { id: "pt-4inch", nurseryCode: "*", type: "potSize", match: "4 INCH", value: '4"', notes: "Common 4 inch wording", enabled: true, createdAt: "system" },
+        { id: "pt-4quote", nurseryCode: "*", type: "potSize", match: '4"', value: '4"', notes: "Exact quote size", enabled: true, createdAt: "system" },
+        { id: "pt-6in", nurseryCode: "*", type: "potSize", match: "6IN", value: '6"', notes: "Common 6 inch invoice shorthand", enabled: true, createdAt: "system" },
+        { id: "pt-6inch", nurseryCode: "*", type: "potSize", match: "6 INCH", value: '6"', notes: "Common 6 inch wording", enabled: true, createdAt: "system" },
+        { id: "pt-6hb", nurseryCode: "*", type: "potSize", match: "6HB", value: '6" Hanging Basket', notes: "6 inch hanging basket shorthand", enabled: true, createdAt: "system" },
+        { id: "pt-6-hb", nurseryCode: "*", type: "potSize", match: "6 HB", value: '6" Hanging Basket', notes: "6 inch hanging basket shorthand with space", enabled: true, createdAt: "system" },
+        { id: "pt-hang", nurseryCode: "*", type: "potSize", match: "HANG", value: '6" Hanging Basket', notes: "Hanging basket clue; verify size if invoice is unclear", enabled: true, createdAt: "system" },
+        { id: "pt-hb", nurseryCode: "*", type: "potSize", match: "HB", value: '6" Hanging Basket', notes: "Hanging basket clue; verify size if invoice is unclear", enabled: true, createdAt: "system" },
+        { id: "pt-1gal", nurseryCode: "*", type: "potSize", match: "1GAL", value: "1 gal", notes: "One gallon shorthand", enabled: true, createdAt: "system" },
+        { id: "pt-2gal", nurseryCode: "*", type: "potSize", match: "2GAL", value: "2 gal", notes: "Two gallon shorthand", enabled: true, createdAt: "system" }
+      ]
+    };
+    function phase101Norm(v) {
+      return String(v || "").toUpperCase().replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
+    }
+    function phase101Compact(v) {
+      return phase101Norm(v).replace(/[^A-Z0-9\"]/g, "");
+    }
+    function phase101GetTraining(settings = {}) {
+      const saved = safeObject(settings.purchaseTraining);
+      const savedRules = Array.isArray(saved.rules) ? saved.rules : [];
+      const defaultRules = Array.isArray(DEFAULT_PURCHASE_TRAINING.rules) ? DEFAULT_PURCHASE_TRAINING.rules : [];
+      const byId = {};
+      [...defaultRules, ...savedRules].forEach(r => { if (r && r.id) byId[r.id] = r; });
+      return { ...DEFAULT_PURCHASE_TRAINING, ...saved, rules: Object.values(byId) };
+    }
+    function phase101RowText(p = {}) {
+      return [
+        p.potSize, p.size, p.containerSize, p.description, p.lineText, p.rawText,
+        p.name, p.botanicalName, p.sku, p.item, p.productCode
+      ].filter(Boolean).join(" ");
+    }
+    function phase101InferPotSize(p = {}, nurseryCode = "*", settings = {}) {
+      const training = phase101GetTraining(settings);
+      const text = phase101RowText(p);
+      const norm = phase101Norm(text);
+      const compact = phase101Compact(text);
+      const existing = String(p.potSize || p.size || p.containerSize || "").trim();
+      const rules = (training.rules || []).filter(r => r && r.enabled !== false && r.type === "potSize")
+        .filter(r => r.nurseryCode === "*" || !r.nurseryCode || String(r.nurseryCode).toUpperCase() === String(nurseryCode || "").toUpperCase())
+        .sort((a,b) => String(b.match || "").length - String(a.match || "").length);
+
+      for (const rule of rules) {
+        const m = String(rule.match || "").trim();
+        if (!m) continue;
+        const mn = phase101Norm(m), mc = phase101Compact(m);
+        if ((mn && norm.includes(mn)) || (mc && compact.includes(mc))) {
+          return { potSize: rule.value || training.defaultPotSize || '4"', confidence: "rule", source: m, ruleId: rule.id, note: `Matched rule ${m} → ${rule.value}` };
+        }
+      }
+
+      if (existing) return { potSize: existing, confidence: "ocr", source: existing, ruleId: "", note: "Read from invoice OCR" };
+      if (training.assumeDefaultWhenMissing !== false) return { potSize: training.defaultPotSize || '4"', confidence: "assumed", source: "missing", ruleId: "default", note: `No size found — assumed ${training.defaultPotSize || '4\"'}` };
+      return { potSize: "", confidence: "missing", source: "missing", ruleId: "", note: "No pot size found" };
+    }
+    function phase101PotConfidenceColor(conf) {
+      if (conf === "rule") return C.g600;
+      if (conf === "ocr") return C.blue;
+      if (conf === "assumed") return C.amber;
+      return C.red;
+    }
+    function phase101TrainingStats(settings = {}) {
+      const t = phase101GetTraining(settings);
+      const rules = Array.isArray(t.rules) ? t.rules : [];
+      return {
+        totalRules: rules.length,
+        activeRules: rules.filter(r => r.enabled !== false).length,
+        nurserySpecific: rules.filter(r => r.nurseryCode && r.nurseryCode !== "*").length,
+        defaultPotSize: t.defaultPotSize || '4"',
+        assumedOn: t.assumeDefaultWhenMissing !== false
+      };
+    }
+
     /* ══════════════════════════════════════════════════════════
        SHARED UI COMPONENTS
     ══════════════════════════════════════════════════════════ */
@@ -929,6 +1017,7 @@
       { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
       { id:"manual", icon:"✏️", l:"Add Plants", group:"Plants", roles:["owner","manager","employee"] },
       { id:"upload", icon:"📸", l:"Upload Invoice", group:"Plants", roles:["owner","manager","employee"] },
+      { id:"invoicetrainer", icon:"🧾", l:"Purchase Intake Trainer", group:"Plants", roles:["owner","manager"] },
       { id:"labels", icon:"🏷️", l:"Labels", group:"Plants", roles:["owner","manager","employee"] },
       { id:"care", icon:"🩺", l:"Plant Care", group:"Plants", roles:["owner","manager"] },
       { id:"locations", icon:"📍", l:"Locations", group:"Plants", roles:["owner"] },
@@ -971,7 +1060,7 @@
     const ROOT_PAGES = ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
       today:"today", dash:"today", command:"today", execai:"today", aihub:"today", dataai:"today", cashflow:"today", overnight:"today", emp_dash:"today",
-      plants_ws:"plants_ws", inv:"plants_ws", manual:"plants_ws", upload:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
+      plants_ws:"plants_ws", inv:"plants_ws", manual:"plants_ws", upload:"plants_ws", invoicetrainer:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
       shows_ws:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", showimport:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
       orders_ws:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
@@ -1093,6 +1182,7 @@
                 {cloudControls.phase7ShowBuilder && <button onClick={cloudControls.phase7ShowBuilder} style={{ background:"#111", border:"1px solid #fb6392", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🎪 Phase 7 AI Show Builder</button>}
                 {cloudControls.phase8Receipts && <button onClick={cloudControls.phase8Receipts} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧾 Phase 8 Receipt AI</button>}
                 {cloudControls.phase9Finance && <button onClick={cloudControls.phase9Finance} style={{ background:"#111", border:"1px solid #f5c542", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>💵 Phase 9 Forecast</button>}
+                {cloudControls.phase101Trainer && <button onClick={cloudControls.phase101Trainer} style={{ background:"#111", border:"1px solid #f5c542", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧾 Purchase Trainer</button>}
                 {cloudControls.phase10Morning && <button onClick={cloudControls.phase10Morning} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🌅 Phase 10 Morning Briefing</button>}
                 {cloudControls.phase4Console && <button onClick={cloudControls.phase4Console} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧭 AI Router</button>}
                 {cloudControls.phase6Console && <button onClick={cloudControls.phase6Console} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧠 Executive AI</button>}
@@ -1115,7 +1205,7 @@
           </div>
         </div>}
 
-        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const active = page === id || (id === "today" && ["dash","command","execai","aihub","cashflow","overnight","emp_dash"].includes(page)) || (id === "plants_ws" && ["inv","manual","upload","labels","care","locations","sellthru"].includes(page)) || (id === "shows_ws" && ["showbuilder","liveshow","showimport","bundles","discounts","social","content"].includes(page)) || (id === "orders_ws" && ["ship","customers","retention","refunds","casd"].includes(page)) || (id === "money_ws" && ["expense","receipts","bills","timecard","payroll","tax","goals","commissions"].includes(page)); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
+        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const active = page === id || (id === "today" && ["dash","command","execai","aihub","cashflow","overnight","emp_dash"].includes(page)) || (id === "plants_ws" && ["inv","manual","upload","invoicetrainer","labels","care","locations","sellthru"].includes(page)) || (id === "shows_ws" && ["showbuilder","liveshow","showimport","bundles","discounts","social","content"].includes(page)) || (id === "orders_ws" && ["ship","customers","retention","refunds","casd"].includes(page)) || (id === "money_ws" && ["expense","receipts","bills","timecard","payroll","tax","goals","commissions"].includes(page)); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
         <style>{`body{margin:0}.pg-pad{padding:14px 14px 96px!important}.ld-workspace-card{transition:transform .12s ease, box-shadow .12s ease}.ld-workspace-card:active{transform:scale(.985)}.ld-ai-status-open{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;text-align:center!important}.ld-ai-status-open *{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}@media(max-width:760px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}.ld-ai-status-open{font-size:8px!important;min-width:38px!important;padding:6px 6px!important;}}@media(max-width:380px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </>;
     }
@@ -1179,7 +1269,7 @@
           { title:"Common Tasks", items:[["Add Plant","manual","✏️","Manual inventory entry"],["Scan Receipt","receipts","🧾","Save expense receipt"],["Import Show","showimport","📥","Whatnot/Palmstreet sales"],["Social Post","social","📣","Turn plant photos into posts"]] }
         ]},
         plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything inventory in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
-          { title:"Inventory Work", items:[["Inventory","inv","🌿","Search and edit all plants"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Past Invoices","history","📋","Previous uploads"]] },
+          { title:"Inventory Work", items:[["Inventory","inv","🌿","Search and edit all plants"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Purchase Intake Trainer","invoicetrainer","🧾","Teach invoice pot-size rules"],["Past Invoices","history","📋","Previous uploads"]] },
           { title:"Plant Tools", items:[["Labels","labels","🏷️","Print plant labels"],["Plant Care","care","🩺","Quarantine and health"],["Locations","locations","📍","Racks, trailer, rooms"],["Sell-Through","sellthru","📊","What sells fastest"]] }
         ]},
         shows_ws:{ icon:"🎥", title:"Live Shows", sub:"All Whatnot, Palmstreet, live selling and marketing tools.", hero:"Sell faster with fewer clicks", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Commissions","1%","after fees"]], sections:[
@@ -1196,7 +1286,7 @@
         ]},
         admin_ws:{ icon:"⚙️", title:"Admin", sub:"Owner settings and security.", hero:"Control the app without cluttering daily work", color:"#b695ff", kpis:[["Users","👥","roles"],["Audit","🔍","history"],["Backups","💾","safety"],["Settings","⚙️","system"]], sections:[
           { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Data Cleanup","cleanup","🧹","Fix duplicates/issues"],["Phase 2 Test Console","devtools","🧪","Diagnostics and safe tests"],["Ollama AI Connector","ollama","🧠","Local AI model settings"],["AI Gateway","aigateway","🌐","Mobile AI API bridge"],["AI Router","airouter","🧭","Route each AI task to the right model"],["Executive AI","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Phase 10 daily automation"],["Reports","reports","📈","Business reports"]] },
-          { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
+          { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Purchase Intake Trainer","invoicetrainer","🧾","Invoice training rules"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
         ]}
       }[type || "today"];
       const CardBtn = ({ item }) => { const [label,id,icon,sub] = item; const disabled = !canOpen(id); return <button disabled={disabled} onClick={()=>open(id)} className="ld-workspace-card" style={{ background:disabled?"#f1f1f1":C.card, border:`1px solid ${disabled?"#ddd":C.bd}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:disabled?"not-allowed":"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)", fontFamily:F.body, opacity:disabled ? .45 : 1 }}><Row gap={10} center><div style={{ width:42, height:42, borderRadius:14, background:(pack.color||C.g600)+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:23 }}>{icon}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{label}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{sub}</div></div><span style={{ color:C.tx4, fontWeight:900 }}>›</span></Row></button> };
@@ -1538,10 +1628,106 @@
       </div>;
     }
 
+
+
+    function PurchaseIntakeTrainer({ settings, setSettings, nurseries = [], addAudit, user, setPage }) {
+      const training = phase101GetTraining(settings);
+      const [nurseryCode, setNurseryCode] = useState("*");
+      const [match, setMatch] = useState("");
+      const [value, setValue] = useState(training.defaultPotSize || '4"');
+      const [notes, setNotes] = useState("");
+      const [testText, setTestText] = useState("6HB Philodendron Pink Princess 4.00");
+      const [testNursery, setTestNursery] = useState("*");
+      const rules = Array.isArray(training.rules) ? training.rules : [];
+      const stats = phase101TrainingStats(settings);
+      const saveTraining = patch => setSettings(prev => ({ ...prev, purchaseTraining:{ ...phase101GetTraining(prev), ...patch } }));
+      const updateSetting = (key, val) => saveTraining({ [key]: val });
+      const addRule = () => {
+        if (!match.trim() || !value.trim()) { alert("Add the invoice text to match and the pot size it means."); return; }
+        const next = { id: uid(), nurseryCode, type:"potSize", match:match.trim(), value:value.trim(), notes:notes.trim(), enabled:true, createdAt:new Date().toISOString(), createdBy:user?.name || "Owner" };
+        saveTraining({ rules:[...rules, next] });
+        addAudit && addAudit({ action:`Added purchase intake rule ${next.match} → ${next.value}`, user:user?.name || "Owner", page:"Purchase Intake Trainer" });
+        setMatch(""); setNotes("");
+      };
+      const toggleRule = id => saveTraining({ rules: rules.map(r => r.id === id ? { ...r, enabled: r.enabled === false } : r) });
+      const deleteRule = id => {
+        if (!confirm("Delete this training rule?")) return;
+        saveTraining({ rules: rules.filter(r => r.id !== id) });
+      };
+      const seedCommonRules = () => {
+        const existing = phase101GetTraining(settings);
+        const byId = {};
+        [...(existing.rules || []), ...(DEFAULT_PURCHASE_TRAINING.rules || [])].forEach(r => { if (r && r.id) byId[r.id] = r; });
+        saveTraining({ rules:Object.values(byId), defaultPotSize: existing.defaultPotSize || '4"', assumeDefaultWhenMissing: true, markAssumedSizesForReview: true });
+      };
+      const resetTraining = () => {
+        if (!confirm("Reset purchase intake training rules to Leaf Diary defaults?")) return;
+        setSettings(prev => ({ ...prev, purchaseTraining: DEFAULT_PURCHASE_TRAINING }));
+      };
+      const testResult = phase101InferPotSize({ lineText:testText, name:testText }, testNursery, settings);
+      const downloadRules = () => phase1DownloadJson(`leafdiary-phase10-1-purchase-training-${today()}.json`, { appVersion:APP_VERSION, purchaseTraining:training, stats, exportedAt:new Date().toISOString() });
+      return <div className="ld-page" style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="🧾" title="Purchase Intake Trainer" sub="Teach Leaf Diary how to read your nursery invoices before plants are saved." right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setPage && setPage("upload")}>📸 Upload Invoice</Btn><Btn sz="sm" v="ghost" onClick={downloadRules}>Download Rules</Btn></Row>} />
+        <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:"2px solid #97d33e" }}>
+          <Row between wrap center gap={12}>
+            <div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:26, fontWeight:900 }}>Phase 10.1 Purchase Intake Trainer</div><div style={{ color:"rgba(255,255,255,.72)", fontSize:13, lineHeight:1.45, marginTop:4 }}>This protects the most important workflow: buy plants → take invoice photo → review nursery, pot size, cost, and quantity → save clean inventory. No paid cloud AI is needed for these training rules.</div></div>
+            <Tag text="Local/free rules" color="#97d33e" />
+          </Row>
+        </Card>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10, marginBottom:14 }}>
+          <KPI label="Default Pot Size" value={stats.defaultPotSize} sub="used when missing" color={C.g600} />
+          <KPI label="Active Rules" value={stats.activeRules} sub={`${stats.totalRules} total`} color={C.blue} />
+          <KPI label="Nursery-Specific" value={stats.nurserySpecific} sub="custom rules" color={C.purple} />
+          <KPI label="Missing Size" value={stats.assumedOn ? "Assume" : "Stop"} sub={stats.assumedOn ? "mark for review" : "requires edit"} color={stats.assumedOn ? C.amber : C.red} />
+        </div>
+        <Card style={{ marginBottom:14 }}>
+          <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900, marginBottom:10 }}>Default Intake Rules</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
+            <Sel label="Default pot size when missing" value={training.defaultPotSize || '4"'} onChange={v=>updateSetting("defaultPotSize", v)} options={[...POT_SIZES, '6" Hanging Basket', '10" Hanging Basket']} />
+            <Sel label="If pot size is missing" value={training.assumeDefaultWhenMissing !== false ? "assume" : "require"} onChange={v=>updateSetting("assumeDefaultWhenMissing", v === "assume")} options={[{v:"assume",l:"Assume default + mark review"},{v:"require",l:"Require manual size"}]} />
+            <Sel label="Require nursery before save" value={training.requireNurseryBeforeSave !== false ? "yes" : "no"} onChange={v=>updateSetting("requireNurseryBeforeSave", v === "yes")} options={[{v:"yes",l:"Yes — safest"},{v:"no",l:"No"}]} />
+          </div>
+          <div style={{ marginTop:10, fontSize:12, color:C.tx3, lineHeight:1.45 }}>Recommended: keep default at <b>4&quot;</b>, because most of your plant pots are 4 inch. The app will mark assumed 4&quot; rows so you can quickly verify before saving.</div>
+        </Card>
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:14 }}>
+          <Card>
+            <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900, marginBottom:10 }}>Add Invoice Rule</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <Sel label="Applies to nursery" value={nurseryCode} onChange={setNurseryCode} options={[{v:"*",l:"All nurseries"}, ...nurseries.map(n=>({v:n.code,l:`${n.code} · ${n.name}`}))]} />
+              <Sel label="Means pot size" value={value} onChange={setValue} options={[...POT_SIZES, '6" Hanging Basket', '10" Hanging Basket']} />
+            </div>
+            <Inp label="Invoice text / abbreviation to match" value={match} onChange={setMatch} placeholder="Example: 6HB, HB, 406, 4IN, 1GAL" style={{ marginTop:10 }} />
+            <Inp label="Notes" value={notes} onChange={setNotes} placeholder="Example: Central Florida invoice shorthand" style={{ marginTop:10 }} />
+            <Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={addRule}>➕ Add Rule</Btn><Btn v="soft" onClick={seedCommonRules}>Restore Common Rules</Btn><Btn v="ghost" onClick={resetTraining}>Reset Defaults</Btn></Row>
+          </Card>
+          <Card>
+            <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900, marginBottom:10 }}>Test An Invoice Line</div>
+            <Sel label="Test nursery" value={testNursery} onChange={setTestNursery} options={[{v:"*",l:"All/default"}, ...nurseries.map(n=>({v:n.code,l:`${n.code} · ${n.name}`}))]} />
+            <div style={{ marginTop:10 }}><label style={{ fontSize:13, fontWeight:600, color:C.tx2 }}>Paste example invoice line</label><textarea value={testText} onChange={e=>setTestText(e.target.value)} style={{ width:"100%", minHeight:92, marginTop:4, border:`1.5px solid ${C.bd}`, borderRadius:10, padding:12, fontFamily:F.body, fontSize:14 }} /></div>
+            <div style={{ marginTop:12, background:C.g50, border:`1px solid ${phase101PotConfidenceColor(testResult.confidence)}40`, borderRadius:12, padding:12 }}>
+              <Row between center wrap gap={8}><div><b>Detected:</b> {testResult.potSize || "No size"}</div><Tag text={testResult.confidence} color={phase101PotConfidenceColor(testResult.confidence)} /></Row>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:6 }}>{testResult.note}</div>
+            </div>
+          </Card>
+        </div>
+        <Card style={{ marginTop:14 }}>
+          <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>Saved Pot-Size Rules</div><div style={{ fontSize:12, color:C.tx3 }}>Nursery-specific rules override general rules when a match is found.</div></div><Tag text={`${rules.length} rules`} color={C.g600} /></Row>
+          <Tbl cols={[{k:"enabled",l:"On"},{k:"nursery",l:"Nursery"},{k:"match",l:"Invoice Text"},{k:"value",l:"Reads As"},{k:"notes",l:"Notes"},{k:"actions",l:"Actions"}]} rows={rules.map(r => ({
+            enabled:<button onClick={()=>toggleRule(r.id)} style={{ background:r.enabled === false ? C.redBg : C.g100, color:r.enabled === false ? C.red : C.g800, border:`1px solid ${r.enabled === false ? C.red : C.g300}`, borderRadius:999, padding:"4px 8px", fontWeight:900, cursor:"pointer" }}>{r.enabled === false ? "Off" : "On"}</button>,
+            nursery:r.nurseryCode === "*" || !r.nurseryCode ? "All" : r.nurseryCode,
+            match:<span style={{ fontFamily:F.mono }}>{r.match}</span>,
+            value:<b>{r.value}</b>,
+            notes:<span style={{ fontSize:11, color:C.tx3 }}>{r.notes || ""}</span>,
+            actions:<button onClick={()=>deleteRule(r.id)} style={{ background:"transparent", color:C.red, border:"none", cursor:"pointer", fontWeight:900 }}>Delete</button>
+          }))} empty="No training rules yet." />
+        </Card>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        INVOICE UPLOAD
     ══════════════════════════════════════════════════════════ */
-    function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user }) {
+    function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings = {}, setSettings }) {
       const [step, setStep] = useState("upload");
       const [img, setImg] = useState(null);
       const [parsed, setParsed] = useState(null);
@@ -1550,6 +1736,7 @@
       const [err, setErr] = useState(null);
       const [selN, setSelN] = useState(null);
       const fRef = useRef(), cRef = useRef();
+      const purchaseTraining = phase101GetTraining(settings);
       useEffect(() => { if (nurseries.length && !selN) setSelN(nurseries[0]); }, [nurseries]);
       const load = async f => {
         if (!f) return;
@@ -1632,13 +1819,30 @@
           let ctr = getNextId(plants, selN.code);
           const mapped = (result.plants || []).flatMap((p, li) => Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
             ctr++; const cost = +p.costPerPlant || 0, sp = sprice(cost);
-            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: p.potSize || "", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: "", labelPrinted: false, addedBy: user.name };
+            const potGuess = phase101InferPotSize(p, selN.code, settings);
+            const intakeNotes = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
+            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true };
           }));
           setRows(mapped); setStep("review");
         } catch (e) { setErr("Scan failed: " + e.message); setStep("preview"); }
         finally { setLoading(false); }
       };
-      const updR = (k, f, v) => setRows(pr => pr.map(r => { if (r._k !== k) return r; const u = { ...r, [f]: v }; if (f === "cost" || f === "suggestedPrice") u.margin = marg(f === "cost" ? +v : +r.cost, f === "suggestedPrice" ? +v : +r.suggestedPrice); return u; }));
+      const updR = (k, f, v) => setRows(pr => pr.map(r => { if (r._k !== k) return r; const u = { ...r, [f]: v }; if (f === "potSize") { u.potSizeCorrected = r.potSize !== v; u.needsPotSizeReview = false; u.potSizeConfidence = r.potSizeCorrected ? "corrected" : (r.potSizeConfidence || "ocr"); u.potSizeNote = r.potSizeCorrected ? "Owner corrected pot size during invoice review." : (r.potSizeNote || ""); } if (f === "cost" || f === "suggestedPrice") u.margin = marg(f === "cost" ? +v : +r.cost, f === "suggestedPrice" ? +v : +r.suggestedPrice); return u; }));
+      const rememberPotCorrections = () => {
+        const correctionRows = rows.filter(r => r.potSizeCorrected && r.potSizeSourceText && r.potSizeSourceText !== "missing" && r.potSize);
+        if (!correctionRows.length) { alert("No trainable pot-size corrections found yet. Add rules manually in Purchase Intake Trainer for invoice abbreviations."); return; }
+        const existing = phase101GetTraining(settings);
+        const nextRules = [...(existing.rules || [])];
+        correctionRows.forEach(r => {
+          const match = String(r.potSizeSourceText || "").trim();
+          if (!match) return;
+          const duplicate = nextRules.some(rule => rule.type === "potSize" && String(rule.nurseryCode || "*").toUpperCase() === String(selN?.code || "*").toUpperCase() && phase101Norm(rule.match) === phase101Norm(match) && rule.value === r.potSize);
+          if (!duplicate) nextRules.push({ id: uid(), nurseryCode: selN?.code || "*", type:"potSize", match, value:r.potSize, notes:`Remembered from invoice review for ${r.name || "plant"}`, enabled:true, createdAt:new Date().toISOString() });
+        });
+        setSettings && setSettings(prev => ({ ...prev, purchaseTraining:{ ...existing, rules:nextRules } }));
+        addAudit && addAudit({ action:`Remembered ${correctionRows.length} purchase intake correction(s)`, user:user.name, page:"Purchase Intake" });
+        alert(`Saved ${correctionRows.length} correction(s) to Purchase Intake Trainer.`);
+      };
       const save = () => { setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid() }))]); addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name}`, user: user.name, page: "Invoice Upload" }); setStep("done"); };
       const reset = () => { setStep("upload"); setImg(null); setParsed(null); setRows([]); setErr(null); };
       if (!nurseries.length) return <div style={{ padding: "60px", textAlign: "center", background: C.bg, minHeight: "100vh" }}><div style={{ fontSize: 40, marginBottom: 12 }}>🏪</div><h2 style={{ fontFamily: F.display, color: C.g900 }}>Add a nursery first</h2></div>;
@@ -1681,15 +1885,21 @@
           <Card style={{ marginBottom: 14, background: C.g50, border: `1px solid ${C.g200}` }}>
             <Row between wrap gap={10}>
               <div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15 }}>{parsed.nurseryName || selN?.name}</div><div style={{ fontSize: 12, color: C.tx3 }}>Invoice #{parsed.invoiceNumber || "—"} · {parsed.invoiceDate || "—"}</div></div>
-              <Row gap={12} center>{[["Subtotal", $(parsed.subtotal)], ["Tax", $(parsed.tax)], ["Ship", $(parsed.shipping)], ["Total", $(parsed.total)]].map(([l, v]) => <div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 9, color: C.tx3, fontWeight: 700, textTransform: "uppercase" }}>{l}</div><div style={{ fontWeight: 700, color: C.g800, fontSize: 13 }}>{v}</div></div>)}<Tag text={`${rows.length} plants`} color={C.g700} /></Row>
+              <Row gap={12} center>{[["Subtotal", $(parsed.subtotal)], ["Tax", $(parsed.tax)], ["Ship", $(parsed.shipping)], ["Total", $(parsed.total)]].map(([l, v]) => <div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 9, color: C.tx3, fontWeight: 700, textTransform: "uppercase" }}>{l}</div><div style={{ fontWeight: 700, color: C.g800, fontSize: 13 }}>{v}</div></div>)}<Tag text={`${rows.length} plants`} color={C.g700} />{rows.some(r => r.needsPotSizeReview) && <Tag text={`${rows.filter(r => r.needsPotSizeReview).length} pot size assumed`} color={C.amber} />}</Row>
             </Row>
           </Card>
+          {rows.some(r => r.needsPotSizeReview || r.potSizeConfidence === "rule" || r.potSizeCorrected) && <Card style={{ marginBottom: 12, background: rows.some(r => r.needsPotSizeReview) ? C.amberBg : C.g50, border: `1px solid ${rows.some(r => r.needsPotSizeReview) ? C.amber : C.g300}40` }}>
+            <Row between wrap center gap={10}>
+              <div><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, fontSize:15 }}>🧾 Purchase Intake Trainer Applied</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{purchaseTraining.defaultPotSize || '4"'} is the default when size is missing. Rule matches are marked in the Pot column. Assumed sizes should be verified before saving.</div></div>
+              <Row gap={8} wrap>{rows.some(r => r.potSizeCorrected) && <Btn sz="sm" v="soft" onClick={rememberPotCorrections}>Remember Corrections</Btn>}<Btn sz="sm" v="ghost" onClick={() => alert("Open Plants → Purchase Intake Trainer from the menu to add nursery-specific invoice rules.")}>Training Rules</Btn></Row>
+            </Row>
+          </Card>}
           <div style={{ maxHeight: 420, overflowY: "auto", border: `1px solid ${C.bd}`, borderRadius: 9 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead style={{ position: "sticky", top: 0, background: C.cardAlt, zIndex: 1 }}><tr>{["Plant & ID", "Pot", "Cost", "Price", "Margin", "Status", "Rack", "Shelf", ""].map(h => <th key={h} style={{ padding: "8px 9px", textAlign: "left", color: C.tx3, fontWeight: 700, fontSize: 10, letterSpacing: .4, textTransform: "uppercase", borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead>
               <tbody>{rows.map(r => <tr key={r._k} style={{ borderBottom: `1px solid ${C.bdS}` }}>
                 <td style={{ padding: "3px 9px" }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input value={r.name} onChange={e => updR(r._k, "name", e.target.value)} style={{ width: 155, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12, fontFamily: F.body }} /><span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500 }}>{r.plantId}</span></div></td>
-                <td style={{ padding: "3px 9px" }}><select value={r.potSize} onChange={e => updR(r._k, "potSize", e.target.value)} style={{ padding: "3px 4px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 11 }}><option value="">—</option>{POT_SIZES.map(s => <option key={s}>{s}</option>)}</select></td>
+                <td style={{ padding: "3px 9px" }}><select value={r.potSize} onChange={e => updR(r._k, "potSize", e.target.value)} style={{ padding: "3px 4px", border: `1px solid ${r.needsPotSizeReview ? C.amber : C.bd}`, borderRadius: 5, fontSize: 11 }}><option value="">—</option>{POT_SIZES.map(s => <option key={s}>{s}</option>)}<option value={'6" Hanging Basket'}>6&quot; Hanging Basket</option><option value={'10" Hanging Basket'}>10&quot; Hanging Basket</option></select>{r.potSizeConfidence && <div style={{ marginTop:3 }}><Tag text={r.potSizeConfidence === "assumed" ? "assumed" : r.potSizeConfidence === "rule" ? "rule" : r.potSizeConfidence === "corrected" ? "corrected" : "ocr"} color={phase101PotConfidenceColor(r.potSizeConfidence)} sm /></div>}</td>
                 <td style={{ padding: "3px 9px" }}><input type="number" value={r.cost} onChange={e => updR(r._k, "cost", e.target.value)} style={{ width: 62, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12 }} /></td>
                 <td style={{ padding: "3px 9px" }}><input type="number" value={r.suggestedPrice} onChange={e => updR(r._k, "suggestedPrice", e.target.value)} style={{ width: 72, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12, color: C.g600, fontWeight: 600 }} /></td>
                 <td style={{ padding: "5px 9px" }}><MBadge m={r.margin} /></td>
@@ -8317,7 +8527,7 @@ Cancel if you want to save money.`);
       </div>;
     }
 
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 10 Morning Briefing + Cost Guard Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — Phase 10.1 Purchase Intake Trainer Build 2026-05-09";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -8577,7 +8787,7 @@ Cancel if you want to save money.`);
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [] };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -10777,6 +10987,7 @@ ${local.summary || "Fallback completed."}`;
           phase8Receipts: () => navigate("receipts"),
           phase9Finance: () => navigate("cashflow"),
           phase10Morning: () => navigate("overnight"),
+          phase101Trainer: () => navigate("invoicetrainer"),
           phase4Console: () => navigate("airouter"),
           phase6Console: () => navigate("execai"),
           phaseStatusItems: [
@@ -10785,6 +10996,7 @@ ${local.summary || "Fallback completed."}`;
             { id:"phase3", icon:"🧠", title:"Phase 3 Ollama", value:`${phase3StatusLabel(phase3Status?.status || "not_tested")} · ${phase3Config?.primaryModel || "no model"}`, sub:"Local desktop AI connector.", color: phase3StatusColor(phase3Status?.status || "not_tested"), border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("ollama") },
             { id:"phase61", icon:"🌐", title:"Phase 6.1 AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Mobile Ollama API bridge for phone use.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
             { id:"phase71", icon:"💵", title:"Phase 7.1 AI Cost Guard", value:`${phase61Config?.disableAutoGatewayCalls !== false ? "Manual cloud only" : "Auto cloud allowed"} · ${phase61Config?.maxDailyRequests || 0}/day · ${$(phase61Config?.maxMonthlyDollars || 0)} tracker`, sub:"Prevents surprise API usage. Local/free first; cloud only when approved.", color:C.gold, border:"rgba(176,125,16,.30)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
+            { id:"phase101", icon:"🧾", title:"Phase 10.1 Purchase Intake", value:`Default ${phase101TrainingStats(settings).defaultPotSize} · ${phase101TrainingStats(settings).activeRules} active rules`, sub:"Invoice pot-size trainer. Local/free first; no paid cloud needed.", color:C.amber, border:"rgba(192,87,10,.30)", actionLabel:"Open", onClick:()=>navigate("invoicetrainer") },
             { id:"phase7", icon:"🎪", title:"Phase 7 AI Show Builder", value:`${settings?.phase7LastShowPlan?.ok ? `${settings.phase7LastShowPlan.plantIds?.length || 0} plants planned` : "Ready to build"}`, sub:"AI show planner inside Show Builder. Review first, then export normally.", color:"#fb6392", border:"rgba(251,99,146,.30)", actionLabel:"Open", onClick:()=>navigate("showbuilder") },
             { id:"phase8", icon:"🧾", title:"Phase 8 Receipt + Expense AI", value:`Local/free first · ${safeArray(expenseReceipts).length} receipt(s)`, sub:"Tax cleanup, duplicates, missing images, category checks. Cloud only when approved.", color:"#68d8ff", border:"rgba(104,216,255,.30)", actionLabel:"Open", onClick:()=>navigate("receipts") },
             { id:"phase9", icon:"💵", title:"Phase 9 Financial Forecast", value:"Local/free forecast · cloud by approval only", sub:"Buy/don’t buy decision, safe spend, bills, payroll, and 30-day cash projection.", color:"#f5c542", border:"rgba(245,197,66,.30)", actionLabel:"Open", onClick:()=>navigate("cashflow") },
@@ -10840,7 +11052,8 @@ ${local.summary || "Fallback completed."}`;
           {page === "commissions" && user.role === "owner" && <CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} />}
           {page === "emp_dash" && <EmpDash plants={plants} user={user} timecards={timecards} />}
           {page === "dash" && user.role === "employee" && <EmpDash plants={plants} user={user} timecards={timecards} />}
-          {page === "upload" && <InvoiceUpload {...P} />}
+          {page === "upload" && <InvoiceUpload {...P} settings={settings} setSettings={setSettings} />}
+          {page === "invoicetrainer" && CAN.seeReports(user.role) && <PurchaseIntakeTrainer settings={settings} setSettings={setSettings} nurseries={nurseries} addAudit={addAudit} user={user} setPage={navigate} />}
           {page === "manual" && <ManualEntry {...P} />}
           {page === "history" && <PastInvoices {...P} />}
           {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} setPage={navigate} />}
