@@ -8041,6 +8041,448 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       </div>;
     }
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       PHASE 6 — MONEY: RECEIPTS, BILLS, PAYROLL + REPORTS
+       Owner-focused money tools. Employees do not see accounting screens.
+    ══════════════════════════════════════════════════════════ */
+    const PHASE6_VENDOR_MEMORY_KEY = "leafDiaryVendorCategoryMemory";
+    const phase6Money = v => +String(v ?? "").replace(/[^0-9.-]/g, "") || 0;
+    const phase6Date = v => {
+      if (!v) return today();
+      const d = new Date(String(v).includes("T") ? v : String(v) + "T12:00:00");
+      return isNaN(d) ? today() : d.toISOString().slice(0,10);
+    };
+    const phase6ReadVendorMemory = () => { try { return JSON.parse(localStorage.getItem(PHASE6_VENDOR_MEMORY_KEY) || "{}"); } catch(e) { return {}; } };
+    const phase6SaveVendorMemory = memory => { try { localStorage.setItem(PHASE6_VENDOR_MEMORY_KEY, JSON.stringify(memory || {})); } catch(e) {} };
+    const phase6GuessCategory = vendor => {
+      const v = String(vendor || "").toLowerCase();
+      const mem = phase6ReadVendorMemory();
+      const hit = Object.keys(mem).find(k => v.includes(k));
+      if (hit) return mem[hit];
+      if (/shell|chevron|wawa|circle k|racetrac|speedway|bp|exxon|mobil|marathon/.test(v)) return "Gas & Mileage";
+      if (/home depot|lowe|harbor freight|ace/.test(v)) return "Tools & Equipment";
+      if (/walmart|target|sam.?s|costco/.test(v)) return "Other";
+      if (/ups|usps|fedex|u.?line|staples/.test(v)) return "Shipping Supplies";
+      if (/shopify|cloudflare|ionos|godaddy|google|openai/.test(v)) return "Software & Website";
+      return "Other";
+    };
+    const phase6Csv = (filename, rows) => {
+      const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const csv = rows.map(r => r.map(esc).join(",")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type:"text/csv;charset=utf-8;" }));
+      a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 800);
+    };
+    const phase6ExtractReceiptLocal = (file) => {
+      const name = String(file?.name || "receipt");
+      const clean = name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+      const vendor = clean.split(" ").slice(0,3).join(" ") || "Unknown Vendor";
+      return { vendor, date: today(), amount: "", tax: "", paymentMethod: "", category: phase6GuessCategory(vendor), documentType:"receipt", confidence: 55, rawOcrText: `Local draft created from file name: ${name}. Review and fill missing amount/date before saving.` };
+    };
+    const phase6ImagePreview = file => new Promise(resolve => {
+      if (!file || !String(file.type || "").startsWith("image/")) return resolve("");
+      const r = new FileReader(); r.onload = e => resolve(e.target.result || ""); r.onerror = () => resolve(""); r.readAsDataURL(file);
+    });
+    const phase6PayrollLinesFromSoldPlants = plants => {
+      const map = {};
+      (plants || []).forEach(p => {
+        if (!(+p.commissionAmount || +p.tipsAmount)) return;
+        const key = [p.saleImportId || p.showId || p.showName || "show", p.hostEmployeeId || p.hostEmployeeName || "host"].join("|");
+        if (!map[key]) map[key] = { id:key, source:"show-import", showName:p.showName || "Imported Show", date:p.soldDate || p.saleDate || today(), platform:p.platform || "", hostEmployeeId:p.hostEmployeeId || "", hostEmployeeName:p.hostEmployeeName || "", grossSales:0, commission:0, tips:0, totalOwed:0, status:p.payrollStatus || "Unpaid" };
+        map[key].grossSales += (+p.salePrice || +p.suggestedPrice || 0);
+        map[key].commission += (+p.commissionAmount || 0);
+        map[key].tips += (+p.tipsAmount || 0);
+        map[key].totalOwed = map[key].commission + map[key].tips;
+      });
+      return Object.values(map).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+    };
+
+    function ReceiptScanner({ receipts = [], setReceipts, expenses = [], setExpenses, bills = [], setBills, addAudit, user }) {
+      const [step, setStep] = useState("upload");
+      const [draft, setDraft] = useState(null);
+      const [preview, setPreview] = useState("");
+      const [splitItems, setSplitItems] = useState([]);
+      const [msg, setMsg] = useState("");
+      const fileRef = useRef(null);
+      const canSeeMoney = user?.role === "owner" || user?.role === "manager";
+      const loadFile = async file => {
+        if (!file) return;
+        setMsg("Reading receipt...");
+        const local = phase6ExtractReceiptLocal(file);
+        const image = await phase6ImagePreview(file);
+        setPreview(image);
+        setDraft({ ...local, id: uid(), fileName:file.name || "receipt", fileType:file.type || "", savedImageUrl:"", imageBase64:image, reviewStatus:"Needs Review" });
+        setSplitItems([]);
+        setStep("review");
+        setMsg("Review before saving. AI/OCR Edge Function can replace this local draft when deployed.");
+      };
+      const upd = k => v => setDraft(p => ({ ...(p || {}), [k]: v }));
+      const addSplit = () => setSplitItems(p => [...p, { id:uid(), description:"", category:"Other", amount:"", business:true }]);
+      const updateSplit = (id, patch) => setSplitItems(p => p.map(x => x.id === id ? { ...x, ...patch } : x));
+      const removeSplit = id => setSplitItems(p => p.filter(x => x.id !== id));
+      const saveReceipt = () => {
+        if (!draft?.vendor || !draft?.date || !phase6Money(draft.amount)) { setMsg("Vendor, date, and amount are required before saving."); return; }
+        const memory = phase6ReadVendorMemory();
+        if (draft.vendor && draft.category) { memory[String(draft.vendor).toLowerCase().trim()] = draft.category; phase6SaveVendorMemory(memory); }
+        const receipt = { ...draft, amount:phase6Money(draft.amount), tax:phase6Money(draft.tax), category:draft.category || "Other", rawOcrText:draft.rawOcrText || "", ocrText:draft.rawOcrText || "", archivedAt:new Date().toISOString(), reviewStatus:"Approved", splitItems };
+        setReceipts(prev => [receipt, ...(prev || [])]);
+        const businessSplits = splitItems.filter(i => i.business !== false && phase6Money(i.amount));
+        if (businessSplits.length) {
+          setExpenses(prev => [...businessSplits.map(i => ({ id:uid(), date:receipt.date, vendor:receipt.vendor, amount:phase6Money(i.amount), category:i.category, paymentMethod:receipt.paymentMethod, receiptId:receipt.id, description:i.description || receipt.vendor, source:"receipt-split" })), ...(prev || [])]);
+        } else {
+          setExpenses(prev => [{ id:uid(), date:receipt.date, vendor:receipt.vendor, amount:receipt.amount, category:receipt.category, paymentMethod:receipt.paymentMethod, receiptId:receipt.id, description:`Receipt: ${receipt.vendor}`, source:"receipt" }, ...(prev || [])]);
+        }
+        if (/bill|utility_bill|software_bill/i.test(receipt.documentType || "") && setBills) {
+          setBills(prev => [{ id:uid(), name:receipt.vendor, amount:receipt.amount, dueDate:receipt.date, category:"Software", frequency:"Monthly", payMethod:receipt.paymentMethod, vendor:receipt.vendor, notes:"Created from receipt/bill scanner", status:"Unpaid", autoRenew:true }, ...(prev || [])]);
+        }
+        addAudit?.({ action:"Saved receipt", page:"Receipt Scanner", details:`${receipt.vendor} ${$(receipt.amount)} categorized as ${receipt.category}` });
+        setStep("upload"); setDraft(null); setPreview(""); setSplitItems([]); setMsg("✅ Receipt saved, archived, and expense created.");
+      };
+      const recent = (receipts || []).slice(0, 10);
+      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="🧾" title="Receipt Scanner" sub="Owner money tool: scan receipt or bill, review, save expense. Employees do not see accounting unless allowed." right={<Btn onClick={() => fileRef.current?.click()}>📸 Scan Receipt / PDF</Btn>} />
+        <input ref={fileRef} type="file" accept="image/*,.pdf,.heic,.heif" capture="environment" style={{ display:"none" }} onChange={e => loadFile(e.target.files?.[0])} />
+        {msg && <Card style={{ marginBottom:12, background:C.g50, border:`1px solid ${C.g200}`, color:C.tx2, fontSize:13 }}>{msg}</Card>}
+        {step === "upload" && <>
+          <Card style={{ textAlign:"center", padding:"34px 18px", marginBottom:14, border:`2px dashed ${C.g300}` }} onClick={() => fileRef.current?.click()}>
+            <div style={{ fontSize:48 }}>📸</div><h2 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0" }}>Scan a receipt, bill, or PDF</h2>
+            <p style={{ color:C.tx3, margin:"0 auto 14px", maxWidth:620 }}>Accepts photo/PDF, creates review draft, saves category memory, and archives image/OCR text for search.</p>
+            <Btn>Choose File / Open Camera</Btn>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:10, marginBottom:14 }}>
+            <KPI label="Archived Receipts" value={(receipts || []).length} color={C.g700} />
+            <KPI label="Receipt Expenses" value={$((expenses || []).filter(e => e.source === "receipt" || e.source === "receipt-split").reduce((s,e)=>s+(+e.amount||0),0))} color={C.gold} />
+            <KPI label="Vendor Memory" value={Object.keys(phase6ReadVendorMemory()).length} color={C.purple} />
+          </div>
+          <Tbl cols={[{k:"date",l:"Date"},{k:"vendor",l:"Vendor"},{k:"category",l:"Category"},{k:"amount",l:"Amount",right:true},{k:"ocr",l:"Archive"}]} rows={recent.map(r => ({ date:r.date, vendor:r.vendor, category:r.category, amount:$(r.amount), ocr:<Tag text={r.rawOcrText || r.ocrText ? "OCR saved" : "Image saved"} color={C.g600} sm /> }))} empty="No receipts saved yet." />
+        </>}
+        {step === "review" && draft && <Card>
+          <SHdr icon="✅" title="Review Receipt Before Saving" sub="Nothing is saved to expenses until you approve this screen." />
+          <div style={{ display:"grid", gridTemplateColumns:"minmax(220px,340px) 1fr", gap:14 }}>
+            <div>{preview ? <img src={preview} style={{ width:"100%", borderRadius:12, border:`1px solid ${C.bd}` }} /> : <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:40, textAlign:"center" }}>PDF / File Attached</div>}</div>
+            <div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:10 }}>
+                <Inp label="Vendor *" value={draft.vendor} onChange={upd("vendor")} required />
+                <Inp label="Date *" type="date" value={draft.date} onChange={upd("date")} required />
+                <Inp label="Amount *" type="number" value={draft.amount} onChange={upd("amount")} required />
+                <Inp label="Tax" type="number" value={draft.tax} onChange={upd("tax")} />
+                <Sel label="Category" value={draft.category} onChange={upd("category")} options={RECEIPT_CATS} />
+                <Sel label="Payment Method" value={draft.paymentMethod} onChange={upd("paymentMethod")} options={["", ...PAY_METHS]} />
+                <Sel label="Document Type" value={draft.documentType} onChange={upd("documentType")} options={["receipt","bill","utility_bill","software_bill","nursery_invoice"]} />
+              </div>
+              <div style={{ marginTop:10 }}><Inp label="Searchable OCR / Notes" value={draft.rawOcrText} onChange={upd("rawOcrText")} placeholder="OCR text, notes, or item details..." /></div>
+              <Card style={{ marginTop:12, background:C.cardAlt }}>
+                <Row between center><b>Item split for Walmart/Home Depot/etc.</b><Btn sz="sm" v="soft" onClick={addSplit}>+ Add Split</Btn></Row>
+                {splitItems.length === 0 && <p style={{ color:C.tx3, fontSize:12 }}>Optional. Use this to split tape, bins, tools, packaging, or personal/non-business items.</p>}
+                {splitItems.map(i => <div key={i.id} style={{ display:"grid", gridTemplateColumns:"1.4fr 1fr .8fr .8fr auto", gap:8, marginTop:8, alignItems:"end" }}>
+                  <Inp label="Item" value={i.description} onChange={v=>updateSplit(i.id,{description:v})} />
+                  <Sel label="Category" value={i.category} onChange={v=>updateSplit(i.id,{category:v})} options={[...RECEIPT_CATS,"Personal / Non-Business"]} />
+                  <Inp label="Amount" type="number" value={i.amount} onChange={v=>updateSplit(i.id,{amount:v})} />
+                  <label style={{ fontSize:12, color:C.tx2 }}><input type="checkbox" checked={i.business !== false} onChange={e=>updateSplit(i.id,{business:e.target.checked})} /> Business</label>
+                  <Btn sz="sm" v="ghost" onClick={()=>removeSplit(i.id)}>✕</Btn>
+                </div>)}
+              </Card>
+              <Row gap={8} style={{ marginTop:14 }}><Btn onClick={saveReceipt}>Save Receipt + Expense</Btn><Btn v="ghost" onClick={()=>{setStep("upload");setDraft(null);}}>Cancel</Btn></Row>
+            </div>
+          </div>
+        </Card>}
+      </div>;
+    }
+
+    function Bills({ bills = [], setBills }) {
+      const blank = { name:"", amount:"", dueDate:today(), category:BILL_CATS[0], frequency:"Monthly", payMethod:"", vendor:"", notes:"", status:"Unpaid", autoRenew:true };
+      const [form, setForm] = useState(blank);
+      const [show, setShow] = useState(false);
+      const [editId, setEditId] = useState(null);
+      const upd = k => v => setForm(p => ({ ...p, [k]: v }));
+      const addMonths = (dateStr, months) => { const d = new Date((dateStr || today()) + "T12:00:00"); const day = d.getDate(); d.setMonth(d.getMonth() + months); if (d.getDate() < day) d.setDate(0); return d.toISOString().slice(0,10); };
+      const nextDue = b => b.frequency === "Weekly" ? new Date(new Date((b.dueDate || today()) + "T12:00:00").getTime()+7*864e5).toISOString().slice(0,10) : b.frequency === "Quarterly" ? addMonths(b.dueDate,3) : b.frequency === "Annually" ? addMonths(b.dueDate,12) : addMonths(b.dueDate,1);
+      const save = () => { if (!form.name || !phase6Money(form.amount) || !form.dueDate) return; const row = { ...form, amount:phase6Money(form.amount) }; setBills(prev => editId ? (prev || []).map(b => b.id === editId ? { ...row, id:editId } : b) : [{ ...row, id:uid(), createdAt:new Date().toISOString() }, ...(prev || [])]); setEditId(null); setForm(blank); setShow(false); };
+      const markPaid = id => setBills(prev => { const list = prev || []; const bill = list.find(b => b.id === id); const paid = list.map(b => b.id === id ? { ...b, status:"Paid", paidDate:today() } : b); if (!bill || !bill.autoRenew || bill.frequency === "One-Time") return paid; return [{ ...bill, id:uid(), status:"Unpaid", paidDate:"", dueDate:nextDue(bill), previousBillId:bill.id, createdAt:new Date().toISOString(), notes:`${bill.notes || ""} Auto-created after paid.`.trim() }, ...paid]; });
+      const del = id => setBills(prev => (prev || []).filter(b => b.id !== id));
+      const edit = b => { setForm({ ...b }); setEditId(b.id); setShow(true); };
+      const days = d => Math.ceil((new Date(String(d || today()) + "T12:00:00") - new Date()) / 864e5);
+      const unpaid = (bills || []).filter(b => b.status !== "Paid").sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
+      const paid = (bills || []).filter(b => b.status === "Paid").sort((a,b)=>String(b.paidDate||b.dueDate).localeCompare(String(a.paidDate||a.dueDate)));
+      const dueSoon = unpaid.filter(b => days(b.dueDate) <= 14);
+      const recurringMonthly = (bills || []).filter(b => b.autoRenew && b.status !== "Paid").reduce((s,b)=>s+(+b.amount||0) * (b.frequency === "Weekly" ? 4.33 : b.frequency === "Quarterly" ? 1/3 : b.frequency === "Annually" ? 1/12 : 1),0);
+      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="📅" title="Bills" sub="Recurring bills auto-create the next bill when marked Paid." right={<Btn onClick={()=>{setShow(!show);setEditId(null);setForm(blank);}}>{show ? "Cancel" : "+ Add Bill"}</Btn>} />
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, marginBottom:14 }}>
+          <KPI label="Due Soon" value={$(dueSoon.reduce((s,b)=>s+(+b.amount||0),0))} sub={`${dueSoon.length} bills in 14 days`} color={dueSoon.length ? C.amber : C.g600} />
+          <KPI label="Recurring Monthly" value={$(recurringMonthly)} color={C.purple} />
+          <KPI label="Unpaid Total" value={$(unpaid.reduce((s,b)=>s+(+b.amount||0),0))} color={C.red} />
+          <KPI label="Tracked Bills" value={(bills || []).length} />
+        </div>
+        {show && <Card style={{ marginBottom:14 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10 }}>
+            <Inp label="Bill Name *" value={form.name} onChange={upd("name")} required />
+            <Inp label="Amount *" type="number" value={form.amount} onChange={upd("amount")} required />
+            <Inp label="Due Date *" type="date" value={form.dueDate} onChange={upd("dueDate")} required />
+            <Inp label="Vendor" value={form.vendor} onChange={upd("vendor")} />
+            <Sel label="Category" value={form.category} onChange={upd("category")} options={BILL_CATS} />
+            <Sel label="Frequency" value={form.frequency} onChange={upd("frequency")} options={BILL_FREQ} />
+            <Sel label="Pay Method" value={form.payMethod} onChange={upd("payMethod")} options={["",...PAY_METHS]} />
+          </div>
+          <div style={{ marginTop:10 }}><Inp label="Notes" value={form.notes} onChange={upd("notes")} /></div>
+          <label style={{ display:"flex", alignItems:"center", gap:8, marginTop:10, fontSize:13 }}><input type="checkbox" checked={!!form.autoRenew} onChange={e=>setForm(p=>({...p,autoRenew:e.target.checked}))} /> Recurring / auto-create next bill when paid</label>
+          <Row gap={8} style={{ marginTop:12 }}><Btn onClick={save}>{editId ? "Save Bill" : "Add Bill"}</Btn><Btn v="ghost" onClick={()=>{setShow(false);setEditId(null);}}>Cancel</Btn></Row>
+        </Card>}
+        <Tbl cols={[{k:"count",l:"Due"},{k:"name",l:"Bill"},{k:"vendor",l:"Vendor"},{k:"freq",l:"Frequency"},{k:"amount",l:"Amount",right:true},{k:"actions",l:"Actions"}]} rows={unpaid.map(b => ({
+          count:<Tag text={days(b.dueDate) < 0 ? `${Math.abs(days(b.dueDate))}d overdue` : `${days(b.dueDate)}d left`} color={days(b.dueDate) < 0 ? C.red : days(b.dueDate) <= 7 ? C.amber : C.g600} sm />,
+          name:<div><b>{b.name}</b><div style={{ fontSize:11, color:C.tx3 }}>Due {b.dueDate}</div></div>, vendor:b.vendor || "—", freq:<span>{b.frequency}{b.autoRenew ? " 🔄" : ""}</span>, amount:<b>{$(b.amount)}</b>, actions:<Row gap={6}><Btn sz="sm" v="soft" onClick={()=>markPaid(b.id)}>Paid</Btn><Btn sz="sm" v="ghost" onClick={()=>edit(b)}>Edit</Btn><Btn sz="sm" v="ghost" onClick={()=>del(b.id)}>✕</Btn></Row>
+        }))} empty="No unpaid bills." />
+        {paid.length > 0 && <Card style={{ marginTop:14 }}><b>Recently Paid</b>{paid.slice(0,8).map(b => <Row key={b.id} between center style={{ borderTop:`1px solid ${C.bdS}`, padding:"8px 0", marginTop:8 }}><span>{b.name} <small style={{ color:C.tx3 }}>paid {b.paidDate}</small></span><b>{$(b.amount)}</b></Row>)}</Card>}
+      </div>;
+    }
+
+    function Payroll({ timecards = [], employees = [], plants = [], settings = {}, setSettings }) {
+      const [from, setFrom] = useState(today().slice(0,8) + "01");
+      const [to, setTo] = useState(today());
+      const inRange = d => { const x = phase6Date(d); return x >= from && x <= to; };
+      const clockLines = (timecards || []).filter(t => inRange(t.date || t.createdAt)).map(t => ({ type:"Timecard", employee:t.userName || employees.find(e=>e.id===t.userId)?.name || "Employee", date:t.date || today(), gross:+t.totalPay || 0, commission:0, tips:0, total:+t.totalPay || 0, status:t.payrollStatus || "Unpaid" }));
+      const commissionLines = phase6PayrollLinesFromSoldPlants(plants).filter(l => inRange(l.date)).map(l => ({ type:"Show Commission", employee:l.hostEmployeeName || "Host", date:l.date, show:l.showName, gross:l.grossSales, commission:l.commission, tips:l.tips, total:l.totalOwed, status:l.status }));
+      const rows = [...clockLines, ...commissionLines].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+      const markAllPaid = () => { const paid = rows.map(r => ({ ...r, paidAt:new Date().toISOString(), status:"Paid" })); setSettings?.(prev => ({ ...(prev || {}), lastPayrollPaidAt:new Date().toISOString(), lastPayrollPaidRows:paid })); alert("Payroll marked paid for this pay run. Commission source rows stay saved in sold plants."); };
+      const exportRows = [["Type","Employee","Date","Show","Gross Sales","Commission","Tips","Total Owed","Status"], ...rows.map(r => [r.type,r.employee,r.date,r.show||"",r.gross,r.commission,r.tips,r.total,r.status])];
+      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="👥" title="Payroll" sub="Timecards + show commission/tips from finalized imports." right={<Row gap={8}><Btn v="outline" onClick={()=>phase6Csv(`leaf-diary-payroll-${from}-to-${to}.csv`, exportRows)}>Export CSV</Btn><Btn onClick={markAllPaid}>Mark Pay Run Paid</Btn></Row>} />
+        <Card style={{ marginBottom:14 }}><Row gap={10} wrap center><Inp label="From" type="date" value={from} onChange={setFrom} /><Inp label="To" type="date" value={to} onChange={setTo} /></Row></Card>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:10, marginBottom:14 }}>
+          <KPI label="Total Owed" value={$(rows.reduce((s,r)=>s+(+r.total||0),0))} color={C.red} />
+          <KPI label="Timecards" value={$(clockLines.reduce((s,r)=>s+(+r.total||0),0))} color={C.gold} />
+          <KPI label="Commission" value={$(commissionLines.reduce((s,r)=>s+(+r.commission||0),0))} color={C.purple} />
+          <KPI label="Tips" value={$(commissionLines.reduce((s,r)=>s+(+r.tips||0),0))} color={C.g600} />
+        </div>
+        <Tbl cols={[{k:"type",l:"Type"},{k:"employee",l:"Employee"},{k:"date",l:"Date"},{k:"show",l:"Show"},{k:"gross",l:"Gross",right:true},{k:"commission",l:"Commission",right:true},{k:"tips",l:"Tips",right:true},{k:"total",l:"Total",right:true},{k:"status",l:"Status"}]} rows={rows.map(r => ({ type:r.type, employee:r.employee, date:r.date, show:r.show || "—", gross:$(r.gross), commission:$(r.commission), tips:$(r.tips), total:<b>{$(r.total)}</b>, status:<Tag text={r.status || "Unpaid"} color={r.status === "Paid" ? C.g600 : C.amber} sm /> }))} empty="No payroll rows in this date range." />
+      </div>;
+    }
+
+    function Reports({ plants = [], expenses = [], timecards = [], nurseries = [], casdCerts = [], user, settings = {} }) {
+      const [tab, setTab] = useState("month");
+      const [from, setFrom] = useState(today().slice(0,8) + "01");
+      const [to, setTo] = useState(today());
+      const inRange = d => { const x = phase6Date(d); return x >= from && x <= to; };
+      const sold = (plants || []).filter(p => (p.status === "Sold" || p.saleImportId || p.historicalImport) && inRange(p.soldDate || p.saleDate || p.saleImportedAt || p.dateAdded));
+      const inStock = (plants || []).filter(p => p.status === "In Stock" || p.readyForShow);
+      const exps = (expenses || []).filter(e => inRange(e.date || e.createdAt));
+      const gross = sold.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
+      const cogs = sold.reduce((s,p)=>s+(+p.cost || 0),0);
+      const expTotal = exps.reduce((s,e)=>s+(+e.amount || 0),0);
+      const payrollLines = phase6PayrollLinesFromSoldPlants(plants).filter(l => inRange(l.date));
+      const payrollOwed = payrollLines.reduce((s,l)=>s+(+l.totalOwed||0),0) + (timecards || []).filter(t=>inRange(t.date)).reduce((s,t)=>s+(+t.totalPay||0),0);
+      const inventoryValue = inStock.reduce((s,p)=>s+(+p.cost || 0),0);
+      const platformRows = ["Palmstreet","Whatnot","Cash","Shopify","Other"].map(platform => { const list = sold.filter(p => (p.platform || "Other") === platform || (!p.platform && platform === "Other")); const g = list.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0); const c = list.reduce((s,p)=>s+(+p.cost||0),0); return { platform, count:list.length, gross:g, profit:g-c }; }).filter(r=>r.count || r.gross);
+      const showMap = {}; sold.forEach(p => { const k = p.showName || "Unknown Show"; if (!showMap[k]) showMap[k]={show:k,date:p.soldDate||p.saleDate||"",platform:p.platform||"",host:p.hostEmployeeName||"",count:0,gross:0,tips:0,commission:0}; showMap[k].count++; showMap[k].gross += (+p.salePrice||+p.suggestedPrice||0); showMap[k].tips += (+p.tipsAmount||0); showMap[k].commission += (+p.commissionAmount||0); });
+      const showRows = Object.values(showMap).sort((a,b)=>b.gross-a.gross);
+      const ageBuckets = [["0-14",0,14],["15-30",15,30],["31-60",31,60],["61-90",61,90],["90+",91,9999]].map(([label,min,max]) => { const list = inStock.filter(p => { const d=dHeld(p.dateAdded); return d !== null && d>=min && d<=max; }); return { label, count:list.length, cost:list.reduce((s,p)=>s+(+p.cost||0),0) }; });
+      const nurseryMap = {}; (plants || []).forEach(p => { const n = p.nursery || p.nurseryName || p.vendor || "Unknown"; if (!nurseryMap[n]) nurseryMap[n]={nursery:n,bought:0,sold:0,gross:0,cost:0}; nurseryMap[n].bought++; nurseryMap[n].cost += (+p.cost||0); if (p.status === "Sold") { nurseryMap[n].sold++; nurseryMap[n].gross += (+p.salePrice||+p.suggestedPrice||0); }});
+      const nurseryRows = Object.values(nurseryMap).map(n=>({...n, sellThru:n.bought?Math.round(n.sold/n.bought*100):0, profit:n.gross-n.cost})).sort((a,b)=>b.profit-a.profit);
+      const taxRows = [["Date","Type","Vendor/Show","Category","Amount"], ...exps.map(e=>[e.date,"Expense",e.vendor||e.description||"",e.category||"Other",e.amount]), ...sold.map(p=>[p.soldDate||p.saleDate,"COGS",p.nursery||p.name||"Plant","Inventory COGS",p.cost||0]), ...payrollLines.map(l=>[l.date,"Payroll",l.hostEmployeeName||l.showName,"Commission/Tips",l.totalOwed])];
+      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="📈" title="Reports" sub="Owner-only profit reports without turning the employee app into accounting software." right={<Btn v="outline" onClick={()=>phase6Csv(`leaf-diary-tax-ready-${from}-to-${to}.csv`, taxRows)}>Tax Ready Export</Btn>} />
+        <Card style={{ marginBottom:14 }}><Row gap={10} wrap center><Inp label="From" type="date" value={from} onChange={setFrom} /><Inp label="To" type="date" value={to} onChange={setTo} />{["month","platform","shows","aging","nursery","tax"].map(t => <button key={t} onClick={()=>setTab(t)} style={{ padding:"10px 12px", borderRadius:9, border:`1px solid ${tab===t?C.g700:C.bd}`, background:tab===t?C.g700:C.card, color:tab===t?"#fff":C.tx2, fontWeight:800 }}>{t[0].toUpperCase()+t.slice(1)}</button>)}</Row></Card>
+        {tab === "month" && <><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, marginBottom:14 }}><KPI label="Revenue" value={$(gross)} color={C.g700} /><KPI label="COGS" value={$(cogs)} color={C.amber} /><KPI label="Expenses" value={$(expTotal)} color={C.red} /><KPI label="Gross Profit" value={$(gross-cogs)} color={C.g600} /><KPI label="Estimated Net" value={$(gross-cogs-expTotal-payrollOwed)} color={C.purple} /><KPI label="Inventory Value" value={$(inventoryValue)} /><KPI label="Payroll Owed" value={$(payrollOwed)} color={C.gold} /></div></>}
+        {tab === "platform" && <Tbl cols={[{k:"platform",l:"Platform"},{k:"count",l:"Sold"},{k:"gross",l:"Gross",right:true},{k:"profit",l:"Profit",right:true}]} rows={platformRows.map(r=>({platform:r.platform,count:r.count,gross:$(r.gross),profit:$(r.profit)}))} empty="No platform sales in range." />}
+        {tab === "shows" && <Tbl cols={[{k:"show",l:"Show"},{k:"date",l:"Date"},{k:"platform",l:"Platform"},{k:"host",l:"Host"},{k:"count",l:"Sold"},{k:"gross",l:"Gross",right:true},{k:"avg",l:"Avg Sale",right:true},{k:"tips",l:"Tips",right:true},{k:"commission",l:"Commission",right:true}]} rows={showRows.map(r=>({show:r.show,date:r.date,platform:r.platform,host:r.host,count:r.count,gross:$(r.gross),avg:$(r.count?r.gross/r.count:0),tips:$(r.tips),commission:$(r.commission)}))} empty="No show sales in range." />}
+        {tab === "aging" && <Tbl cols={[{k:"bucket",l:"Age Bucket"},{k:"count",l:"Plants"},{k:"cost",l:"Cost At Risk",right:true}]} rows={ageBuckets.map(r=>({bucket:r.label,count:r.count,cost:$(r.cost)}))} />}
+        {tab === "nursery" && <Tbl cols={[{k:"nursery",l:"Supplier"},{k:"bought",l:"Bought"},{k:"sold",l:"Sold"},{k:"sell",l:"Sell-Through"},{k:"gross",l:"Gross",right:true},{k:"profit",l:"Profit",right:true}]} rows={nurseryRows.map(r=>({nursery:r.nursery,bought:r.bought,sold:r.sold,sell:`${r.sellThru}%`,gross:$(r.gross),profit:$(r.profit)}))} empty="No nursery data yet." />}
+        {tab === "tax" && <Card><b>Tax Ready Export</b><p style={{ color:C.tx3 }}>Exports receipts, expenses, COGS, payroll commission/tips, and categories for your accountant.</p><Btn onClick={()=>phase6Csv(`leaf-diary-tax-ready-${from}-to-${to}.csv`, taxRows)}>Download Accountant CSV</Btn></Card>}
+      </div>;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       PHASE 7 — ADMIN, SECURITY, BACKUPS + DATA HEALTH
+       Owner-only controls. Front-end guard + developer-facing
+       backend/RLS requirements shown inside the app.
+    ══════════════════════════════════════════════════════════ */
+    const PHASE7_PERMISSION_DEFAULTS = {
+      owner: {
+        canSeeCost:true, canSeeProfit:true, canSeeExpenses:true, canUploadInvoice:true, canApproveIntake:true,
+        canBuildShow:true, canImportShowSales:true, canPrintLabels:true, canEditPrices:true, canDeletePlants:true,
+        canClockInOut:true, canViewCommission:true
+      },
+      manager: {
+        canSeeCost:false, canSeeProfit:false, canSeeExpenses:false, canUploadInvoice:true, canApproveIntake:true,
+        canBuildShow:true, canImportShowSales:false, canPrintLabels:true, canEditPrices:false, canDeletePlants:false,
+        canClockInOut:true, canViewCommission:false
+      },
+      employee: {
+        canSeeCost:false, canSeeProfit:false, canSeeExpenses:false, canUploadInvoice:false, canApproveIntake:false,
+        canBuildShow:false, canImportShowSales:false, canPrintLabels:true, canEditPrices:false, canDeletePlants:false,
+        canClockInOut:true, canViewCommission:false
+      }
+    };
+    const PHASE7_PERMISSIONS = [
+      ['canSeeCost','Cost column, Cost Per Item export, invoice cost data'],
+      ['canSeeProfit','Margin, net profit, reports, tax center'],
+      ['canSeeExpenses','Money workspace and receipts'],
+      ['canUploadInvoice','Upload invoice to Intake'],
+      ['canApproveIntake','Turn draft into real inventory'],
+      ['canBuildShow','Show Builder and export'],
+      ['canImportShowSales','Post-show import and finalize sold plants'],
+      ['canPrintLabels','Print label batches'],
+      ['canEditPrices','Change suggested/list price'],
+      ['canDeletePlants','Delete/archive/merge plant records'],
+      ['canClockInOut','Timecard'],
+      ['canViewCommission','Own commission only']
+    ];
+    const phase7GetPerms = (u, settings = {}) => ({ ...(PHASE7_PERMISSION_DEFAULTS[u?.role || 'employee'] || PHASE7_PERMISSION_DEFAULTS.employee), ...((u && u.permissions) || {}), ...(((settings.userPermissions || {})[u?.id]) || {}) });
+    const phase7Can = (u, key, settings = {}) => u?.role === 'owner' ? true : !!phase7GetPerms(u, settings)[key];
+    const phase7Defaults = (settings = {}) => ({
+      palmstreetPrivateDefault:'NO', palmstreetShippingDefault:'', whatnotCategory:'Home & Garden', whatnotSubCategory:'Plants & Garden',
+      whatnotListingType:'Auction', whatnotShippingProfile:'', whatnotOfferable:'TRUE', priceRounding:'nearest_5', defaultCommissionRate:1,
+      labelTemplate:'2x1 QR + CODE128', labelShowCost:false, ...(settings.phase7PlatformDefaults || {})
+    });
+    const phase7Csv = (filename, rows) => {
+      const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const blob = new Blob([rows.map(r => r.map(esc).join(',')).join('\n')], { type:'text/csv;charset=utf-8;' });
+      const a = Object.assign(document.createElement('a'), { href:URL.createObjectURL(blob), download:filename });
+      a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+    };
+    const phase7DownloadJson = (filename, data) => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+      const a = Object.assign(document.createElement('a'), { href:URL.createObjectURL(blob), download:filename });
+      a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+    };
+
+    function Phase7AccessDenied({ page = 'this page', setPage }) {
+      return <div style={{ padding:'18px 14px 110px', minHeight:'100vh', background:C.bg }}>
+        <Card style={{ maxWidth:720, margin:'30px auto', textAlign:'center', border:`2px solid ${C.red}` }}>
+          <div style={{ fontSize:46, marginBottom:10 }}>🔒</div>
+          <h1 style={{ fontFamily:F.display, color:C.g900, margin:'0 0 8px' }}>Access Denied</h1>
+          <p style={{ color:C.tx2, lineHeight:1.55 }}>You do not have permission to open {page}. This protects Leaf Diary cost, profit, payroll, exports, and admin data.</p>
+          <Btn onClick={()=>setPage ? setPage('today') : null}>Go Back To Today</Btn>
+        </Card>
+      </div>;
+    }
+
+    function Phase7AdminSecurity({ users = [], setUsers, settings = {}, setSettings, plants = [], setPlants, expenses = [], bills = [], timecards = [], receipts = [], auditLog = [], user, addAudit, setPage }) {
+      const [tab, setTab] = useState('permissions');
+      const [selectedUserId, setSelectedUserId] = useState((users.find(u=>u.role !== 'owner') || users[0] || {}).id || '');
+      const [restoreMsg, setRestoreMsg] = useState('');
+      const restoreRef = useRef(null);
+      const defaults = phase7Defaults(settings);
+      const selectedUser = users.find(u => u.id === selectedUserId) || users[0] || {};
+      const selectedPerms = phase7GetPerms(selectedUser, settings);
+      const updateDefault = (key, value) => setSettings(prev => ({ ...(prev || {}), phase7PlatformDefaults:{ ...phase7Defaults(prev || {}), [key]:value } }));
+      const setPerm = (key, value) => {
+        if (!selectedUser.id || selectedUser.role === 'owner') return;
+        setUsers(prev => (prev || []).map(u => u.id === selectedUser.id ? { ...u, permissions:{ ...(u.permissions || {}), [key]:value } } : u));
+        setSettings(prev => ({ ...(prev || {}), userPermissions:{ ...((prev || {}).userPermissions || {}), [selectedUser.id]:{ ...(((prev || {}).userPermissions || {})[selectedUser.id] || {}), [key]:value } } }));
+        addAudit?.({ page:'Admin', action:'Permission Changed', details:`${selectedUser.name || selectedUser.email || selectedUser.id}: ${key} = ${value}`, severity:'warning' });
+      };
+      const health = phase7BuildHealth(plants, settings);
+      const backupPayload = { version:'leaf-diary-phase-7-backup-v1', exportedAt:new Date().toISOString(), exportedBy:user?.name || '', plants, expenses, bills, timecards, receipts, users, settings, auditLog };
+      const exportBackup = () => { phase7DownloadJson(`leaf-diary-full-backup-${today()}.json`, backupPayload); addAudit?.({ page:'Admin', action:'Full Backup Downloaded', details:`${plants.length} plants, ${users.length} users`, severity:'info' }); };
+      const exportCsvBundle = () => {
+        phase7Csv(`leaf-diary-inventory-backup-${today()}.csv`, [['Plant ID','Name','Status','Cost','Price','Photo URL','Sold Date','Platform','Show'], ...(plants || []).map(p => [p.plantId || p.plantCode || '', p.name || '', p.status || '', p.cost || '', p.suggestedPrice || '', p.photoUrl || p.photo_url || '', p.soldDate || '', p.platform || '', p.showName || ''])]);
+        phase7Csv(`leaf-diary-users-permissions-${today()}.csv`, [['Name','Email','Role',...PHASE7_PERMISSIONS.map(p=>p[0])], ...(users || []).map(u => { const perms = phase7GetPerms(u, settings); return [u.name || '', u.email || '', u.role || '', ...PHASE7_PERMISSIONS.map(p=>perms[p[0]] ? 'YES' : 'NO')]; })]);
+        addAudit?.({ page:'Admin', action:'CSV Backup Bundle Downloaded', details:'Inventory and permission CSV files exported.', severity:'info' });
+      };
+      const importBackup = file => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            const data = JSON.parse(e.target.result);
+            const incomingPlants = Array.isArray(data.plants) ? data.plants : [];
+            const incomingUsers = Array.isArray(data.users) ? data.users : [];
+            if (!confirm(`Restore backup with ${incomingPlants.length} plants and ${incomingUsers.length} users? This merge will NOT overwrite newer records without keeping the current version.`)) return;
+            const byId = new Map((plants || []).map(p => [p.id || p.plantId || p.plantCode, p]));
+            incomingPlants.forEach(p => { const k = p.id || p.plantId || p.plantCode; if (!k) return; const existing = byId.get(k); if (!existing) byId.set(k, p); else { const exTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime(); const inTime = new Date(p.updatedAt || p.createdAt || 0).getTime(); byId.set(k, inTime > exTime ? { ...existing, ...p } : existing); } });
+            setPlants?.(Array.from(byId.values()));
+            if (data.settings) setSettings?.(prev => ({ ...(prev || {}), ...data.settings, restoredAt:new Date().toISOString() }));
+            setRestoreMsg(`Restore merged ${incomingPlants.length} plant rows. Current newer records were protected.`);
+            addAudit?.({ page:'Admin', action:'Backup Restored', details:`Merged ${incomingPlants.length} plants from ${file.name}`, severity:'critical' });
+          } catch (err) { setRestoreMsg('Restore failed: ' + (err.message || String(err))); }
+        };
+        reader.readAsText(file);
+      };
+      return <div style={{ padding:'14px 14px 110px', background:C.bg, minHeight:'100vh' }}>
+        <SHdr icon="🛡️" title="Admin, Security & Data Health" sub="Owner-only controls for permissions, platform defaults, backups, audit, and data repair." right={<Row gap={8} wrap><Btn v="outline" onClick={exportBackup}>Download JSON Backup</Btn><Btn v="soft" onClick={exportCsvBundle}>CSV Bundle</Btn></Row>} />
+        <Card style={{ marginBottom:14 }}><Row gap={8} wrap>{[
+          ['permissions','Permissions'], ['defaults','Platform Defaults'], ['health','Data Health'], ['backup','Backups'], ['audit','Security Notes']
+        ].map(([id,label]) => <button key={id} onClick={()=>setTab(id)} style={{ padding:'10px 12px', borderRadius:10, border:`1px solid ${tab===id?C.g700:C.bd}`, background:tab===id?C.g700:C.card, color:tab===id?'#fff':C.tx2, fontWeight:900 }}>{label}</button>)}</Row></Card>
+        {tab === 'permissions' && <div style={{ display:'grid', gridTemplateColumns:'minmax(220px,320px) 1fr', gap:14 }}>
+          <Card><h3 style={{ marginTop:0 }}>Users</h3>{(users || []).map(u => <button key={u.id} onClick={()=>setSelectedUserId(u.id)} style={{ width:'100%', textAlign:'left', padding:'10px 12px', marginBottom:8, borderRadius:10, border:`1px solid ${selectedUser.id===u.id?C.g700:C.bd}`, background:selectedUser.id===u.id?C.g50:C.card, cursor:'pointer' }}><b>{u.name || u.email || 'User'}</b><div style={{ fontSize:11, color:C.tx3 }}>{u.role || 'employee'}</div></button>)}</Card>
+          <Card><h3 style={{ marginTop:0 }}>Permission Keys</h3><p style={{ color:C.tx3, fontSize:13 }}>Owner always has everything. Managers and employees get only what is turned on. Developers must enforce these on Supabase/RLS or backend functions, not just by hiding buttons.</p>
+            <Tbl cols={[{k:'perm',l:'Permission'},{k:'controls',l:'Controls'},{k:'enabled',l:'Enabled'}]} rows={PHASE7_PERMISSIONS.map(([key, desc]) => ({ perm:<b>{key}</b>, controls:desc, enabled:selectedUser.role === 'owner' ? <Tag text="OWNER ALWAYS" color={C.g600} sm /> : <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}><input type="checkbox" checked={!!selectedPerms[key]} onChange={e=>setPerm(key, e.target.checked)} /> {selectedPerms[key] ? 'Yes' : 'No'}</label> }))} />
+          </Card>
+        </div>}
+        {tab === 'defaults' && <Card><h3 style={{ marginTop:0 }}>Platform Export Defaults</h3><div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:12 }}>
+          <Sel label="Palmstreet Private Listing Default" value={defaults.palmstreetPrivateDefault} onChange={v=>updateDefault('palmstreetPrivateDefault',v)} options={['NO','YES']} />
+          <Inp label="Palmstreet Shipping Field Default" value={defaults.palmstreetShippingDefault} onChange={v=>updateDefault('palmstreetShippingDefault',v)} placeholder="Blank follows store setting" />
+          <Inp label="Whatnot Category" value={defaults.whatnotCategory} onChange={v=>updateDefault('whatnotCategory',v)} />
+          <Inp label="Whatnot Sub Category" value={defaults.whatnotSubCategory} onChange={v=>updateDefault('whatnotSubCategory',v)} />
+          <Sel label="Whatnot Listing Type" value={defaults.whatnotListingType} onChange={v=>updateDefault('whatnotListingType',v)} options={['Auction','Buy It Now']} />
+          <Inp label="Whatnot Shipping Profile Text" value={defaults.whatnotShippingProfile} onChange={v=>updateDefault('whatnotShippingProfile',v)} placeholder="Must match Whatnot exactly" />
+          <Sel label="Whatnot Offerable" value={defaults.whatnotOfferable} onChange={v=>updateDefault('whatnotOfferable',v)} options={['TRUE','FALSE']} />
+          <Sel label="Price Rounding" value={defaults.priceRounding} onChange={v=>updateDefault('priceRounding',v)} options={[{v:'nearest_dollar',l:'Nearest dollar'},{v:'nearest_5',l:'Nearest $5'},{v:'nearest_10',l:'Nearest $10'}]} />
+          <Inp label="Default Commission Rate %" type="number" value={defaults.defaultCommissionRate} onChange={v=>updateDefault('defaultCommissionRate',+v || 0)} />
+          <Inp label="Label Template" value={defaults.labelTemplate} onChange={v=>updateDefault('labelTemplate',v)} />
+        </div><label style={{ display:'flex', gap:8, alignItems:'center', marginTop:12 }}><input type="checkbox" checked={!!defaults.labelShowCost} onChange={e=>updateDefault('labelShowCost',e.target.checked)} /> Show cost on internal labels. Leave OFF for employee-safe labels.</label></Card>}
+        {tab === 'health' && <Phase7DataHealth plants={plants} setPlants={setPlants} settings={settings} addAudit={addAudit} user={user} embedded />}
+        {tab === 'backup' && <Card><h3 style={{ marginTop:0 }}>Backups & Restore</h3><p style={{ color:C.tx3 }}>Download a JSON backup anytime. Restore uses a safe merge: it keeps newer current records and only adds or updates older records when the backup is newer.</p><Row gap={8} wrap><Btn onClick={exportBackup}>Download Full JSON Backup</Btn><Btn v="outline" onClick={exportCsvBundle}>Download CSV Bundle</Btn><Btn v="soft" onClick={()=>restoreRef.current?.click()}>Restore From JSON</Btn><input ref={restoreRef} type="file" accept=".json,application/json" style={{ display:'none' }} onChange={e=>importBackup(e.target.files?.[0])} /></Row>{restoreMsg && <p style={{ color:C.g700, fontWeight:800 }}>{restoreMsg}</p>}</Card>}
+        {tab === 'audit' && <Card><h3 style={{ marginTop:0 }}>Security Requirements For Coders</h3><ul style={{ lineHeight:1.7, color:C.tx2 }}><li>Use Supabase Row Level Security on every account table.</li><li>Backend permission checks are required for cost, profit, reports, exports, imports, payroll, delete, merge, and restore. Hiding buttons is not enough.</li><li>Audit log must record login, export, import, delete, merge, price/cost changes, and payroll changes.</li><li>Audit log is read-only. No user can delete audit entries from the app.</li><li>Employees typing /admin must receive Access Denied.</li></ul><Tbl cols={[{k:'time',l:'Time'},{k:'user',l:'User'},{k:'action',l:'Action'},{k:'details',l:'Details'}]} rows={(auditLog || []).slice(-20).reverse().map(a=>({ time:a.timestamp || a.createdAt || a.created_at || '', user:a.user || a.userName || '', action:<b>{a.action}</b>, details:a.details || a.page || '' }))} empty="No audit entries yet." /></Card>}
+      </div>;
+    }
+
+    function phase7BuildHealth(plants = [], settings = {}) {
+      const idMap = {};
+      (plants || []).forEach(p => { const id = String(p.plantId || p.plantCode || p.plant_id || '').trim(); if (id) (idMap[id] = idMap[id] || []).push(p); });
+      const dupes = Object.entries(idMap).filter(([id, list]) => list.length > 1);
+      const missingPhoto = (plants || []).filter(p => (p.status === 'In Stock' || p.readyForShow) && !(p.photoUrl || p.photo_url || p.photoBase64));
+      const missingPrice = (plants || []).filter(p => (p.status === 'In Stock' || p.readyForShow) && !(+p.suggestedPrice || +p.salePrice || +p.listPrice));
+      const over180 = (plants || []).filter(p => (p.status === 'In Stock' || p.readyForShow) && dHeld(p.dateAdded || p.createdAt) >= 180);
+      const soldNoImport = (plants || []).filter(p => p.status === 'Sold' && !(p.saleImportId || p.importFileName || p.historicalImport));
+      const deletedWarnings = (((settings || {}).showExportHistory || (settings || {}).showExports || [])).filter(ex => (ex.plants || ex.plantIds || []).some(id => !plants.some(p => String(p.plantId || p.plantCode || p.id) === String(id))));
+      return { dupes, missingPhoto, missingPrice, over180, soldNoImport, deletedWarnings };
+    }
+
+    function Phase7DataHealth({ plants = [], setPlants, settings = {}, addAudit, user, embedded }) {
+      const h = phase7BuildHealth(plants, settings);
+      const renameDuplicateIds = () => {
+        if (!h.dupes.length) return alert('No duplicate Plant IDs found.');
+        if (!confirm(`Repair ${h.dupes.length} duplicate Plant ID group(s)? The first plant keeps the original ID. Duplicates get -DUP2, -DUP3 suffixes.`)) return;
+        const counts = {};
+        const updated = (plants || []).map(p => {
+          const base = String(p.plantId || p.plantCode || '').trim();
+          if (!base) return p;
+          counts[base] = (counts[base] || 0) + 1;
+          if (counts[base] === 1) return p;
+          const newId = `${base}-DUP${counts[base]}`;
+          return { ...p, plantId:newId, plantCode:newId, duplicateRepairedFrom:base, updatedAt:new Date().toISOString() };
+        });
+        setPlants?.(updated);
+        addAudit?.({ page:'Data Health', action:'Duplicate Plant IDs Repaired', details:`${h.dupes.length} duplicate groups repaired by ${user?.name || 'Owner'}`, severity:'critical' });
+      };
+      const exportMissingPhotos = () => phase7Csv(`leaf-diary-missing-photos-${today()}.csv`, [['Plant ID','Name','Status','Location'], ...h.missingPhoto.map(p => [p.plantId || p.plantCode || '', p.name || '', p.status || '', p.location || p.rack || p.shelf || ''])]);
+      const exportMissingPrices = () => phase7Csv(`leaf-diary-missing-prices-${today()}.csv`, [['Plant ID','Name','Status','Cost','Price'], ...h.missingPrice.map(p => [p.plantId || p.plantCode || '', p.name || '', p.status || '', p.cost || '', p.suggestedPrice || ''])]);
+      return <div style={{ padding:embedded ? 0 : '14px 14px 110px', background:embedded ? 'transparent' : C.bg, minHeight:embedded ? 'auto' : '100vh' }}>
+        {!embedded && <SHdr icon="🧹" title="Data Health" sub="Find duplicate IDs, missing photos, missing prices, aging inventory, and broken show export references." />}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))', gap:10, marginBottom:14 }}>
+          <KPI label="Duplicate IDs" value={h.dupes.length} color={h.dupes.length ? C.red : C.g600} />
+          <KPI label="Missing Photos" value={h.missingPhoto.length} color={h.missingPhoto.length ? C.amber : C.g600} />
+          <KPI label="Missing Prices" value={h.missingPrice.length} color={h.missingPrice.length ? C.amber : C.g600} />
+          <KPI label="180+ Days In Stock" value={h.over180.length} color={h.over180.length ? C.red : C.g600} />
+          <KPI label="Sold No Import" value={h.soldNoImport.length} color={h.soldNoImport.length ? C.purple : C.g600} />
+          <KPI label="Broken Exports" value={h.deletedWarnings.length} color={h.deletedWarnings.length ? C.red : C.g600} />
+        </div>
+        <Card style={{ marginBottom:14 }}><Row gap={8} wrap><Btn v="danger" onClick={renameDuplicateIds}>Repair Duplicate IDs</Btn><Btn v="outline" onClick={exportMissingPhotos}>Export Missing Photo Task List</Btn><Btn v="outline" onClick={exportMissingPrices}>Export Missing Price List</Btn></Row></Card>
+        <Tbl cols={[{k:'issue',l:'Issue'},{k:'count',l:'Count'},{k:'action',l:'Recommended Action'}]} rows={[
+          { issue:'Duplicate Plant ID scanner', count:h.dupes.length, action:'Merge/repair before exporting or importing sales.' },
+          { issue:'Missing photo report', count:h.missingPhoto.length, action:'Send CSV task list to employee; photo required for platform exports.' },
+          { issue:'Missing price report', count:h.missingPrice.length, action:'Owner/manager must set list price before show export.' },
+          { issue:'In Stock over 180 days', count:h.over180.length, action:'Review, discount, bundle, or mark dead/damaged.' },
+          { issue:'Sold plant with no import source', count:h.soldNoImport.length, action:'Audit historical sale or link to post-show import file.' },
+          { issue:'Show export record with deleted plant', count:h.deletedWarnings.length, action:'Duplicate previous shows must revalidate availability before export.' }
+        ].map(r => ({ issue:<b>{r.issue}</b>, count:<Tag text={String(r.count)} color={r.count ? C.amber : C.g600} sm />, action:r.action }))} />
+      </div>;
+    }
+
     function App() {
       const saved = loadLS();
       const [showPwdModal, setShowPwdModal] = useState(false);
@@ -8513,21 +8955,21 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} settings={settings} />}
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={navigate} />}
           {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
-          {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} />}
-          {page === "showimport" && <Phase5PostShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
+          {page === "showbuilder" && (phase7Can(user, "canBuildShow", settings) ? <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} /> : <Phase7AccessDenied page="Show Builder" setPage={navigate} />)}
+          {page === "showimport" && (phase7Can(user, "canImportShowSales", settings) ? <Phase5PostShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} /> : <Phase7AccessDenied page="Post-Show Import" setPage={navigate} />)}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
           {page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
           {page === "receipts" && <ReceiptScanner receipts={expenseReceipts} setReceipts={setExpenseReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} />}
           {page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} />}
-          {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} />}
+          {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} plants={plants} settings={settings} setSettings={setSettings} />}
           {page === "intel" && CAN.seeReports(user.role) && <BuyIntel plants={plants} settings={settings} />}
-          {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} />}
+          {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} settings={settings} />}
           {page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
           {page === "audit" && CAN.seeAudit(user.role) && <AuditLog auditLog={auditLog} />}
-          {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
-          {page === "cleanup" && user.role === "owner" && <DataCleanup plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
+          {page === "admin" && (user.role === "owner" ? <Phase7AdminSecurity users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} auditLog={auditLog} addAudit={addAudit} user={user} setPage={navigate} /> : <Phase7AccessDenied page="Admin" setPage={navigate} />)}
+          {page === "cleanup" && (user.role === "owner" ? <Phase7DataHealth plants={plants} setPlants={setPlants} settings={settings} addAudit={addAudit} user={user} /> : <Phase7AccessDenied page="Data Cleanup" setPage={navigate} />)}
           {page === "casd" && user.role === "owner" && <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} />}
         </div>
       </div>;
