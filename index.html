@@ -936,7 +936,7 @@
         <div style={{ background:"#000", position:"sticky", top:0, zIndex:300, padding:"9px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 18px rgba(0,0,0,.32)" }}>
           <button onClick={()=>openPage("today")} style={{ display:"flex", alignItems:"center", gap:8, background:"transparent", border:"none", padding:0, cursor:"pointer", color:"#fff", fontFamily:F.body }}>
             <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height:38, width:38, objectFit:"contain", borderRadius:"50%", background:"#000", padding:1, boxShadow:"0 0 0 1px rgba(255,255,255,.25)" }} />
-            <div style={{ textAlign:"left", lineHeight:1.05 }}><div style={{ fontSize:14, fontWeight:900, fontFamily:F.display, letterSpacing:.5 }}>LEAF DIARY</div><div style={{ fontSize:10, color:"#97d33e", fontWeight:800 }}>BUSINESS HUB - RARE ROOTS, REAL LOVE.</div></div>
+            <div style={{ textAlign:"left", lineHeight:1.05 }}><div style={{ fontSize:14, fontWeight:900, fontFamily:F.display, letterSpacing:.5 }}>LEAF DIARY</div><div style={{ fontSize:10, color:"#97d33e", fontWeight:800 }}>CRM Phase 1</div></div>
           </button>
           <Row gap={7} center>
             {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
@@ -7611,6 +7611,23 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       return (prev || []).map(x => x && x.id).filter(Boolean).map(String).filter(id => !n.has(id));
     }
 
+    function changedRows(prev = [], next = []) {
+      const prevMap = new Map((prev || []).filter(x => x && x.id).map(x => [String(x.id), JSON.stringify(x)]));
+      return (next || []).filter(x => x && x.id && prevMap.get(String(x.id)) !== JSON.stringify(x));
+    }
+
+    function mergeById(base = [], overlay = []) {
+      const map = new Map();
+      (base || []).forEach(x => { if (x && x.id) map.set(String(x.id), x); });
+      (overlay || []).forEach(x => { if (x && x.id) map.set(String(x.id), x); });
+      return Array.from(map.values());
+    }
+
+    async function cloudFetchStateRecord(key) {
+      const rows = await cloudRequest(`app_state?select=key,data,updated_at&key=eq.${encodeURIComponent(key)}&limit=1`, { method: "GET" });
+      return rows && rows[0] ? rows[0] : null;
+    }
+
     function ChangePasswordModal({ onClose, user, onSuccess }) {
       const [oldPassword, setOldPassword] = useState("");
       const [newPassword, setNewPassword] = useState("");
@@ -7720,13 +7737,29 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const [cloudSafeMode, setCloudSafeModeRaw] = useState(() => {
         try {
           const stored = localStorage.getItem("ld_cloud_safe_mode");
+          return stored == null ? false : stored === "true";
+        } catch (e) { return false; }
+      });
+      const [teamSafeSync, setTeamSafeSyncRaw] = useState(() => {
+        try {
+          const stored = localStorage.getItem("ld_team_safe_sync");
           return stored == null ? true : stored === "true";
         } catch (e) { return true; }
       });
+      const [syncConflict, setSyncConflict] = useState(false);
+      const [remoteEditor, setRemoteEditor] = useState(null);
+      const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
       const cloudReadyRef = useRef(false);
       const cloudStatusRef = useRef("loading");
       const cloudSafeModeRef = useRef(cloudSafeMode);
+      const teamSafeSyncRef = useRef(teamSafeSync);
+      const dirtyRef = useRef({ rows: {}, deletes: {}, states: {} });
+      const syncTimerRef = useRef(null);
+      const syncBusyRef = useRef(false);
+      const clientIdRef = useRef(() => "client-" + Math.random().toString(36).slice(2, 10));
+      if (typeof clientIdRef.current === "function") clientIdRef.current = clientIdRef.current();
+      const lastCloudRevisionRef = useRef("");
       useEffect(() => { cloudStatusRef.current = cloudStatus; }, [cloudStatus]);
       useEffect(() => {
         cloudSafeModeRef.current = cloudSafeMode;
@@ -7734,46 +7767,171 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         if (cloudSafeMode) {
           cloudReadyRef.current = false;
           setCloudStatus("safe");
-          setCloudMsg("Cloud Safe Mode is ON — using local backup only. Click Load From Cloud or Save To Cloud when needed.");
+          setCloudMsg("Cloud Safe Mode is ON — automatic sync is paused. Local work is still saved on this device.");
+        } else if (session) {
+          cloudReadyRef.current = true;
+          setCloudStatus("synced");
+          setCloudMsg("Team Safe Sync is ready. Only changed records auto-save every 90 seconds.");
         }
-      }, [cloudSafeMode]);
+      }, [cloudSafeMode, session]);
+      useEffect(() => {
+        teamSafeSyncRef.current = teamSafeSync;
+        try { localStorage.setItem("ld_team_safe_sync", String(teamSafeSync)); } catch (e) {}
+      }, [teamSafeSync]);
       const setCloudSafeMode = (value) => setCloudSafeModeRaw(!!value);
+      const setTeamSafeSync = (value) => setTeamSafeSyncRaw(!!value);
       const suppressCloudSaveRef = useRef(false);
       const backupRef = useRef();
+
+      const dirtyCount = useCallback(() => {
+        const d = dirtyRef.current || { rows: {}, deletes: {}, states: {} };
+        let n = Object.values(d.rows || {}).reduce((sum, table) => sum + Object.keys(table || {}).length, 0);
+        n += Object.values(d.deletes || {}).reduce((sum, ids) => sum + (ids ? ids.size || 0 : 0), 0);
+        n += Object.keys(d.states || {}).length;
+        return n;
+      }, []);
+
+      const refreshPendingSyncCount = useCallback(() => setPendingSyncCount(dirtyCount()), [dirtyCount]);
+
+      const scheduleTeamSync = useCallback(() => {
+        refreshPendingSyncCount();
+        if (cloudSafeModeRef.current || !teamSafeSyncRef.current || !session || syncConflict) return;
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = setTimeout(() => { flushTeamSync(); }, 90000);
+        setCloudStatus("syncing");
+        setCloudMsg("Team Safe Sync queued — changed records will save in about 90 seconds.");
+      }, [refreshPendingSyncCount, session, syncConflict]);
+
+      const queueCollectionChanges = useCallback((table, prev, next) => {
+        if (suppressCloudSaveRef.current) return;
+        const changed = changedRows(prev, next);
+        const removed = missingIds(prev, next);
+        if (!dirtyRef.current.rows[table]) dirtyRef.current.rows[table] = {};
+        changed.forEach(row => { if (row && row.id) dirtyRef.current.rows[table][String(row.id)] = row; });
+        if (!dirtyRef.current.deletes[table]) dirtyRef.current.deletes[table] = new Set();
+        removed.forEach(id => dirtyRef.current.deletes[table].add(String(id)));
+        if (changed.length || removed.length) scheduleTeamSync();
+      }, [scheduleTeamSync]);
+
+      const queueStateChange = useCallback((key, value) => {
+        if (suppressCloudSaveRef.current) return;
+        if (key === "auditLog" || key === "casdCerts") return; // heavy archives stay manual/local unless owner force-saves
+        dirtyRef.current.states[key] = value;
+        scheduleTeamSync();
+      }, [scheduleTeamSync]);
+
+      const markTeamPresence = useCallback(async () => {
+        if (cloudSafeModeRef.current || !teamSafeSyncRef.current || !session) return;
+        const nowIso = new Date().toISOString();
+        const name = user?.name || session?.user?.email || "Leaf Diary user";
+        try {
+          const record = await cloudFetchState("team_presence") || {};
+          const people = Object.values(record.people || {}).filter(p => p && p.clientId && (Date.now() - new Date(p.updatedAt || 0).getTime()) < 180000);
+          const others = people.filter(p => p.clientId !== clientIdRef.current);
+          if (others.length) setRemoteEditor(others[0]);
+          await cloudUpsertState("team_presence", {
+            people: { ...(record.people || {}), [clientIdRef.current]: { clientId: clientIdRef.current, name, page, updatedAt: nowIso } },
+            updatedAt: nowIso
+          });
+        } catch (e) { console.warn("Team presence update skipped", e); }
+      }, [session, user, page]);
+
+      useEffect(() => {
+        if (!session || cloudSafeMode || !teamSafeSync) return;
+        markTeamPresence();
+        const t = setInterval(markTeamPresence, 90000);
+        return () => clearInterval(t);
+      }, [session, cloudSafeMode, teamSafeSync, markTeamPresence]);
+
+      async function flushTeamSync({ force = false } = {}) {
+        if (syncBusyRef.current) return;
+        if (cloudSafeModeRef.current && !force) { setCloudMsg("Cloud Safe Mode is ON — pending changes are local only."); return; }
+        const count = dirtyCount();
+        if (!count) { setPendingSyncCount(0); return; }
+        syncBusyRef.current = true;
+        if (syncTimerRef.current) { clearTimeout(syncTimerRef.current); syncTimerRef.current = null; }
+        try {
+          setCloudStatus("syncing");
+          setCloudMsg(force ? "Owner Force Save running..." : `Team Safe Sync saving ${count} changed item(s)...`);
+          const meta = await cloudFetchState("team_sync_meta").catch(() => null);
+          if (!force && meta?.updatedAt && lastCloudRevisionRef.current && meta.updatedAt > lastCloudRevisionRef.current && meta.clientId !== clientIdRef.current) {
+            setRemoteEditor({ name: meta.updatedBy || "Another user", updatedAt: meta.updatedAt, clientId: meta.clientId });
+            setSyncConflict(true);
+            setCloudStatus("offline");
+            setCloudMsg(`${meta.updatedBy || "Another user"} saved newer cloud data. Click Merge Changes before saving.`);
+            return;
+          }
+          const dirty = dirtyRef.current;
+          for (const [table, rowMap] of Object.entries(dirty.rows || {})) {
+            const rows = Object.values(rowMap || {});
+            if (rows.length) await cloudUpsertRows(table, rows);
+          }
+          for (const [table, ids] of Object.entries(dirty.deletes || {})) {
+            const list = Array.from(ids || []);
+            if (list.length) await cloudDeleteRows(table, list);
+          }
+          for (const [key, value] of Object.entries(dirty.states || {})) {
+            await cloudUpsertState(key, value);
+          }
+          const nowIso = new Date().toISOString();
+          const updatedBy = user?.name || session?.user?.email || "Leaf Diary user";
+          await cloudUpsertState("team_sync_meta", { updatedAt: nowIso, updatedBy, clientId: clientIdRef.current });
+          lastCloudRevisionRef.current = nowIso;
+          dirtyRef.current = { rows: {}, deletes: {}, states: {} };
+          setPendingSyncCount(0);
+          setSyncConflict(false);
+          setCloudStatus("synced");
+          setCloudMsg(`Team Safe Sync saved ${count} changed item(s).`);
+        } catch (err) {
+          console.error("Team Safe Sync failed", err);
+          const msg = err && err.message ? err.message : String(err);
+          setCloudStatus("offline");
+          setCloudMsg("Team Safe Sync failed: " + msg + " — local backup still saved.");
+        } finally {
+          syncBusyRef.current = false;
+        }
+      }
+
+      async function mergeTeamChanges() {
+        try {
+          setCloudStatus("loading");
+          setCloudMsg("Merging cloud changes with this device...");
+          const dirty = dirtyRef.current;
+          suppressCloudSaveRef.current = true;
+          if (dirty.rows.plants) setPlantsRaw(prev => mergeById(prev, Object.values(dirty.rows.plants)));
+          if (dirty.rows.bills) setBillsRaw(prev => mergeById(prev, Object.values(dirty.rows.bills)));
+          if (dirty.rows.nurseries) setNurseriesRaw(prev => mergeById(prev, Object.values(dirty.rows.nurseries)));
+          if (dirty.rows.expenses) setExpensesRaw(prev => mergeById(prev, Object.values(dirty.rows.expenses)));
+          if (dirty.rows.timecards) setTimecardsRaw(prev => mergeById(prev, Object.values(dirty.rows.timecards)));
+          const meta = await cloudFetchState("team_sync_meta").catch(() => null);
+          lastCloudRevisionRef.current = meta?.updatedAt || new Date().toISOString();
+          setTimeout(() => { suppressCloudSaveRef.current = false; }, 0);
+          setSyncConflict(false);
+          setCloudStatus("synced");
+          setCloudMsg("Merge complete. Pending local changes are preserved; Team Safe Sync can save them now.");
+          scheduleTeamSync();
+        } catch (err) {
+          suppressCloudSaveRef.current = false;
+          setCloudStatus("offline");
+          setCloudMsg("Merge failed: " + (err?.message || String(err)));
+        }
+      }
 
       const cloudCollectionSetter = useCallback((table, rawSetter) => (updater) => {
         rawSetter(prev => {
           const next = safeArray(applyUpdater(updater, prev));
-          if (cloudReadyRef.current && !suppressCloudSaveRef.current && !cloudSafeModeRef.current) {
-            const removed = missingIds(prev, next);
-            setCloudStatus("syncing");
-            setCloudMsg("Saving to Supabase cloud...");
-            Promise.resolve()
-              .then(async () => {
-                if (removed.length) await cloudDeleteRows(table, removed);
-                await cloudUpsertRows(table, next);
-                if (table === "casd_certs") await cloudUpsertState("casdCerts", next);
-              })
-              .then(() => { setCloudStatus("synced"); setCloudMsg("Supabase cloud synced"); })
-              .catch(err => { console.error(`Supabase save failed for ${table}`, err); setCloudStatus("offline"); setCloudMsg("Cloud save failed — local backup still saved"); });
-          }
+          queueCollectionChanges(table, prev, next);
           return next;
         });
-      }, []);
+      }, [queueCollectionChanges]);
 
       const cloudStateSetter = useCallback((key, rawSetter) => (updater) => {
         rawSetter(prev => {
           const next = applyUpdater(updater, prev);
-          if (cloudReadyRef.current && !suppressCloudSaveRef.current && !cloudSafeModeRef.current) {
-            setCloudStatus("syncing");
-            setCloudMsg("Saving settings to Supabase...");
-            cloudUpsertState(key, next)
-              .then(() => { setCloudStatus("synced"); setCloudMsg("Supabase cloud synced"); })
-              .catch(err => { console.error(`Supabase app_state save failed for ${key}`, err); setCloudStatus("offline"); setCloudMsg("Cloud save failed — local backup still saved"); });
-          }
+          queueStateChange(key, next);
           return next;
         });
-      }, []);
+      }, [queueStateChange]);
 
       const setPlants = cloudCollectionSetter("plants", setPlantsRaw);
       const setExpenses = cloudCollectionSetter("expenses", setExpensesRaw);
@@ -7789,16 +7947,10 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           const proposed = applyUpdater(updater, prev) || [];
           const next = mergeCasdCertLists(proposed, [...(prev || []), ...loadCasdCertsFromLocalBackup(), ...(window.__casdCertsSnapshot || [])]);
           saveCasdCertsToLocalBackup(next);
-          if (cloudReadyRef.current && !suppressCloudSaveRef.current && !cloudSafeModeRef.current) {
-            setCloudStatus("syncing");
-            setCloudMsg("Saving State Docs legal archive to Supabase...");
-            persistCasdCertArchive(next)
-              .then(() => { setCloudStatus("synced"); setCloudMsg("State Docs archive saved to cloud"); })
-              .catch(err => { console.error("State Docs archive cloud save failed", err); setCloudStatus("offline"); setCloudMsg("State Docs cloud save failed — local legal backup kept"); });
-          }
+          queueCollectionChanges("casd_certs", prev || [], next || []);
           return next;
         });
-      }, []);
+      }, [queueCollectionChanges]);
       /* Expose casdCerts to window so ShowImport auto-gen can read current count */
       React.useEffect(() => { window.__casdCertsSnapshot = casdCerts; saveCasdCertsToLocalBackup(casdCerts); }, [casdCerts]);
       const setAuditLog = cloudStateSetter("auditLog", setAuditLogRaw);
@@ -7974,8 +8126,10 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           setTimeout(() => { suppressCloudSaveRef.current = false; }, 0);
 
           cloudReadyRef.current = true;
+          const teamMeta = await cloudFetchState("team_sync_meta").catch(() => null);
+          lastCloudRevisionRef.current = teamMeta?.updatedAt || new Date().toISOString();
           setCloudStatus("synced");
-          setCloudMsg("Supabase cloud synced");
+          setCloudMsg("Supabase cloud synced. Team Safe Sync will only save changed records.");
 
           /* First-time migration: if Supabase is empty but this device has data, seed the cloud */
           if (!cloudPlants.length && saved?.plants?.length && !cloudInventoryReset && !localInventoryWasReset()) await cloudUpsertRows("plants", saved.plants);
@@ -8035,11 +8189,14 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         return () => { cancelled = true; clearTimeout(fallback); };
       }, [loadFromCloud, session, cloudSafeMode]);
 
-      const saveAllToCloud = async () => {
-        if (!window.confirm("Save this device's current Leaf Diary data to Supabase now? This is a manual cloud backup and avoids automatic egress.")) return;
+      const saveAllToCloud = async ({ force = false } = {}) => {
+        if (force && user?.role !== "owner") { alert("Only the owner can Force Save."); return; }
+        if (force && !window.confirm("Owner Force Save will push this device's current main data to Supabase. Use this only if you know this device has the correct data. Continue?")) return;
+        if (!force && dirtyCount()) { await flushTeamSync({ force: false }); return; }
+        if (!force && !window.confirm("No pending Team Sync changes found. Save this device's full main data to Supabase now?")) return;
         try {
           setCloudStatus("syncing");
-          setCloudMsg("Manual save to Supabase running...");
+          setCloudMsg(force ? "Owner Force Save running..." : "Manual save to Supabase running...");
           await Promise.all([
             cloudUpsertRows("plants", plants),
             cloudUpsertRows("bills", bills),
@@ -8053,9 +8210,15 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             cloudUpsertState("users", users),
             cloudUpsertState("settings", settings),
           ]);
+          const nowIso = new Date().toISOString();
+          await cloudUpsertState("team_sync_meta", { updatedAt: nowIso, updatedBy: user?.name || session?.user?.email || "Leaf Diary user", clientId: clientIdRef.current, force });
+          lastCloudRevisionRef.current = nowIso;
+          dirtyRef.current = { rows: {}, deletes: {}, states: {} };
+          setPendingSyncCount(0);
+          setSyncConflict(false);
           setCloudStatus(cloudSafeModeRef.current ? "safe" : "synced");
-          setCloudMsg("Manual cloud save completed. Cloud Safe Mode remains " + (cloudSafeModeRef.current ? "ON." : "OFF."));
-          setSaveMsg("✅ Manual cloud save complete");
+          setCloudMsg((force ? "Owner Force Save" : "Manual cloud save") + " completed.");
+          setSaveMsg("✅ Cloud save complete");
           setTimeout(() => setSaveMsg(""), 3000);
         } catch (err) {
           console.error("Manual cloud save failed", err);
@@ -8177,9 +8340,12 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {saveMsg && <span style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{saveMsg}</span>}
-            <button onClick={() => setCloudSafeMode(!cloudSafeMode)} style={{ background: cloudSafeMode ? C.blue : "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 700 }}>{cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Auto Cloud ON"}</button>
+            <button onClick={() => setCloudSafeMode(!cloudSafeMode)} style={{ background: cloudSafeMode ? C.blue : "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 700 }}>{cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Cloud ON"}</button>
+            <button onClick={() => setTeamSafeSync(!teamSafeSync)} style={{ background: teamSafeSync ? C.g700 : "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 700 }}>{teamSafeSync ? `👥 Team Sync ON${pendingSyncCount ? ` (${pendingSyncCount})` : ""}` : "👥 Team Sync OFF"}</button>
             <button onClick={() => loadFromCloud({ force: true })} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>⬇️ Load From Cloud</button>
-            <button onClick={saveAllToCloud} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>⬆️ Save To Cloud</button>
+            <button onClick={() => flushTeamSync({ force:false })} style={{ background: pendingSyncCount ? C.gold : "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 700 }}>💾 Save Changes{pendingSyncCount ? ` (${pendingSyncCount})` : ""}</button>
+            {syncConflict && <button onClick={mergeTeamChanges} style={{ background: C.amber, border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 800 }}>🔀 Merge Changes</button>}
+            {user?.role === "owner" && <button onClick={() => saveAllToCloud({ force:true })} style={{ background: C.red, border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 800 }}>⚠️ Owner Force Save</button>}
             <button onClick={async () => { try { setCloudStatus("loading"); setCloudMsg("Testing Supabase connection..."); await cloudRequest("plants?select=id&limit=1", { method: "GET" }); setCloudStatus("synced"); setCloudMsg("Supabase test passed"); alert("Supabase test passed. Cloud connection is working."); } catch (err) { const msg = err && err.message ? err.message : String(err); setCloudStatus("offline"); setCloudMsg("Supabase test failed: " + msg); alert("Supabase test failed: " + msg); } }} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>🧪 Test Cloud</button>
             <button onClick={exportBackup} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>📥 Backup</button>
             <button onClick={() => backupRef.current.click()} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>📤 Restore</button>
