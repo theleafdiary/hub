@@ -6464,15 +6464,38 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         try { localStorage.setItem(PHASE7_SHOW_PLAN_KEY, JSON.stringify(plan)); } catch(e) {}
         setSettings && setSettings(prev => ({ ...prev, phase7LastShowPlan:plan, phase7ShowPlatform:phase7Platform, phase7ShowType:phase7ShowType, phase7TargetCount:phase7TargetCount, phase7TargetRevenue:phase7TargetRevenue, phase7ShowBrief:phase7Brief, phase7LastRun:new Date().toISOString() }));
         addAudit && addAudit({ action:`Phase 7 AI Show Builder created ${plan.plantIds.length}-plant ${phase7Platform} plan`, page:'Show Builder', user:user?.name || 'Owner', details:`Value ${phase7Money(plan.showValue)} · est revenue ${phase7Money(plan.estimatedRevenue)} · est profit ${phase7Money(plan.estimatedProfit)}` });
-        setMsg(`AI Show Builder created ${plan.plantIds.length} plant plan for ${phase7Platform}. Review it, then apply to show cart.`);
-        if (typeof phase4RouteAI === 'function') {
-          try {
-            const appData = { plants };
-            const res = await phase4RouteAI({ question:'Improve this Leaf Diary show plan.', forcedRoute:'shows', appData, user, phase3Cfg:phase3Config, phase4Cfg:phase4Routes, extraPrompt:phase7BuildAIPrompt(plan) });
-            const txt = res?.answer || '';
-            setPhase7AiText(txt);
-            setSettings && setSettings(prev => ({ ...prev, phase7LastAiText:txt }));
-          } catch(e) { if (typeof phase1LogError === 'function') phase1LogError('phase7RouteEnhancement', e); }
+        setMsg(`AI Show Builder created ${plan.plantIds.length} plant plan for ${phase7Platform}. No cloud AI call was used. Review it, then apply to show cart or tap Cloud Enhance if needed.`);
+        setPhase7AiText('💵 AI Cost Guard: local show plan created without using Ollama Cloud API. Tap “☁️ Cloud Enhance” only when you want a stronger paid AI strategy layer.');
+        setSettings && setSettings(prev => ({ ...prev, phase7LastAiText:'💵 AI Cost Guard: local show plan created without using Ollama Cloud API. Tap “☁️ Cloud Enhance” only when you want a stronger paid AI strategy layer.' }));
+        setPhase7Busy(false);
+      };
+      const runPhase7CloudEnhancement = async () => {
+        const plan = phase7Plan || phase7BuildShowPlan({ plants, platform:phase7Platform, showType:phase7ShowType, targetCount:phase7TargetCount, targetRevenue:phase7TargetRevenue, brief:phase7Brief });
+        if (!plan?.plantIds?.length) { setMsg('Build a local AI show plan first.'); return; }
+        const cfg = typeof phase61ReadConfig === 'function' ? phase61ReadConfig() : {};
+        const spend = typeof phase61CanSpend === 'function' ? phase61CanSpend(cfg) : { ok:true };
+        if (!spend.ok) { setMsg(spend.reason || 'AI Gateway is blocked by cost limits.'); return; }
+        const ok = confirm(`Use Ollama Cloud API one time to enhance this show plan?
+
+Estimated local tracker cost: ${phase7Money(cfg.estimatedCostPerRequest || 0)}
+Today: ${spend.usage?.dailyCalls || 0}/${spend.usage?.dailyLimit || '?'} calls
+Monthly tracker: ${phase7Money(spend.usage?.monthlyCost || 0)} / ${phase7Money(spend.usage?.monthlyLimit || 0)}
+
+Cancel if you want to save money.`);
+        if (!ok) { setMsg('Cloud AI cancelled. Local show plan kept.'); return; }
+        setPhase7Busy(true);
+        setPhase7AiText('Calling Ollama Cloud one time for show strategy enhancement...');
+        try {
+          const appData = { plants };
+          const res = await phase4RouteAI({ question:'Improve this Leaf Diary show plan.', forcedRoute:'shows', appData, user, phase3Cfg:phase3Config, phase4Cfg:phase4Routes, extraPrompt:phase7BuildAIPrompt(plan), allowGateway:true });
+          const txt = res?.answer || 'Cloud AI returned no text.';
+          setPhase7AiText(txt);
+          setSettings && setSettings(prev => ({ ...prev, phase7LastAiText:txt }));
+          setMsg('Cloud AI enhanced the show plan one time. Cost Guard prevented any automatic repeated calls.');
+        } catch(e) {
+          if (typeof phase1LogError === 'function') phase1LogError('phase7CloudEnhancement', e);
+          setPhase7AiText('Cloud enhancement failed. Local show plan is still safe. ' + (e?.message || ''));
+          setMsg('Cloud AI enhancement failed; local plan remains available.');
         }
         setPhase7Busy(false);
       };
@@ -6530,7 +6553,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Card style={{ borderTop: `4px solid #fb6392`, background:'#fff7fb' }}>
               <Row between center wrap gap={8} style={{ marginBottom:10 }}>
-                <div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:19 }}>🤖 Phase 7 AI Show Builder</div><div style={{ fontSize:12, color:C.tx3 }}>Build a Whatnot or Palmstreet show automatically, then review before export.</div></div>
+                <div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:19 }}>🤖 Phase 7 AI Show Builder</div><div style={{ fontSize:12, color:C.tx3 }}>Build a Whatnot or Palmstreet show automatically, then review before export. 💵 Cost Guard: cloud AI only runs if you tap Cloud Enhance.</div></div>
                 <Tag text="AI show director" color={C.purple} />
               </Row>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
@@ -6544,6 +6567,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
               <textarea value={phase7Brief} onChange={e=>setPhase7Brief(e.target.value)} placeholder="Optional: Friday night rare show, push aging inventory, include premium hooks, avoid no-photo plants..." style={{ width:'100%', minHeight:72, padding:11, border:`1.5px solid ${C.bd}`, borderRadius:10, fontSize:13, fontFamily:F.body, resize:'vertical', marginBottom:10 }} />
               <Row gap={7} wrap>
                 <Btn onClick={runPhase7ShowBuilder} disabled={phase7Busy}>{phase7Busy ? 'Building...' : '🤖 Build AI Show'}</Btn>
+                <Btn v="gold" onClick={runPhase7CloudEnhancement} disabled={phase7Busy || !phase7Plan?.plantIds?.length}>☁️ Cloud Enhance</Btn>
                 <Btn v="soft" onClick={applyPhase7Plan} disabled={!phase7Plan?.plantIds?.length}>Replace Cart</Btn>
                 <Btn v="outline" onClick={addPhase7PlanToCart} disabled={!phase7Plan?.plantIds?.length}>Add To Cart</Btn>
                 <Btn v="ghost" onClick={downloadPhase7Plan}>Download Plan</Btn>
@@ -7955,7 +7979,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
        corrupted-data repair, startup diagnostics, and crash logs.
        This does NOT redesign the UI or remove existing systems.
     ══════════════════════════════════════════════════════════ */
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 7 AI Show Builder + Ollama API Gateway Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — Phase 7.1 AI Cost Guard + Show Builder Build 2026-05-09";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -9219,16 +9243,18 @@ Answer with a practical action plan for Leaf Diary.`;
       provider: "ollama-cloud", // Ollama Cloud API through secure gateway
       model: "gpt-oss:20b",
       fallbackMode: "ollama_then_local", // gateway_only, ollama_then_local, local_only
-      maxDailyRequests: 75,
-      maxMonthlyDollars: 0,
-      estimatedCostPerRequest: 0,
+      maxDailyRequests: 8,
+      maxMonthlyDollars: 5,
+      estimatedCostPerRequest: 0.02,
       timeoutMs: 30000,
-      sendInventoryLimit: 80,
+      sendInventoryLimit: 35,
       useOnMobile: true,
       useOnDesktop: true,
       preferGatewayOnMobile: true,
-      allowOwnerFinancialsToGateway: true,
-      logPromptsLocally: true,
+      requireManualCloudApproval: true,
+      disableAutoGatewayCalls: true,
+      allowOwnerFinancialsToGateway: false,
+      logPromptsLocally: false,
       requireOwnerForSetup: true,
       lastStatus: "not_tested"
     };
@@ -9246,6 +9272,8 @@ Answer with a practical action plan for Leaf Diary.`;
       next.useOnMobile = !!next.useOnMobile;
       next.useOnDesktop = !!next.useOnDesktop;
       next.preferGatewayOnMobile = !!next.preferGatewayOnMobile;
+      next.requireManualCloudApproval = next.requireManualCloudApproval !== false;
+      next.disableAutoGatewayCalls = next.disableAutoGatewayCalls !== false;
       next.allowOwnerFinancialsToGateway = !!next.allowOwnerFinancialsToGateway;
       next.logPromptsLocally = !!next.logPromptsLocally;
       next.maxDailyRequests = Math.max(1, +next.maxDailyRequests || PHASE61_DEFAULT_CONFIG.maxDailyRequests);
@@ -9302,6 +9330,22 @@ Answer with a practical action plan for Leaf Diary.`;
       if (usage.monthlyLimit > 0 && usage.monthlyCost + (+cfg.estimatedCostPerRequest || 0) > usage.monthlyLimit) return { ok:false, reason:`Monthly AI Gateway budget limit reached (${$(usage.monthlyCost)} / ${$(usage.monthlyLimit)}).`, usage };
       return { ok:true, usage };
     };
+    const phase61CostGuardMessage = cfg => cfg?.disableAutoGatewayCalls
+      ? "AI Cost Guard is ON: cloud AI runs only when you click a cloud AI button. Normal dashboards use local/free logic."
+      : "AI Cost Guard is OFF: routed AI tools may call the gateway automatically.";
+    const phase61CostSaverPreset = cfg => ({
+      ...safeObject(cfg),
+      enabled: true,
+      maxDailyRequests: 8,
+      maxMonthlyDollars: 5,
+      estimatedCostPerRequest: 0.02,
+      sendInventoryLimit: 35,
+      allowOwnerFinancialsToGateway: false,
+      logPromptsLocally: false,
+      requireManualCloudApproval: true,
+      disableAutoGatewayCalls: true,
+      fallbackMode: "ollama_then_local"
+    });
     function phase61BuildSafeBusinessPayload({ question = "", route = "executive", routeDef = {}, appData = {}, user = {}, model = "", extraPrompt = "" }) {
       const owner = user?.role === "owner";
       const cfg = phase61ReadConfig();
@@ -9382,6 +9426,7 @@ Answer with a practical action plan for Leaf Diary.`;
         setBusy(false);
       };
       const clearUsage = () => { phase61SaveUsage({ daily:{}, monthly:{}, calls:[] }); setAnswer("Gateway usage counters cleared on this device."); };
+      const activateCostSaver = () => { const next = phase61CostSaverPreset(draft); setDraft(next); const saved = phase61SaveConfig(next); setConfig && setConfig(saved); setAnswer("AI Cost Guard activated: cloud calls are manual-only, daily limit 8, monthly tracker $5, inventory payload capped at 35, owner financials redacted by default."); };
       const download = () => phase1DownloadJson(`leafdiary-phase61-ai-gateway-${today()}.json`, { appVersion:APP_VERSION, config:{ ...draft, secretToken:draft.secretToken ? "saved-token-hidden" : "" }, status, usage:phase61ReadUsage(), lastReport:testReport, generatedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", maxWidth:1080, margin:"0 auto" }}>
         <SHdr icon="🌐" title="Phase 6.1 Ollama API Gateway" sub="Mobile-first AI bridge: phone → secure endpoint → Ollama Cloud answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
@@ -9389,6 +9434,19 @@ Answer with a practical action plan for Leaf Diary.`;
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Ollama model: {draft.model} · Provider: {draft.provider}</div></div>
             <Row gap={8} wrap><Tag text={phase3IsMobileDevice() ? "Mobile detected" : "Desktop detected"} color={phase3IsMobileDevice() ? C.blue : C.g600} /><Tag text={`${usage.dailyCalls}/${usage.dailyLimit} today`} color={usage.dailyCalls >= usage.dailyLimit ? C.red : C.g600} /><Tag text={`${$(usage.monthlyCost)} est. month`} color={usage.monthlyCost >= usage.monthlyLimit && usage.monthlyLimit ? C.red : C.gold} /></Row>
+          </Row>
+        </Card>
+        <Card style={{ marginBottom:14, background:C.goldBg, border:`2px solid ${C.gold}` }}>
+          <Row between center wrap gap={10}>
+            <div>
+              <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>💵 AI Cost Guard</div>
+              <div style={{ fontSize:12, color:C.tx2, lineHeight:1.45 }}>{phase61CostGuardMessage(draft)}</div>
+              <div style={{ fontSize:11, color:C.tx3, marginTop:4 }}>Safe target: local/free logic first · manual cloud only · 8 calls/day · $5 monthly tracker · max 35 inventory items sent.</div>
+            </div>
+            <Row gap={8} wrap>
+              <Btn sz="sm" v="gold" onClick={activateCostSaver}>Activate Cost Saver</Btn>
+              <Btn sz="sm" v={draft.disableAutoGatewayCalls ? "soft" : "danger"} onClick={()=>setDraft(p=>({...p, disableAutoGatewayCalls:!p.disableAutoGatewayCalls, requireManualCloudApproval:!p.disableAutoGatewayCalls ? false : true}))}>{draft.disableAutoGatewayCalls ? "Manual Cloud ON" : "Auto Cloud ON"}</Btn>
+            </Row>
           </Row>
         </Card>
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.2fr) minmax(0,.8fr)", gap:14 }}>
@@ -9402,16 +9460,18 @@ Answer with a practical action plan for Leaf Diary.`;
                 <Inp label="Gateway Model" value={draft.model} onChange={v=>setDraft(p=>({...p, model:v}))} placeholder="gpt-oss:20b" />
                 <Sel label="Fallback" value={draft.fallbackMode} onChange={v=>setDraft(p=>({...p, fallbackMode:v}))} options={[{v:"ollama_then_local",l:"Gateway → Ollama → local"},{v:"local_only",l:"Gateway → local fallback"},{v:"gateway_only",l:"Gateway only test"}]} />
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:10 }}>
                 <Inp label="Daily AI Limit" type="number" value={draft.maxDailyRequests} onChange={v=>setDraft(p=>({...p, maxDailyRequests:v}))} />
                 <Inp label="Monthly Budget $" type="number" value={draft.maxMonthlyDollars} onChange={v=>setDraft(p=>({...p, maxMonthlyDollars:v}))} />
                 <Inp label="Est. Cost/Call $" type="number" value={draft.estimatedCostPerRequest} onChange={v=>setDraft(p=>({...p, estimatedCostPerRequest:v}))} />
+                <Inp label="Inventory Sent" type="number" value={draft.sendInventoryLimit} onChange={v=>setDraft(p=>({...p, sendInventoryLimit:v}))} />
                 <Inp label="Timeout MS" type="number" value={draft.timeoutMs} onChange={v=>setDraft(p=>({...p, timeoutMs:v}))} />
               </div>
               <Row gap={8} wrap>
                 <Btn v={draft.enabled ? "fill" : "outline"} onClick={()=>setDraft(p=>({...p, enabled:!p.enabled}))}>{draft.enabled ? "✅ Gateway Enabled" : "Enable Gateway"}</Btn>
                 <Btn v={draft.useOnMobile ? "soft" : "ghost"} onClick={()=>setDraft(p=>({...p, useOnMobile:!p.useOnMobile}))}>📱 {draft.useOnMobile ? "Mobile ON" : "Mobile OFF"}</Btn>
                 <Btn v={draft.useOnDesktop ? "soft" : "ghost"} onClick={()=>setDraft(p=>({...p, useOnDesktop:!p.useOnDesktop}))}>💻 {draft.useOnDesktop ? "Desktop ON" : "Desktop OFF"}</Btn>
+                <Btn v={draft.disableAutoGatewayCalls ? "soft" : "danger"} onClick={()=>setDraft(p=>({...p, disableAutoGatewayCalls:!p.disableAutoGatewayCalls}))}>💵 {draft.disableAutoGatewayCalls ? "Cloud Manual Only" : "Auto Cloud Allowed"}</Btn>
                 <Btn v={draft.allowOwnerFinancialsToGateway ? "gold" : "ghost"} onClick={()=>setDraft(p=>({...p, allowOwnerFinancialsToGateway:!p.allowOwnerFinancialsToGateway}))}>💵 {draft.allowOwnerFinancialsToGateway ? "Owner financials allowed" : "Financials redacted"}</Btn>
                 <Btn v="ghost" onClick={clearUsage}>Clear Usage</Btn>
               </Row>
@@ -9527,7 +9587,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const money = owner ? `Owner financial context: in-stock cost ${$(inStock.reduce((s,p)=>s+(+p.cost||0),0))}; in-stock sell value ${$(inStock.reduce((s,p)=>s+(+p.suggestedPrice||0),0))}; sold last 30 days ${sold30.length}.` : "Financial data is restricted for this user role.";
       return `You are Leaf Diary's AI Router. Route selected: ${routeDef.label || route}.\nUser role: ${user?.role || "employee"}.\nRules:\n- Use real plant IDs when available.\n- Recommend actions only; do not modify data.\n- Never reveal cost/profit/cash/payroll/tax data unless role is owner.\n- Keep the answer practical for a live-commerce plant business.\n\nBusiness snapshot:\nIn stock: ${inStock.length}\nSold last 30 days: ${sold30.length}\nMissing photos: ${noPhoto.length}\nAging 45+ days: ${aging45.length}\n${money}\n\nInventory sample:\n${safePlantLines || "No in-stock plants available."}\n\nQuestion: ${question}\n\nAnswer with: 1) direct answer, 2) exact next steps, 3) risks/warnings, 4) where in the app to go next.`;
     }
-    async function phase4RouteAI({ question, forcedRoute = "", appData = {}, user = {}, phase3Cfg = phase3ReadConfig(), phase4Cfg = phase4ReadRoutes(), extraPrompt = "" }) {
+    async function phase4RouteAI({ question, forcedRoute = "", appData = {}, user = {}, phase3Cfg = phase3ReadConfig(), phase4Cfg = phase4ReadRoutes(), extraPrompt = "", allowGateway = false }) {
       const route = forcedRoute || phase4DetectRoute(question);
       const routes = phase4RouteDefinitions(phase4Cfg);
       const routeDef = routes[route] || routes.fallback || PHASE4_DEFAULT_ROUTES.routes.fallback;
@@ -9537,7 +9597,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const prompt = phase4BuildRouterPrompt({ route, question, appData, user, routeDef });
       const system = `You are a routed specialist AI for Leaf Diary. Specialist route: ${routeDef.label || route}. Return useful, direct business advice with specific app actions.`;
       const gatewayCfg = phase61ReadConfig();
-      if (phase61ShouldUseGateway(gatewayCfg)) {
+      if (allowGateway && phase61ShouldUseGateway(gatewayCfg)) {
         const gw = await phase61CallGateway({ question, route, routeDef, appData, user, model: gatewayCfg.model || model, extraPrompt: extraPrompt || prompt, cfg: gatewayCfg });
         if (gw.ok) return phase4SaveReport({ ok:true, gateway:true, route, model:gw.model || gatewayCfg.model, question, answer:gw.answer, provider:gw.provider || gatewayCfg.provider, generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
         if (gatewayCfg.fallbackMode === "gateway_only") return phase4SaveReport({ ok:false, gateway:true, fallback:false, route, model:gatewayCfg.model, question, answer:`AI Gateway failed and gateway-only mode is on.
@@ -9545,6 +9605,7 @@ Answer with a practical action plan for Leaf Diary.`;
 ${gw.error || "Unknown gateway error"}`, error:gw.error, generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
       }
       try {
+        if (!allowGateway && gatewayCfg?.disableAutoGatewayCalls) throw new Error("Cloud AI skipped by AI Cost Guard");
         if (!phase3Cfg.enabled) throw new Error("Ollama disabled");
         const result = await phase3GenerateOllama({ prompt, system, model, cfg:phase3Cfg });
         return phase4SaveReport({ ok:true, route, model, question, answer:result.answer, generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
@@ -10382,6 +10443,7 @@ ${local.summary || "Fallback completed."}`;
             { id:"phase2", icon:"🧪", title:"Phase 2 Developer Safety", value:`${phase2Report?.score || 0}/100`, sub:"Diagnostics, smoke tests, rollback checkpoints.", color: phase2Report?.ok ? "#97d33e" : "#fb6392", border: phase2Report?.ok ? "rgba(151,211,62,.32)" : "rgba(251,99,146,.42)", actionLabel:"Open", onClick:()=>navigate("devtools") },
             { id:"phase3", icon:"🧠", title:"Phase 3 Ollama", value:`${phase3StatusLabel(phase3Status?.status || "not_tested")} · ${phase3Config?.primaryModel || "no model"}`, sub:"Local desktop AI connector.", color: phase3StatusColor(phase3Status?.status || "not_tested"), border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("ollama") },
             { id:"phase61", icon:"🌐", title:"Phase 6.1 AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Mobile Ollama API bridge for phone use.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
+            { id:"phase71", icon:"💵", title:"Phase 7.1 AI Cost Guard", value:`${phase61Config?.disableAutoGatewayCalls !== false ? "Manual cloud only" : "Auto cloud allowed"} · ${phase61Config?.maxDailyRequests || 0}/day · ${$(phase61Config?.maxMonthlyDollars || 0)} tracker`, sub:"Prevents surprise API usage. Local/free first; cloud only when approved.", color:C.gold, border:"rgba(176,125,16,.30)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
             { id:"phase7", icon:"🎪", title:"Phase 7 AI Show Builder", value:`${settings?.phase7LastShowPlan?.ok ? `${settings.phase7LastShowPlan.plantIds?.length || 0} plants planned` : "Ready to build"}`, sub:"AI show planner inside Show Builder. Review first, then export normally.", color:"#fb6392", border:"rgba(251,99,146,.30)", actionLabel:"Open", onClick:()=>navigate("showbuilder") },
             { id:"phase4", icon:"🧭", title:"Phase 4 AI Router", value:`${phase4Routes?.enabled ? "Enabled" : "Disabled"} · ${Object.keys(phase4RouteDefinitions(phase4Routes)).length} routes`, sub:"Routes each AI task to the right model.", color: phase4Routes?.enabled ? "#68d8ff" : "rgba(255,255,255,.55)", border:"rgba(104,216,255,.28)", actionLabel:"Open", onClick:()=>navigate("airouter") },
             { id:"phase5", icon:"💬", title:"Phase 5 Ask AI", value:"Router-connected · fallback protected", sub:"Business questions use gateway/router/fallback.", color:"#97d33e", border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("dataai") },
