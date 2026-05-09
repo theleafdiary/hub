@@ -611,16 +611,169 @@
     };
     const dHeld = d => d ? Math.floor((Date.now() - new Date(d)) / (864e5)) : null;
     const fDays = d => d === null ? "—" : d === 0 ? "Today" : d === 1 ? "1 day" : `${d}d`;
-    const platFee = (platform, price) => {
-      if (platform === "Palmstreet") return +(price * PS_FEE).toFixed(2);
-      if (platform === "Whatnot") return +(price * WN_FEE).toFixed(2);
-      if (platform === "Shopify") return +(price * SH_FEE + SH_FLAT).toFixed(2);
+    const platFee = (platform, price, settings = {}) => {
+      const p = +price || 0;
+      const fees = safeObject(settings.platformFees);
+      const platformText = String(platform || "").toLowerCase();
+      if (platformText.includes("palm")) return +(p * ((+fees.palmstreetPercent || 12) / 100)).toFixed(2);
+      if (platformText.includes("whatnot")) return +(p * ((+fees.whatnotPercent || 8) / 100)).toFixed(2);
+      if (platformText.includes("shopify")) return +(p * SH_FEE + SH_FLAT).toFixed(2);
+      if (platformText) return +(p * ((+fees.defaultPercent || 10) / 100)).toFixed(2);
       return 0;
     };
     const trueProfit = p => {
       const rev = +p.salePrice || +p.suggestedPrice || 0, cost = +p.cost || 0;
       return rev - cost - platFee(p.platform || "", rev) - (+p.shippingCost || 0);
     };
+
+
+    /* ══════════════════════════════════════════════════════════
+       PHASE 11 — PROFIT-PER-SLOT AI ENGINE
+       Capacity-aware profit math. Local/free first. Cloud AI is manual only.
+    ══════════════════════════════════════════════════════════ */
+    const phase11Settings = (settings = {}) => {
+      const baseCapacity = +settings.weeklyCapacity || 400;
+      const overrideOn = settings.weeklyCapacityOverrideEnabled === true;
+      const overrideCapacity = +settings.weeklyCapacityThisWeek || baseCapacity;
+      const effectiveCapacity = overrideOn ? Math.max(1, overrideCapacity) : Math.max(1, baseCapacity);
+      return {
+        baseWeeklyCapacity: baseCapacity,
+        weeklyCapacity: effectiveCapacity,
+        weeklyCapacityThisWeek: overrideCapacity,
+        weeklyCapacityOverrideEnabled: overrideOn,
+        weeklyCapacityNote: settings.weeklyCapacityNote || "",
+        targetPPS: +settings.targetPPS || 3.5,
+        avgShippingCost: +settings.avgShippingCost || 8,
+        phase11Enabled: settings.phase11Enabled !== false,
+        platformFees: { palmstreetPercent: 12, whatnotPercent: 8, defaultPercent: 10, freeShippingThreshold: 0, ...safeObject(settings.platformFees) },
+        ppsRatingThresholds: { A: 5, B: 3, C: 1.5, ...safeObject(settings.ppsRatingThresholds) }
+      };
+    };
+    function phase11DaysToSell(p) {
+      if (!p?.dateAdded || !plantSaleDate(p)) return Math.max(1, dHeld(p?.dateAdded) || 14);
+      const d = Math.round((new Date(plantSaleDate(p)) - new Date(p.dateAdded)) / 864e5);
+      return Math.max(1, Number.isFinite(d) ? d : 14);
+    }
+    function phase11TrueProfit(plant, settings = {}, platformOverride = "") {
+      const cfg = phase11Settings(settings);
+      const price = +plant.salePrice || +plant.suggestedPrice || +plant.listPrice || +plant.price || 0;
+      const cost = +plant.cost || 0;
+      const platform = platformOverride || plant.platform || "Palmstreet";
+      const fee = platFee(platform, price, cfg);
+      const shipping = +plant.shippingCost || +cfg.avgShippingCost || 0;
+      return Math.round((price - cost - fee - shipping) * 100) / 100;
+    }
+    function phase11RatePPS(pps, settings = {}) {
+      const t = phase11Settings(settings).ppsRatingThresholds;
+      const rating = pps >= (+t.A || 5) ? "A" : pps >= (+t.B || 3) ? "B" : pps >= (+t.C || 1.5) ? "C" : "D";
+      const color = rating === "A" ? C.g600 : rating === "B" ? C.gold : rating === "C" ? C.amber : C.red;
+      return { rating, color };
+    }
+    function calcPPS(plant, settings = {}) {
+      const profit = Math.max(0, phase11TrueProfit(plant, settings));
+      const days = Math.max(1, phase11DaysToSell(plant));
+      const pps = Math.round((profit / days) * 100) / 100;
+      return { pps, profit, days, projected:false, ...phase11RatePPS(pps, settings) };
+    }
+    function phase11AvgDaysForGenus(name, allPlants = []) {
+      const genus = gOf(name);
+      const soldSame = safeArray(allPlants).filter(p => p.status === "Sold" && gOf(p.name) === genus && p.dateAdded && plantSaleDate(p));
+      if (!soldSame.length) return 14;
+      const avg = soldSame.reduce((s,p)=>s+phase11DaysToSell(p),0) / soldSame.length;
+      return Math.max(1, Math.round(avg));
+    }
+    function calcProjectedPPS(plant, allPlants = [], settings = {}) {
+      const profit = Math.max(0, phase11TrueProfit(plant, settings));
+      const avgDays = phase11AvgDaysForGenus(plant?.name, allPlants);
+      const pps = Math.round((profit / avgDays) * 100) / 100;
+      return { pps, profit, avgDays, projected:true, ...phase11RatePPS(pps, settings) };
+    }
+    function calcNurseryBuyQuality(nursery, allPlants = [], settings = {}) {
+      const sold = safeArray(allPlants).filter(p => (p.nurseryCode === nursery.code || p.nurseryName === nursery.name) && p.status === "Sold");
+      if (!sold.length) return { score:null, avgPPS:0, plantsSold:0, label:"No sales data yet", color:C.tx3 };
+      const avgPPS = sold.reduce((s,p)=>s+calcPPS(p, settings).pps,0) / sold.length;
+      return { avgPPS:Math.round(avgPPS*100)/100, plantsSold:sold.length, score:Math.round(avgPPS*100)/100,
+        label: avgPPS >= 4 ? "⭐ High ROI Nursery" : avgPPS >= 2.5 ? "✅ Good Nursery" : avgPPS >= 1.5 ? "⚠️ Average — buy carefully" : "🔴 Low ROI — reconsider buying here",
+        color: avgPPS >= 4 ? C.g600 : avgPPS >= 2.5 ? C.gold : avgPPS >= 1.5 ? C.amber : C.red };
+    }
+    function calcPlatformBias(plant, allPlants = [], settings = {}) {
+      const genus = gOf(plant?.name);
+      const same = safeArray(allPlants).filter(p => p.status === "Sold" && gOf(p.name) === genus);
+      const palm = same.filter(p => String(p.platform||"").toLowerCase().includes("palm"));
+      const what = same.filter(p => String(p.platform||"").toLowerCase().includes("whatnot"));
+      const avg = arr => arr.length ? arr.reduce((s,p)=>s+phase11TrueProfit(p, settings),0) / arr.length : 0;
+      const palmAvg = avg(palm), whatAvg = avg(what);
+      const price = +plant.suggestedPrice || +plant.listPrice || +plant.price || 0;
+      if (whatAvg > palmAvg && palmAvg > 0) return { platform:"Whatnot", avgProfit:Math.round(whatAvg*100)/100, reason:`Same-genus history is about ${$(whatAvg - palmAvg)} more profit on Whatnot.` };
+      if (palmAvg > whatAvg && whatAvg > 0) return { platform:"Palmstreet", avgProfit:Math.round(palmAvg*100)/100, reason:`Same-genus history is about ${$(palmAvg - whatAvg)} more profit on Palmstreet.` };
+      if (price >= 50) return { platform:"Palmstreet", avgProfit:0, reason:"Premium/collector price point — better browse and story fit." };
+      if (price <= 30) return { platform:"Whatnot", avgProfit:0, reason:"Lower-ticket fast mover — auction urgency can help sell-through." };
+      return { platform:"Either", avgProfit:0, reason:"No clear platform winner yet." };
+    }
+    function suggestPriceFromPPS(name, cost, settings = {}, allPlants = []) {
+      const cfg = phase11Settings(settings);
+      const genus = gOf(name);
+      const soldSame = safeArray(allPlants).filter(p => p.status === "Sold" && gOf(p.name) === genus && p.dateAdded && plantSaleDate(p));
+      const avgDays = soldSame.length >= 2 ? Math.max(1, Math.round(soldSame.reduce((s,p)=>s+phase11DaysToSell(p),0) / soldSame.length)) : 14;
+      const requiredProfit = (+cfg.targetPPS || 3.5) * avgDays;
+      const feePct = (+cfg.platformFees.defaultPercent || 10) / 100;
+      const suggestedPrice = Math.ceil(((+cost || 0) + requiredProfit + (+cfg.avgShippingCost || 0)) / Math.max(.5, 1 - feePct));
+      const margin = suggestedPrice > 0 ? Math.round(((suggestedPrice - (+cost || 0)) / suggestedPrice) * 100) : 0;
+      return { suggestedPrice, margin, avgDays, requiredProfit:Math.round(requiredProfit*100)/100, genus, hasHistory:soldSame.length>=2, note:soldSame.length>=2 ? `Based on ${soldSame.length} past ${genus} sales, avg ${avgDays} days to sell.` : `No strong ${genus} sales history — using 14-day default.` };
+    }
+    function phase11SlotMetrics(appData = {}, settings = {}) {
+      const cfg = phase11Settings(settings), plants = safeArray(appData.plants);
+      const inStock = plants.filter(p => p.status === "In Stock"), sold = plants.filter(p => p.status === "Sold");
+      const sold7 = sold.filter(p => dateInLast(plantSaleDate(p), 7));
+      const weekProfit = sold7.reduce((s,p)=>s+phase11TrueProfit(p, cfg),0);
+      const weekSlotValue = sold7.length ? weekProfit / sold7.length : 0;
+      const targetProfitPerPlant = (+cfg.targetPPS || 3.5) * 14;
+      const slotsUsed = sold7.length;
+      const slotsRemaining = Math.max(0, (+cfg.weeklyCapacity || 400) - slotsUsed);
+      const stockPressure = inStock.length / Math.max(1, +cfg.weeklyCapacity || 400);
+      const ppsGap = targetProfitPerPlant - weekSlotValue;
+      return { capacity:+cfg.weeklyCapacity || 400, inStock:inStock.length, slotsUsed, slotsRemaining, stockPressure, sold7:sold7.length, weekProfit, weekSlotValue:Math.round(weekSlotValue*100)/100, targetProfitPerPlant:Math.round(targetProfitPerPlant*100)/100, targetPPS:+cfg.targetPPS || 3.5, ppsGap:Math.round(ppsGap*100)/100 };
+    }
+    function phase11BuildBuyingPlan(appData = {}, settings = {}) {
+      const cfg = phase11Settings(settings), plants = safeArray(appData.plants), bills = safeArray(appData.bills), timecards = safeArray(appData.timecards);
+      const bank = +settings.currentBankBalance || 0;
+      const inStock = plants.filter(p => p.status === "In Stock");
+      const slot = phase11SlotMetrics(appData, settings);
+      const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
+      const payroll7 = timecards.filter(t => dateInLast(t.date || t.clockIn, 7)).reduce((s,t)=>s+(+t.totalPay||+t.pay||0),0);
+      const reserve = due14 + payroll7 + (((+settings.cashSafetyBuffer || 15) / 100) * bank);
+      const safeSpend = Math.max(0, bank - reserve);
+      const genus = {};
+      plants.filter(p => p.status === "Sold").forEach(p => { const g=gOf(p.name); genus[g]=genus[g]||{genus:g,sold:0,profit:0,days:0}; const pps=calcPPS(p, settings); genus[g].sold++; genus[g].profit += pps.profit; genus[g].days += pps.days; });
+      const topGenera = Object.values(genus).map(g => ({ ...g, avgProfit:g.sold?g.profit/g.sold:0, avgDays:g.sold?Math.max(1,Math.round(g.days/g.sold)):14, pps:g.sold?Math.round(((g.profit/g.sold)/(g.days/g.sold))*100)/100:0 })).filter(g=>g.sold>=2).sort((a,b)=>b.pps-a.pps).slice(0,8);
+      const avgSalePrice = inStock.length ? inStock.reduce((s,p)=>s+(+p.suggestedPrice||0),0)/inStock.length : 25;
+      const minAcceptableProfit = (+cfg.targetPPS || 3.5) * 14;
+      const minMarginPct = avgSalePrice ? Math.round((minAcceptableProfit / avgSalePrice) * 100) : 55;
+      return { capacity:slot.capacity, slotsRemaining:slot.slotsRemaining, stockPressure:slot.stockPressure, safeSpend, reserve, due14, payroll7, topGenera, minMarginPct, minAcceptableProfit:Math.round(minAcceptableProfit*100)/100, targetPPS:cfg.targetPPS, projectedWeeklyProfit:Math.round(Math.min(slot.slotsRemaining, slot.capacity) * minAcceptableProfit), avgSalePrice:Math.round(avgSalePrice*100)/100, buyDecision: safeSpend < 100 ? "Do not buy today — cash is tight" : safeSpend < 300 ? `Spend up to ${$(safeSpend)} only on proven A/B genera` : `Safe buy budget: ${$(safeSpend)} — buy only plants that can hit target PPS` };
+    }
+    function phase11RankPlants(plants = [], settings = {}) {
+      return safeArray(plants).filter(p=>p.status === "In Stock").map(p => ({ plant:p, pps:calcProjectedPPS(p, plants, settings), platform:calcPlatformBias(p, plants, settings), price:+p.suggestedPrice||+p.listPrice||+p.price||0, daysHeld:dHeld(p.dateAdded)||0 })).sort((a,b)=>b.pps.pps-a.pps.pps);
+    }
+    function phase11BuildShowSequence(plants = [], settings = {}, platform = "Palmstreet", count = 60) {
+      const ranked = phase11RankPlants(plants, settings).filter(r => r.price > 0 && (r.plant.photoUrl || r.plant.photoBase64 || r.pps.rating === "A" || r.pps.rating === "B"));
+      const premium = ranked.filter(r => r.price >= 50 && ["A","B"].includes(r.pps.rating)).slice(0,3);
+      const fast = ranked.filter(r => !premium.includes(r) && ["A","B"].includes(r.pps.rating)).slice(0, Math.max(8, Math.round(count*.45)));
+      const aging = ranked.filter(r => !premium.includes(r) && !fast.includes(r) && r.daysHeld >= 45).slice(0, Math.round(count*.30));
+      const closers = ranked.filter(r => !premium.includes(r) && !fast.includes(r) && !aging.includes(r)).slice(0, Math.max(3, count - premium.length - fast.length - aging.length));
+      const sequence = [...premium, ...fast, ...aging, ...closers].slice(0,count).map((r,i)=>({ ...r, position:i+1, presenter: platform === "Whatnot" || (r.price <= 30 && r.platform.platform === "Whatnot") ? "Employee / Whatnot" : "Owner / Palmstreet" }));
+      const ratingCounts = sequence.reduce((m,r)=>{ m[r.pps.rating]=(m[r.pps.rating]||0)+1; return m; },{});
+      const dPct = sequence.length ? Math.round(((ratingCounts.D||0)/sequence.length)*100) : 0;
+      return { sequence, ratingCounts, dPct, totalValue:sequence.reduce((s,r)=>s+r.price,0), trueProfit:sequence.reduce((s,r)=>s+r.pps.profit,0), avgPPS:sequence.length ? Math.round((sequence.reduce((s,r)=>s+r.pps.pps,0)/sequence.length)*100)/100 : 0, health:dPct > 30 ? "Warning: too many D-rated low-PPS plants" : "Healthy sequence" };
+    }
+    function phase11BuildTrajectory(plants = [], settings = {}) {
+      const weeks = Array.from({length:8}, (_,i)=>{ const start = new Date(); start.setDate(start.getDate() - (7*(7-i))); start.setHours(0,0,0,0); const end = new Date(start); end.setDate(start.getDate()+7); return { start, end, label:`${start.getMonth()+1}/${start.getDate()}` }; });
+      return weeks.map(w => { const sold = safeArray(plants).filter(p => p.status === "Sold" && plantSaleDate(p) && new Date(plantSaleDate(p)) >= w.start && new Date(plantSaleDate(p)) < w.end); const profit = sold.reduce((s,p)=>s+phase11TrueProfit(p, settings),0); const pps = sold.length ? sold.reduce((s,p)=>s+calcPPS(p, settings).pps,0) / sold.length : 0; return { ...w, sold:sold.length, profit:Math.round(profit), pps:Math.round(pps*100)/100, utilization:Math.round((sold.length / Math.max(1, +phase11Settings(settings).weeklyCapacity || 400))*100) }; });
+    }
+    function phase11BuildRoleTasks(appData = {}, settings = {}) {
+      const plants=safeArray(appData.plants), inStock=plants.filter(p=>p.status==="In Stock");
+      const ranked=phase11RankPlants(plants, settings), noPhoto=ranked.filter(r=>!(r.plant.photoUrl||r.plant.photoBase64)), needsLabel=inStock.filter(p=>!p.labelPrinted), aging60=ranked.filter(r=>r.daysHeld>=60), premium=ranked.filter(r=>r.price>=50).slice(0,5), lowD=ranked.filter(r=>r.pps.rating==="D");
+      return { owner:[{title:"Review low-PPS plants", body:`${lowD.length} in-stock plants are D-rated. Raise price, move to clearance, or stop buying that type.`, page:"slotprofit"},{title:"Build Palmstreet anchors", body: premium.length ? `Start with ${premium.slice(0,3).map(r=>r.plant.name).join(", ")}.` : "No premium anchors found; add photos/prices to high-value inventory.", page:"showbuilder"}], employee:[{title:`Photo priority list`, body:noPhoto.length ? `Photograph highest PPS first: ${noPhoto.slice(0,5).map(r=>r.plant.plantId || r.plant.name).join(", ")}.` : "Photo queue is clean.", page:"inv"},{title:"Build Whatnot queue", body:"Pull B-rated and better plants under $50 for fast auction energy.", page:"showbuilder"}], operations:[{title:`Print ${needsLabel.length} labels`, body:needsLabel.length ? "Print labels before staging plants for shows." : "Label queue is clean.", page:"labels"},{title:"Stage aging plants", body:aging60.length ? `Pull ${Math.min(20,aging60.length)} oldest plants for owner clearance review.` : "No urgent 60+ day aging stage list.", page:"discounts"}] };
+    }
     const estIncomeTax = net => {
       if (net <= 0) return 0;
       let tax = 0, prev = 0;
@@ -1012,6 +1165,7 @@
       { id:"aihub", icon:"🤖", l:"AI Center", group:"Today", roles:["owner","manager","employee"] },
       { id:"dataai", icon:"💬", l:"Ask Business AI", group:"Today", roles:["owner","manager","employee"] },
       { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Today", roles:["owner"] },
+      { id:"slotprofit", icon:"📦", l:"Profit-Per-Slot", group:"Today", roles:["owner"] },
       { id:"overnight", icon:"🌅", l:"Morning Briefing", group:"Today", roles:["owner"] },
       { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Today", roles:["employee"] },
       { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
@@ -1059,7 +1213,7 @@
 
     const ROOT_PAGES = ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
-      today:"today", dash:"today", command:"today", execai:"today", aihub:"today", dataai:"today", cashflow:"today", overnight:"today", emp_dash:"today",
+      today:"today", dash:"today", command:"today", execai:"today", aihub:"today", dataai:"today", cashflow:"today", slotprofit:"today", overnight:"today", emp_dash:"today",
       plants_ws:"plants_ws", inv:"plants_ws", manual:"plants_ws", upload:"plants_ws", invoicetrainer:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
       shows_ws:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", showimport:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
       orders_ws:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
@@ -1113,6 +1267,7 @@
         { id:"overnight", icon:"🌅", title:"Morning Briefing", sub:"What to do first today" },
         { id:"dataai", icon:"💬", title:"Ask Business AI", sub:"Ask questions about the business" },
         { id:"showbuilder", icon:"🎪", title:"Build AI Show", sub:"Plan Whatnot / Palmstreet" },
+        { id:"slotprofit", icon:"📦", title:"Profit Per Slot", sub:"400-slot profit engine" },
         { id:"receipts", icon:"🧾", title:"Receipt AI", sub:"Scan receipts and bills" },
         { id:"cashflow", icon:"💵", title:"Financial Forecast", sub:"Cash, bills, safe spend" },
         { id:"upload", icon:"📸", title:"Upload Plant Invoice", sub:"Add plant purchases" }
@@ -1276,7 +1431,7 @@
           </div>
         </div>}
 
-        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const active = page === id || (id === "today" && ["dash","command","execai","aihub","cashflow","overnight","emp_dash"].includes(page)) || (id === "plants_ws" && ["inv","manual","upload","invoicetrainer","labels","care","locations","sellthru"].includes(page)) || (id === "shows_ws" && ["showbuilder","liveshow","showimport","bundles","discounts","social","content"].includes(page)) || (id === "orders_ws" && ["ship","customers","retention","refunds","casd"].includes(page)) || (id === "money_ws" && ["expense","receipts","bills","timecard","payroll","tax","goals","commissions"].includes(page)); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
+        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const active = page === id || (id === "today" && ["dash","command","execai","aihub","cashflow","slotprofit","overnight","emp_dash"].includes(page)) || (id === "plants_ws" && ["inv","manual","upload","invoicetrainer","labels","care","locations","sellthru"].includes(page)) || (id === "shows_ws" && ["showbuilder","liveshow","showimport","bundles","discounts","social","content"].includes(page)) || (id === "orders_ws" && ["ship","customers","retention","refunds","casd"].includes(page)) || (id === "money_ws" && ["expense","receipts","bills","timecard","payroll","tax","goals","commissions"].includes(page)); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
         <style>{`body{margin:0}.pg-pad{padding:14px 14px 96px!important}.ld-workspace-card{transition:transform .12s ease, box-shadow .12s ease}.ld-workspace-card:active{transform:scale(.985)}.ld-ai-status-open{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;text-align:center!important}.ld-clean-ai-grid button{white-space:normal!important;word-break:normal!important;overflow-wrap:anywhere!important}.ld-ai-status-open *{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}@media(max-width:760px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}.ld-ai-status-open{font-size:8px!important;min-width:38px!important;padding:6px 6px!important;}}@media(max-width:380px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </>;
     }
@@ -1336,7 +1491,7 @@
       const open = id => canOpen(id) && setPage(id);
       const pack = {
         today:{ icon:"🏠", title:"Today", sub:"Your simple daily operating screen.", hero:"What needs attention now", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["Sold Groups",readyOrders.length,"from platforms"],["No Photos",noPhoto.length,"fix before show"],["Month Sales",$(monthSales),"sold this month"]], sections:[
-          { title:"Start Here", items:[["Executive AI","execai","🧠","CEO-style decisions and simulations"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Plant Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
+          { title:"Start Here", items:[["Executive AI","execai","🧠","CEO-style decisions and simulations"],["Profit Per Slot","slotprofit","📦","Rank plants by weekly slot profit"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Plant Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
           { title:"Common Tasks", items:[["Add Plant","manual","✏️","Manual inventory entry"],["Scan Receipt","receipts","🧾","Save expense receipt"],["Import Show","showimport","📥","Whatnot/Palmstreet sales"],["Social Post","social","📣","Turn plant photos into posts"]] }
         ]},
         plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything inventory in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
@@ -1352,11 +1507,11 @@
           { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["State Doc Reminders","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
         ]},
         money_ws:{ icon:"💵", title:"Money", sub:"Owner financials, receipts, payroll and taxes.", hero:"Know your cash before buying more", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
-          { title:"Daily Money", items:[["Cash Flow","cashflow","💵","Can you spend?"],["Morning Briefing","overnight","🌅","Daily money and task plan"],["Expenses","expense","💳","Business spending"],["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Due dates"]] },
+          { title:"Daily Money", items:[["Cash Flow","cashflow","💵","Can you spend?"],["Profit Per Slot","slotprofit","📦","Max profit from 400 weekly slots"],["Morning Briefing","overnight","🌅","Daily money and task plan"],["Expenses","expense","💳","Business spending"],["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Due dates"]] },
           { title:"Pay + Tax", items:[["Timecard","timecard","⏱️","Hours"],["Payroll","payroll","👥","Pay employees"],["Commissions","commissions","🤝","Show commissions"],["Tax Center","tax","🧾","Tax-ready totals"]] }
         ]},
         admin_ws:{ icon:"⚙️", title:"Admin", sub:"Owner settings and security.", hero:"Control the app without cluttering daily work", color:"#b695ff", kpis:[["Users","👥","roles"],["Audit","🔍","history"],["Backups","💾","safety"],["Settings","⚙️","system"]], sections:[
-          { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Data Cleanup","cleanup","🧹","Fix duplicates/issues"],["Phase 2 Test Console","devtools","🧪","Diagnostics and safe tests"],["Ollama AI Connector","ollama","🧠","Local AI model settings"],["AI Gateway","aigateway","🌐","Mobile AI API bridge"],["AI Router","airouter","🧭","Route each AI task to the right model"],["Executive AI","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Phase 10 daily automation"],["Reports","reports","📈","Business reports"]] },
+          { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Data Cleanup","cleanup","🧹","Fix duplicates/issues"],["Phase 2 Test Console","devtools","🧪","Diagnostics and safe tests"],["Ollama AI Connector","ollama","🧠","Local AI model settings"],["AI Gateway","aigateway","🌐","Mobile AI API bridge"],["AI Router","airouter","🧭","Route each AI task to the right model"],["Executive AI","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Phase 10 daily automation"],["Reports","reports","📈","Business reports"],["Profit Per Slot","slotprofit","📦","Capacity and PPS engine"]] },
           { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Purchase Intake Trainer","invoicetrainer","🧾","Invoice training rules"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
         ]}
       }[type || "today"];
@@ -1792,6 +1947,134 @@
             actions:<button onClick={()=>deleteRule(r.id)} style={{ background:"transparent", color:C.red, border:"none", cursor:"pointer", fontWeight:900 }}>Delete</button>
           }))} empty="No training rules yet." />
         </Card>
+      </div>;
+    }
+
+
+    function Phase11ProfitSlotEngine({ appData = {}, settings, setSettings, user, addAudit, setPage }) {
+      const [tab, setTab] = useState("overview");
+      const [cloudAnswer, setCloudAnswer] = useState("");
+      const [busy, setBusy] = useState(false);
+      const plants = safeArray(appData.plants), nurseries = safeArray(appData.nurseries);
+      const cfg = phase11Settings(settings);
+      const slot = phase11SlotMetrics(appData, settings);
+      const buying = phase11BuildBuyingPlan(appData, settings);
+      const ranked = phase11RankPlants(plants, settings);
+      const showSeq = phase11BuildShowSequence(plants, settings, "Palmstreet", 60);
+      const trajectory = phase11BuildTrajectory(plants, settings);
+      const tasks = phase11BuildRoleTasks(appData, settings);
+      const topNurseries = nurseries.map(n => ({ nursery:n, quality:calcNurseryBuyQuality(n, plants, settings) })).sort((a,b)=>(b.quality.avgPPS||0)-(a.quality.avgPPS||0)).slice(0,8);
+      const topGenusTargets = Object.values(plants.reduce((m,p)=>{ const g=gOf(p.name); m[g]=m[g]||{ genus:g, costs:[], sold:0 }; if(+p.cost) m[g].costs.push(+p.cost); if(p.status==="Sold") m[g].sold++; return m; },{})).map(g=>{ const avgCost=g.costs.length?g.costs.reduce((a,b)=>a+b,0)/g.costs.length:8; return { ...g, avgCost:Math.round(avgCost*100)/100, target:suggestPriceFromPPS(g.genus, avgCost, settings, plants) }; }).sort((a,b)=>b.sold-a.sold).slice(0,10);
+      const update = patch => setSettings(prev => ({ ...prev, ...patch }));
+      const updateFees = patch => setSettings(prev => ({ ...prev, platformFees:{ ...safeObject(prev.platformFees), ...patch } }));
+      const setThisWeekCapacity = (capacity, note = "") => {
+        const cleanCapacity = Math.max(1, Math.round(+capacity || cfg.baseWeeklyCapacity || 400));
+        update({
+          weeklyCapacityOverrideEnabled: true,
+          weeklyCapacityThisWeek: cleanCapacity,
+          weeklyCapacityNote: note || `This week set to ${cleanCapacity} packing slots`,
+          weeklyCapacityUpdatedAt: new Date().toISOString(),
+          weeklyCapacityUpdatedBy: user?.name || "Owner"
+        });
+        addAudit && addAudit({ action:`Phase 11 weekly capacity changed to ${cleanCapacity} slots`, page:"Profit Per Slot", user:user?.name || "Owner" });
+      };
+      const clearThisWeekCapacity = () => {
+        update({ weeklyCapacityOverrideEnabled:false, weeklyCapacityThisWeek:cfg.baseWeeklyCapacity || 400, weeklyCapacityNote:"", weeklyCapacityUpdatedAt:new Date().toISOString(), weeklyCapacityUpdatedBy:user?.name || "Owner" });
+        addAudit && addAudit({ action:`Phase 11 weekly capacity override cleared`, page:"Profit Per Slot", user:user?.name || "Owner" });
+      };
+      const download = () => phase1DownloadJson(`leafdiary-phase11-profit-per-slot-${today()}.json`, { appVersion:APP_VERSION, settings:cfg, slot, buying, showSequence:showSeq, trajectory, topPlants:ranked.slice(0,40).map(r=>({ plantId:r.plant.plantId, name:r.plant.name, price:r.price, projectedPPS:r.pps, platform:r.platform })), exportedAt:new Date().toISOString() });
+      const runCloudCoach = async () => {
+        if (!confirm("This uses your Ollama Cloud API through the cost guard. Continue with one manual Phase 11 coach call?")) return;
+        setBusy(true); setCloudAnswer("Thinking with Ollama Cloud...");
+        const summary = { slot, buying, trajectory:trajectory.slice(-4), topPlants:ranked.slice(0,20).map(r=>({ id:r.plant.plantId, name:r.plant.name, pps:r.pps.pps, rating:r.pps.rating, price:r.price, platform:r.platform.platform })) };
+        try {
+          const report = await phase61CallGateway({ route:"finance", routeDef:{ label:"Phase 11 Profit-Per-Slot Coach", task:"phase11_profit_slot", financials:"owner_only" }, appData, user, question:"Give Leaf Diary the highest-impact actions to improve profit-per-slot this week without increasing staff.", extraPrompt:JSON.stringify(summary).slice(0,6500) });
+          setCloudAnswer(report.answer || report.error || "No answer returned.");
+          addAudit && addAudit({ action:"Ran Phase 11 cloud coach", page:"Profit Per Slot", user:user?.name || "Owner" });
+        } catch(e) { setCloudAnswer(e?.message || String(e)); }
+        setBusy(false);
+      };
+      const Tab = ({ id, children }) => <button onClick={()=>setTab(id)} style={{ background:tab===id?"#000":C.card, color:tab===id?"#97d33e":C.tx2, border:`1.5px solid ${tab===id?"#97d33e":C.bd}`, borderRadius:999, padding:"9px 12px", fontWeight:900, cursor:"pointer", fontFamily:F.body, fontSize:12 }}>{children}</button>;
+      const PpsBadge = ({ score }) => <span style={{ display:"inline-flex", alignItems:"center", gap:5, background:score.color+"18", color:score.color, border:`1px solid ${score.color}40`, borderRadius:999, padding:"3px 8px", fontSize:11, fontWeight:900, whiteSpace:"nowrap" }}>{score.rating} · ${score.pps}/d</span>;
+      const TaskCard = ({ title, items }) => <Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:18, color:C.g900, marginBottom:10 }}>{title}</div>{items.map((t,i)=><div key={i} style={{ padding:"9px 0", borderTop:i?`1px solid ${C.bdS}`:"none" }}><Row between gap={8} center><div><b>{t.title}</b><div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>{t.body}</div></div><Btn sz="sm" v="ghost" onClick={()=>setPage && setPage(t.page)}>Open</Btn></Row></div>)}<Btn sz="sm" v="soft" style={{ marginTop:8 }} onClick={()=>navigator.clipboard && navigator.clipboard.writeText(items.map(t=>`${t.title}: ${t.body}`).join("\n"))}>Copy Tasks</Btn></Card>;
+      return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="📦" title="Phase 11 Profit-Per-Slot AI Engine" sub="Squeeze maximum profit from every weekly packing slot." right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={download}>Download Report</Btn><Btn sz="sm" onClick={runCloudCoach} disabled={busy}>☁️ Cloud Coach</Btn></Row>} />
+        <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e", marginBottom:14 }}><Row between wrap center gap={12}><div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:26, fontWeight:900 }}>{slot.capacity} slots · best plant · best platform · best order</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)", marginTop:4, lineHeight:1.45 }}>Phase 11 uses local math first. Paid Ollama Cloud only runs when you click Cloud Coach and approve the cost guard. Owner can change this week’s packing capacity anytime.</div></div><Tag text={cfg.weeklyCapacityOverrideEnabled ? "This-week override ON" : "Owner-only"} color="#97d33e" /></Row></Card>
+        <Card style={{ marginBottom:14, background:cfg.weeklyCapacityOverrideEnabled ? C.goldBg : C.g50, border:`1px solid ${cfg.weeklyCapacityOverrideEnabled ? C.gold : C.g300}55` }}>
+          <Row between wrap center gap={12}>
+            <div>
+              <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>📦 This Week Capacity Control</div>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Use this when someone is out, you hire help, or you want to push harder for one week. Base capacity: <b>{cfg.baseWeeklyCapacity}</b>. Active this week: <b>{slot.capacity}</b>.</div>
+              {cfg.weeklyCapacityNote && <div style={{ fontSize:11, color:C.tx3, marginTop:4 }}>Note: {cfg.weeklyCapacityNote}</div>}
+            </div>
+            <Row gap={7} wrap center>
+              <Btn sz="sm" v={slot.capacity===250?"gold":"ghost"} onClick={()=>setThisWeekCapacity(250, "Short-staffed week / slower packing capacity")}>Short Staff 250</Btn>
+              <Btn sz="sm" v={slot.capacity===300?"gold":"ghost"} onClick={()=>setThisWeekCapacity(300, "Reduced capacity week")}>Reduced 300</Btn>
+              <Btn sz="sm" v={!cfg.weeklyCapacityOverrideEnabled?"soft":"ghost"} onClick={clearThisWeekCapacity}>Normal {cfg.baseWeeklyCapacity}</Btn>
+              <Btn sz="sm" v={slot.capacity===500?"gold":"ghost"} onClick={()=>setThisWeekCapacity(500, "Growth week / extra packing help")}>Growth 500</Btn>
+              <Btn sz="sm" onClick={()=>setTab("settings")}>Custom Settings</Btn>
+            </Row>
+          </Row>
+        </Card>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:10, marginBottom:14 }}>
+          <KPI label="Weekly Capacity" value={slot.capacity} sub="packing slots" color={C.g600} />
+          <KPI label="Sold This Week" value={slot.slotsUsed} sub={`${slot.slotsRemaining} slots left`} color={C.blue} />
+          <KPI label="In Stock" value={slot.inStock} sub={`${Math.round(slot.stockPressure*100)}% of capacity`} color={slot.stockPressure>.9?C.red:C.gold} />
+          <KPI label="Week Profit/Plant" value={$(slot.weekSlotValue)} sub="true profit avg" color={slot.ppsGap>0?C.amber:C.g600} />
+          <KPI label="Target/Plant" value={$(slot.targetProfitPerPlant)} sub={`${slot.targetPPS}/day × 14d`} color={C.g700} />
+        </div>
+        <Card style={{ marginBottom:14 }}><Row gap={8} wrap>{[ ["overview","Overview"],["buying","Buying"],["platform","Platform Split"],["show","Show Sequence"],["trajectory","Trajectory"],["tasks","Delegation"],["targets","Price Targets"],["settings","Settings"] ].map(([id,l])=><Tab key={id} id={id}>{l}</Tab>)}</Row></Card>
+        {tab === "overview" && <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.25fr) minmax(0,.75fr)", gap:14 }}>
+          <Card><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:10 }}>Best Profit-Per-Slot Plants</div><Tbl cols={[{k:"rank",l:"#"},{k:"plant",l:"Plant"},{k:"price",l:"Price",right:true},{k:"pps",l:"Projected PPS"},{k:"platform",l:"Best Platform"}]} rows={ranked.slice(0,15).map((r,i)=>({ rank:i+1, plant:<div><b>{r.plant.plantId||""}</b> {r.plant.name}<div style={{ fontSize:10, color:C.tx3 }}>{r.plant.potSize||""} · held {fDays(r.daysHeld)}</div></div>, price:$(r.price), pps:<PpsBadge score={r.pps}/>, platform:<Tag text={r.platform.platform||"Either"} color={r.platform.platform==="Whatnot"?C.blue:C.g600} sm/> }))} /></Card>
+          <Card><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:10 }}>Slot Warnings</div>{slot.stockPressure >= .9 && <div style={{ background:C.redBg, border:`1px solid ${C.red}40`, borderRadius:12, padding:12, marginBottom:9 }}><b>Inventory is near packing capacity.</b><div style={{ fontSize:12, color:C.tx3 }}>Sell first. Do not buy more unless it is A-rated.</div></div>}{ranked.filter(r=>r.pps.rating==="D").slice(0,6).map(r=><div key={r.plant.id} style={{ padding:"8px 0", borderTop:`1px solid ${C.bdS}` }}><Row between center gap={8}><div><b>{r.plant.plantId}</b> {r.plant.name}<div style={{ fontSize:11, color:C.tx3 }}>{r.platform.reason}</div></div><PpsBadge score={r.pps}/></Row></div>)}{!ranked.filter(r=>r.pps.rating==="D").length && <p style={{ color:C.tx3 }}>No D-rated plants found in current stock.</p>}</Card>
+        </div>}
+        {tab === "buying" && <div style={{ display:"grid", gridTemplateColumns:"minmax(0,.8fr) minmax(0,1.2fr)", gap:14 }}>
+          <Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900 }}>Pre-Trip Buying Plan</div><div style={{ marginTop:10, display:"grid", gap:8 }}><KPI label="Safe Spend" value={$(buying.safeSpend)} sub={`Reserve ${$(buying.reserve)}`} color={buying.safeSpend<100?C.red:C.g600}/><KPI label="Minimum Profit Needed" value={$(buying.minAcceptableProfit)} sub={`Target ${buying.targetPPS}/day`} color={C.gold}/><KPI label="Minimum Margin" value={`${buying.minMarginPct}%`} sub="based on average sell price" color={buying.minMarginPct>=55?C.g600:buying.minMarginPct>=40?C.gold:C.red}/></div><div style={{ marginTop:12, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:12, fontWeight:800 }}>{buying.buyDecision}</div></Card>
+          <Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>Top Genera To Buy</div><Tbl cols={[{k:"genus",l:"Genus"},{k:"sold",l:"Sold"},{k:"pps",l:"PPS"},{k:"decision",l:"Decision"}]} rows={buying.topGenera.map(g=>({ genus:g.genus, sold:g.sold, pps:`$${g.pps}/d`, decision:<Tag text={g.pps>=cfg.targetPPS?"Buy more":"Caution"} color={g.pps>=cfg.targetPPS?C.g600:C.amber} sm/> }))} empty="Not enough sold history yet. Start with known fast movers and high margins." /></Card>
+        </div>}
+        {tab === "platform" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+          <Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>Platform Profit Splitter</div><Tbl cols={[{k:"plant",l:"Plant"},{k:"price",l:"Price",right:true},{k:"platform",l:"Send To"},{k:"reason",l:"Why"}]} rows={ranked.slice(0,20).map(r=>({ plant:`${r.plant.plantId||""} ${r.plant.name}`, price:$(r.price), platform:<Tag text={r.platform.platform||"Either"} color={r.platform.platform==="Whatnot"?C.blue:C.g600} sm/>, reason:<span style={{ fontSize:11, color:C.tx3 }}>{r.platform.reason}</span> }))} /></Card>
+          <Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>Nursery Buy Quality</div><Tbl cols={[{k:"nursery",l:"Nursery"},{k:"quality",l:"Buy Quality"},{k:"pps",l:"Avg PPS"},{k:"sold",l:"Sold"}]} rows={topNurseries.map(n=>({ nursery:n.nursery.name, quality:<Tag text={n.quality.label} color={n.quality.color} sm/>, pps:n.quality.score?`$${n.quality.score}/d`:"—", sold:n.quality.plantsSold }))} empty="No nursery sales history yet." /></Card>
+        </div>}
+        {tab === "show" && <Card><Row between wrap center gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900 }}>AI Show Sequencer</div><div style={{ fontSize:12, color:C.tx3 }}>Order: premium anchors → fast movers → aging clearance → closer.</div></div><Row gap={8} wrap><Tag text={`Value ${$(showSeq.totalValue)}`} color={C.gold}/><Tag text={`Profit ${$(showSeq.trueProfit)}`} color={C.g600}/><Tag text={`Avg PPS $${showSeq.avgPPS}/d`} color={C.blue}/><Tag text={showSeq.health} color={showSeq.dPct>30?C.red:C.g600}/></Row></Row><Tbl cols={[{k:"pos",l:"Pos"},{k:"plant",l:"Plant"},{k:"pps",l:"PPS"},{k:"platform",l:"Platform"},{k:"presenter",l:"Presenter"}]} rows={showSeq.sequence.slice(0,60).map(r=>({ pos:r.position, plant:<div><b>{r.plant.plantId}</b> {r.plant.name}<div style={{ fontSize:10, color:C.tx3 }}>{r.price>=50?"Premium anchor":r.daysHeld>=45?"Aging clearance":"Fast mover"}</div></div>, pps:<PpsBadge score={r.pps}/>, platform:r.platform.platform||"Either", presenter:r.presenter }))} /></Card>}
+        {tab === "trajectory" && <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.2fr) minmax(0,.8fr)", gap:14 }}><Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>8-Week Profit Trajectory</div><BarLine data={trajectory.map(t=>({ label:t.label, value:t.profit }))} lk="label" vk="value" fmtV={$} colorFn={(d,i)=>trajectory[i]?.utilization>=60?C.g600:C.gold}/></Card><Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>Capacity Utilization</div>{trajectory.map(t=><div key={t.label} style={{ marginBottom:10 }}><Row between><b>{t.label}</b><span>{t.sold}/{slot.capacity} · {t.utilization}% · PPS ${t.pps}/d</span></Row><div style={{ height:8, background:C.g100, borderRadius:5, overflow:"hidden" }}><div style={{ width:`${Math.min(100,t.utilization)}%`, height:"100%", background:t.utilization>=70?C.g600:t.utilization>=40?C.gold:C.amber }} /></div></div>)}</Card></div>}
+        {tab === "tasks" && <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:14 }}><TaskCard title="👤 Owner Tasks" items={tasks.owner}/><TaskCard title="👷 Employee / Whatnot" items={tasks.employee}/><TaskCard title="🏠 Operations" items={tasks.operations}/></div>}
+        {tab === "targets" && <Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>PPS Price Targets By Genus</div><Tbl cols={[{k:"genus",l:"Genus"},{k:"avgCost",l:"Avg Cost",right:true},{k:"price",l:"Suggested Price"},{k:"margin",l:"Margin"},{k:"note",l:"Why"}]} rows={topGenusTargets.map(g=>({ genus:g.genus, avgCost:$(g.avgCost), price:<b>{$(g.target.suggestedPrice)}</b>, margin:`${g.target.margin}%`, note:<span style={{ fontSize:11, color:C.tx3 }}>{g.target.note}</span> }))} empty="Add sold history to build genus targets." /></Card>}
+        {tab === "settings" && <div style={{ display:"grid", gap:14 }}>
+          <Card>
+            <div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>Capacity & Profit Targets</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
+              <Inp label="Normal weekly capacity" type="number" value={cfg.baseWeeklyCapacity} onChange={v=>update({ weeklyCapacity:+v||400, weeklyCapacityThisWeek:+v||400 })}/>
+              <Inp label="Target PPS / day" type="number" value={cfg.targetPPS} onChange={v=>update({ targetPPS:+v||3.5 })}/>
+              <Inp label="Average shipping per plant" type="number" value={cfg.avgShippingCost} onChange={v=>update({ avgShippingCost:+v||8 })}/>
+              <Inp label="Palmstreet fee %" type="number" value={cfg.platformFees.palmstreetPercent} onChange={v=>updateFees({ palmstreetPercent:+v||12 })}/>
+              <Inp label="Whatnot fee %" type="number" value={cfg.platformFees.whatnotPercent} onChange={v=>updateFees({ whatnotPercent:+v||8 })}/>
+              <Sel label="Phase 11 master switch" value={cfg.phase11Enabled?"on":"off"} onChange={v=>update({ phase11Enabled:v==="on" })} options={[{v:"on",l:"On"},{v:"off",l:"Off"}]} />
+            </div>
+            <div style={{ marginTop:12, fontSize:12, color:C.tx3 }}>Normal weekly capacity is your usual team ceiling. This can stay at 400, while this-week capacity can change when staffing changes.</div>
+          </Card>
+          <Card style={{ background:cfg.weeklyCapacityOverrideEnabled ? C.goldBg : C.card }}>
+            <div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>This Week Capacity Override</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
+              <Sel label="Override this week?" value={cfg.weeklyCapacityOverrideEnabled ? "yes" : "no"} onChange={v=>update({ weeklyCapacityOverrideEnabled:v==="yes" })} options={[{v:"no",l:`No — use normal ${cfg.baseWeeklyCapacity}`},{v:"yes",l:"Yes — this week is different"}]} />
+              <Inp label="This week capacity" type="number" value={cfg.weeklyCapacityThisWeek} onChange={v=>update({ weeklyCapacityThisWeek:Math.max(1,+v||cfg.baseWeeklyCapacity), weeklyCapacityOverrideEnabled:true })}/>
+              <Inp label="Reason / note" value={cfg.weeklyCapacityNote} onChange={v=>update({ weeklyCapacityNote:v })} placeholder="Example: John out Friday, extra helper, holiday week" />
+            </div>
+            <Row gap={8} wrap style={{ marginTop:12 }}>
+              <Btn sz="sm" v="ghost" onClick={()=>setThisWeekCapacity(250, "Short-staffed week / fewer packing hours")}>Short-staffed 250</Btn>
+              <Btn sz="sm" v="ghost" onClick={()=>setThisWeekCapacity(300, "Reduced capacity week")}>Reduced 300</Btn>
+              <Btn sz="sm" v="ghost" onClick={()=>setThisWeekCapacity(450, "Extra help / bigger show week")}>Extra Help 450</Btn>
+              <Btn sz="sm" v="ghost" onClick={()=>setThisWeekCapacity(500, "Growth week / max push")}>Growth 500</Btn>
+              <Btn sz="sm" v="soft" onClick={clearThisWeekCapacity}>Clear Override</Btn>
+            </Row>
+            <div style={{ marginTop:12, fontSize:12, color:C.tx3 }}>Active capacity used by every Phase 11 calculation right now: <b>{slot.capacity} slots</b>. This changes slots remaining, buying advice, show sizing, trajectory utilization, and capacity warnings.</div>
+          </Card>
+          <Card style={{ background:C.g50 }}>
+            <div style={{ fontSize:12, color:C.tx3 }}>These are owner-only settings. Employees do not see cost, profit, PPS math, API controls, or capacity profit strategy.</div>
+          </Card>
+        </div>}
+        {cloudAnswer && <Card style={{ marginTop:14, borderLeft:`5px solid ${C.blue}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>☁️ Cloud Coach Answer</div><div style={{ whiteSpace:"pre-wrap", fontSize:13, lineHeight:1.5 }}>{cloudAnswer}</div></Card>}
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(5"],div[style*="grid-template-columns:repeat(3"],div[style*="grid-template-columns:minmax(0,1.25fr"],div[style*="grid-template-columns:minmax(0,.8fr"],div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
@@ -8598,7 +8881,7 @@ Cancel if you want to save money.`);
       </div>;
     }
 
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 10.2 Role-Safe UX Cleanup Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — Phase 11.1 Admin Capacity Control Build 2026-05-09";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -8858,7 +9141,7 @@ Cancel if you want to save money.`);
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING, weeklyCapacity: 400, weeklyCapacityOverrideEnabled: false, weeklyCapacityThisWeek: 400, weeklyCapacityNote: "", weeklyCapacityUpdatedAt: "", weeklyCapacityUpdatedBy: "", targetPPS: 3.5, avgShippingCost: 8, phase11Enabled: true, platformFees: { palmstreetPercent: 12, whatnotPercent: 8, defaultPercent: 10, freeShippingThreshold: 0 }, ppsRatingThresholds: { A: 5, B: 3, C: 1.5 } };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -11109,6 +11392,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "dataai" && <BusinessDataAI plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "social" && <SocialMediaCenter plants={plants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} />}
           {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={navigate} user={user} />}
+          {page === "slotprofit" && user.role === "owner" && <Phase11ProfitSlotEngine appData={buildCurrentAppData()} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "overnight" && user.role === "owner" && <Phase10MorningBriefing appData={buildCurrentAppData()} user={user} settings={settings} setSettings={setSettings} addAudit={addAudit} setPage={navigate} />}
           {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
           {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
