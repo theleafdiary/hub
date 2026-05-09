@@ -7711,7 +7711,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
        corrupted-data repair, startup diagnostics, and crash logs.
        This does NOT redesign the UI or remove existing systems.
     ══════════════════════════════════════════════════════════ */
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 6.1 AI Gateway + Clean AI Menu Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — Phase 6.1 Ollama API Gateway + Clean AI Menu Build 2026-05-09";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -8962,8 +8962,8 @@ Answer with a practical action plan for Leaf Diary.`;
 
     /* ══════════════════════════════════════════════════════════
        PHASE 6.1 AI GATEWAY — mobile-first secure API bridge.
-       Phone → Cloudflare Worker/Supabase Edge → AI → Leaf Diary.
-       Keeps OpenAI keys out of the HTML and falls back safely.
+       Phone → Cloudflare Worker/Supabase Edge → Ollama Cloud → Leaf Diary.
+       Keeps the Ollama API key out of the HTML and falls back safely.
     ══════════════════════════════════════════════════════════ */
     const PHASE61_CONFIG_KEY = "leafdiary_phase61_ai_gateway_config";
     const PHASE61_REPORT_KEY = "leafdiary_phase61_ai_gateway_reports";
@@ -8972,12 +8972,12 @@ Answer with a practical action plan for Leaf Diary.`;
       enabled: false,
       endpointUrl: "",
       secretToken: "",
-      provider: "openai", // openai now, ollama-proxy later
-      model: "gpt-4.1-mini",
+      provider: "ollama-cloud", // Ollama Cloud API through secure gateway
+      model: "gpt-oss:20b",
       fallbackMode: "ollama_then_local", // gateway_only, ollama_then_local, local_only
       maxDailyRequests: 75,
-      maxMonthlyDollars: 25,
-      estimatedCostPerRequest: 0.01,
+      maxMonthlyDollars: 0,
+      estimatedCostPerRequest: 0,
       timeoutMs: 30000,
       sendInventoryLimit: 80,
       useOnMobile: true,
@@ -9140,10 +9140,10 @@ Answer with a practical action plan for Leaf Diary.`;
       const clearUsage = () => { phase61SaveUsage({ daily:{}, monthly:{}, calls:[] }); setAnswer("Gateway usage counters cleared on this device."); };
       const download = () => phase1DownloadJson(`leafdiary-phase61-ai-gateway-${today()}.json`, { appVersion:APP_VERSION, config:{ ...draft, secretToken:draft.secretToken ? "saved-token-hidden" : "" }, status, usage:phase61ReadUsage(), lastReport:testReport, generatedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", maxWidth:1080, margin:"0 auto" }}>
-        <SHdr icon="🌐" title="Phase 6.1 AI Gateway" sub="Mobile-first AI bridge: phone → secure endpoint → AI answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🌐" title="Phase 6.1 Ollama API Gateway" sub="Mobile-first AI bridge: phone → secure endpoint → Ollama Cloud answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase61StatusColor(status?.status || (draft.enabled ? "not_tested" : "disabled"))}` }}>
           <Row between center wrap gap={12}>
-            <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Model: {draft.model} · Provider: {draft.provider}</div></div>
+            <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Ollama model: {draft.model} · Provider: {draft.provider}</div></div>
             <Row gap={8} wrap><Tag text={phase3IsMobileDevice() ? "Mobile detected" : "Desktop detected"} color={phase3IsMobileDevice() ? C.blue : C.g600} /><Tag text={`${usage.dailyCalls}/${usage.dailyLimit} today`} color={usage.dailyCalls >= usage.dailyLimit ? C.red : C.g600} /><Tag text={`${$(usage.monthlyCost)} est. month`} color={usage.monthlyCost >= usage.monthlyLimit && usage.monthlyLimit ? C.red : C.gold} /></Row>
           </Row>
         </Card>
@@ -9152,10 +9152,10 @@ Answer with a practical action plan for Leaf Diary.`;
             <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18, marginBottom:12 }}>Gateway Settings</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:10 }}>
               <Inp label="Cloudflare Worker / Supabase Edge Endpoint" value={draft.endpointUrl} onChange={v=>setDraft(p=>({...p, endpointUrl:v}))} placeholder="https://leaf-diary-ai-gateway.yourname.workers.dev/leaf-ai" />
-              <Inp label="Gateway Secret Token (not OpenAI key)" value={draft.secretToken} onChange={v=>setDraft(p=>({...p, secretToken:v}))} placeholder="same secret stored in Cloudflare" />
+              <Inp label="Gateway Secret Token (not Ollama API key)" value={draft.secretToken} onChange={v=>setDraft(p=>({...p, secretToken:v}))} placeholder="same secret stored in Cloudflare" />
               <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
-                <Sel label="Provider" value={draft.provider} onChange={v=>setDraft(p=>({...p, provider:v}))} options={[{v:"openai",l:"OpenAI API"},{v:"ollama-proxy",l:"Ollama Proxy Later"}]} />
-                <Inp label="Gateway Model" value={draft.model} onChange={v=>setDraft(p=>({...p, model:v}))} placeholder="gpt-4.1-mini" />
+                <Sel label="Provider" value={draft.provider} onChange={v=>setDraft(p=>({...p, provider:v}))} options={[{v:"ollama-cloud",l:"Ollama Cloud API"},{v:"ollama-proxy",l:"Local Ollama Proxy Later"}]} />
+                <Inp label="Gateway Model" value={draft.model} onChange={v=>setDraft(p=>({...p, model:v}))} placeholder="gpt-oss:20b" />
                 <Sel label="Fallback" value={draft.fallbackMode} onChange={v=>setDraft(p=>({...p, fallbackMode:v}))} options={[{v:"ollama_then_local",l:"Gateway → Ollama → local"},{v:"local_only",l:"Gateway → local fallback"},{v:"gateway_only",l:"Gateway only test"}]} />
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10 }}>
@@ -9180,7 +9180,7 @@ Answer with a practical action plan for Leaf Diary.`;
             </Card>
             <Card>
               <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>No API key in HTML</div>
-              <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55 }}>Your OpenAI key goes inside Cloudflare Worker secrets only. This page stores only the Worker URL and your private gateway token.</div>
+              <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55 }}>Your Ollama API key goes inside Cloudflare Worker secrets only. This page stores only the Worker URL and your private gateway token.</div>
             </Card>
             <Card>
               <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Usage Guard</div>
@@ -9189,13 +9189,13 @@ Answer with a practical action plan for Leaf Diary.`;
           </div>
         </div>
         <Card style={{ marginTop:14 }}>
-          <Row between center wrap gap={8}><div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900 }}>Manual Gateway Test</div><div style={{ fontSize:12, color:C.tx3 }}>This sends a small safe business summary through the gateway.</div></div><Row gap={8}><Btn onClick={ask} disabled={busy}>Ask Gateway</Btn><Btn v="outline" onClick={()=>setPage && setPage("dataai")}>Open Ask Business AI</Btn></Row></Row>
+          <Row between center wrap gap={8}><div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900 }}>Manual Gateway Test</div><div style={{ fontSize:12, color:C.tx3 }}>This sends a small safe business summary through the Ollama gateway.</div></div><Row gap={8}><Btn onClick={ask} disabled={busy}>Ask Gateway</Btn><Btn v="outline" onClick={()=>setPage && setPage("dataai")}>Open Ask Business AI</Btn></Row></Row>
           <textarea value={question} onChange={e=>setQuestion(e.target.value)} style={{ width:"100%", marginTop:10, minHeight:80, border:`1.5px solid ${C.bd}`, borderRadius:12, padding:12, fontFamily:F.body, fontSize:14 }} />
           {answer && <div style={{ marginTop:12, background: testReport?.ok ? C.g50 : C.amberBg, border:`1px solid ${testReport?.ok ? C.g200 : C.amber+"55"}`, borderRadius:12, padding:13, whiteSpace:"pre-wrap", fontSize:13, color:C.tx1 }}>{answer}</div>}
         </Card>
         <Card style={{ marginTop:14, background:C.blueBg }}>
-          <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Cloudflare Worker secrets you will set</div>
-          <pre style={{ whiteSpace:"pre-wrap", background:"#111", color:"#97d33e", borderRadius:10, padding:12, fontSize:11, overflowX:"auto" }}>{`OPENAI_API_KEY=your OpenAI key (Cloudflare secret)\nLEAF_DIARY_AI_TOKEN=same token you enter above\nOPENAI_MODEL=${draft.model || "gpt-4.1-mini"}\nMAX_REQUESTS_PER_DAY=${draft.maxDailyRequests || 75}`}</pre>
+          <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Cloudflare Worker secrets you will set for Ollama</div>
+          <pre style={{ whiteSpace:"pre-wrap", background:"#111", color:"#97d33e", borderRadius:10, padding:12, fontSize:11, overflowX:"auto" }}>{`OLLAMA_API_KEY=your Ollama API key (Cloudflare secret)\nLEAF_DIARY_AI_TOKEN=same token you enter above\nOLLAMA_MODEL=${draft.model || "gpt-oss:20b"}\nMAX_REQUESTS_PER_DAY=${draft.maxDailyRequests || 75}`}</pre>
         </Card>
         <style>{`@media(max-width:760px){div[style*="grid-template-columns: minmax(0,1.2fr) minmax(0,.8fr)"], div[style*="grid-template-columns: repeat(4,minmax(0,1fr))"], div[style*="grid-template-columns: repeat(3,minmax(0,1fr))"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
@@ -10136,7 +10136,7 @@ ${local.summary || "Fallback completed."}`;
             { id:"phase1", icon:"🛡️", title:"Phase 1 Safety", value: phase1Health?.ok ? "Healthy" : "Needs review", sub:`${APP_VERSION} · ${phase1ReadSnapshots().length} local snapshots · ${startupMode === "local-fallback" ? "Local fallback active" : "Startup normal"}`, color: phase1Health?.ok ? "#97d33e" : "#C0570A", border: phase1Health?.ok ? "rgba(151,211,62,.32)" : "rgba(192,87,10,.42)", actionLabel:"Health", onClick:downloadPhase1Health },
             { id:"phase2", icon:"🧪", title:"Phase 2 Developer Safety", value:`${phase2Report?.score || 0}/100`, sub:"Diagnostics, smoke tests, rollback checkpoints.", color: phase2Report?.ok ? "#97d33e" : "#fb6392", border: phase2Report?.ok ? "rgba(151,211,62,.32)" : "rgba(251,99,146,.42)", actionLabel:"Open", onClick:()=>navigate("devtools") },
             { id:"phase3", icon:"🧠", title:"Phase 3 Ollama", value:`${phase3StatusLabel(phase3Status?.status || "not_tested")} · ${phase3Config?.primaryModel || "no model"}`, sub:"Local desktop AI connector.", color: phase3StatusColor(phase3Status?.status || "not_tested"), border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("ollama") },
-            { id:"phase61", icon:"🌐", title:"Phase 6.1 AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Mobile AI API bridge for phone use.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
+            { id:"phase61", icon:"🌐", title:"Phase 6.1 AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Mobile Ollama API bridge for phone use.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
             { id:"phase4", icon:"🧭", title:"Phase 4 AI Router", value:`${phase4Routes?.enabled ? "Enabled" : "Disabled"} · ${Object.keys(phase4RouteDefinitions(phase4Routes)).length} routes`, sub:"Routes each AI task to the right model.", color: phase4Routes?.enabled ? "#68d8ff" : "rgba(255,255,255,.55)", border:"rgba(104,216,255,.28)", actionLabel:"Open", onClick:()=>navigate("airouter") },
             { id:"phase5", icon:"💬", title:"Phase 5 Ask AI", value:"Router-connected · fallback protected", sub:"Business questions use gateway/router/fallback.", color:"#97d33e", border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("dataai") },
             { id:"phase6", icon:"🧠", title:"Phase 6 Executive AI", value:"Command center ready", sub:"CEO-style decisions, simulations and priorities.", color:"#97d33e", border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("execai") },
