@@ -924,11 +924,8 @@
         : ["today","plants_ws","shows_ws","orders_ws","money_ws"];
       const workspaceById = Object.fromEntries(WORKSPACES.map(w => [w.id, w]));
       const openPage = id => { setPage(id); setMenuOpen(false); setAddOpen(false); setMenuSearch(""); };
-      const quickAdd = [
-        ["Add Plant","manual","✏️"], ["Upload Invoice","upload","📸"], ["Scan Receipt","receipts","🧾"],
-        ["Import Show","showimport","📥"], ["Scan Receipt","receipts","🧾"], ["Live Show","liveshow","🎥"],
-        ["Sold Review","ship","✅"]
-      ].filter(x => tools.some(t => t.id === x[1]) || WORKSPACES.some(w => w.id === x[1]));
+      // Pink + menu is reserved for cloud / backup controls only.
+      const quickAdd = [];
       const menuGroups = ["Today","Plants","Shows","Sold","Money","Buying","Marketing","Business","Admin"]
         .map(g => ({ group:g, items:tools.filter(t => t.group === g && (!menuSearch || (t.l + " " + t.group).toLowerCase().includes(menuSearch.toLowerCase()))) }))
         .filter(g => g.items.length);
@@ -947,9 +944,8 @@
 
         {addOpen && <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:700, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={()=>setAddOpen(false)}>
           <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:520, background:"#050505", color:"#fff", borderRadius:"24px 24px 0 0", padding:"18px 16px calc(22px + env(safe-area-inset-bottom,0px))", borderTop:"2px solid #97d33e", boxShadow:"0 -18px 60px rgba(0,0,0,.5)" }}>
-            <Row between center style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:22, color:"#97d33e", fontWeight:900 }}>Quick Add</div><div style={{ fontSize:12, color:"rgba(255,255,255,.65)" }}>One button for the things you do all day.</div></div><button onClick={()=>setAddOpen(false)} style={{ background:"rgba(255,255,255,.1)", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:12, padding:"8px 12px", fontSize:18 }}>×</button></Row>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{quickAdd.map(([label,id,icon]) => <button key={id} onClick={()=>openPage(id)} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:16, padding:"15px 12px", textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><div style={{ fontSize:24 }}>{icon}</div><div style={{ fontWeight:900, marginTop:5 }}>{label}</div></button>)}</div>
-            {cloudControls && <div style={{ marginTop:14, paddingTop:14, borderTop:"1px solid rgba(255,255,255,.12)" }}>
+            <Row between center style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:22, color:"#97d33e", fontWeight:900 }}>Cloud Controls</div><div style={{ fontSize:12, color:"rgba(255,255,255,.65)" }}>Sync, backup, restore, and cloud safety.</div></div><button onClick={()=>setAddOpen(false)} style={{ background:"rgba(255,255,255,.1)", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:12, padding:"8px 12px", fontSize:18 }}>×</button></Row>
+            {cloudControls && <div style={{ marginTop:0, paddingTop:0 }}>
               <div style={{ fontSize:12, fontWeight:900, color:"#97d33e", letterSpacing:.7, textTransform:"uppercase", marginBottom:9 }}>Cloud & Backup Controls</div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:9 }}>
                 {cloudControls.toggleSafeMode && <button onClick={cloudControls.toggleSafeMode} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>{cloudControls.cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Cloud ON"}</button>}
