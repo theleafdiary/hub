@@ -8359,6 +8359,100 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       </div>;
     }
 
+
+    const PHASE7_CORE_TABLES = [
+      ['plants','One row per physical plant','id, plant_id, name, botanical_name, pot_size, cost, suggested_price, status, photo_url, nursery_id, purchase_batch_id, date_added'],
+      ['purchase_batches','Invoice intake batches','id, vendor_id, invoice_date, invoice_number, totals, payment_method, status, storage_url, approved_by'],
+      ['purchase_batch_lines','Draft/approved extracted invoice lines','batch_id, plant_name, qty, unit_cost, pot_size, confidence, notes'],
+      ['label_jobs','Print batches','id, batch_id, plant_ids, template, status, created_by, printed_at'],
+      ['shows','Live show setup','id, name, platform, show_date, host_employee_id, status, settings_json'],
+      ['show_items','Plants selected for show','show_id, plant_id, list_price, show_order, export_status'],
+      ['show_exports','Export history','show_id, platform, filename, header_hash, plant_count, created_by, created_at'],
+      ['sales_imports','Uploaded sales file record','id, platform, file_name, gross_sales, tips, matched_count, unmatched_count, finalized_by'],
+      ['sold_sales','Finalized sold plant results','plant_id, show_id, platform, sale_price, buyer_username, platform_order_id, imported_from'],
+      ['commission_entries','Payroll commission/tips','employee_id, show_id, gross_sales, rate, commission_amount, tips_amount, status'],
+      ['receipts','Business expense receipts','vendor, amount, category, date, payment_method, storage_url, ocr_text'],
+      ['bills','Recurring and one-time bills','vendor, amount, due_date, frequency, status, next_bill_id'],
+      ['audit_logs','Security and sensitive actions','user_id, action, target_type, target_id, details_json, ip/device, created_at'],
+    ];
+    const PHASE7_DOWNGRADED_SCOPE = [
+      ['orders fulfillment table','Do not build as shipping workflow. Use sold_sales and platform_order_id reference only.'],
+      ['tracking_number required field','Remove requirement. Optional reference only if imported.'],
+      ['carrier/shipping_status','Remove from daily CRM. Platforms own this.'],
+      ['pack workflow tables','Not in scope.'],
+      ['state docs blocking order shipment','Change to optional reminder/attachment note only.'],
+    ];
+    const PHASE7_EDGE_FUNCTIONS = [
+      ['extract-invoice','Vision/OCR invoice extraction for plant lines and quantities.'],
+      ['process-receipt','Receipt/bill OCR and category classification.'],
+      ['generate-label-pdf','Creates label sheet PDF from label job.'],
+      ['validate-show-export','Server-side validation of show items before CSV download.'],
+      ['export-platform-csv','Creates Palmstreet or Whatnot CSV with exact headers.'],
+      ['import-show-sales','Parses sales file, matches SKU to Plant ID, returns review data.'],
+      ['finalize-show-import','Marks matched plants Sold and creates commission/tips line.'],
+      ['audit-log','Writes immutable audit entries for sensitive actions.'],
+    ];
+    const PHASE7_TIMELINE = [
+      ['Sprint 1','Navigation rebuild, employee home, owner home, remove shipping/fulfillment screens from primary nav','Employee sees 5 buttons; no shipping UI.'],
+      ['Sprint 2','Intake draft flow, invoice storage, Plant ID creation, label queue','Invoice creates exact plant quantities after approval.'],
+      ['Sprint 3','Scanner, plant card, photo capture, Supabase photo URL','Scan label and photo plant in under 10 seconds.'],
+      ['Sprint 4','Show Builder scan/search add, validation, Palmstreet/Whatnot exports','Both platform CSV files upload cleanly.'],
+      ['Sprint 5','Post-show import, sold plants, unmatched review, commission/tips','Sales import marks plants sold and payroll line created.'],
+      ['Sprint 6','Receipts, bills, payroll, reports cleanup','Owner money reports are accurate.'],
+      ['Sprint 7','Admin permissions, audit, backups, data health','Security and backup tests pass.'],
+    ];
+
+    function Phase7DatabaseApiChanges({ addAudit, user }) {
+      const downloadSpec = () => {
+        const payload = {
+          version:'leaf-diary-database-api-spec-v1', exportedAt:new Date().toISOString(), exportedBy:user?.name || 'Owner',
+          coreTables: PHASE7_CORE_TABLES.map(([table,purpose,fields]) => ({ table, purpose, critical_fields: fields })),
+          removedOrDowngraded: PHASE7_DOWNGRADED_SCOPE.map(([existingIdea,newDecision]) => ({ existing_idea: existingIdea, new_decision: newDecision })),
+          edgeFunctions: PHASE7_EDGE_FUNCTIONS.map(([name,purpose]) => ({ name, purpose })),
+          implementationTimeline: PHASE7_TIMELINE.map(([sprint,build,doneWhen]) => ({ sprint, build, done_when: doneWhen })),
+          finalAcceptanceChecklist: [
+            'A new employee can use the app with only the 5-button home screen and no training longer than 10 minutes.',
+            'The owner can upload an invoice, approve it, print labels, scan/photo plants, build a show, export to Palmstreet/Whatnot, import sold results, and see profit without leaving the CRM.',
+            'No CRM workflow requires shipping labels, tracking numbers, carrier selection, mark shipped, delivery status, or platform fulfillment duplication.',
+            'Palmstreet and Whatnot exports match the uploaded templates exactly.',
+            'All show sale matching uses SKU = Plant ID as the primary key.',
+            'Every sensitive action is permission-checked on the backend and audit logged.',
+            'The app answers one question on every screen: What do I tap next?'
+          ]
+        };
+        phase7DownloadJson(`leaf-diary-database-api-spec-${today()}.json`, payload);
+        addAudit?.({ page:'Admin Database API', action:'Database API Spec Downloaded', details:'Owner downloaded backend table/function implementation spec.', severity:'info' });
+      };
+      const tableRows = PHASE7_CORE_TABLES.map(([table,purpose,fields]) => ({ table:<b style={{ fontFamily:F.mono }}>{table}</b>, purpose, fields }));
+      const downgradeRows = PHASE7_DOWNGRADED_SCOPE.map(([idea,decision]) => ({ idea:<b>{idea}</b>, decision }));
+      const functionRows = PHASE7_EDGE_FUNCTIONS.map(([fn,purpose]) => ({ fn:<b style={{ fontFamily:F.mono }}>{fn}</b>, purpose }));
+      const timelineRows = PHASE7_TIMELINE.map(([sprint,build,done]) => ({ sprint:<b>{sprint}</b>, build, done }));
+      return <div>
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${C.g700}` }}>
+          <Row between center wrap gap={12}>
+            <div>
+              <h3 style={{ margin:'0 0 4px', fontFamily:F.display, color:C.g900 }}>Database & API Changes</h3>
+              <p style={{ margin:0, color:C.tx3, fontSize:13 }}>Coder-facing backend map for the streamlined Leaf Diary CRM. This keeps the CRM focused on intake, inventory, shows, sold plants, money, and security — not shipping.</p>
+            </div>
+            <Btn v="outline" onClick={downloadSpec}>Download JSON Spec</Btn>
+          </Row>
+        </Card>
+        <Card style={{ marginBottom:14 }}><h3 style={{ marginTop:0 }}>Core Tables</h3><Tbl cols={[{k:'table',l:'Table'},{k:'purpose',l:'Purpose'},{k:'fields',l:'Critical Fields'}]} rows={tableRows} /></Card>
+        <Card style={{ marginBottom:14, background:C.redBg, borderColor:'#F1C3C0' }}><h3 style={{ marginTop:0, color:C.red }}>Remove / Downgrade Shipping Scope</h3><p style={{ color:C.tx2, fontSize:13 }}>Do not rebuild Palmstreet or Whatnot fulfillment inside the CRM. The CRM stores sales results and platform references only.</p><Tbl cols={[{k:'idea',l:'Existing Idea'},{k:'decision',l:'New Decision'}]} rows={downgradeRows} /></Card>
+        <Card style={{ marginBottom:14 }}><h3 style={{ marginTop:0 }}>API / Supabase Edge Functions</h3><Tbl cols={[{k:'fn',l:'Function'},{k:'purpose',l:'Purpose'}]} rows={functionRows} /></Card>
+        <Card style={{ marginBottom:14 }}><h3 style={{ marginTop:0 }}>Implementation Timeline</h3><Tbl cols={[{k:'sprint',l:'Sprint'},{k:'build',l:'Build'},{k:'done',l:'Done When'}]} rows={timelineRows} /></Card>
+        <Card><h3 style={{ marginTop:0 }}>Final Acceptance Checklist</h3><ul style={{ lineHeight:1.75, color:C.tx2, marginBottom:0 }}>
+          <li>A new employee can use the app with only the 5-button home screen and no training longer than 10 minutes.</li>
+          <li>The owner can upload an invoice, approve it, print labels, scan/photo plants, build a show, export to Palmstreet/Whatnot, import sold results, and see profit without leaving the CRM.</li>
+          <li>No CRM workflow requires shipping labels, tracking numbers, carrier selection, mark shipped, delivery status, or platform fulfillment duplication.</li>
+          <li>Palmstreet and Whatnot exports match the uploaded templates exactly.</li>
+          <li>All show sale matching uses SKU = Plant ID as the primary key.</li>
+          <li>Every sensitive action is permission-checked on the backend and audit logged.</li>
+          <li>Every screen answers one question: <b>What do I tap next?</b></li>
+        </ul></Card>
+      </div>;
+    }
+
     function Phase7AdminSecurity({ users = [], setUsers, settings = {}, setSettings, plants = [], setPlants, expenses = [], bills = [], timecards = [], receipts = [], auditLog = [], user, addAudit, setPage }) {
       const [tab, setTab] = useState('permissions');
       const [selectedUserId, setSelectedUserId] = useState((users.find(u=>u.role !== 'owner') || users[0] || {}).id || '');
@@ -8404,7 +8498,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       return <div style={{ padding:'14px 14px 110px', background:C.bg, minHeight:'100vh' }}>
         <SHdr icon="🛡️" title="Admin, Security & Data Health" sub="Owner-only controls for permissions, platform defaults, backups, audit, and data repair." right={<Row gap={8} wrap><Btn v="outline" onClick={exportBackup}>Download JSON Backup</Btn><Btn v="soft" onClick={exportCsvBundle}>CSV Bundle</Btn></Row>} />
         <Card style={{ marginBottom:14 }}><Row gap={8} wrap>{[
-          ['permissions','Permissions'], ['defaults','Platform Defaults'], ['health','Data Health'], ['backup','Backups'], ['audit','Security Notes']
+          ['permissions','Permissions'], ['defaults','Platform Defaults'], ['database','Database & API'], ['health','Data Health'], ['backup','Backups'], ['audit','Security Notes']
         ].map(([id,label]) => <button key={id} onClick={()=>setTab(id)} style={{ padding:'10px 12px', borderRadius:10, border:`1px solid ${tab===id?C.g700:C.bd}`, background:tab===id?C.g700:C.card, color:tab===id?'#fff':C.tx2, fontWeight:900 }}>{label}</button>)}</Row></Card>
         {tab === 'permissions' && <div style={{ display:'grid', gridTemplateColumns:'minmax(220px,320px) 1fr', gap:14 }}>
           <Card><h3 style={{ marginTop:0 }}>Users</h3>{(users || []).map(u => <button key={u.id} onClick={()=>setSelectedUserId(u.id)} style={{ width:'100%', textAlign:'left', padding:'10px 12px', marginBottom:8, borderRadius:10, border:`1px solid ${selectedUser.id===u.id?C.g700:C.bd}`, background:selectedUser.id===u.id?C.g50:C.card, cursor:'pointer' }}><b>{u.name || u.email || 'User'}</b><div style={{ fontSize:11, color:C.tx3 }}>{u.role || 'employee'}</div></button>)}</Card>
@@ -8424,6 +8518,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           <Inp label="Default Commission Rate %" type="number" value={defaults.defaultCommissionRate} onChange={v=>updateDefault('defaultCommissionRate',+v || 0)} />
           <Inp label="Label Template" value={defaults.labelTemplate} onChange={v=>updateDefault('labelTemplate',v)} />
         </div><label style={{ display:'flex', gap:8, alignItems:'center', marginTop:12 }}><input type="checkbox" checked={!!defaults.labelShowCost} onChange={e=>updateDefault('labelShowCost',e.target.checked)} /> Show cost on internal labels. Leave OFF for employee-safe labels.</label></Card>}
+        {tab === 'database' && <Phase7DatabaseApiChanges addAudit={addAudit} user={user} />}
         {tab === 'health' && <Phase7DataHealth plants={plants} setPlants={setPlants} settings={settings} addAudit={addAudit} user={user} embedded />}
         {tab === 'backup' && <Card><h3 style={{ marginTop:0 }}>Backups & Restore</h3><p style={{ color:C.tx3 }}>Download a JSON backup anytime. Restore uses a safe merge: it keeps newer current records and only adds or updates older records when the backup is newer.</p><Row gap={8} wrap><Btn onClick={exportBackup}>Download Full JSON Backup</Btn><Btn v="outline" onClick={exportCsvBundle}>Download CSV Bundle</Btn><Btn v="soft" onClick={()=>restoreRef.current?.click()}>Restore From JSON</Btn><input ref={restoreRef} type="file" accept=".json,application/json" style={{ display:'none' }} onChange={e=>importBackup(e.target.files?.[0])} /></Row>{restoreMsg && <p style={{ color:C.g700, fontWeight:800 }}>{restoreMsg}</p>}</Card>}
         {tab === 'audit' && <Card><h3 style={{ marginTop:0 }}>Security Requirements For Coders</h3><ul style={{ lineHeight:1.7, color:C.tx2 }}><li>Use Supabase Row Level Security on every account table.</li><li>Backend permission checks are required for cost, profit, reports, exports, imports, payroll, delete, merge, and restore. Hiding buttons is not enough.</li><li>Audit log must record login, export, import, delete, merge, price/cost changes, and payroll changes.</li><li>Audit log is read-only. No user can delete audit entries from the app.</li><li>Employees typing /admin must receive Access Denied.</li></ul><Tbl cols={[{k:'time',l:'Time'},{k:'user',l:'User'},{k:'action',l:'Action'},{k:'details',l:'Details'}]} rows={(auditLog || []).slice(-20).reverse().map(a=>({ time:a.timestamp || a.createdAt || a.created_at || '', user:a.user || a.userName || '', action:<b>{a.action}</b>, details:a.details || a.page || '' }))} empty="No audit entries yet." /></Card>}
