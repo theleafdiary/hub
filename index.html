@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Leaf Diary" />
   <meta name="theme-color" content="#174D2F" />
-  <title>Leaf Diary Business Hub — Streamlined + Whatnot Fixed</title>
+  <title>Leaf Diary CRM — Phase 1 Simplified</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -360,7 +360,7 @@
     const { useState, useRef, useEffect, useCallback } = React;
 
     /* ═══════════════════════════════════════════════════════════
-       LEAF DIARY BUSINESS HUB v6 — Complete Edition
+       LEAF DIARY CRM v7 — Phase 1 Simplified Navigation
        Fresh modern palette · Bills tracker · True profit engine
        Admin panel · QR labels · Buy intelligence · Florida tax
     ═══════════════════════════════════════════════════════════ */
@@ -673,8 +673,8 @@
       const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
       const payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
       if (balance && balance < due14 + payrollWeek) alerts.push({ id:"cash-low", severity:"critical", title:"Cash is tight", body:`Bank balance ${$(balance)} is lower than bills/payroll due soon (${$(due14 + payrollWeek)}).`, actionLabel:"Open Cash Flow", actionPage:"cashflow" });
-      const ready = groupSalesIntoOrders(plants).filter(o => o.plants.some(p => p.fulfillmentStatus !== "Shipped"));
-      if (ready.length) alerts.push({ id:"ready-ship", severity:"warning", title:"Orders need fulfillment", body:`${ready.length} order(s) are sold and need packing/platform fulfillment.`, actionLabel:"Fulfill Orders", actionPage:"ship" });
+      const ready = groupSalesIntoOrders(plants);
+      if (ready.length) alerts.push({ id:"sold-review", severity:"info", title:"Sold plants imported", body:`${ready.length} sold order group(s) are saved from Palmstreet/Whatnot. Shipping stays inside the platform.`, actionLabel:"Review Sold Plants", actionPage:"ship" });
       const old = plants.filter(p => p.status === "In Stock" && dHeld(p.dateAdded) >= 60);
       if (old.length) alerts.push({ id:"aging", severity:"warning", title:"Aging inventory", body:`${old.length} plant(s) are 60+ days old and may need discounting.`, actionLabel:"Discount Engine", actionPage:"discounts" });
       const quarantine = plants.filter(p => ["Quarantine","Pest/Disease"].includes(p.healthStatus));
@@ -698,16 +698,16 @@
        If you deploy Supabase Edge Function leaf-ai later, this screen
        will automatically use it instead of the local fallback.
     ══════════════════════════════════════════════════════════ */
-    const buildLeafDataSnapshot = ({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [] }) => ({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts, counts: { inStock: plants.filter(p => p.status === "In Stock").length, sold: plants.filter(p => p.status === "Sold").length, noPhoto: plants.filter(p => p.status === "In Stock" && !p.photoUrl && !p.photoBase64).length, needsLabel: plants.filter(p => p.status === "In Stock" && !p.labelPrinted).length, readyToShip: groupSalesIntoOrders(plants).filter(o => o.plants.some(x => x.fulfillmentStatus !== "Shipped")).length, receiptsReview: receipts.filter(r => r.reviewStatus === "Needs Review" || r.review_status === "Needs Review").length, docs: casdCerts.length } });
+    const buildLeafDataSnapshot = ({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [] }) => ({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts, counts: { inStock: plants.filter(p => p.status === "In Stock").length, sold: plants.filter(p => p.status === "Sold").length, noPhoto: plants.filter(p => p.status === "In Stock" && !p.photoUrl && !p.photoBase64).length, needsLabel: plants.filter(p => p.status === "In Stock" && !p.labelPrinted).length, soldGroups: groupSalesIntoOrders(plants).length, receiptsReview: receipts.filter(r => r.reviewStatus === "Needs Review" || r.review_status === "Needs Review").length, docs: casdCerts.length } });
     const aiLine = (title, body, page = "command", severity = "info") => ({ id: uid(), title, body, page, severity });
     function localLeafAI(task, snapshot = {}) {
       const plants = snapshot.plants || [], expenses = snapshot.expenses || [], bills = snapshot.bills || [], timecards = snapshot.timecards || [], receipts = snapshot.receipts || [], settings = snapshot.settings || {}, casdCerts = snapshot.casdCerts || [];
-      const inStock = plants.filter(p => p.status === "In Stock"), readyOrders = groupSalesIntoOrders(plants).filter(o => o.plants.some(x => x.fulfillmentStatus !== "Shipped"));
+      const inStock = plants.filter(p => p.status === "In Stock"), readyOrders = groupSalesIntoOrders(plants);
       const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64), needsLabel = inStock.filter(p => !p.labelPrinted), aging = inStock.filter(p => dHeld(p.dateAdded) >= 45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
       const month = monthKey(), soldMonth = plants.filter(p => p.status === "Sold" && monthKey(plantSaleDate(p)) === month), revenue = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0), cogs = soldMonth.reduce((s,p)=>s+(+p.cost||0),0), expMonth = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((s,e)=>s+(+e.amount||0),0), net = revenue - cogs - expMonth;
       const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0), payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
       const actions = [], warnings = [], recommendations = [];
-      if (readyOrders.length) actions.push(aiLine("Fulfill sold orders", `${readyOrders.length} order(s) are sold and need packing/platform fulfillment. Print slips, pack orders, and mark them ready for Palmstreet/Whatnot.`, "ship", "warning"));
+      if (readyOrders.length) actions.push(aiLine("Review sold plants", `${readyOrders.length} sold order group(s) are saved from Palmstreet/Whatnot. Review sales, buyer username, tips, and commission only. Shipping stays inside the platform.`, "ship", "warning"));
       if (noPhoto.length) actions.push(aiLine("Add missing photos", `${noPhoto.length} in-stock plant(s) are missing photos. Photos help Palmstreet listings sell faster.`, "inv", "info"));
       if (needsLabel.length) actions.push(aiLine("Print labels", `${needsLabel.length} plant(s) need labels before the next show.`, "labels", "info"));
       if (aging.length) actions.push(aiLine("Move aging plants", `${aging.length} plant(s) are 45+ days old. Discount, bundle, or feature them in the next live show.`, "discounts", "warning"));
@@ -724,7 +724,7 @@
       if (task === "live_show_plan") { [...inStock].sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,5).forEach((p,i)=>actions.push(aiLine(`Show slot ${i+1}`, `${p.name} — ${$(p.suggestedPrice)}. Use as a hook or premium moment.`, "liveshow", "info"))); aging.slice(0,5).forEach(p=>actions.push(aiLine("Clearance push", `${p.name} held ${fDays(dHeld(p.dateAdded))}. Bundle or discount live.`, "discounts", "warning"))); }
       if (task === "customer_ai") { const spend = {}; plants.filter(p=>p.status==="Sold").forEach(p=>{ const k=p.customerUsername||p.customerName||"Unknown"; spend[k]=(spend[k]||0)+(+p.salePrice||+p.suggestedPrice||0); }); Object.entries(spend).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([c,amt])=>recommendations.push(aiLine("VIP customer", `${c} has spent ${$(amt)}. Send a thank-you or early access message.`, "customers", "info"))); }
       if (task === "employee_tasks") { actions.push(aiLine("Photo task", `Photograph ${Math.min(noPhoto.length,25)} plants missing photos.`, "inv", "info")); actions.push(aiLine("Packing task", `Pull/pack ${readyOrders.length} unshipped orders.`, "ship", "warning")); actions.push(aiLine("Label task", `Print labels for ${Math.min(needsLabel.length,50)} plants.`, "labels", "info")); }
-      const summary = task === "owner_summary" ? `This month: ${$(revenue)} revenue, estimated ${$(net)} net after COGS/expenses. ${readyOrders.length} orders need shipping, ${aging.length} plants are aging, ${noPhoto.length} plants need photos.` : task === "cash_leaks" ? `AI found ${recommendations.length} money leak checks for this month.` : task === "live_show_plan" ? "AI built a show plan using premium plants plus aging inventory to clear." : `AI found ${actions.length} actions, ${warnings.length} warnings, and ${recommendations.length} recommendations.`;
+      const summary = task === "owner_summary" ? `This month: ${$(revenue)} revenue, estimated ${$(net)} net after COGS/expenses. ${readyOrders.length} sold groups saved, ${aging.length} plants are aging, ${noPhoto.length} plants need photos.` : task === "cash_leaks" ? `AI found ${recommendations.length} money leak checks for this month.` : task === "live_show_plan" ? "AI built a show plan using premium plants plus aging inventory to clear." : `AI found ${actions.length} actions, ${warnings.length} warnings, and ${recommendations.length} recommendations.`;
       return { ok:true, task, summary, actions, warnings, recommendations, generatedAt:new Date().toISOString() };
     }
     async function runLeafAI(task, payload) { try { const { data, error } = await supabase.functions.invoke("leaf-ai", { body:{ task, payload } }); if (!error && data && data.ok) return data; } catch (err) { console.warn("leaf-ai unavailable, using local fallback", err); } return localLeafAI(task, payload); }
@@ -832,7 +832,7 @@
       { id:"today", icon:"🏠", l:"Today", sub:"What needs attention now", color:"#97d33e" },
       { id:"plants_ws", icon:"🌿", l:"Plants", sub:"Inventory, photos, labels, care", color:"#2E8A55" },
       { id:"shows_ws", icon:"🎥", l:"Shows", sub:"Live selling + imports", color:"#fb6392" },
-      { id:"orders_ws", icon:"📦", l:"Orders", sub:"Customers, fulfillment, docs", color:"#68d8ff" },
+      { id:"orders_ws", icon:"✅", l:"Sold", sub:"Sold shows + sold plants", color:"#68d8ff" },
       { id:"money_ws", icon:"💵", l:"Money", sub:"Receipts, expenses, payroll", color:"#f5c542" },
       { id:"admin_ws", icon:"⚙️", l:"Admin", sub:"Settings, users, security", color:"#b695ff" },
     ];
@@ -857,11 +857,11 @@
       { id:"discounts", icon:"🏷️", l:"Discounts", group:"Shows", roles:["owner"] },
       { id:"social", icon:"📣", l:"Social Center", group:"Marketing", roles:["owner","manager","employee"] },
       { id:"content", icon:"✨", l:"AI Content", group:"Marketing", roles:["owner","manager"] },
-      { id:"ship", icon:"📦", l:"Order Fulfillment", group:"Orders", roles:["owner","manager"] },
-      { id:"customers", icon:"👥", l:"Customers", group:"Orders", roles:["owner","manager"] },
-      { id:"retention", icon:"💚", l:"Retention", group:"Orders", roles:["owner","manager"] },
-      { id:"refunds", icon:"↩️", l:"Refunds", group:"Orders", roles:["owner","manager"] },
-      { id:"casd", icon:"📜", l:"State Docs", group:"Orders", roles:["owner","manager"] },
+      { id:"ship", icon:"✅", l:"Sold Plant Review", group:"Sold", roles:["owner","manager"] },
+      { id:"customers", icon:"👥", l:"Buyers", group:"Sold", roles:["owner","manager"] },
+      { id:"retention", icon:"💚", l:"Repeat Buyers", group:"Sold", roles:["owner","manager"] },
+      { id:"refunds", icon:"↩️", l:"Refunds", group:"Sold", roles:["owner","manager"] },
+      { id:"casd", icon:"📜", l:"State Doc Reminders", group:"Sold", roles:["owner","manager"] },
       { id:"expense", icon:"💳", l:"Expenses", group:"Money", roles:["owner"] },
       { id:"receipts", icon:"🧾", l:"Receipt Scanner", group:"Money", roles:["owner","manager","employee"] },
       { id:"bills", icon:"📅", l:"Bills", group:"Money", roles:["owner"] },
@@ -920,28 +920,28 @@
       const role = user?.role || "employee";
       const tools = getToolsForRole(role);
       const bottomTabs = role === "employee"
-        ? ["today","plants_ws","shows_ws","orders_ws","money_ws"]
+        ? ["today","plants_ws","shows_ws"]
         : ["today","plants_ws","shows_ws","orders_ws","money_ws"];
       const workspaceById = Object.fromEntries(WORKSPACES.map(w => [w.id, w]));
       const openPage = id => { setPage(id); setMenuOpen(false); setAddOpen(false); setMenuSearch(""); };
       const quickAdd = [
         ["Add Plant","manual","✏️"], ["Upload Invoice","upload","📸"], ["Scan Receipt","receipts","🧾"],
-        ["Import Show","showimport","📥"], ["Add Expense","expense","💳"], ["Create Social Post","social","📣"],
-        ["State Doc","casd","📜"], ["Ask Data AI","dataai","💬"], ["Live Show","liveshow","🎥"]
+        ["Import Show","showimport","📥"], ["Scan Receipt","receipts","🧾"], ["Live Show","liveshow","🎥"],
+        ["Sold Review","ship","✅"], ["Ask Leaf Diary","dataai","💬"]
       ].filter(x => tools.some(t => t.id === x[1]) || WORKSPACES.some(w => w.id === x[1]));
-      const menuGroups = ["Today","Plants","Shows","Orders","Money","Buying","Marketing","Business","Admin"]
+      const menuGroups = ["Today","Plants","Shows","Sold","Money","Buying","Marketing","Business","Admin"]
         .map(g => ({ group:g, items:tools.filter(t => t.group === g && (!menuSearch || (t.l + " " + t.group).toLowerCase().includes(menuSearch.toLowerCase()))) }))
         .filter(g => g.items.length);
       return <>
         <div style={{ background:"#000", position:"sticky", top:0, zIndex:300, padding:"9px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 18px rgba(0,0,0,.32)" }}>
           <button onClick={()=>openPage("today")} style={{ display:"flex", alignItems:"center", gap:8, background:"transparent", border:"none", padding:0, cursor:"pointer", color:"#fff", fontFamily:F.body }}>
             <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height:38, width:38, objectFit:"contain", borderRadius:"50%", background:"#000", padding:1, boxShadow:"0 0 0 1px rgba(255,255,255,.25)" }} />
-            <div style={{ textAlign:"left", lineHeight:1.05 }}><div style={{ fontSize:14, fontWeight:900, fontFamily:F.display, letterSpacing:.5 }}>LEAF DIARY</div><div style={{ fontSize:10, color:"#97d33e", fontWeight:800 }}>Business Hub</div></div>
+            <div style={{ textAlign:"left", lineHeight:1.05 }}><div style={{ fontSize:14, fontWeight:900, fontFamily:F.display, letterSpacing:.5 }}>LEAF DIARY</div><div style={{ fontSize:10, color:"#97d33e", fontWeight:800 }}>CRM Phase 1</div></div>
           </button>
           <Row gap={7} center>
             {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
             <button onClick={()=>setAddOpen(true)} style={{ background:"#fb6392", color:"#fff", border:"none", borderRadius:999, width:38, height:38, fontSize:22, lineHeight:1, fontWeight:900, cursor:"pointer", boxShadow:"0 0 14px rgba(251,99,146,.45)" }}>+</button>
-            <button onClick={()=>setPage("aihub")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:20, padding:"7px 10px", fontSize:12, fontWeight:900, cursor:"pointer" }}>🤖</button>
+            <button onClick={()=>setPage("dataai")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:20, padding:"7px 10px", fontSize:12, fontWeight:900, cursor:"pointer" }}>🤖</button>
             <button onClick={()=>setMenuOpen(p=>!p)} style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
           </Row>
         </div>
@@ -970,12 +970,51 @@
       </>;
     }
 
+
+    function EmployeeSimpleHome({ plants = [], timecards = [], setPage, user }) {
+      const inStock = plants.filter(p => p.status === "In Stock");
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const needsLabel = inStock.filter(p => !p.labelPrinted);
+      const readyForShow = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || 0));
+      const soldToday = plants.filter(p => p.status === "Sold" && String(plantSaleDate(p) || "").slice(0,10) === today());
+      const buttons = [
+        ["Scan Plant Label", "inv", "📸", "Open inventory search/scan and pull up one plant fast."],
+        ["Take Plant Photo", "inv", "📷", `${noPhoto.length} plant(s) need photos before they are show-ready.`],
+        ["Print Labels Needed", "labels", "🏷️", `${needsLabel.length} plant label(s) need to be printed.`],
+        ["Build Today's Show", "showbuilder", "🎪", `${readyForShow.length} plant(s) look ready for Palmstreet or Whatnot.`],
+        ["Clock In / Clock Out", "timecard", "⏱️", "Track work time. No money, cost, reports, or admin shown here."]
+      ];
+      return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:720, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #97d33e", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+          <div style={{ fontSize:36 }}>🌿</div>
+          <div style={{ fontFamily:F.display, fontSize:28, color:"#97d33e", fontWeight:900, marginTop:4 }}>Today</div>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,.75)", marginTop:4 }}>Simple employee screen — tap the next job, nothing scary.</div>
+          <div style={{ marginTop:14, background:"rgba(151,211,62,.13)", border:"1px solid rgba(151,211,62,.35)", borderRadius:16, padding:"12px 13px", fontWeight:900 }}>
+            {needsLabel.length} labels needed · {noPhoto.length} photos needed · {soldToday.length} sold today
+          </div>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
+          {buttons.map(([label,id,icon,sub]) => <button key={id+label} onClick={()=>setPage(id)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:22, padding:"18px 16px", textAlign:"left", cursor:"pointer", boxShadow:"0 8px 24px rgba(13,43,26,.07)", fontFamily:F.body }}>
+            <Row gap={14} center>
+              <div style={{ width:54, height:54, borderRadius:18, background:"rgba(151,211,62,.18)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30 }}>{icon}</div>
+              <div style={{ flex:1 }}><div style={{ fontSize:18, fontWeight:900, color:C.g900 }}>{label}</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{sub}</div></div>
+              <span style={{ color:C.tx4, fontWeight:900, fontSize:24 }}>›</span>
+            </Row>
+          </button>)}
+        </div>
+        <Card style={{ marginTop:14, background:C.g50 }}>
+          <b>Employee mode:</b> cost, profit, bills, tax, reports, admin, delete, and cleanup are hidden from this home screen.
+        </Card>
+      </div>;
+    }
+
     function WorkspaceHome({ type, user, plants = [], expenses = [], bills = [], timecards = [], receipts = [], casdCerts = [], settings = {}, setPage }) {
       const role = user?.role || "employee";
+      if ((type || "today") === "today" && role === "employee") return <EmployeeSimpleHome plants={plants} timecards={timecards} setPage={setPage} user={user} />;
       const inStock = plants.filter(p => p.status === "In Stock");
       const sold = plants.filter(p => p.status === "Sold");
       const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
-      const readyOrders = groupSalesIntoOrders(plants).filter(o => o.plants.some(x => x.fulfillmentStatus !== "Shipped"));
+      const readyOrders = groupSalesIntoOrders(plants);
       const month = monthKey();
       const soldMonth = sold.filter(p => monthKey(plantSaleDate(p)) === month);
       const monthSales = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
@@ -985,8 +1024,8 @@
       const canOpen = id => tools.some(t => t.id === id) || WORKSPACES.some(w => w.id === id);
       const open = id => canOpen(id) && setPage(id);
       const pack = {
-        today:{ icon:"🏠", title:"Today", sub:"Your simple daily operating screen.", hero:"What needs attention now", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["Orders",readyOrders.length,"need fulfillment"],["No Photos",noPhoto.length,"fix before show"],["Month Sales",$(monthSales),"sold this month"]], sections:[
-          { title:"Start Here", items:[["Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Order Fulfillment","ship","📦","Pack orders and paperwork"],["Upload Invoice","upload","📸","Add new inventory"]] },
+        today:{ icon:"🏠", title:"Today", sub:"Your simple daily operating screen.", hero:"What needs attention now", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["Sold Groups",readyOrders.length,"from platforms"],["No Photos",noPhoto.length,"fix before show"],["Month Sales",$(monthSales),"sold this month"]], sections:[
+          { title:"Start Here", items:[["Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Plant Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
           { title:"Common Tasks", items:[["Add Plant","manual","✏️","Manual inventory entry"],["Scan Receipt","receipts","🧾","Save expense receipt"],["Import Show","showimport","📥","Whatnot/Palmstreet sales"],["Social Post","social","📣","Turn plant photos into posts"]] }
         ]},
         plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything inventory in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
@@ -997,9 +1036,9 @@
           { title:"Run Shows", items:[["Show Builder","showbuilder","🎪","Build the show list"],["Live Show","liveshow","🎥","On-screen live mode"],["Post-Show Import","showimport","📥","Import Whatnot/Palmstreet CSV"],["Bundles","bundles","🧺","Group plants to sell"]] },
           { title:"Sell More", items:[["Discounts","discounts","🏷️","Clear slow plants"],["Social Center","social","📣","Create posts from plant photos"],["AI Content","content","✨","Captions and descriptions"],["Buy Intel","intel","💡","What to buy next"]] }
         ]},
-        orders_ws:{ icon:"📦", title:"Customers & Orders", sub:"After-sale workflow without confusing shipping tracking.", hero:"Pack orders, protect compliance, keep customers", color:"#68d8ff", kpis:[["Open Orders",readyOrders.length,"to fulfill"],["Customers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"buyers"],["State Docs",casdCerts.length,"archived"],["Refunds","↩️","manage"]], sections:[
-          { title:"Fulfillment", items:[["Order Fulfillment","ship","📦","Pack, heat pack, paperwork"],["State Docs","casd","📜","CA/AZ/TX/LA paperwork"],["Customers","customers","👥","CRM and purchase history"],["Refunds","refunds","↩️","Track issues"]] },
-          { title:"Customer Growth", items:[["Retention","retention","💚","VIP and repeat buyers"],["Social Center","social","📣","Customer-facing posts"],["Reports","reports","📈","Customer sales reports"],["AI Center","aihub","🤖","Find follow-up tasks"]] }
+        orders_ws:{ icon:"✅", title:"Sold Shows", sub:"Sold plants, buyer usernames, commissions and import review. Shipping stays in Palmstreet/Whatnot.", hero:"Review what sold without building shipping into the CRM", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Reminders",casdCerts.length,"archived"],["Refunds","↩️","manage"]], sections:[
+          { title:"Sold Plant Review", items:[["Sold Plant Review","ship","✅","Review sold plants only"],["Post-Show Import","showimport","📥","Upload Palmstreet/Whatnot sales"],["Buyers","customers","👥","Buyer usernames and history"],["Refunds","refunds","↩️","Track issues"]] },
+          { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["State Doc Reminders","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
         ]},
         money_ws:{ icon:"💵", title:"Money", sub:"Owner financials, receipts, payroll and taxes.", hero:"Know your cash before buying more", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
           { title:"Daily Money", items:[["Cash Flow","cashflow","💵","Can you spend?"],["Expenses","expense","💳","Business spending"],["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Due dates"]] },
