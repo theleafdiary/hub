@@ -15,54 +15,55 @@
     * {
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
+      min-width: 0;
+      max-width: 100%;
     }
 
+    /* ── UNIFIED SCROLL STRATEGY (replaces all previous override layers) ── */
+    html {
+      height: 100%;
+      overflow-x: hidden;
+    }
     body {
       margin: 0;
       padding: 0;
+      min-height: 100%;
       font-family: 'DM Sans', system-ui, sans-serif;
-      overscroll-behavior-x: none;
-      overscroll-behavior-y: auto;
-      overflow-y: auto !important;
+      overflow-y: scroll;
+      overflow-x: hidden;
+      overscroll-behavior: none;
       position: static !important;
-    }
-
-    #root {
-      min-height: 100vh;
-    }
-
-    input,
-    select,
-    textarea {
-      font-size: 16px !important;
-    }
-
-    /* Mobile hardening for iPhone-first single-file app */
-    html, body, #root {
-      width: 100%;
-      max-width: 100%;
-      overflow-x: hidden !important;
-    }
-
-    body {
       -webkit-text-size-adjust: 100%;
-      overflow-y: auto !important;
       -webkit-overflow-scrolling: touch;
-    }
-
-    .page-scroll-safe {
-      min-height: 100dvh;
-      height: auto;
-      overflow-y: auto !important;
-      overflow-x: hidden !important;
-      -webkit-overflow-scrolling: touch;
-      padding-bottom: calc(130px + env(safe-area-inset-bottom, 0px)) !important;
       touch-action: pan-y;
     }
+    #root {
+      min-height: 100vh;
+      height: auto !important;
+      overflow: visible !important;
+      position: static !important;
+    }
+    #root > div:not([style*="position: fixed"]) {
+      min-height: 100vh;
+      height: auto !important;
+      overflow: visible !important;
+    }
+    .ld-page, .ld-scroll-page, .page-scroll-safe {
+      min-height: 100vh;
+      height: auto !important;
+      overflow-y: visible !important;
+      overflow-x: hidden !important;
+      padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+    @media (min-width: 761px) {
+      .ld-page, .ld-scroll-page, .page-scroll-safe {
+        padding-bottom: 120px !important;
+      }
+    }
+    /* ── END UNIFIED SCROLL ── */
 
-    *, *::before, *::after {
-      min-width: 0;
-      max-width: 100%;
+    input, select, textarea {
+      font-size: 16px !important;
     }
 
     div, section, article, header, footer, main, aside, nav, p, span, label, h1, h2, h3, h4, h5, h6, button, td, th {
@@ -84,6 +85,7 @@
     button {
       max-width: 100%;
       white-space: normal !important;
+      min-height: 44px;
     }
 
     table {
@@ -95,25 +97,19 @@
     }
 
     @media (max-width: 760px) {
-      body {
-        width: 100vw;
-        overflow-x: hidden !important;
-      }
+      body { width: 100vw; overflow-x: hidden !important; }
 
-      /* Make every inline React grid collapse to one column on phones */
       div[style*="grid-template-columns"],
       section[style*="grid-template-columns"],
       article[style*="grid-template-columns"] {
         grid-template-columns: 1fr !important;
       }
-
       div[style*="display: grid"],
       section[style*="display: grid"],
       article[style*="display: grid"] {
         grid-template-columns: 1fr !important;
       }
 
-      /* Cards/rows/forms must never push wider than the phone */
       div[style*="max-width: 980"],
       div[style*="max-width: 960"],
       div[style*="max-width: 860"],
@@ -124,28 +120,11 @@
         width: 100% !important;
         max-width: calc(100vw - 28px) !important;
       }
-
-      div[style*="padding: 52px 32px"] {
-        padding: 28px 16px !important;
-      }
-
-      input, select, textarea {
-        width: 100% !important;
-        max-width: 100% !important;
-      }
-
-      .mobile-stack, .mobile-stack > * {
-        width: 100% !important;
-      }
-
-      .mobile-hide-overflow {
-        overflow-x: hidden !important;
-      }
-
-      .mobile-scroll-x {
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch;
-      }
+      div[style*="padding: 52px 32px"] { padding: 28px 16px !important; }
+      input, select, textarea { width: 100% !important; max-width: 100% !important; }
+      .mobile-stack, .mobile-stack > * { width: 100% !important; }
+      .mobile-hide-overflow { overflow-x: hidden !important; }
+      .mobile-scroll-x { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
     }
 
     @media (max-width: 480px) {
@@ -155,117 +134,7 @@
       div[style*="font-size: 48px"] { font-size: 38px !important; }
     }
 
-
-    /* DESKTOP + MOBILE SCROLL REPAIR — do not lock app pages */
-    html, body, #root {
-      min-height: 100% !important;
-      height: auto !important;
-      overflow-y: auto !important;
-      overflow-x: hidden !important;
-      position: static !important;
-    }
-
-    body {
-      overscroll-behavior-y: auto !important;
-      touch-action: auto !important;
-    }
-
-    #root > div {
-      min-height: 100vh;
-      height: auto !important;
-      overflow: visible !important;
-    }
-
-    .page-scroll-safe {
-      min-height: 100vh !important;
-      height: auto !important;
-      overflow-y: visible !important;
-      overflow-x: hidden !important;
-      padding-bottom: calc(150px + env(safe-area-inset-bottom, 0px)) !important;
-    }
-
-    @media (min-width: 761px) {
-      .page-scroll-safe {
-        overflow-y: visible !important;
-        padding-bottom: 150px !important;
-      }
-      body, html, #root { overflow-y: auto !important; }
-    }
-
-    @media (max-width: 760px) {
-      html, body, #root {
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch;
-      }
-      .page-scroll-safe {
-        overflow-y: visible !important;
-      }
-    }
-
-
-    /* FINAL DESKTOP SCROLL OVERRIDE — laptop pages must scroll normally */
-    html, body {
-      min-height: 100% !important;
-      height: auto !important;
-      overflow-y: scroll !important;
-      overflow-x: hidden !important;
-      position: static !important;
-    }
-    #root {
-      min-height: 100vh !important;
-      height: auto !important;
-      overflow: visible !important;
-      position: static !important;
-    }
-    #root > div:not([style*="position: fixed"]) {
-      min-height: 100vh !important;
-      height: auto !important;
-      overflow: visible !important;
-    }
-    .ld-page, .page-scroll-safe {
-      min-height: 100vh !important;
-      height: auto !important;
-      overflow: visible !important;
-      padding-bottom: calc(150px + env(safe-area-inset-bottom, 0px)) !important;
-    }
-    @media (min-width: 761px) {
-      body { overflow-y: scroll !important; }
-      .ld-page, .page-scroll-safe { padding-bottom: 150px !important; }
-    }
-
-  
-    /* LAST RESORT SCROLL FIX: desktop/laptop must always scroll the document */
-    @media (min-width: 761px) {
-      html, body, #root { height: auto !important; min-height: 100% !important; overflow-y: auto !important; }
-      body { position: static !important; overflow-y: scroll !important; }
-      #root, #root > div { overflow: visible !important; height: auto !important; min-height: 100vh !important; }
-    }
-
-
-    /* Desktop + mobile scroll repair for long workspace pages */
-    html, body, #root {
-      min-height: 100%;
-      height: auto !important;
-      overflow-y: auto !important;
-      overflow-x: hidden !important;
-    }
-
-    body {
-      position: static !important;
-      touch-action: pan-y;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    .ld-page, .ld-scroll-page {
-      min-height: 100vh;
-      height: auto !important;
-      overflow-y: visible !important;
-      overflow-x: hidden !important;
-      padding-bottom: calc(130px + env(safe-area-inset-bottom, 0px)) !important;
-    }
-
-
-    /* Native-style navigation: back bar, breadcrumbs, slide feel */
+    /* ── NATIVE NAVIGATION ── */
     .ld-page-shell {
       animation-duration: .18s;
       animation-timing-function: ease-out;
@@ -275,6 +144,8 @@
     .ld-slide-back { animation-name: ldSlideBack; }
     @keyframes ldSlideForward { from { opacity: .7; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
     @keyframes ldSlideBack { from { opacity: .75; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
+
+    /* ── BREADCRUMB BAR ── */
     .ld-backbar {
       position: sticky;
       top: 56px;
@@ -293,11 +164,13 @@
       color: #fff;
       border: 0;
       border-radius: 999px;
-      padding: 8px 12px;
+      padding: 10px 14px;
       font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 13px;
       font-weight: 900;
       cursor: pointer;
       white-space: nowrap !important;
+      min-height: 44px;
     }
     .ld-crumbs {
       display: flex;
@@ -318,18 +191,20 @@
       border: 0;
       color: #174D2F;
       font-weight: 900;
+      font-size: 13px;
       font-family: 'DM Sans', system-ui, sans-serif;
       cursor: pointer;
-      padding: 4px 2px;
+      padding: 6px 4px;
       white-space: nowrap !important;
+      min-height: 44px;
     }
     .ld-floating-back {
       position: fixed;
       left: 14px;
       bottom: calc(82px + env(safe-area-inset-bottom, 0px));
       z-index: 500;
-      width: 46px;
-      height: 46px;
+      width: 48px;
+      height: 48px;
       border-radius: 999px;
       border: 2px solid #97d33e;
       background: #000;
@@ -338,13 +213,263 @@
       font-weight: 900;
       box-shadow: 0 8px 28px rgba(0,0,0,.35);
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     @media (min-width: 761px) {
       .ld-floating-back { display: none; }
       .ld-backbar { top: 58px; }
     }
 
-</style>
+    /* ── GLOBAL SEARCH ── */
+    .ld-search-bar {
+      flex: 1;
+      max-width: 280px;
+      position: relative;
+    }
+    .ld-search-input {
+      width: 100%;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.20);
+      border-radius: 20px;
+      padding: 9px 14px 9px 36px;
+      color: #fff;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      box-sizing: border-box;
+    }
+    .ld-search-input::placeholder { color: rgba(255,255,255,0.50); }
+    .ld-search-input:focus {
+      border-color: #97d33e;
+      box-shadow: 0 0 0 2px rgba(151,211,62,0.25);
+    }
+    .ld-search-icon {
+      position: absolute;
+      left: 11px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 14px;
+      pointer-events: none;
+      opacity: 0.6;
+    }
+    .ld-search-results {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      background: #050505;
+      border: 1px solid rgba(151,211,62,0.35);
+      border-radius: 14px;
+      z-index: 800;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+      min-width: 280px;
+    }
+    .ld-search-section {
+      padding: 8px 12px 4px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #97d33e;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    .ld-search-result-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 10px 14px;
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      min-height: 44px;
+    }
+    .ld-search-result-btn:hover { background: rgba(255,255,255,0.07); }
+
+    /* ── FAB (Floating Action Button) ── */
+    .ld-fab {
+      position: fixed;
+      bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+      right: 16px;
+      z-index: 290;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: #FB6392;
+      color: #fff;
+      border: none;
+      font-size: 26px;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(251,99,146,0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.12s, box-shadow 0.12s;
+    }
+    .ld-fab:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(251,99,146,0.70); }
+    .ld-fab:active { transform: scale(0.94); }
+
+    /* ── TOAST NOTIFICATIONS ── */
+    .ld-toast {
+      position: fixed;
+      bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0D2B1A;
+      color: #97d33e;
+      border: 1.5px solid #97d33e;
+      border-radius: 999px;
+      padding: 10px 20px;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 14px;
+      font-weight: 800;
+      z-index: 9999;
+      white-space: nowrap;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+      animation: ldToastIn 0.2s ease-out;
+    }
+    @keyframes ldToastIn { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+    /* ── DESKTOP SIDEBAR ── */
+    @media (min-width: 769px) {
+      .ld-app-layout { display: flex; min-height: 100vh; }
+      .ld-sidebar {
+        width: 220px;
+        flex-shrink: 0;
+        background: #050505;
+        border-right: 1px solid rgba(255,255,255,0.08);
+        position: sticky;
+        top: 56px;
+        height: calc(100vh - 56px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: none;
+        padding: 12px 8px 20px;
+      }
+      .ld-sidebar::-webkit-scrollbar { display: none; }
+      .ld-sidebar-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 12px;
+        border: none;
+        border-radius: 10px;
+        background: transparent;
+        color: rgba(255,255,255,0.72);
+        font-family: 'DM Sans', system-ui, sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        text-align: left;
+        min-height: 44px;
+        transition: background 0.12s, color 0.12s;
+      }
+      .ld-sidebar-item:hover { background: rgba(255,255,255,0.07); color: #fff; }
+      .ld-sidebar-item.active { background: rgba(151,211,62,0.14); color: #97d33e; }
+      .ld-sidebar-section {
+        font-size: 10px;
+        font-weight: 800;
+        color: rgba(255,255,255,0.35);
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        padding: 12px 12px 4px;
+        margin-top: 4px;
+      }
+      .ld-main-content { flex: 1; min-width: 0; max-width: 1200px; }
+    }
+    @media (max-width: 768px) {
+      .ld-app-layout { display: block; }
+      .ld-sidebar { display: none; }
+      .ld-main-content { width: 100%; }
+    }
+
+    /* ── WORKSPACE CARD ── */
+    .ld-workspace-card {
+      transition: transform .12s ease, box-shadow .12s ease;
+      box-shadow: 0 2px 8px rgba(13,43,26,0.06);
+    }
+    .ld-workspace-card:hover { box-shadow: 0 6px 18px rgba(13,43,26,0.12); }
+    .ld-workspace-card:active { transform: scale(.985); }
+
+    /* ── BOTTOM NAV TABS ── */
+    .ld-bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 299;
+      background: #000;
+      border-top: 2px solid #2E8A55;
+      display: flex;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      box-shadow: 0 -4px 24px rgba(0,0,0,.45);
+    }
+    @media (min-width: 769px) { .ld-bottom-nav { display: none; } }
+
+    .ld-tab-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      padding: 10px 4px 12px;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      position: relative;
+      min-height: 56px;
+    }
+    .ld-tab-icon { font-size: 22px; line-height: 1; }
+    .ld-tab-label { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.72); }
+    .ld-tab-label.active { font-weight: 900; color: #97d33e; }
+    .ld-tab-active-bar {
+      position: absolute;
+      top: 0;
+      left: 20%;
+      right: 20%;
+      height: 3px;
+      background: #fb6392;
+      border-radius: 2px;
+      box-shadow: 0 0 8px rgba(251,99,146,.8);
+    }
+    .ld-tab-badge {
+      position: absolute;
+      top: 6px;
+      right: 10%;
+      background: #2E8A55;
+      color: #fff;
+      border-radius: 20px;
+      padding: 0 5px;
+      font-size: 9px;
+      font-weight: 900;
+    }
+
+    /* ── MISC ── */
+    @media (max-width: 760px) {
+      div[style*="grid-template-columns: repeat(2,1fr)"] { grid-template-columns: repeat(2,1fr) !important; }
+    }
+    @media (max-width: 380px) {
+      div[style*="grid-template-columns: repeat(2,1fr)"] { grid-template-columns: 1fr !important; }
+    }
+    .pg-pad { padding: 14px 14px 96px !important; }
+
+    /* Spinner */
+    @keyframes ld-spin { to { transform: rotate(360deg); } }
+    .spin { animation: ld-spin 0.8s linear infinite; }
+
+  </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -742,11 +867,11 @@
       const VS = { fill: { background: C.g700, color: "#fff", border: `1px solid ${C.g700}` }, soft: { background: C.g100, color: C.g800, border: `1px solid ${C.g300}` }, outline: { background: "transparent", color: C.g700, border: `1.5px solid ${C.g700}` }, ghost: { background: "transparent", color: C.tx3, border: `1px solid ${C.bd}` }, danger: { background: C.red, color: "#fff", border: `1px solid ${C.red}` }, gold: { background: C.gold, color: "#fff", border: `1px solid ${C.gold}` } };
       return <button onClick={onClick} disabled={disabled} style={{ ...VS[v], padding: pad, fontSize: fs, fontWeight: 600, borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer", fontFamily: F.body, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", opacity: disabled ? .5 : 1, width: full ? "100%" : undefined, justifyContent: full ? "center" : undefined, transition: "opacity .12s", ...s }}>{children}</button>;
     }
-    const Card = ({ children, style: s = {}, onClick }) => <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "16px 20px", cursor: onClick ? "pointer" : undefined, ...s }}>{children}</div>;
+    const Card = ({ children, style: s = {}, onClick }) => <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "16px 20px", cursor: onClick ? "pointer" : undefined, boxShadow: "0 2px 8px rgba(13,43,26,0.06)", ...s }}>{children}</div>;
     const Row = ({ children, gap = 10, wrap, center, between, end, style: s = {} }) => <div style={{ display: "flex", gap, flexWrap: wrap ? "wrap" : undefined, alignItems: center ? "center" : end ? "flex-end" : undefined, justifyContent: between ? "space-between" : undefined, ...s }}>{children}</div>;
 
     function KPI({ label, value, sub, color, onClick }) {
-      return <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "14px 14px", flex: 1, minWidth: 100, borderTop: `3px solid ${color || C.g500}`, cursor: onClick ? "pointer" : undefined }}>
+      return <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "14px 14px", flex: 1, minWidth: 100, borderTop: `3px solid ${color || C.g500}`, cursor: onClick ? "pointer" : undefined, boxShadow: "0 2px 8px rgba(13,43,26,0.06)" }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: C.tx3, letterSpacing: .5, textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
         <div style={{ fontSize: 24, fontWeight: 700, color: color || C.g800, fontFamily: F.display, lineHeight: 1.1 }}>{value}</div>
         {sub && <div style={{ fontSize: 12, color: C.tx3, marginTop: 4 }}>{sub}</div>}
@@ -836,48 +961,57 @@
       { id:"money_ws", icon:"💵", l:"Money", sub:"Receipts, expenses, payroll", color:"#f5c542" },
       { id:"admin_ws", icon:"⚙️", l:"Admin", sub:"Settings, users, security", color:"#b695ff" },
     ];
+    // Tab → direct destination mapping (skip workspace hub pages)
+    const TAB_PRIMARY_DESTINATION = {
+      today:     { owner: "dash", manager: "dash", employee: "emp_dash" },
+      plants_ws: { owner: "inv", manager: "inv", employee: "inv" },
+      shows_ws:  { owner: "showbuilder", manager: "showbuilder", employee: "liveshow" },
+      orders_ws: { owner: "ship", manager: "ship", employee: "ship" },
+      money_ws:  { owner: "cashflow", manager: "expense", employee: "timecard" },
+    };
+
     const TOOL_CATALOG = [
-      { id:"dash", icon:"📊", l:"Dashboard", group:"Today", roles:["owner","manager"] },
-      { id:"command", icon:"🚀", l:"Command Center", group:"Today", roles:["owner"] },
-      { id:"aihub", icon:"🤖", l:"AI Center", group:"Today", roles:["owner","manager","employee"] },
-      { id:"dataai", icon:"💬", l:"Ask Business AI", group:"Today", roles:["owner","manager","employee"] },
-      { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Today", roles:["owner"] },
-      { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Today", roles:["employee"] },
-      { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"manual", icon:"✏️", l:"Add Plants", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"upload", icon:"📸", l:"Upload Invoice", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"labels", icon:"🏷️", l:"Labels", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"care", icon:"🩺", l:"Plant Care", group:"Plants", roles:["owner","manager"] },
-      { id:"locations", icon:"📍", l:"Locations", group:"Plants", roles:["owner"] },
-      { id:"sellthru", icon:"📊", l:"Sell-Through", group:"Plants", roles:["owner","manager"] },
-      { id:"showbuilder", icon:"🎪", l:"Show Builder", group:"Shows", roles:["owner","manager"] },
-      { id:"liveshow", icon:"🎥", l:"Live Show", group:"Shows", roles:["owner","manager","employee"] },
-      { id:"showimport", icon:"📥", l:"Post-Show Import", group:"Shows", roles:["owner","manager"] },
-      { id:"bundles", icon:"🧺", l:"Bundles", group:"Shows", roles:["owner","manager"] },
-      { id:"discounts", icon:"🏷️", l:"Discounts", group:"Shows", roles:["owner"] },
-      { id:"social", icon:"📣", l:"Social Center", group:"Marketing", roles:["owner","manager","employee"] },
-      { id:"content", icon:"✨", l:"AI Content", group:"Marketing", roles:["owner","manager"] },
-      { id:"ship", icon:"✅", l:"Sold Plant Review", group:"Sold", roles:["owner","manager"] },
-      { id:"customers", icon:"👥", l:"Buyers", group:"Sold", roles:["owner","manager"] },
-      { id:"retention", icon:"💚", l:"Repeat Buyers", group:"Sold", roles:["owner","manager"] },
-      { id:"refunds", icon:"↩️", l:"Refunds", group:"Sold", roles:["owner","manager"] },
-      { id:"casd", icon:"📜", l:"State Doc Reminders", group:"Sold", roles:["owner","manager"] },
-      { id:"expense", icon:"💳", l:"Expenses", group:"Money", roles:["owner"] },
-      { id:"receipts", icon:"🧾", l:"Receipt Scanner", group:"Money", roles:["owner","manager","employee"] },
-      { id:"bills", icon:"📅", l:"Bills", group:"Money", roles:["owner"] },
-      { id:"timecard", icon:"⏱️", l:"Timecard", group:"Money", roles:["owner","manager","employee"] },
-      { id:"payroll", icon:"👥", l:"Payroll", group:"Money", roles:["owner"] },
-      { id:"commissions", icon:"🤝", l:"Commissions", group:"Money", roles:["owner"] },
-      { id:"tax", icon:"🧾", l:"Tax Center", group:"Money", roles:["owner"] },
-      { id:"goals", icon:"🎯", l:"Goals", group:"Money", roles:["owner"] },
-      { id:"nursery", icon:"🏪", l:"Nurseries", group:"Buying", roles:["owner","manager","employee"] },
-      { id:"pos", icon:"📋", l:"Purchase Orders", group:"Buying", roles:["owner","manager"] },
-      { id:"intel", icon:"💡", l:"Buy Intel", group:"Buying", roles:["owner","manager"] },
-      { id:"reports", icon:"📈", l:"Reports", group:"Business", roles:["owner","manager"] },
-      { id:"history", icon:"📋", l:"Past Invoices", group:"Business", roles:["owner","manager"] },
-      { id:"audit", icon:"🔍", l:"Audit Log", group:"Admin", roles:["owner","manager"] },
-      { id:"admin", icon:"⚙️", l:"Admin Panel", group:"Admin", roles:["owner"] },
-      { id:"cleanup", icon:"🧹", l:"Data Cleanup", group:"Admin", roles:["owner"] },
+      { id:"dash", icon:"📊", l:"Dashboard", group:"Today", roles:["owner","manager"], aliases:"overview stats home summary" },
+      { id:"command", icon:"🚀", l:"Command Center", group:"Today", roles:["owner"], aliases:"command alerts owner summary" },
+      { id:"aihub", icon:"🤖", l:"AI Center", group:"Today", roles:["owner","manager","employee"], aliases:"ai automation smart help" },
+      { id:"dataai", icon:"💬", l:"Ask Business AI", group:"Today", roles:["owner","manager","employee"], aliases:"ask chat ai question data" },
+      { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Today", roles:["owner"], aliases:"cash money balance bank spending" },
+      { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Today", roles:["employee"], aliases:"home dashboard employee" },
+      { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"], aliases:"inventory plants stock list find search" },
+      { id:"manual", icon:"✏️", l:"Add Plants", group:"Plants", roles:["owner","manager","employee"], aliases:"add plant new create entry" },
+      { id:"upload", icon:"📸", l:"Upload Invoice", group:"Plants", roles:["owner","manager","employee"], aliases:"upload invoice bulk import add" },
+      { id:"labels", icon:"🏷️", l:"Labels", group:"Plants", roles:["owner","manager","employee"], aliases:"labels print tag sticker" },
+      { id:"care", icon:"🩺", l:"Plant Care", group:"Plants", roles:["owner","manager"], aliases:"care health quarantine sick plants" },
+      { id:"locations", icon:"📍", l:"Locations", group:"Plants", roles:["owner"], aliases:"locations racks shelves rooms trailer" },
+      { id:"sellthru", icon:"📊", l:"Sell-Through", group:"Plants", roles:["owner","manager"], aliases:"sell through analytics fastest sellers" },
+      { id:"showbuilder", icon:"🎪", l:"Show Builder", group:"Shows", roles:["owner","manager"], aliases:"show builder build create show list whatnot palmstreet" },
+      { id:"liveshow", icon:"🎥", l:"Live Show", group:"Shows", roles:["owner","manager","employee"], aliases:"live show on screen selling" },
+      { id:"showimport", icon:"📥", l:"Post-Show Import", group:"Shows", roles:["owner","manager"], aliases:"import show post show sales whatnot palmstreet csv" },
+      { id:"bundles", icon:"🧺", l:"Bundles", group:"Shows", roles:["owner","manager"], aliases:"bundles group pack plants together" },
+      { id:"discounts", icon:"🏷️", l:"Discounts", group:"Shows", roles:["owner"], aliases:"discounts sale clearance reduce price" },
+      { id:"social", icon:"📣", l:"Social Center", group:"Marketing", roles:["owner","manager","employee"], aliases:"social media instagram post marketing" },
+      { id:"content", icon:"✨", l:"AI Content", group:"Marketing", roles:["owner","manager"], aliases:"ai content captions descriptions writing" },
+      { id:"ship", icon:"✅", l:"Sold Plant Review", group:"Sold", roles:["owner","manager"], aliases:"sold review orders ship packing shipped" },
+      { id:"customers", icon:"👥", l:"Buyers", group:"Sold", roles:["owner","manager"], aliases:"buyers customers usernames people" },
+      { id:"retention", icon:"💚", l:"Repeat Buyers", group:"Sold", roles:["owner","manager"], aliases:"repeat buyers vip returning customers" },
+      { id:"refunds", icon:"↩️", l:"Refunds", group:"Sold", roles:["owner","manager"], aliases:"refunds returns issues problems" },
+      { id:"casd", icon:"📜", l:"State Doc Reminders", group:"Sold", roles:["owner","manager"], aliases:"state docs casd compliance certificates" },
+      { id:"expense", icon:"💳", l:"Expenses", group:"Money", roles:["owner"], aliases:"expenses spending costs business money" },
+      { id:"receipts", icon:"🧾", l:"Receipt Scanner", group:"Money", roles:["owner","manager","employee"], aliases:"receipt scan photo expense save" },
+      { id:"bills", icon:"📅", l:"Bills", group:"Money", roles:["owner"], aliases:"bills due pay invoices vendor" },
+      { id:"timecard", icon:"⏱️", l:"Timecard", group:"Money", roles:["owner","manager","employee"], aliases:"timecard clock in out hours work" },
+      { id:"payroll", icon:"👥", l:"Payroll", group:"Money", roles:["owner"], aliases:"payroll pay employees wages" },
+      { id:"commissions", icon:"🤝", l:"Commissions", group:"Money", roles:["owner"], aliases:"commissions show commission pay" },
+      { id:"tax", icon:"🧾", l:"Tax Center", group:"Money", roles:["owner"], aliases:"tax taxes irs deductions" },
+      { id:"goals", icon:"🎯", l:"Goals", group:"Money", roles:["owner"], aliases:"goals profit targets revenue" },
+      { id:"nursery", icon:"🏪", l:"Nurseries", group:"Buying", roles:["owner","manager","employee"], aliases:"nurseries suppliers vendors buying from" },
+      { id:"pos", icon:"📋", l:"Purchase Orders", group:"Buying", roles:["owner","manager"], aliases:"purchase orders buying po orders" },
+      { id:"intel", icon:"💡", l:"Buy Intel", group:"Buying", roles:["owner","manager"], aliases:"buy intel what to buy reorder" },
+      { id:"reports", icon:"📈", l:"Reports", group:"Business", roles:["owner","manager"], aliases:"reports analytics revenue sales data monthly" },
+      { id:"history", icon:"📋", l:"Past Invoices", group:"Business", roles:["owner","manager"], aliases:"history past invoices previous uploads" },
+      { id:"audit", icon:"🔍", l:"Audit Log", group:"Admin", roles:["owner","manager"], aliases:"audit log security activity history" },
+      { id:"admin", icon:"⚙️", l:"Admin Panel", group:"Admin", roles:["owner"], aliases:"admin settings users roles permissions" },
+      { id:"cleanup", icon:"🧹", l:"Data Cleanup", group:"Admin", roles:["owner"], aliases:"cleanup fix duplicates data repair" },
     ];
     const getToolsForRole = role => TOOL_CATALOG.filter(t => (t.roles || []).includes(role));
 
@@ -913,62 +1047,320 @@
     }
 
 
-    function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {} }) {
+
+    /* ── GLOBAL SEARCH COMPONENT ── */
+    function GlobalSearch({ plants, setPage, onClose }) {
+      const [q, setQ] = useState('');
+      const role = 'owner'; // will get via context if needed
+      const tools = TOOL_CATALOG;
+      const plantResults = React.useMemo(() => {
+        if (!q || q.length < 2) return [];
+        const ql = q.toLowerCase();
+        return plants
+          .filter(p => p.status === 'In Stock')
+          .filter(p =>
+            (p.name || '').toLowerCase().includes(ql) ||
+            (p.plantId || '').toLowerCase().includes(ql) ||
+            (p.plantCode || '').toLowerCase().includes(ql)
+          ).slice(0, 4);
+      }, [plants, q]);
+      const toolResults = React.useMemo(() => {
+        if (!q || q.length < 2) return [];
+        const ql = q.toLowerCase();
+        return tools.filter(t =>
+          (t.l + ' ' + t.group + ' ' + (t.aliases || '')).toLowerCase().includes(ql)
+        ).slice(0, 5);
+      }, [q, tools]);
+      const hasResults = plantResults.length > 0 || toolResults.length > 0;
+      return (
+        <div className="ld-search-bar">
+          <span className="ld-search-icon">🔍</span>
+          <input
+            className="ld-search-input"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Search plants, tools..."
+            aria-label="Search plants and tools"
+            autoComplete="off"
+          />
+          {q.length >= 2 && (
+            <div className="ld-search-results">
+              {!hasResults && (
+                <div style={{ padding: '14px 14px', color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+                  No results for "{q}"
+                </div>
+              )}
+              {toolResults.length > 0 && (
+                <>
+                  <div className="ld-search-section">Pages & Tools</div>
+                  {toolResults.map(t => (
+                    <button key={t.id} className="ld-search-result-btn"
+                      onClick={() => { setPage(t.id); setQ(''); onClose && onClose(); }}>
+                      <span style={{ fontSize: 18 }}>{t.icon}</span>
+                      <span>{t.l}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{t.group}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+              {plantResults.length > 0 && (
+                <>
+                  <div className="ld-search-section">Plants in Stock</div>
+                  {plantResults.map(p => (
+                    <button key={p.id} className="ld-search-result-btn"
+                      onClick={() => { setPage('inv'); setQ(''); onClose && onClose(); }}>
+                      <span style={{ fontSize: 18 }}>🌿</span>
+                      <span style={{ flex: 1 }}>{p.name}</span>
+                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace' }}>{p.plantId || p.plantCode || ''}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── DESKTOP SIDEBAR COMPONENT ── */
+    function DesktopSidebar({ page, setPage, user }) {
+      const role = user?.role || 'employee';
+      const tools = getToolsForRole(role);
+      const groups = ['Today','Plants','Shows','Sold','Money','Buying','Marketing','Business','Admin'];
+      const wsForPage = getWorkspaceForPage(page);
+      // Only show groups relevant to the current workspace
+      const wsGroupMap = {
+        today: ['Today'], plants_ws: ['Plants'], shows_ws: ['Shows','Marketing'],
+        orders_ws: ['Sold'], money_ws: ['Money'], admin_ws: ['Buying','Business','Admin']
+      };
+      const activeGroups = wsGroupMap[wsForPage] || groups;
+      const filteredGroups = activeGroups
+        .map(g => ({ g, items: tools.filter(t => t.group === g) }))
+        .filter(x => x.items.length > 0);
+      return (
+        <nav className="ld-sidebar" aria-label="Section navigation">
+          {filteredGroups.map(({ g, items }) => (
+            <div key={g}>
+              <div className="ld-sidebar-section">{g}</div>
+              {items.map(t => (
+                <button key={t.id}
+                  className={`ld-sidebar-item${page === t.id ? ' active' : ''}`}
+                  onClick={() => setPage(t.id)}>
+                  <span style={{ fontSize: 16 }}>{t.icon}</span>
+                  <span>{t.l}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+      );
+    }
+
+    /* ── TOAST HOOK ── */
+    function useToast() {
+      const [toast, setToast] = useState(null);
+      const showToast = React.useCallback((msg, duration = 2500) => {
+        setToast(msg);
+        setTimeout(() => setToast(null), duration);
+      }, []);
+      const ToastEl = toast ? <div className="ld-toast">{toast}</div> : null;
+      return [showToast, ToastEl];
+    }
+
+    /* ── BOTTOM NAV TABS ── */
+    function BottomNav({ page, setPage, user, plantCount, billAlerts }) {
+      const role = user?.role || 'employee';
+      const tabIds = role === 'employee'
+        ? ['today', 'plants_ws', 'shows_ws']
+        : ['today', 'plants_ws', 'shows_ws', 'orders_ws', 'money_ws'];
+      // Tab labels as action-oriented
+      const tabLabels = {
+        today: 'Home', plants_ws: 'Inventory', shows_ws: 'Shows',
+        orders_ws: 'Sold', money_ws: 'Money'
+      };
+      const wsMap = Object.fromEntries(WORKSPACES.map(w => [w.id, w]));
+      const isActive = (id) => {
+        if (page === id) return true;
+        const pageWs = getWorkspaceForPage(page);
+        return pageWs === id;
+      };
+      const handleTabTap = (id) => {
+        const dest = TAB_PRIMARY_DESTINATION[id]?.[role] || id;
+        setPage(dest);
+      };
+      return (
+        <nav className="ld-bottom-nav" aria-label="Main navigation">
+          {tabIds.map(id => {
+            const ws = wsMap[id];
+            const active = isActive(id);
+            return (
+              <button key={id} className="ld-tab-btn"
+                onClick={() => handleTabTap(id)}
+                aria-label={tabLabels[id] || ws.l}
+                aria-current={active ? 'page' : undefined}>
+                {active && <div className="ld-tab-active-bar" />}
+                <span className="ld-tab-icon" style={{ filter: active ? 'drop-shadow(0 0 6px rgba(151,211,62,.55))' : 'none' }}>
+                  {ws.icon}
+                </span>
+                <span className={`ld-tab-label${active ? ' active' : ''}`}>
+                  {tabLabels[id] || ws.l}
+                </span>
+                {id === 'plants_ws' && plantCount > 0 && (
+                  <span className="ld-tab-badge">{plantCount}</span>
+                )}
+                {id === 'orders_ws' && billAlerts > 0 && (
+                  <span className="ld-tab-badge" style={{ background: '#BE3535' }}>{billAlerts}</span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      );
+    }
+
+    /* ── MAIN NAV COMPONENT ── */
+    function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {}, plants = [] }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const [addOpen, setAddOpen] = useState(false);
-      const [menuSearch, setMenuSearch] = useState("");
-      const role = user?.role || "employee";
+      const [menuSearch, setMenuSearch] = useState('');
+      const role = user?.role || 'employee';
       const tools = getToolsForRole(role);
-      const bottomTabs = role === "employee"
-        ? ["today","plants_ws","shows_ws"]
-        : ["today","plants_ws","shows_ws","orders_ws","money_ws"];
       const workspaceById = Object.fromEntries(WORKSPACES.map(w => [w.id, w]));
-      const openPage = id => { setPage(id); setMenuOpen(false); setAddOpen(false); setMenuSearch(""); };
+      const openPage = id => { setPage(id); setMenuOpen(false); setAddOpen(false); setMenuSearch(''); };
       const quickAdd = [
-        ["Add Plant","manual","✏️"], ["Upload Invoice","upload","📸"], ["Scan Receipt","receipts","🧾"],
-        ["Import Show","showimport","📥"], ["Scan Receipt","receipts","🧾"], ["Live Show","liveshow","🎥"],
-        ["Sold Review","ship","✅"], ["Ask Leaf Diary","dataai","💬"]
-      ].filter(x => tools.some(t => t.id === x[1]) || WORKSPACES.some(w => w.id === x[1]));
-      const menuGroups = ["Today","Plants","Shows","Sold","Money","Buying","Marketing","Business","Admin"]
-        .map(g => ({ group:g, items:tools.filter(t => t.group === g && (!menuSearch || (t.l + " " + t.group).toLowerCase().includes(menuSearch.toLowerCase()))) }))
+        ['Add Plant','manual','✏️','Add new inventory'],
+        ['Upload Invoice','upload','📸','Bulk add from invoice'],
+        ['Scan Receipt','receipts','🧾','Save expense receipt'],
+        ['Import Show','showimport','📥','Whatnot/Palmstreet sales'],
+        ['Sold Review','ship','✅','Review sold plants'],
+        ['Build Show','showbuilder','🎪','Build your show list'],
+        ['Ask AI','dataai','💬','Ask your business AI'],
+        ['Clock In/Out','timecard','⏱️','Track your hours'],
+      ].filter(x => tools.some(t => t.id === x[1]));
+      const menuGroups = ['Today','Plants','Shows','Sold','Money','Buying','Marketing','Business','Admin']
+        .map(g => ({ group: g, items: tools.filter(t => t.group === g && (!menuSearch || (t.l + ' ' + t.group + ' ' + (t.aliases||'')).toLowerCase().includes(menuSearch.toLowerCase()))) }))
         .filter(g => g.items.length);
-      return <>
-        <div style={{ background:"#000", position:"sticky", top:0, zIndex:300, padding:"9px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 18px rgba(0,0,0,.32)" }}>
-          <button onClick={()=>openPage("today")} style={{ display:"flex", alignItems:"center", gap:8, background:"transparent", border:"none", padding:0, cursor:"pointer", color:"#fff", fontFamily:F.body }}>
-            <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height:38, width:38, objectFit:"contain", borderRadius:"50%", background:"#000", padding:1, boxShadow:"0 0 0 1px rgba(255,255,255,.25)" }} />
-            <div style={{ textAlign:"left", lineHeight:1.05 }}><div style={{ fontSize:14, fontWeight:900, fontFamily:F.display, letterSpacing:.5 }}>LEAF DIARY</div><div style={{ fontSize:10, color:"#97d33e", fontWeight:800 }}>CRM Phase 1</div></div>
-          </button>
-          <Row gap={7} center>
-            {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
-            <button onClick={()=>setAddOpen(true)} style={{ background:"#fb6392", color:"#fff", border:"none", borderRadius:999, width:38, height:38, fontSize:22, lineHeight:1, fontWeight:900, cursor:"pointer", boxShadow:"0 0 14px rgba(251,99,146,.45)" }}>+</button>
-            <button onClick={()=>setPage("dataai")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:20, padding:"7px 10px", fontSize:12, fontWeight:900, cursor:"pointer" }}>🤖</button>
-            <button onClick={()=>setMenuOpen(p=>!p)} style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
-          </Row>
-        </div>
 
-        {addOpen && <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:700, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={()=>setAddOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:520, background:"#050505", color:"#fff", borderRadius:"24px 24px 0 0", padding:"18px 16px calc(22px + env(safe-area-inset-bottom,0px))", borderTop:"2px solid #97d33e", boxShadow:"0 -18px 60px rgba(0,0,0,.5)" }}>
-            <Row between center style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:22, color:"#97d33e", fontWeight:900 }}>Quick Add</div><div style={{ fontSize:12, color:"rgba(255,255,255,.65)" }}>One button for the things you do all day.</div></div><button onClick={()=>setAddOpen(false)} style={{ background:"rgba(255,255,255,.1)", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:12, padding:"8px 12px", fontSize:18 }}>×</button></Row>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{quickAdd.map(([label,id,icon]) => <button key={id} onClick={()=>openPage(id)} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:16, padding:"15px 12px", textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><div style={{ fontSize:24 }}>{icon}</div><div style={{ fontWeight:900, marginTop:5 }}>{label}</div></button>)}</div>
-          </div>
-        </div>}
+      return (
+        <>
+          {/* ── TOP HEADER BAR ── */}
+          <div style={{ background:'#000', position:'sticky', top:0, zIndex:300, padding:'9px 14px', display:'flex', alignItems:'center', gap:10, boxShadow:'0 2px 18px rgba(0,0,0,.32)' }}>
+            <button onClick={() => openPage('today')} style={{ display:'flex', alignItems:'center', gap:8, background:'transparent', border:'none', padding:0, cursor:'pointer', color:'#fff', fontFamily:F.body, flexShrink:0 }}>
+              <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height:38, width:38, objectFit:'contain', borderRadius:'50%', background:'#000', padding:1, boxShadow:'0 0 0 1px rgba(255,255,255,.25)' }} />
+              <div style={{ textAlign:'left', lineHeight:1.05 }}>
+                <div style={{ fontSize:14, fontWeight:900, fontFamily:F.display, letterSpacing:.5, whiteSpace:'nowrap' }}>LEAF DIARY</div>
+                <div style={{ fontSize:10, color:'#97d33e', fontWeight:800 }}>Business Hub</div>
+              </div>
+            </button>
 
-        {menuOpen && <div style={{ position:"fixed", inset:0, zIndex:650, background:"rgba(0,0,0,.38)" }} onClick={()=>setMenuOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:55, right:8, left:8, maxWidth:760, margin:"0 auto", background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.35)", borderRadius:20, maxHeight:"calc(100dvh - 80px)", overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", boxShadow:"0 24px 70px rgba(0,0,0,.55)", paddingBottom:18 }}>
-            <div style={{ padding:"16px 16px 10px", borderBottom:"1px solid rgba(255,255,255,.08)" }}>
-              <Row between center gap={8}><div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:24, fontWeight:900 }}>Workspaces</div><div style={{ color:"rgba(255,255,255,.66)", fontSize:12 }}>Everything is still here — now grouped so it is not overwhelming.</div></div><button onClick={onLogout} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:12, padding:"9px 12px", fontWeight:800 }}>Logout</button></Row>
-              <input value={menuSearch} onChange={e=>setMenuSearch(e.target.value)} placeholder="Search any tool..." style={{ marginTop:12, width:"100%", background:"#101010", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:14, padding:"13px 14px", fontSize:16, outline:"none" }} />
+            {/* Global Search */}
+            <GlobalSearch plants={plants} setPage={openPage} />
+
+            {/* Right actions */}
+            <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0, marginLeft:'auto' }}>
+              {billAlerts > 0 && (
+                <button onClick={() => openPage('bills')} style={{ background:C.red, border:'none', borderRadius:20, padding:'5px 10px', fontSize:12, color:'#fff', fontWeight:900, cursor:'pointer', minHeight:36 }}>
+                  📅 {billAlerts}
+                </button>
+              )}
+              <button onClick={() => setPage('dataai')} style={{ background:'#97d33e', color:'#000', border:'none', borderRadius:20, padding:'7px 10px', fontSize:12, fontWeight:900, cursor:'pointer', minHeight:36 }}>
+                🤖
+              </button>
+              <button onClick={() => setMenuOpen(p => !p)} aria-label="Open menu" style={{ background:'rgba(255,255,255,.18)', border:'none', borderRadius:10, padding:'8px 12px', cursor:'pointer', color:'#fff', fontSize:17, fontWeight:900, fontFamily:F.body, minHeight:36 }}>
+                ☰
+              </button>
             </div>
-            {!menuSearch && <div style={{ padding:12, display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{WORKSPACES.filter(w => w.id !== "admin_ws" || role === "owner").map(w => <button key={w.id} onClick={()=>openPage(w.id)} style={{ background:page===w.id?"rgba(151,211,62,.16)":"#0f0f0f", border:`1px solid ${page===w.id?w.color:"rgba(255,255,255,.12)"}`, borderRadius:18, padding:"16px 13px", color:"#fff", fontFamily:F.body, cursor:"pointer", textAlign:"left" }}><Row gap={10} center><span style={{ fontSize:29 }}>{w.icon}</span><div><div style={{ fontWeight:900, fontSize:15 }}>{w.l}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:11 }}>{w.sub}</div></div></Row></button>)}</div>}
-            <div style={{ padding:"6px 12px 16px" }}>{menuGroups.map(g => <details key={g.group} open={!!menuSearch} style={{ background:"#080808", border:"1px solid rgba(255,255,255,.1)", borderRadius:14, marginBottom:8, overflow:"hidden" }}><summary style={{ cursor:"pointer", padding:"13px 14px", fontWeight:900, color:"#fff", listStyle:"none" }}>{g.group} <span style={{ float:"right", color:"#97d33e", fontSize:12 }}>{g.items.length} tools</span></summary><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:6, padding:"0 10px 10px" }}>{g.items.map(t => <button key={t.id} onClick={()=>openPage(t.id)} style={{ background:page===t.id?"rgba(251,99,146,.18)":"rgba(255,255,255,.055)", border:`1px solid ${page===t.id?"#fb6392":"rgba(255,255,255,.1)"}`, color:"#fff", borderRadius:12, padding:"10px 9px", textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><span style={{ marginRight:7 }}>{t.icon}</span><span style={{ fontWeight:800, fontSize:12 }}>{t.l}</span></button>)}</div></details>)}</div>
-            <div style={{ padding:"0 14px 14px" }}><button onClick={()=>{setMenuOpen(false); onChangePassword();}} style={{ width:"100%", background:"transparent", border:"1px solid rgba(255,255,255,.25)", borderRadius:12, padding:"11px", color:"#fff", fontWeight:800 }}>Change Password</button></div>
           </div>
-        </div>}
 
-        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const active = page === id || (id === "today" && ["dash","command","aihub","cashflow","emp_dash"].includes(page)) || (id === "plants_ws" && ["inv","manual","upload","labels","care","locations","sellthru"].includes(page)) || (id === "shows_ws" && ["showbuilder","liveshow","showimport","bundles","discounts","social","content"].includes(page)) || (id === "orders_ws" && ["ship","customers","retention","refunds","casd"].includes(page)) || (id === "money_ws" && ["expense","receipts","bills","timecard","payroll","tax","goals","commissions"].includes(page)); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
-        <style>{`body{margin:0}.pg-pad{padding:14px 14px 96px!important}.ld-workspace-card{transition:transform .12s ease, box-shadow .12s ease}.ld-workspace-card:active{transform:scale(.985)}@media(max-width:760px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}}@media(max-width:380px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
-      </>;
+          {/* ── FAB (Floating Action Button) ── */}
+          <button className="ld-fab" onClick={() => setAddOpen(true)} aria-label="Quick Add">+</button>
+
+          {/* ── QUICK ADD BOTTOM SHEET ── */}
+          {addOpen && (
+            <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', zIndex:700, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={() => setAddOpen(false)}>
+              <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:520, background:'#050505', color:'#fff', borderRadius:'24px 24px 0 0', padding:'18px 16px calc(24px + env(safe-area-inset-bottom,0px))', borderTop:'2px solid #97d33e', boxShadow:'0 -18px 60px rgba(0,0,0,.5)' }}>
+                <Row between center style={{ marginBottom:14 }}>
+                  <div>
+                    <div style={{ fontFamily:F.display, fontSize:22, color:'#97d33e', fontWeight:900 }}>Quick Add</div>
+                    <div style={{ fontSize:12, color:'rgba(255,255,255,.65)' }}>Tap what you need to do right now.</div>
+                  </div>
+                  <button onClick={() => setAddOpen(false)} style={{ background:'rgba(255,255,255,.1)', color:'#fff', border:'1px solid rgba(255,255,255,.2)', borderRadius:12, padding:'8px 14px', fontSize:18, minHeight:44 }}>×</button>
+                </Row>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
+                  {quickAdd.map(([label,id,icon,desc]) => (
+                    <button key={id+label} onClick={() => openPage(id)} style={{ background:'#111', border:'1px solid rgba(255,255,255,.14)', color:'#fff', borderRadius:16, padding:'14px 12px', textAlign:'left', fontFamily:F.body, cursor:'pointer', minHeight:76 }}>
+                      <div style={{ fontSize:26 }}>{icon}</div>
+                      <div style={{ fontWeight:900, marginTop:6, fontSize:14 }}>{label}</div>
+                      <div style={{ fontSize:11, color:'rgba(255,255,255,.5)', marginTop:2 }}>{desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── FULL MENU OVERLAY ── */}
+          {menuOpen && (
+            <div style={{ position:'fixed', inset:0, zIndex:650, background:'rgba(0,0,0,.38)' }} onClick={() => setMenuOpen(false)}>
+              <div onClick={e => e.stopPropagation()} style={{ position:'absolute', top:55, right:8, left:8, maxWidth:760, margin:'0 auto', background:'#000', color:'#fff', border:'1px solid rgba(151,211,62,.35)', borderRadius:20, maxHeight:'calc(100dvh - 80px)', overflowY:'auto', overflowX:'hidden', WebkitOverflowScrolling:'touch', boxShadow:'0 24px 70px rgba(0,0,0,.55)', paddingBottom:18 }}>
+                <div style={{ padding:'16px 16px 10px', borderBottom:'1px solid rgba(255,255,255,.08)' }}>
+                  <Row between center gap={8}>
+                    <div>
+                      <div style={{ fontFamily:F.display, color:'#97d33e', fontSize:22, fontWeight:900 }}>All Tools</div>
+                      <div style={{ color:'rgba(255,255,255,.66)', fontSize:12 }}>Search or browse every feature.</div>
+                    </div>
+                    <button onClick={onLogout} style={{ background:'rgba(255,255,255,.12)', color:'#fff', border:'1px solid rgba(255,255,255,.18)', borderRadius:12, padding:'9px 14px', fontWeight:800, minHeight:44 }}>Logout</button>
+                  </Row>
+                  <input value={menuSearch} onChange={e => setMenuSearch(e.target.value)} placeholder="Search any tool..." style={{ marginTop:12, width:'100%', background:'#101010', color:'#fff', border:'1px solid rgba(255,255,255,.2)', borderRadius:14, padding:'13px 14px', fontSize:16, outline:'none', boxSizing:'border-box' }} />
+                </div>
+                {!menuSearch && (
+                  <div style={{ padding:12, display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
+                    {WORKSPACES.filter(w => w.id !== 'admin_ws' || role === 'owner').map(w => (
+                      <button key={w.id} onClick={() => { const dest = TAB_PRIMARY_DESTINATION[w.id]?.[role] || w.id; openPage(dest); }} style={{ background: getWorkspaceForPage(page) === w.id ? 'rgba(151,211,62,.16)' : '#0f0f0f', border:`1px solid ${getWorkspaceForPage(page) === w.id ? w.color : 'rgba(255,255,255,.12)'}`, borderRadius:18, padding:'16px 13px', color:'#fff', fontFamily:F.body, cursor:'pointer', textAlign:'left', minHeight:72 }}>
+                        <Row gap={10} center>
+                          <span style={{ fontSize:29 }}>{w.icon}</span>
+                          <div>
+                            <div style={{ fontWeight:900, fontSize:15 }}>{w.l}</div>
+                            <div style={{ color:'rgba(255,255,255,.62)', fontSize:11 }}>{w.sub}</div>
+                          </div>
+                        </Row>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div style={{ padding:'6px 12px 16px' }}>
+                  {menuGroups.map(g => (
+                    <details key={g.group} open={!!menuSearch} style={{ background:'#080808', border:'1px solid rgba(255,255,255,.1)', borderRadius:14, marginBottom:8, overflow:'hidden' }}>
+                      <summary style={{ cursor:'pointer', padding:'13px 14px', fontWeight:900, color:'#fff', listStyle:'none', minHeight:44, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                        <span>{g.group}</span>
+                        <span style={{ color:'#97d33e', fontSize:12 }}>{g.items.length} tools</span>
+                      </summary>
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:6, padding:'0 10px 10px' }}>
+                        {g.items.map(t => (
+                          <button key={t.id} onClick={() => openPage(t.id)} style={{ background: page===t.id ? 'rgba(251,99,146,.18)' : 'rgba(255,255,255,.055)', border:`1px solid ${page===t.id ? '#fb6392' : 'rgba(255,255,255,.1)'}`, color:'#fff', borderRadius:12, padding:'10px 9px', textAlign:'left', fontFamily:F.body, cursor:'pointer', minHeight:44 }}>
+                            <span style={{ marginRight:7 }}>{t.icon}</span>
+                            <span style={{ fontWeight:800, fontSize:12 }}>{t.l}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+                <div style={{ padding:'0 14px 14px', display:'flex', flexDirection:'column', gap:8 }}>
+                  <button onClick={() => { setMenuOpen(false); onChangePassword(); }} style={{ width:'100%', background:'transparent', border:'1px solid rgba(255,255,255,.25)', borderRadius:12, padding:'11px', color:'#fff', fontWeight:800, minHeight:44 }}>
+                    Change Password
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── BOTTOM NAVIGATION TABS ── */}
+          <BottomNav page={page} setPage={setPage} user={user} plantCount={plantCount} billAlerts={billAlerts} />
+        </>
+      );
     }
+
 
 
     function EmployeeSimpleHome({ plants = [], timecards = [], setPage, user }) {
@@ -977,34 +1369,49 @@
       const needsLabel = inStock.filter(p => !p.labelPrinted);
       const readyForShow = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || 0));
       const soldToday = plants.filter(p => p.status === "Sold" && String(plantSaleDate(p) || "").slice(0,10) === today());
-      const buttons = [
-        ["Scan Plant Label", "inv", "📸", "Open inventory search/scan and pull up one plant fast."],
-        ["Take Plant Photo", "inv", "📷", `${noPhoto.length} plant(s) need photos before they are show-ready.`],
-        ["Print Labels Needed", "labels", "🏷️", `${needsLabel.length} plant label(s) need to be printed.`],
-        ["Build Today's Show", "showbuilder", "🎪", `${readyForShow.length} plant(s) look ready for Palmstreet or Whatnot.`],
-        ["Clock In / Clock Out", "timecard", "⏱️", "Track work time. No money, cost, reports, or admin shown here."]
+      const name = user?.name?.split(" ")[0] || "there";
+      const now = new Date();
+      const hour = now.getHours();
+      const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+      const tasks = [
+        { label: "Add a Plant", id: "manual", icon: "✏️", desc: "Enter a new plant into inventory", color: C.g600 },
+        { label: `Print Labels (${needsLabel.length})`, id: "labels", icon: "🏷️", desc: needsLabel.length > 0 ? `${needsLabel.length} plants need labels` : "All labels printed ✓", color: needsLabel.length > 0 ? C.gold : C.g600 },
+        { label: `Add Photos (${noPhoto.length})`, id: "inv", icon: "📸", desc: noPhoto.length > 0 ? `${noPhoto.length} plants need photos` : "All photos done ✓", color: noPhoto.length > 0 ? C.gold : C.g600 },
+        { label: "Build Today's Show", id: "showbuilder", icon: "🎪", desc: `${readyForShow.length} plants ready for show`, color: "#fb6392" },
+        { label: "Clock In / Clock Out", id: "timecard", icon: "⏱️", desc: "Track your work hours", color: C.blue },
+        { label: "Search Inventory", id: "inv", icon: "🌿", desc: "Find or update any plant", color: C.g700 },
       ];
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:720, margin:"0 auto", fontFamily:F.body }}>
-        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #97d33e", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
-          <div style={{ fontSize:36 }}>🌿</div>
-          <div style={{ fontFamily:F.display, fontSize:28, color:"#97d33e", fontWeight:900, marginTop:4 }}>Today</div>
-          <div style={{ fontSize:13, color:"rgba(255,255,255,.75)", marginTop:4 }}>Simple employee screen — tap the next job, nothing scary.</div>
-          <div style={{ marginTop:14, background:"rgba(151,211,62,.13)", border:"1px solid rgba(151,211,62,.35)", borderRadius:16, padding:"12px 13px", fontWeight:900 }}>
-            {needsLabel.length} labels needed · {noPhoto.length} photos needed · {soldToday.length} sold today
-          </div>
+        {/* Morning brief */}
+        <div style={{ background:"#000", color:"#fff", borderRadius:24, padding:"20px 18px", border:"2px solid #97d33e", boxShadow:"0 8px 32px rgba(0,0,0,.20)", marginBottom:16 }}>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,.65)", marginBottom:4 }}>{greeting}, {name} 👋</div>
+          <div style={{ fontFamily:F.display, fontSize:26, color:"#97d33e", fontWeight:900 }}>What needs doing?</div>
+          {(needsLabel.length > 0 || noPhoto.length > 0) && (
+            <div style={{ marginTop:12, background:"rgba(251,99,146,.15)", border:"1px solid rgba(251,99,146,.35)", borderRadius:12, padding:"10px 13px", fontSize:13, fontWeight:700, color:"#fb6392" }}>
+              ⚡ {[needsLabel.length > 0 && `${needsLabel.length} labels needed`, noPhoto.length > 0 && `${noPhoto.length} photos needed`].filter(Boolean).join(" · ")}
+            </div>
+          )}
+          {needsLabel.length === 0 && noPhoto.length === 0 && (
+            <div style={{ marginTop:12, background:"rgba(151,211,62,.12)", border:"1px solid rgba(151,211,62,.3)", borderRadius:12, padding:"10px 13px", fontSize:13, fontWeight:700, color:"#97d33e" }}>
+              ✅ All caught up — nice work!
+            </div>
+          )}
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
-          {buttons.map(([label,id,icon,sub]) => <button key={id+label} onClick={()=>setPage(id)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:22, padding:"18px 16px", textAlign:"left", cursor:"pointer", boxShadow:"0 8px 24px rgba(13,43,26,.07)", fontFamily:F.body }}>
-            <Row gap={14} center>
-              <div style={{ width:54, height:54, borderRadius:18, background:"rgba(151,211,62,.18)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30 }}>{icon}</div>
-              <div style={{ flex:1 }}><div style={{ fontSize:18, fontWeight:900, color:C.g900 }}>{label}</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{sub}</div></div>
-              <span style={{ color:C.tx4, fontWeight:900, fontSize:24 }}>›</span>
-            </Row>
-          </button>)}
+        {/* Task buttons — large, clear, easy to tap */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:10 }}>
+          {tasks.map(({ label, id, icon, desc, color }) => (
+            <button key={id+label} onClick={() => setPage(id)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:18, padding:"16px 16px", textAlign:"left", cursor:"pointer", boxShadow:"0 2px 8px rgba(13,43,26,.06)", fontFamily:F.body, minHeight:72 }}>
+              <Row gap={14} center>
+                <div style={{ width:52, height:52, borderRadius:16, background:color+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>{icon}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:16, fontWeight:900, color:C.g900 }}>{label}</div>
+                  <div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>{desc}</div>
+                </div>
+                <span style={{ color:C.tx4, fontWeight:900, fontSize:22, flexShrink:0 }}>›</span>
+              </Row>
+            </button>
+          ))}
         </div>
-        <Card style={{ marginTop:14, background:C.g50 }}>
-          <b>Employee mode:</b> cost, profit, bills, tax, reports, admin, delete, and cleanup are hidden from this home screen.
-        </Card>
       </div>;
     }
 
@@ -1049,10 +1456,10 @@
           { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
         ]}
       }[type || "today"];
-      const CardBtn = ({ item }) => { const [label,id,icon,sub] = item; const disabled = !canOpen(id); return <button disabled={disabled} onClick={()=>open(id)} className="ld-workspace-card" style={{ background:disabled?"#f1f1f1":C.card, border:`1px solid ${disabled?"#ddd":C.bd}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:disabled?"not-allowed":"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)", fontFamily:F.body, opacity:disabled ? .45 : 1 }}><Row gap={10} center><div style={{ width:42, height:42, borderRadius:14, background:(pack.color||C.g600)+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:23 }}>{icon}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{label}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{sub}</div></div><span style={{ color:C.tx4, fontWeight:900 }}>›</span></Row></button> };
-      return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1060, margin:"0 auto", fontFamily:F.body }}>
+      const CardBtn = ({ item }) => { const [label,id,icon,sub] = item; const disabled = !canOpen(id); return <button disabled={disabled} onClick={()=>open(id)} className="ld-workspace-card" style={{ background:disabled?"#f1f1f1":C.card, border:`1px solid ${disabled?"#ddd":C.bd}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:disabled?"not-allowed":"pointer", fontFamily:F.body, opacity:disabled ? .45 : 1, minHeight:72 }}><Row gap={10} center><div style={{ width:46, height:46, borderRadius:14, background:(pack.color||C.g600)+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{label}</div><div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>{sub}</div></div><span style={{ color:C.tx4, fontWeight:900, fontSize:18 }}>›</span></Row></button> };
+      return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1200, margin:"0 auto", fontFamily:F.body }}>
         <div style={{ background:"#000", color:"#fff", borderRadius:26, padding:"20px 18px", border:`2px solid ${pack.color}`, boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
-          <Row between center wrap gap={12}><div><div style={{ fontSize:40, lineHeight:1 }}>{pack.icon}</div><div style={{ fontFamily:F.display, fontSize:28, color:pack.color, fontWeight:900, marginTop:5 }}>{pack.title}</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>{pack.sub}</div></div><Row gap={8} wrap><button onClick={()=>setPage("dataai")} style={{ background:pack.color, color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>💬 Ask Data</button><button onClick={()=>setPage("aihub")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🤖 AI</button></Row></Row>
+          <Row between center wrap gap={12}><div><div style={{ fontSize:40, lineHeight:1 }}>{pack.icon}</div><div style={{ fontFamily:F.display, fontSize:28, color:pack.color, fontWeight:900, marginTop:5 }}>{pack.title}</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>{pack.sub}</div></div><Row gap={8} wrap><button onClick={()=>setPage("dataai")} style={{ background:pack.color, color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer", minHeight:44 }}>💬 Ask Data</button><button onClick={()=>setPage("aihub")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer", minHeight:44 }}>🤖 AI</button></Row></Row>
           <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>{pack.hero}</div>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>{pack.kpis.map((k,i)=><KPI key={i} label={k[0]} value={k[1]} sub={k[2]} color={pack.color} />)}</div>
@@ -7690,6 +8097,10 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
     function App() {
       const saved = loadLS();
       const [showPwdModal, setShowPwdModal] = useState(false);
+      const [toastMsg, setToastMsg] = useState(null);
+      const showToast = React.useCallback((msg, dur=2500) => {
+        setToastMsg(msg); setTimeout(() => setToastMsg(null), dur);
+      }, []);
 
       const [session, setSession] = useState(undefined);
       useEffect(() => {
@@ -8104,9 +8515,10 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const cloudDot = cloudStatus === "synced" ? C.g400 : cloudStatus === "syncing" || cloudStatus === "loading" ? C.gold : C.amber;
       const cloudLabel = cloudStatus === "synced" ? "☁️ Supabase cloud synced" : cloudStatus === "syncing" ? "🔄 Saving to Supabase..." : cloudStatus === "loading" ? "🔄 Loading cloud..." : `⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
 
-      return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
+      return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1 }}>
         {(showPwdModal || user?.mustChangePassword) && <ChangePasswordModal onClose={() => { if (!user?.mustChangePassword) setShowPwdModal(false); }} user={user} onSuccess={() => { setUsers(prev => prev.map(u => u.id === user.id ? { ...u, mustChangePassword: false } : u)); setUser(prev => prev ? { ...prev, mustChangePassword: false } : prev); setShowPwdModal(false); }} />}
-        <Nav page={page} setPage={navigate} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} />
+        <Nav page={page} setPage={navigate} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} plants={plants} />
+        {toastMsg && <div className="ld-toast">{toastMsg}</div>}
         <BackBreadcrumbBar page={page} navHistory={navHistory} goBack={goBack} goTo={navigate} goCrumb={goCrumb} />
 
         {/* Cloud sync indicator strip */}
@@ -8125,6 +8537,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           </div>
         </div>
 
+        <div className="ld-app-layout">
+          <DesktopSidebar page={page} setPage={navigate} user={user} />
+          <div className="ld-main-content">
         <div key={page} className={`ld-page-shell ${navDir === "back" ? "ld-slide-back" : "ld-slide-forward"}`}>
           {page === "today" && <WorkspaceHome type="today" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
@@ -8174,6 +8589,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "cleanup" && user.role === "owner" && <DataCleanup plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
           {page === "casd" && user.role === "owner" && <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} />}
+        </div>
+          </div>
         </div>
       </div>;
     }
