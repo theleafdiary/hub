@@ -701,31 +701,112 @@
     const buildLeafDataSnapshot = ({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [] }) => ({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts, counts: { inStock: plants.filter(p => p.status === "In Stock").length, sold: plants.filter(p => p.status === "Sold").length, noPhoto: plants.filter(p => p.status === "In Stock" && !p.photoUrl && !p.photoBase64).length, needsLabel: plants.filter(p => p.status === "In Stock" && !p.labelPrinted).length, soldGroups: groupSalesIntoOrders(plants).length, receiptsReview: receipts.filter(r => r.reviewStatus === "Needs Review" || r.review_status === "Needs Review").length, docs: casdCerts.length } });
     const aiLine = (title, body, page = "command", severity = "info") => ({ id: uid(), title, body, page, severity });
     function localLeafAI(task, snapshot = {}) {
-      const plants = snapshot.plants || [], expenses = snapshot.expenses || [], bills = snapshot.bills || [], timecards = snapshot.timecards || [], receipts = snapshot.receipts || [], settings = snapshot.settings || {}, casdCerts = snapshot.casdCerts || [];
-      const inStock = plants.filter(p => p.status === "In Stock"), readyOrders = groupSalesIntoOrders(plants);
-      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64), needsLabel = inStock.filter(p => !p.labelPrinted), aging = inStock.filter(p => dHeld(p.dateAdded) >= 45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
-      const month = monthKey(), soldMonth = plants.filter(p => p.status === "Sold" && monthKey(plantSaleDate(p)) === month), revenue = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0), cogs = soldMonth.reduce((s,p)=>s+(+p.cost||0),0), expMonth = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((s,e)=>s+(+e.amount||0),0), net = revenue - cogs - expMonth;
-      const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0), payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
+      const plants = snapshot.plants || [], expenses = snapshot.expenses || [], bills = snapshot.bills || [], timecards = snapshot.timecards || [], receipts = snapshot.receipts || [], settings = snapshot.settings || {}, casdCerts = snapshot.casdCerts || [], nurseries = snapshot.nurseries || [], users = snapshot.users || [];
+      const inStock = plants.filter(p => p.status === "In Stock");
+      const sold = plants.filter(p => p.status === "Sold");
+      const readyOrders = groupSalesIntoOrders(plants);
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const needsLabel = inStock.filter(p => !p.labelPrinted);
+      const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const aging45 = inStock.filter(p => dHeld(p.dateAdded) >= 45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
+      const aging90 = inStock.filter(p => dHeld(p.dateAdded) >= 90);
+      const month = monthKey();
+      const soldMonth = sold.filter(p => monthKey(plantSaleDate(p)) === month);
+      const sold30 = sold.filter(p => dateInLast(plantSaleDate(p), 30));
+      const revenue = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
+      const cogs = soldMonth.reduce((s,p)=>s+(+p.cost||0),0);
+      const fees = soldMonth.reduce((s,p)=>s+platFee(p.platform||"", +p.salePrice||+p.suggestedPrice||0),0);
+      const expMonth = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((s,e)=>s+(+e.amount||0),0);
+      const payrollMonth = timecards.filter(t => monthKey(t.date || t.clockIn || t.createdAt) === month).reduce((s,t)=>s+(+t.totalPay||+t.pay||0),0);
+      const net = revenue - cogs - fees - expMonth - payrollMonth;
+      const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
+      const payrollWeek = timecards.filter(t => dateInLast(t.date || t.clockIn, 7)).reduce((s,t)=>s+(+t.totalPay||+t.pay||0),0);
+      const invCost = inStock.reduce((s,p)=>s+(+p.cost||0),0);
+      const invValue = inStock.reduce((s,p)=>s+(+p.suggestedPrice||+p.listPrice||+p.price||0),0);
+      const deadLoss = plants.filter(p => ["Dead","Damaged"].includes(p.status)).reduce((s,p)=>s+(+p.cost||0),0);
       const actions = [], warnings = [], recommendations = [];
-      if (readyOrders.length) actions.push(aiLine("Review sold plants", `${readyOrders.length} sold order group(s) are saved from Palmstreet/Whatnot. Review sales, buyer username, tips, and commission only. Shipping stays inside the platform.`, "ship", "warning"));
-      if (noPhoto.length) actions.push(aiLine("Add missing photos", `${noPhoto.length} in-stock plant(s) are missing photos. Photos help Palmstreet listings sell faster.`, "inv", "info"));
-      if (needsLabel.length) actions.push(aiLine("Print labels", `${needsLabel.length} plant(s) need labels before the next show.`, "labels", "info"));
-      if (aging.length) actions.push(aiLine("Move aging plants", `${aging.length} plant(s) are 45+ days old. Discount, bundle, or feature them in the next live show.`, "discounts", "warning"));
-      if (due14) warnings.push(aiLine("Bills due soon", `${$(due14)} in bills are due in the next 14 days.`, "bills", "warning"));
-      if ((+settings.currentBankBalance || 0) && (+settings.currentBankBalance || 0) < due14 + payrollWeek) warnings.push(aiLine("Cash risk", "Bank balance may not cover bills + payroll due soon. Open Cash Flow before buying inventory.", "cashflow", "critical"));
-      const deadLoss = plants.filter(p => ["Dead","Damaged"].includes(p.status)).reduce((s,p)=>s+(+p.cost||0),0); if (deadLoss) recommendations.push(aiLine("Reduce plant loss", `${$(deadLoss)} is tied to dead/damaged plants. Review nursery sources and care notes.`, "care", "warning"));
-      const genus = {}; plants.forEach(p => { const g = gOf(p.name); genus[g] = genus[g] || { g, stock:0, sold:0 }; if (p.status === "In Stock") genus[g].stock++; if (p.status === "Sold" && dateInLast(plantSaleDate(p), 45)) genus[g].sold++; });
-      Object.values(genus).filter(g => g.sold >= 2 && g.stock <= 2).sort((a,b)=>b.sold-a.sold).slice(0,5).forEach(g => recommendations.push(aiLine("Reorder opportunity", `${g.g} sold ${g.sold} recently and only ${g.stock} remain. Add to nursery shopping list.`, "intel", "info")));
-      const dupes = Object.values(plants.reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1); if (dupes.length) warnings.push(aiLine("Duplicate plant IDs", `${dupes.length} duplicate plant number group(s) found.`, "cleanup", "warning"));
-      const receiptNeeds = receipts.filter(r => (r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.main_category && !r.mainCategory)).length; if (receiptNeeds) actions.push(aiLine("Review receipts", `${receiptNeeds} receipt(s) need category or owner review for clean tax records.`, "receipts", "warning"));
-      const soldDocStates = plants.filter(p => p.status === "Sold" && ["CA","AZ","TX","LA"].includes(String(p.state||p.shippingState||"").toUpperCase())); if (soldDocStates.length && !casdCerts.length) warnings.push(aiLine("Check state docs", `${soldDocStates.length} sold plant(s) may require CA/AZ/TX/LA paperwork. Confirm PDFs are archived.`, "casd", "critical"));
-      if (task === "pricing_assistant") inStock.filter(p => (+p.suggestedPrice||0) && (+p.cost||0) && marg(+p.cost,+p.suggestedPrice) < 55).slice(0,12).forEach(p => recommendations.push(aiLine("Raise price", `${p.plantId || ""} ${p.name}: margin ${marg(+p.cost,+p.suggestedPrice)}%. Suggested price ${$(sprice(+p.cost,.62))}.`, "inv", "warning")));
-      if (task === "cash_leaks") { const byCat = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((m,e)=>{ const c=e.category||"Other"; m[c]=(m[c]||0)+(+e.amount||0); return m; },{}); Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,5).forEach(([cat,amt]) => recommendations.push(aiLine("Expense category watch", `${cat}: ${$(amt)} spent this month. Verify receipts and cut waste if high.`, "expense", "warning"))); }
-      if (task === "live_show_plan") { [...inStock].sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,5).forEach((p,i)=>actions.push(aiLine(`Show slot ${i+1}`, `${p.name} — ${$(p.suggestedPrice)}. Use as a hook or premium moment.`, "liveshow", "info"))); aging.slice(0,5).forEach(p=>actions.push(aiLine("Clearance push", `${p.name} held ${fDays(dHeld(p.dateAdded))}. Bundle or discount live.`, "discounts", "warning"))); }
-      if (task === "customer_ai") { const spend = {}; plants.filter(p=>p.status==="Sold").forEach(p=>{ const k=p.customerUsername||p.customerName||"Unknown"; spend[k]=(spend[k]||0)+(+p.salePrice||+p.suggestedPrice||0); }); Object.entries(spend).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([c,amt])=>recommendations.push(aiLine("VIP customer", `${c} has spent ${$(amt)}. Send a thank-you or early access message.`, "customers", "info"))); }
-      if (task === "employee_tasks") { actions.push(aiLine("Photo task", `Photograph ${Math.min(noPhoto.length,25)} plants missing photos.`, "inv", "info")); actions.push(aiLine("Packing task", `Pull/pack ${readyOrders.length} unshipped orders.`, "ship", "warning")); actions.push(aiLine("Label task", `Print labels for ${Math.min(needsLabel.length,50)} plants.`, "labels", "info")); }
-      const summary = task === "owner_summary" ? `This month: ${$(revenue)} revenue, estimated ${$(net)} net after COGS/expenses. ${readyOrders.length} sold groups saved, ${aging.length} plants are aging, ${noPhoto.length} plants need photos.` : task === "cash_leaks" ? `AI found ${recommendations.length} money leak checks for this month.` : task === "live_show_plan" ? "AI built a show plan using premium plants plus aging inventory to clear." : `AI found ${actions.length} actions, ${warnings.length} warnings, and ${recommendations.length} recommendations.`;
-      return { ok:true, task, summary, actions, warnings, recommendations, generatedAt:new Date().toISOString() };
+      const add = (bucket, title, body, page="command", severity="info") => bucket.push(aiLine(title, body, page, severity));
+      const byGenus = {}; plants.forEach(p => { const g = gOf(p.name); byGenus[g] = byGenus[g] || { genus:g, stock:0, sold30:0, cost:0, sales:0, profit:0, plants:[] }; if(p.status==="In Stock"){ byGenus[g].stock++; byGenus[g].cost += (+p.cost||0); byGenus[g].plants.push(p); } if(p.status==="Sold" && dateInLast(plantSaleDate(p),30)){ byGenus[g].sold30++; byGenus[g].sales += (+p.salePrice||+p.suggestedPrice||0); byGenus[g].profit += trueProfit(p); } });
+      const genusRows = Object.values(byGenus).sort((a,b)=>(b.sold30-b.stock)-(a.sold30-a.stock));
+      const byNursery = {}; plants.forEach(p => { const n = p.nurseryName || p.nursery || p.supplier || p.vendorName || "Unknown"; byNursery[n] = byNursery[n] || { name:n, count:0, sold:0, cost:0, sales:0, profit:0, dead:0 }; byNursery[n].count++; byNursery[n].cost += (+p.cost||0); if(p.status==="Sold"){ byNursery[n].sold++; byNursery[n].sales += (+p.salePrice||+p.suggestedPrice||0); byNursery[n].profit += trueProfit(p); } if(["Dead","Damaged"].includes(p.status)) byNursery[n].dead++; });
+      const nurseryRows = Object.values(byNursery).sort((a,b)=>b.profit-a.profit);
+      const buyerRows = Object.entries(sold.reduce((m,p)=>{ const k=p.customerUsername||p.customerName||"Unknown"; if(!m[k])m[k]={name:k,count:0,total:0,profit:0,plants:[]}; m[k].count++; m[k].total += (+p.salePrice||+p.suggestedPrice||0); m[k].profit += trueProfit(p); m[k].plants.push(p.name||"Plant"); return m; },{})).map(([,v])=>v).sort((a,b)=>b.total-a.total);
+      const duplicateGroups = Object.values(plants.reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1);
+
+      if (readyOrders.length) add(actions,"Review sold plant records",`${readyOrders.length} sold order group(s) are saved from Palmstreet/Whatnot. Shipping stays inside the platforms; verify sales, buyer names, tips, and commissions only.`,"ship","warning");
+      if (noPhoto.length) add(actions,"Photo task list",`${noPhoto.length} in-stock plant(s) need photos before they should be exported to Palmstreet/Whatnot.`,"inv","info");
+      if (needsLabel.length) add(actions,"Label task list",`${needsLabel.length} in-stock plant(s) need labels printed or reprinted.`,"labels","info");
+      if (noPrice.length) add(warnings,"Missing prices",`${noPrice.length} in-stock plant(s) have no suggested/list price. These should be fixed before show building.`,"inv","warning");
+      if (aging45.length) add(recommendations,"Aging inventory action",`${aging45.length} plant(s) are 45+ days old. Put the oldest ${Math.min(12, aging45.length)} into the next show or clearance batch.`,"discounts","warning");
+      if (due14) add(warnings,"Bills due soon",`${$(due14)} in bills are due in the next 14 days. Check cash before buying inventory.`,"bills","warning");
+      if ((+settings.currentBankBalance || 0) && (+settings.currentBankBalance || 0) < due14 + payrollWeek) add(warnings,"Cash danger",`Bank balance may not cover bills + payroll due soon. Need ${$(due14 + payrollWeek)} reserved.`,"cashflow","critical");
+      if (deadLoss) add(recommendations,"Dead/damaged inventory loss",`${$(deadLoss)} is tied up in dead/damaged plants. Compare nursery source, plant type, and acclimation process.`,"care","warning");
+      duplicateGroups.length && add(warnings,"Duplicate Plant IDs",`${duplicateGroups.length} duplicate Plant ID group(s) found. Fix before exporting shows.`,"cleanup","critical");
+      const receiptNeeds = receipts.filter(r => (r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.main_category && !r.mainCategory && !r.category)).length;
+      if (receiptNeeds) add(actions,"Receipt cleanup",`${receiptNeeds} receipt(s) need category review for tax-ready records.`,"receipts","warning");
+      const soldDocStates = sold.filter(p => ["CA","AZ","TX","LA"].includes(String(p.state||p.shippingState||"").toUpperCase()));
+      if (soldDocStates.length && !casdCerts.length) add(warnings,"State paperwork reminder",`${soldDocStates.length} sold plant(s) may need CA/AZ/TX/LA paperwork archived.`,"casd","warning");
+
+      if (["daily_check","what_today","owner_summary"].includes(task)) {
+        add(actions,"Do this first today", noPhoto.length ? `Photograph ${Math.min(25,noPhoto.length)} missing-photo plants so they can be used in shows.` : "No urgent photo backlog. Focus on pricing and show planning.", "inv", noPhoto.length?"info":"info");
+        add(actions,"Build next show from risk inventory", aging45.length ? `Start with ${Math.min(15,aging45.length)} aging plants, then add 5 premium hooks from higher priced inventory.` : "Use best-margin in-stock plants and recent top-selling genus mix.", "showbuilder", "info");
+        add(recommendations,"Current business score",`Month: ${$(revenue)} revenue, ${$(net)} estimated net after COGS, fees, expenses, and payroll. Inventory cost at risk: ${$(invCost)}.`,"reports","info");
+      }
+      if (task === "pricing_assistant") {
+        inStock.filter(p => (+p.cost||0) && (+p.suggestedPrice||0) && marg(+p.cost,+p.suggestedPrice) < 55).sort((a,b)=>marg(+a.cost,+a.suggestedPrice)-marg(+b.cost,+b.suggestedPrice)).slice(0,15).forEach(p => add(recommendations,"Raise price",`${p.plantId || ""} ${p.name}: margin ${marg(+p.cost,+p.suggestedPrice)}%. Suggested safer price ${$(sprice(+p.cost,.62))}.`,"inv","warning"));
+        noPrice.slice(0,15).forEach(p => add(actions,"Add missing price",`${p.plantId||""} ${p.name||"Plant"} needs a suggested price before show export.`,"inv","warning"));
+      }
+      if (["aging_inventory","clearance_builder"].includes(task)) {
+        aging45.slice(0,20).forEach(p => add(actions,"Add to clearance/show",`${p.plantId||""} ${p.name} has been held ${fDays(dHeld(p.dateAdded))}. Cost ${$(p.cost)} / price ${$(p.suggestedPrice)}.`,"showbuilder","warning"));
+      }
+      if (task === "reorder_builder") {
+        genusRows.filter(g=>g.sold30>=2).slice(0,8).forEach(g => add(recommendations,"Reorder category",`${g.genus}: sold ${g.sold30} recently and ${g.stock} in stock. Buy more if margins stayed strong.`,"intel","info"));
+      }
+      if (["nursery_performance","buy_pass","nursery_trip"].includes(task)) {
+        nurseryRows.slice(0,8).forEach(n => add(recommendations,"Nursery score",`${n.name}: ${n.count} bought, ${n.sold} sold, ${$(n.profit)} profit, ${n.dead} dead/damaged.`,"nursery", n.dead>2?"warning":"info"));
+      }
+      if (["live_show_plan","show_forecast"].includes(task)) {
+        const premium = [...inStock].filter(p => (+p.suggestedPrice||0)>=50).sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,8);
+        premium.forEach((p,i)=>add(actions,`Premium hook #${i+1}`,`${p.name} ${p.plantId||""} — list ${$(p.suggestedPrice)}. Use as opener, mid-show spike, or closer.`,"showbuilder","info"));
+        aging45.slice(0,8).forEach(p=>add(actions,"Clearance push",`${p.name} ${p.plantId||""} held ${fDays(dHeld(p.dateAdded))}. Bundle or start low to move capital.`,"discounts","warning"));
+        add(recommendations,"Show revenue forecast",`If you sell 60% of ${inStock.length} in-stock plants at current average in-stock price, rough gross potential is ${$(inStock.reduce((s,p)=>s+(+p.suggestedPrice||0),0)*0.60)}.`,"showbuilder","info");
+      }
+      if (task === "live_script") {
+        [...inStock].filter(p=>+p.suggestedPrice>0).sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,10).forEach(p=>add(actions,"Live talking point",`${p.name}: mention pot size ${p.potSize||"unknown"}, Plant ID ${p.plantId||p.plantCode||""}, and why it is a good Leaf Diary pick.`,"liveshow","info"));
+      }
+      if (task === "smart_bundles") {
+        const cheap = inStock.filter(p=>(+p.suggestedPrice||0)>0 && (+p.suggestedPrice||0)<=25).slice(0,12);
+        for(let i=0;i<cheap.length;i+=3){ const group=cheap.slice(i,i+3); if(group.length>1) add(actions,"Bundle idea",`${group.map(p=>`${p.plantId||""} ${p.name}`).join(" + ")} — bundle to move lower-ticket inventory.`,"bundles","info"); }
+      }
+      if (["receipt_audit","tax_prep","cash_leaks"].includes(task)) {
+        const byCat = expenses.filter(e => monthKey(e.date || e.createdAt) === month).reduce((m,e)=>{ const c=e.category||"Other"; m[c]=(m[c]||0)+(+e.amount||0); return m; },{});
+        Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([cat,amt])=>add(recommendations,"Expense watch",`${cat}: ${$(amt)} this month. Verify receipts and business category.`,"expense","warning"));
+        add(actions,"Tax-ready summary",`Month totals: revenue ${$(revenue)}, COGS ${$(cogs)}, fees ${$(fees)}, expenses ${$(expMonth)}, payroll ${$(payrollMonth)}, estimated net ${$(net)}.`,"tax","info");
+      }
+      if (["customer_ai","vip_builder"].includes(task)) {
+        buyerRows.slice(0,10).forEach(b => add(recommendations,"VIP buyer",`${b.name}: ${b.count} plant(s), ${$(b.total)} total spend, est profit ${$(b.profit)}. Offer early access or bundle preview.`,"customers","info"));
+      }
+      if (task === "employee_tasks") {
+        add(actions,"Employee photo task",`Photograph ${Math.min(noPhoto.length,25)} missing-photo plants.`,"inv","info");
+        add(actions,"Employee label task",`Print labels for ${Math.min(needsLabel.length,50)} plants.`,"labels","info");
+        add(actions,"Employee cleanup task",`Pull ${Math.min(aging45.length,15)} aging plants for next show review.`,"discounts","warning");
+      }
+      if (["backup_health","error_scan"].includes(task)) {
+        add(warnings,"Data health",`${duplicateGroups.length} duplicate ID group(s), ${noPrice.length} missing prices, ${noPhoto.length} missing photos, ${needsLabel.length} missing labels.`,"cleanup", duplicateGroups.length?"critical":"info");
+      }
+      if (["plant_health","photo_quality"].includes(task)) {
+        add(actions,"Plant/photo review queue",`${noPhoto.length} plants need photos. Also review quarantine/pest health fields before shows.`,"care","info");
+      }
+      const summaryMap = {
+        daily_check:`AI daily check complete: ${actions.length} actions, ${warnings.length} warnings, ${recommendations.length} opportunities. Month net estimate ${$(net)}.`,
+        owner_summary:`Owner summary: ${$(revenue)} month revenue, ${$(net)} estimated net, ${inStock.length} in stock, ${aging45.length} aging, ${noPhoto.length} missing photos.`,
+        live_show_plan:`Show plan ready: premium hooks, clearance pushes, and rough sell-through forecast were created.`,
+        cash_leaks:`Money scan complete: expenses, dead inventory, fees, and low-margin risks were reviewed.`,
+        tax_prep:`Tax prep summary created from sales, COGS, fees, expenses, receipts, and payroll.`,
+        customer_ai:`Buyer AI found ${buyerRows.length} buyer profile(s) and ranked VIP opportunities.`,
+        pricing_assistant:`Pricing AI reviewed ${inStock.length} in-stock plants for missing price and low-margin risk.`
+      };
+      return { ok:true, task, summary: summaryMap[task] || `AI completed ${task.replace(/_/g," ")}: ${actions.length} actions, ${warnings.length} warnings, ${recommendations.length} opportunities.`, actions, warnings, recommendations, generatedAt:new Date().toISOString() };
     }
     async function runLeafAI(task, payload) { try { const { data, error } = await supabase.functions.invoke("leaf-ai", { body:{ task, payload } }); if (!error && data && data.ok) return data; } catch (err) { console.warn("leaf-ai unavailable, using local fallback", err); } return localLeafAI(task, payload); }
     /* ══════════════════════════════════════════════════════════
@@ -5257,128 +5338,155 @@
     function BusinessDataAI({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [], user, addAudit, setPage }) {
       const [q, setQ] = useState("");
       const [answer, setAnswer] = useState(null);
-      const [history, setHistory] = useState(settings?.dataAiHistory || []);
+      const [mode, setMode] = useState("owner");
+      const isOwner = user?.role === "owner";
+      const canMoney = isOwner || settings?.aiShowMoneyToManagers;
+      const inStock = plants.filter(p => p.status === "In Stock");
+      const sold = plants.filter(p => p.status === "Sold");
+      const sold30 = sold.filter(p => dateInLast(plantSaleDate(p), 30));
+      const noPhoto = inStock.filter(p=>!p.photoUrl && !p.photoBase64);
+      const noPrice = inStock.filter(p=>!(+p.suggestedPrice||+p.listPrice||+p.price));
+      const aging = inStock.filter(p=>dHeld(p.dateAdded)>=45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
+      const invCost = inStock.reduce((s,p)=>s+(+p.cost||0),0);
+      const invValue = inStock.reduce((s,p)=>s+(+p.suggestedPrice||+p.listPrice||+p.price||0),0);
+      const revenue30 = sold30.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
+      const profit30 = sold30.reduce((s,p)=>s+trueProfit(p),0);
+      const dashboardCards = [
+        ["In Stock", inStock.length, "🌿", "inv"],
+        ["Missing Photos", noPhoto.length, "📸", "inv"],
+        ["Aging 45+ Days", aging.length, "⏳", "discounts"],
+        ["30-Day Sales", canMoney ? $(revenue30) : sold30.length, "💵", "reports"]
+      ];
+      const quickPrompts = [
+        "What should I do today?",
+        "Build me a Whatnot show plan.",
+        "Which plants need photos before the next show?",
+        "What inventory is aging and should be discounted?",
+        "Which nursery is making me the most money?",
+        "Who are my VIP buyers?",
+        "Where am I losing money?",
+        "What should I buy next?",
+        "Which plants are missing prices?",
+        "Give me a tax-ready summary for this month."
+      ];
       const findPlantMatches = (query) => {
         const text = String(query || "").toLowerCase();
-        const codeMatch = text.match(/\b[a-z]{1,4}-?\d{1,5}\b/i);
+        const codeMatch = text.match(/\b[a-z]{1,5}-?\d{1,5}\b/i);
         const code = codeMatch ? codeMatch[0].replace(/([a-z]+)(\d+)/i, "$1-$2").toLowerCase() : "";
         let matches = plants.filter(p => {
           const pidv = String(p.plantId || p.plantCode || "").toLowerCase();
           const nm = String(p.name || "").toLowerCase();
           return (code && (pidv === code || pidv.replace(/-0+/g,"-") === code.replace(/-0+/g,"-"))) || (nm && text.includes(nm.slice(0, Math.min(12, nm.length))));
         });
-        if (!matches.length && text.length > 3) matches = plants.filter(p => String(p.name || "").toLowerCase().split(/\s+/).some(w => w.length > 4 && text.includes(w))).slice(0, 8);
-        return matches.slice(0, 8);
-      };
-      const customerMatches = (query) => {
-        const text = String(query || "").toLowerCase();
-        const sold = plants.filter(p => p.status === "Sold");
-        const names = [...new Set(sold.map(p => p.customerName || p.customerUsername || "").filter(Boolean))];
-        const found = names.filter(n => text.includes(String(n).toLowerCase()) || String(n).toLowerCase().includes(text.trim())).slice(0,5);
-        return found;
+        if (!matches.length && text.length > 3) matches = plants.filter(p => String(p.name || "").toLowerCase().split(/\s+/).some(w => w.length > 4 && text.includes(w))).slice(0, 12);
+        return matches.slice(0, 12);
       };
       const lineForPlant = p => {
-        const sold = p.status === "Sold";
-        const revenue = +p.salePrice || +p.suggestedPrice || 0;
+        const soldPlant = p.status === "Sold";
+        const revenue = +p.salePrice || +p.suggestedPrice || +p.listPrice || +p.price || 0;
         const cost = +p.cost || 0;
         const profit = trueProfit(p);
-        const bought = p.dateAdded || p.purchaseDate || p.createdAt || "Unknown";
-        const soldDate = p.soldDate || p.saleDate || p.dateSold || "Not sold yet";
-        const nursery = p.nurseryName || p.nursery || p.supplier || "Unknown nursery";
+        const nursery = p.nurseryName || p.nursery || p.supplier || p.vendorName || "Unknown nursery";
         const buyer = p.customerName || p.customerUsername || "No buyer recorded";
-        return `${p.plantId || p.plantCode || "No ID"} — ${p.name || "Unnamed plant"}\nStatus: ${p.status || "Unknown"}\nBought: ${bought} from ${nursery}\nCost: ${$(cost)}\nSell Price: ${$(revenue)}\n${sold ? `Sold to: ${buyer}\nSold Date: ${soldDate}\nProfit after fees/shipping: ${$(profit)}` : `Potential profit at current price: ${$(revenue - cost)}`}`;
+        return `${p.plantId || p.plantCode || "No ID"} — ${p.name || "Unnamed plant"}\nStatus: ${p.status || "Unknown"}\nPot: ${p.potSize || p.pot_size || "Unknown"}\nBought: ${p.dateAdded || p.purchaseDate || "Unknown"} from ${nursery}\n${canMoney ? `Cost: ${$(cost)}\nPrice: ${$(revenue)}\n${soldPlant ? `Sold to: ${buyer}\nProfit after fees/shipping: ${$(profit)}` : `Potential gross profit: ${$(revenue-cost)}`}` : `Price: ${$(revenue)}\nBuyer: ${soldPlant ? buyer : "Not sold yet"}`}`;
       };
       const buildAnswer = (query) => {
         const text = String(query || "").toLowerCase();
-        const inStock = plants.filter(p => p.status === "In Stock");
-        const sold = plants.filter(p => p.status === "Sold");
         const plantHits = findPlantMatches(query);
-        const custHits = customerMatches(query);
-        if (plantHits.length) {
-          return { title: "Plant lookup", body: plantHits.map(lineForPlant).join("\n\n"), actions: plantHits[0] ? [{ label:"Open Inventory", page:"inv" }, { label:"Open Customers", page:"customers" }] : [] };
+        if (plantHits.length) return { title:"Plant Intelligence", body:plantHits.map(lineForPlant).join("\n\n"), actions:[{label:"Open Inventory", page:"inv"},{label:"Build Show", page:"showbuilder"}] };
+        if (text.includes("today") || text.includes("what should i do") || text.includes("priority")) {
+          return { title:"Today's AI Action Plan", body:[
+            noPhoto.length ? `1. Photograph ${Math.min(noPhoto.length,25)} missing-photo plants.` : "1. Photo backlog is clear.",
+            noPrice.length ? `2. Price ${Math.min(noPrice.length,25)} plants before exporting shows.` : "2. Pricing backlog is clear.",
+            aging.length ? `3. Pull ${Math.min(aging.length,15)} aging plants for the next show/clearance batch.` : "3. No major aging inventory problem found.",
+            `4. 30-day sales: ${canMoney ? $(revenue30) : sold30.length + " sold plants"}.`,
+            `5. In-stock value: ${canMoney ? $(invValue) : inStock.length + " plants ready to sell"}.`
+          ].join("\n"), actions:[{label:"Open Show Builder", page:"showbuilder"},{label:"Open Inventory", page:"inv"}] };
         }
-        if (custHits.length || text.includes("customer") || text.includes("bought from me") || text.includes("buy from me")) {
-          const target = custHits[0];
-          const rows = target ? sold.filter(p => [p.customerName,p.customerUsername].some(v => String(v||"").toLowerCase() === target.toLowerCase())) : sold;
-          const byCustomer = rows.reduce((m,p)=>{ const k=p.customerName||p.customerUsername||"Unknown"; if(!m[k]) m[k]={count:0,total:0,plants:[]}; m[k].count++; m[k].total += (+p.salePrice||+p.suggestedPrice||0); m[k].plants.push(`${p.plantId||""} ${p.name||""}`.trim()); return m; },{});
-          const body = Object.entries(byCustomer).sort((a,b)=>b[1].total-a[1].total).slice(0,10).map(([name,v])=>`${name}: ${v.count} plant(s), ${$(v.total)} total\nPlants: ${v.plants.slice(0,12).join(", ")}`).join("\n\n") || "No customer purchase records found.";
-          return { title: target ? `Customer history: ${target}` : "Top customer purchase history", body, actions:[{label:"Open Customers", page:"customers"}] };
+        if (text.includes("show") || text.includes("whatnot") || text.includes("palmstreet")) {
+          const premium = [...inStock].filter(p=>(+p.suggestedPrice||0)>=50).sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,8);
+          const clears = aging.slice(0,8);
+          return { title:"AI Show Builder Plan", body:`Suggested show mix:\n• ${premium.length} premium hook plants\n• ${clears.length} aging/clearance plants\n• ${Math.max(0, Math.min(25, inStock.length-premium.length-clears.length))} normal inventory plants\n\nPremium hooks:\n${premium.map(p=>`- ${p.plantId||""} ${p.name} ${canMoney?$(p.suggestedPrice):""}`).join("\n") || "No premium hooks found."}\n\nClearance pushes:\n${clears.map(p=>`- ${p.plantId||""} ${p.name} held ${fDays(dHeld(p.dateAdded))}`).join("\n") || "No aging clearance list found."}`, actions:[{label:"Open Show Builder", page:"showbuilder"},{label:"Open Discounts", page:"discounts"}] };
         }
-        if (text.includes("profit") || text.includes("made") || text.includes("sales")) {
-          const revenue = sold.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
-          const cogs = sold.reduce((s,p)=>s+(+p.cost||0),0);
-          const profit = sold.reduce((s,p)=>s+trueProfit(p),0);
-          const avg = sold.length ? profit / sold.length : 0;
-          return { title:"Sales and profit summary", body:`Sold plants: ${sold.length}\nGross sales: ${$(revenue)}\nCOGS: ${$(cogs)}\nEstimated profit after platform fees/shipping: ${$(profit)}\nAverage profit per sold plant: ${$(avg)}`, actions:[{label:"Open Reports", page:"reports"},{label:"Open Money", page:"money_ws"}] };
+        if (text.includes("photo")) return { title:"Plants Missing Photos", body:noPhoto.slice(0,40).map(p=>`${p.plantId||""} ${p.name||"Plant"} · ${p.potSize||""}`).join("\n") || "No missing-photo plants found.", actions:[{label:"Open Inventory", page:"inv"}] };
+        if (text.includes("price")) return { title:"Pricing Cleanup", body:noPrice.slice(0,40).map(p=>`${p.plantId||""} ${p.name||"Plant"} · cost ${canMoney?$(p.cost):"hidden"}`).join("\n") || "No missing-price plants found.", actions:[{label:"Open Inventory", page:"inv"}] };
+        if (text.includes("aging") || text.includes("old") || text.includes("discount")) return { title:"Aging Inventory", body:aging.slice(0,40).map(p=>`${p.plantId||""} ${p.name} · held ${fDays(dHeld(p.dateAdded))} · ${canMoney?`cost ${$(p.cost)} price ${$(p.suggestedPrice)}`:""}`).join("\n") || "No aging inventory found.", actions:[{label:"Open Discounts", page:"discounts"},{label:"Open Show Builder", page:"showbuilder"}] };
+        if (text.includes("customer") || text.includes("buyer") || text.includes("vip")) {
+          const buyers = Object.entries(sold.reduce((m,p)=>{ const k=p.customerUsername||p.customerName||"Unknown"; if(!m[k])m[k]={count:0,total:0,plants:[]}; m[k].count++; m[k].total += (+p.salePrice||+p.suggestedPrice||0); m[k].plants.push(p.name||"Plant"); return m; },{})).map(([name,v])=>({name,...v})).sort((a,b)=>b.total-a.total).slice(0,12);
+          return { title:"Buyer / VIP Intelligence", body:buyers.map(b=>`${b.name}: ${b.count} plant(s), ${canMoney?$(b.total):"spend hidden"}\nFavorites: ${b.plants.slice(0,6).join(", ")}`).join("\n\n") || "No buyer history found yet.", actions:[{label:"Open Buyers", page:"customers"}] };
         }
-        if (text.includes("inventory") || text.includes("stock") || text.includes("value") || text.includes("cost")) {
-          const cost = inStock.reduce((s,p)=>s+(+p.cost||0),0);
-          const value = inStock.reduce((s,p)=>s+(+p.suggestedPrice||0),0);
-          const noPhoto = inStock.filter(p=>!p.photoUrl && !p.photoBase64).length;
-          return { title:"Current inventory summary", body:`In-stock plants: ${inStock.length}\nInventory cost tied up: ${$(cost)}\nCurrent sell value: ${$(value)}\nPotential gross profit: ${$(value-cost)}\nPlants missing photos: ${noPhoto}`, actions:[{label:"Open Inventory", page:"inv"},{label:"Open Plants", page:"plants_ws"}] };
+        if (text.includes("nursery") || text.includes("supplier") || text.includes("buy next") || text.includes("buying")) {
+          const byNursery = plants.reduce((m,p)=>{ const k=p.nurseryName||p.nursery||p.supplier||"Unknown"; if(!m[k])m[k]={count:0,sold:0,cost:0,profit:0}; m[k].count++; m[k].cost+=(+p.cost||0); if(p.status==="Sold"){m[k].sold++; m[k].profit+=trueProfit(p);} return m; },{});
+          return { title:"Nursery + Buying Intelligence", body:Object.entries(byNursery).sort((a,b)=>b[1].profit-a[1].profit).slice(0,12).map(([n,v])=>`${n}: ${v.count} plants, ${v.sold} sold, ${canMoney?`profit ${$(v.profit)}, cost ${$(v.cost)}`:"financials hidden"}`).join("\n") || "No nursery data found.", actions:[{label:"Open Nurseries", page:"nursery"},{label:"Open Buy Intel", page:"intel"}] };
         }
-        if (text.includes("nursery") || text.includes("where did we buy") || text.includes("supplier")) {
-          const byNursery = plants.reduce((m,p)=>{ const k=p.nurseryName||p.nursery||p.supplier||"Unknown"; if(!m[k])m[k]={count:0,cost:0,sales:0,profit:0}; m[k].count++; m[k].cost+=(+p.cost||0); m[k].sales+=(+p.salePrice||+p.suggestedPrice||0); if(p.status==="Sold") m[k].profit+=trueProfit(p); return m; },{});
-          return { title:"Nursery / supplier summary", body:Object.entries(byNursery).sort((a,b)=>b[1].cost-a[1].cost).slice(0,10).map(([n,v])=>`${n}: ${v.count} plants, ${$(v.cost)} cost, ${$(v.sales)} sell value/sales, ${$(v.profit)} sold profit`).join("\n") || "No nursery data found.", actions:[{label:"Open Nurseries", page:"nursery"}] };
+        if (text.includes("profit") || text.includes("money") || text.includes("losing") || text.includes("tax")) {
+          if (!canMoney) return { title:"Permission Required", body:"This question contains financial/profit data. Ask the owner to enable financial AI access for your role.", actions:[] };
+          const month = monthKey();
+          const soldMonth = sold.filter(p=>monthKey(plantSaleDate(p))===month);
+          const rev = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0), cogs=soldMonth.reduce((s,p)=>s+(+p.cost||0),0), fees=soldMonth.reduce((s,p)=>s+platFee(p.platform||"", +p.salePrice||+p.suggestedPrice||0),0), exp=expenses.filter(e=>monthKey(e.date||e.createdAt)===month).reduce((s,e)=>s+(+e.amount||0),0);
+          return { title:"Money / Profit Intelligence", body:`This month:\nRevenue: ${$(rev)}\nCOGS: ${$(cogs)}\nPlatform fees est: ${$(fees)}\nExpenses: ${$(exp)}\nInventory cost tied up: ${$(invCost)}\nEstimated net before tax: ${$(rev-cogs-fees-exp)}\n\nTop risk: ${aging.length} aging plants and ${noPrice.length} missing prices.`, actions:[{label:"Open Money", page:"money_ws"},{label:"Open Reports", page:"reports"},{label:"Open Tax Center", page:"tax"}] };
         }
-        return { title:"Ask Leaf Diary AI", body:`I can answer questions like:\n• Who bought P-022?\n• When did we buy Monstera Albo and from where?\n• How much profit did we make on this plant?\n• What is our current inventory cost?\n• Who are my top customers?\n• What nursery made us the most money?`, actions:[{label:"Open AI Center", page:"aihub"}] };
+        return { title:"Ask Leaf Diary AI", body:`I can answer stronger questions now, like:\n• What should I do today?\n• Build me a Whatnot show plan.\n• Which plants need photos?\n• Which inventory is aging?\n• Where am I losing money?\n• Which nursery performs best?\n• Who are my VIP buyers?\n• What should I buy next?`, actions:[{label:"Open AI Center", page:"aihub"}] };
       };
-      const ask = () => {
-        const res = buildAnswer(q);
-        setAnswer(res);
-        const h = [{ id:uid(), q, title:res.title, body:res.body, at:new Date().toISOString() }, ...history].slice(0,20);
-        setHistory(h);
-        addAudit && addAudit({ action:"Asked Business AI", page:"Ask Business AI", details:q, user:user?.name||"Unknown" });
-      };
-      const examples = ["Who bought P-001?", "What is my current inventory cost?", "How much profit did we make?", "What nursery did we buy Monstera from?", "Who are my top customers?"];
-      return <div className="ld-page"><SHdr icon="💬" title="Ask Business AI" sub="Ask questions about your plants, buyers, inventory cost, profit, nurseries, and show data." right={<Btn sz="sm" onClick={()=>setPage && setPage("aihub")}>🤖 AI Center</Btn>} />
-        <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e", marginBottom:14 }}><div style={{ fontFamily:F.display, color:"#97d33e", fontWeight:900, fontSize:22 }}>Leaf Diary Business Data Copilot</div><div style={{ color:"rgba(255,255,255,.75)", fontSize:13, marginTop:5 }}>This answers from the CRM data already saved inside the app. No guessing.</div></Card>
-        <Card style={{ marginBottom:14 }}><textarea value={q} onChange={e=>setQ(e.target.value)} placeholder="Ask something like: Who did P-022 sell to and how much profit did we make?" style={{ width:"100%", minHeight:105, border:`1.5px solid ${C.bd}`, borderRadius:14, padding:13, fontFamily:F.body, fontSize:16, outline:"none" }} />
-          <Row wrap gap={8} style={{ marginTop:10 }}>{examples.map(ex=><button key={ex} onClick={()=>setQ(ex)} style={{ background:C.g100, color:C.g800, border:`1px solid ${C.g300}`, borderRadius:999, padding:"8px 10px", fontWeight:800, fontSize:12, cursor:"pointer" }}>{ex}</button>)}</Row>
-          <Btn full style={{ marginTop:12 }} onClick={ask}>Ask AI About My Business Data</Btn></Card>
-        {answer && <Card style={{ marginBottom:14, borderLeft:`5px solid ${C.g600}` }}><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, fontSize:20, marginBottom:10 }}>{answer.title}</div><pre style={{ whiteSpace:"pre-wrap", fontFamily:F.body, fontSize:14, color:C.tx1, lineHeight:1.45, margin:0 }}>{answer.body}</pre>{answer.actions?.length > 0 && <Row wrap gap={8} style={{ marginTop:12 }}>{answer.actions.map(a=><Btn key={a.page} sz="sm" v="soft" onClick={()=>setPage && setPage(a.page)}>{a.label}</Btn>)}</Row>}</Card>}
-        {history.length > 0 && <Card><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, marginBottom:10 }}>Recent AI Questions</div>{history.slice(0,8).map(h=><div key={h.id} style={{ padding:"9px 0", borderBottom:`1px solid ${C.bdS}` }}><div style={{ fontWeight:800, fontSize:13 }}>{h.q}</div><div style={{ color:C.tx3, fontSize:11 }}>{new Date(h.at).toLocaleString()} · {h.title}</div></div>)}</Card>}
+      const ask = (prompt) => { const use = prompt || q; if(!String(use).trim()) return; const res = buildAnswer(use); setAnswer(res); setQ(use); addAudit && addAudit({ action:"Asked Business AI", page:"Ask Business AI", details:use, user:user?.name||"Unknown" }); };
+      return <div className="page-scroll-safe" style={{ padding:"14px 14px 150px", background:C.bg, minHeight:"100dvh" }}>
+        <SHdr icon="💬" title="Ask Business AI" sub="Ask questions about your plants, buyers, inventory cost, profit, nurseries, and show data." right={<Btn sz="sm" onClick={()=>setPage && setPage("aihub")}>🤖 AI Center</Btn>} />
+        <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e", marginBottom:14 }}><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:13, color:"rgba(255,255,255,.78)", marginTop:5 }}>Answers from CRM data already saved in the app. No guessing. Financial answers obey role permissions.</div></Card>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>{dashboardCards.map(([l,v,ic,page])=><button key={l} onClick={()=>setPage&&setPage(page)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:14, padding:12, textAlign:"left", cursor:"pointer" }}><div style={{ fontSize:22 }}>{ic}</div><div style={{ fontSize:11, color:C.tx3, fontWeight:900, textTransform:"uppercase" }}>{l}</div><div style={{ fontFamily:F.display, fontSize:23, color:C.g900, fontWeight:900 }}>{v}</div></button>)}</div>
+        <Card style={{ marginBottom:14 }}><textarea value={q} onChange={e=>setQ(e.target.value)} placeholder="Ask: What should I do today? Build me a Whatnot show. Where am I losing money?" style={{ width:"100%", minHeight:96, border:`1.5px solid ${C.bd}`, borderRadius:14, padding:13, fontFamily:F.body, fontSize:15 }} /><Row gap={8} wrap style={{ marginTop:10 }}><Btn onClick={()=>ask()}>Ask Business AI</Btn><Btn v="soft" onClick={()=>setQ("")}>Clear</Btn></Row></Card>
+        <Card style={{ marginBottom:14 }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Power Questions</div><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>{quickPrompts.map(p=><button key={p} onClick={()=>ask(p)} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:11, textAlign:"left", fontWeight:800, color:C.tx2, cursor:"pointer" }}>{p}</button>)}</div></Card>
+        {answer && <Card style={{ borderTop:"4px solid #97d33e" }}><Row between center wrap><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>{answer.title}</div><div style={{ fontSize:12, color:C.tx3 }}>Generated from current CRM data</div></div><Row gap={8} wrap>{(answer.actions||[]).map(a=><Btn key={a.label} sz="sm" v="soft" onClick={()=>setPage&&setPage(a.page)}>{a.label}</Btn>)}</Row></Row><pre style={{ whiteSpace:"pre-wrap", fontFamily:F.body, fontSize:13, lineHeight:1.55, color:C.tx1, background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:12, marginTop:12 }}>{answer.body}</pre></Card>}
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
 function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, receipts = [], users = [], settings, setSettings, casdCerts = [], user, setPage, addAudit }) {
-      const [busy, setBusy] = useState(""), [result, setResult] = useState(settings?.aiLastResults?.latest || null), [selected, setSelected] = useState("daily_check");
+      const [busy, setBusy] = useState(""), [result, setResult] = useState(settings?.aiLastResults?.latest || null), [selected, setSelected] = useState("daily_check"), [groupFilter, setGroupFilter] = useState("All");
       const snapshot = buildLeafDataSnapshot({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts });
       const isOwner = user?.role === "owner";
+      const inStock = plants.filter(p=>p.status==="In Stock"), sold = plants.filter(p=>p.status==="Sold"), noPhoto = inStock.filter(p=>!p.photoUrl&&!p.photoBase64), aging = inStock.filter(p=>dHeld(p.dateAdded)>=45), noPrice = inStock.filter(p=>!(+p.suggestedPrice||+p.listPrice||+p.price));
+      const monthSold = sold.filter(p=>monthKey(plantSaleDate(p))===monthKey());
+      const monthRevenue = monthSold.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
       const tasks = [
-        ["daily_check","🚀","Run Daily AI Business Check","Command","Creates today’s priority action plan from cash, shipping, inventory, receipts, docs, and payroll.","command"],
+        ["daily_check","🚀","Run Daily AI Business Check","Command","Creates today’s priority action plan from cash, inventory, receipts, docs, and payroll.","command"],
+        ["what_today","✅","What Should I Do Today?","Command","Creates a no-thinking task list for owner or employee.","command"],
         ["owner_summary","🧠","Generate Owner Summary","Command","Plain-English business summary with cash, sales, risks, and top actions.","command",true],
-        ["employee_tasks","✅","Create Today’s Employee Tasks","Command","Turns missing photos, labels, packing, quarantine, and receipt work into safe employee tasks.","admin"],
-        ["pricing_assistant","💲","AI Pricing Assistant","Inventory","Finds underpriced plants and suggests profitable prices.","inv"],
-        ["duplicate_detector","🧹","Find Duplicate Plants","Inventory","Flags duplicate plant numbers and messy records.","cleanup"],
+        ["employee_tasks","👷","Create Employee Task List","Command","Turns missing photos, labels, aging stock, and receipt work into safe tasks.","admin"],
+        ["pricing_assistant","💲","AI Pricing Assistant","Inventory","Finds missing prices and low-margin plants.","inv"],
         ["aging_inventory","⏳","Fix Aging Inventory","Inventory","Finds old plants that need discounts, bundles, photos, or show placement.","discounts"],
+        ["clearance_builder","🏷️","Build Clearance List","Inventory","Creates a clearance batch to move old inventory without destroying margin.","discounts"],
+        ["duplicate_detector","🧹","Find Duplicate Plant IDs","Inventory","Flags duplicate plant numbers and messy records.","cleanup"],
         ["reorder_builder","🛒","Build Reorder List","Buying","Uses sales and stock to recommend what to buy again.","intel"],
-        ["buy_pass","🏪","Analyze Nursery Offer","Buying","Scores a nursery offer as Buy, Pass, or Risky.","intel"],
+        ["nursery_performance","🏪","Rank Nurseries","Buying","Shows supplier ROI, sell-through, dead loss, and margin quality.","nursery",true],
+        ["buy_pass","🧪","Analyze Nursery Offer","Buying","Scores a nursery buy as Buy, Pass, or Risky.","intel"],
         ["nursery_trip","🗺️","Plan Nursery Run","Buying","Combines cash flow, reorder needs, and supplies.","nursery"],
-        ["live_show_plan","🎥","Create Live Show Plan","Sales","Builds show order with premium hooks and clearance pushes.","showbuilder"],
-        ["live_script","🎤","Generate Live Talking Points","Sales","Creates hooks, care notes, and urgency lines.","liveshow"],
-        ["smart_bundles","🧺","Create Smart Bundles","Sales","Combines slow movers with popular plants while protecting margin.","bundles"],
+        ["live_show_plan","🎥","Create Live Show Plan","Shows","Builds show order with premium hooks and clearance pushes.","showbuilder"],
+        ["show_forecast","📈","Forecast Next Show","Shows","Estimates revenue, sell-through, and risk from selected inventory.","showbuilder"],
+        ["live_script","🎤","Generate Live Talking Points","Shows","Creates hooks, care notes, and urgency lines.","liveshow"],
+        ["smart_bundles","🧺","Create Smart Bundles","Shows","Combines slow movers with popular plants while protecting margin.","bundles"],
+        ["customer_ai","👥","Find VIP Buyers","Customers","Ranks buyers by spend and suggests follow-up.","customers"],
+        ["vip_builder","💚","Build VIP Follow-Up List","Customers","Creates a buyer list for early access, bundles, and thank-yous.","customers"],
         ["receipt_audit","🧾","Audit Receipts","Money","Finds duplicate receipts, missing categories, bad photos, and tax-review issues.","receipts"],
         ["cash_leaks","💸","Find Money Leaks","Money","Looks for high spending, losses, fees, and low-margin inventory.","cashflow",true],
         ["tax_prep","🧾","Prepare Tax Summary","Money","Creates a tax-ready checklist from sales, expenses, receipts, payroll, and inventory.","tax",true],
-        ["shipping_check","📦","Check Orders Before Shipping","Shipping","Flags missing address, tracking, heat pack, docs, and high-value orders.","ship"],
         ["state_doc_check","📜","Check State Doc Compliance","Compliance","Checks CA/AZ/TX/LA sold orders against archived PDFs.","casd",true],
         ["backup_health","💾","Check Backup Health","System","Checks docs, receipts, photos, and sync risk.","admin",true],
         ["error_scan","🧯","Scan App for Problems","System","Finds missing IDs, costs, sale prices, and duplicate records.","cleanup",true],
-        ["customer_ai","👥","Find VIP / At-Risk Customers","Customer","Ranks customers by spend and suggests follow-up.","customers"],
-        ["plant_health","🩺","Diagnose Plant Health Issue","Plants","Turns symptoms and photos into care or quarantine recommendations.","care"],
-        ["photo_quality","📸","Check Photo Quality","Plants","Reviews if a plant photo is good enough for Palmstreet.","inv"]
+        ["plant_health","🩺","Plant Health / Quarantine AI","Plants","Creates care and quarantine review list.","care"],
+        ["photo_quality","📸","Photo Quality AI","Plants","Reviews whether plant records have photos ready for Palmstreet/Whatnot.","inv"]
       ].map(([id,icon,title,group,desc,page,owner])=>({id,icon,title,group,desc,page,owner})).filter(t => isOwner || !t.owner);
+      const groups = ["All", ...new Set(tasks.map(t=>t.group))];
+      const visibleTasks = groupFilter === "All" ? tasks : tasks.filter(t=>t.group===groupFilter);
       const runTask = async (taskId) => { setBusy(taskId); setSelected(taskId); try { const res = await runLeafAI(taskId, snapshot); setResult(res); setSettings && setSettings(prev => ({ ...prev, aiLastResults:{ ...(prev.aiLastResults||{}), latest:res, [taskId]:res } })); addAudit && addAudit({ action:`AI ran ${taskId}`, user:user?.name||"AI", page:"AI Center" }); } catch(err) { setResult({ ok:false, summary:"AI tool failed: "+(err?.message||String(err)), actions:[], warnings:[aiLine("AI error", err?.message||String(err), "aihub", "critical")], recommendations:[] }); } finally { setBusy(""); } };
-      const grouped = tasks.reduce((m,t)=>{ (m[t.group]=m[t.group]||[]).push(t); return m; },{});
       const selectedTask = tasks.find(t=>t.id===selected);
-      const renderItems = (arr, title, color) => <Card style={{ marginBottom:12 }}><div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:15, marginBottom:10 }}>{title}</div>{(!arr || arr.length===0) ? <div style={{ color:C.tx3, fontSize:12 }}>Nothing here right now.</div> : arr.map(x => <div key={x.id} style={{ background:(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)+"12", border:`1px solid ${(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)}40`, borderRadius:12, padding:11, marginBottom:8 }}><Row between center wrap><div><div style={{ fontWeight:800, color:x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color, fontSize:13 }}>{x.title}</div><div style={{ fontSize:12, color:C.tx2, marginTop:2 }}>{x.body}</div></div>{x.page && <Btn sz="sm" v="soft" onClick={()=>setPage(x.page)}>Open</Btn>}</Row></div>)}</Card>;
+      const renderItems = (arr, title, color) => <Card style={{ marginBottom:12 }}><div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:15, marginBottom:10 }}>{title}</div>{(!arr || arr.length===0) ? <div style={{ color:C.tx3, fontSize:12 }}>Nothing here right now.</div> : arr.map(x => <div key={x.id} style={{ background:(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)+"12", border:`1px solid ${(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)}40`, borderRadius:12, padding:11, marginBottom:8 }}><Row between center wrap><div style={{ flex:1, minWidth:220 }}><div style={{ fontWeight:900, color:x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color, fontSize:13 }}>{x.title}</div><div style={{ fontSize:12, color:C.tx2, marginTop:2 }}>{x.body}</div></div>{x.page && <Btn sz="sm" v="soft" onClick={()=>setPage(x.page)}>Open</Btn>}</Row></div>)}</Card>;
       return <div className="page-scroll-safe" style={{ padding:"14px 14px 150px", background:C.bg, minHeight:"100dvh" }}>
-        <SHdr icon="🤖" title="AI Automation Center" sub="Smart business checks, pricing, shipping, receipts, buying, customers, and cleanup." right={<Btn sz="sm" onClick={()=>runTask("daily_check")} disabled={!!busy}>{busy ? "Running..." : "🚀 Run Daily Check"}</Btn>} />
-        <div style={{ background:"#000", color:"#fff", borderRadius:18, padding:"16px 18px", border:"2px solid #97d33e", marginBottom:14 }}><Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:"#97d33e" }}>Leaf Diary AI Copilot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.72)", marginTop:4 }}>Works now from your app data. Deploy <b>leaf-ai</b> later for real AI without exposing keys in HTML.</div></div><Btn v="gold" sz="sm" onClick={()=>selectedTask?.page && setPage(selectedTask.page)}>Open Related Page →</Btn></Row></div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}><KPI label="AI Actions" value={(result?.actions||[]).length} color={C.g600}/><KPI label="Warnings" value={(result?.warnings||[]).length} color={C.amber}/><KPI label="Recommendations" value={(result?.recommendations||[]).length} color={C.blue}/><KPI label="Unshipped Orders" value={snapshot.counts.readyToShip} color={snapshot.counts.readyToShip?C.red:C.g600} onClick={()=>setPage("ship")}/></div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}><Card><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:16, marginBottom:10 }}>AI Tools</div>{Object.entries(grouped).map(([group,items]) => <div key={group} style={{ marginBottom:12 }}><div style={{ fontSize:11, textTransform:"uppercase", letterSpacing:.7, color:C.tx3, fontWeight:900, marginBottom:6 }}>{group}</div><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>{items.map(t => <button key={t.id} onClick={()=>runTask(t.id)} disabled={!!busy} style={{ textAlign:"left", background:selected===t.id?C.g50:C.cardAlt, border:`1.5px solid ${selected===t.id?C.g500:C.bd}`, borderRadius:13, padding:12, cursor:busy?"wait":"pointer", fontFamily:F.body }}><div style={{ fontSize:20 }}>{t.icon}</div><div style={{ fontWeight:900, color:C.g900, fontSize:12, marginTop:3 }}>{t.title}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3 }}>{t.desc}</div></button>)}</div></div>)}</Card><div><Card style={{ marginBottom:12, borderTop:`4px solid ${C.g600}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:17, marginBottom:7 }}>AI Result</div><div style={{ fontSize:13, color:C.tx2, lineHeight:1.45 }}>{result?.summary || "Choose an AI tool or run the daily check. Results save here and survive refresh."}</div>{result?.generatedAt && <div style={{ color:C.tx3, fontSize:11, marginTop:8 }}>Generated {new Date(result.generatedAt).toLocaleString()}</div>}</Card>{renderItems(result?.actions,"✅ Recommended Actions",C.g600)}{renderItems(result?.warnings,"⚠️ Warnings",C.amber)}{renderItems(result?.recommendations,"💡 Opportunities",C.blue)}</div></div>
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}}`}</style>
+        <SHdr icon="🤖" title="AI Center" sub="Leaf Diary Business Data Copilot — inventory, shows, money, buyers, nurseries, payroll, tasks, and cleanup." right={<Row gap={8} wrap><Btn sz="sm" onClick={()=>runTask("daily_check")} disabled={!!busy}>{busy ? "Running..." : "🚀 Daily Check"}</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("dataai")}>💬 Ask AI</Btn></Row>} />
+        <div style={{ background:"#000", color:"#fff", borderRadius:18, padding:"16px 18px", border:"2px solid #97d33e", marginBottom:14 }}><Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.74)", marginTop:4 }}>Uses the CRM data already saved in this app. It does not replace your judgment, but it turns your plant data into decisions.</div></div><Btn v="gold" sz="sm" onClick={()=>selectedTask?.page && setPage(selectedTask.page)}>Open Related Page →</Btn></Row></div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:14 }}><KPI label="In Stock" value={inStock.length} color={C.g600}/><KPI label="Missing Photos" value={noPhoto.length} color={noPhoto.length?C.amber:C.g600}/><KPI label="Missing Prices" value={noPrice.length} color={noPrice.length?C.red:C.g600}/><KPI label="Aging 45+" value={aging.length} color={aging.length?C.amber:C.g600}/><KPI label="Month Sales" value={isOwner?$(monthRevenue):monthSold.length} color={C.blue}/></div>
+        <Card style={{ marginBottom:14 }}><Row gap={8} wrap>{groups.map(g=><button key={g} onClick={()=>setGroupFilter(g)} style={{ background:groupFilter===g?"#000":C.cardAlt, color:groupFilter===g?"#fff":C.tx2, border:`1px solid ${groupFilter===g?"#000":C.bd}`, borderRadius:999, padding:"9px 12px", fontWeight:900, cursor:"pointer" }}>{g}</button>)}</Row></Card>
+        <div style={{ display:"grid", gridTemplateColumns:"1.05fr 1fr", gap:14 }}><Card><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:17, marginBottom:10 }}>AI Power Tools</div><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>{visibleTasks.map(t => <button key={t.id} onClick={()=>runTask(t.id)} disabled={!!busy} style={{ textAlign:"left", background:selected===t.id?C.g50:C.cardAlt, border:`1.5px solid ${selected===t.id?C.g500:C.bd}`, borderRadius:13, padding:12, cursor:busy?"wait":"pointer", fontFamily:F.body }}><div style={{ fontSize:22 }}>{t.icon}</div><div style={{ fontWeight:900, color:C.g900, fontSize:12, marginTop:3 }}>{t.title}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3 }}>{t.desc}</div></button>)}</div></Card><div><Card style={{ marginBottom:12, borderTop:`4px solid ${C.g600}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18, marginBottom:7 }}>AI Result</div><div style={{ fontSize:13, color:C.tx2, lineHeight:1.45 }}>{result?.summary || "Choose an AI tool or run the daily check. Results save here and survive refresh."}</div>{result?.generatedAt && <div style={{ color:C.tx3, fontSize:11, marginTop:8 }}>Generated {new Date(result.generatedAt).toLocaleString()}</div>}</Card>{renderItems(result?.actions,"✅ Recommended Actions",C.g600)}{renderItems(result?.warnings,"⚠️ Warnings",C.amber)}{renderItems(result?.recommendations,"💡 Opportunities",C.blue)}</div></div>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(5,1fr)"],div[style*="grid-template-columns: 1.05fr 1fr"],div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
