@@ -1036,8 +1036,6 @@
                 {cloudControls.mergeChanges && cloudControls.syncConflict && <button onClick={cloudControls.mergeChanges} style={{ background:"#111", border:"1px solid #C0570A", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🔀 Merge Changes</button>}
                 {cloudControls.forceSave && user?.role === "owner" && <button onClick={cloudControls.forceSave} style={{ background:"#111", border:"1px solid #BE3535", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>⚠️ Owner Force Save</button>}
                 {cloudControls.testCloud && <button onClick={cloudControls.testCloud} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Test Cloud</button>}
-                {cloudControls.phase1Snapshot && <button onClick={cloudControls.phase1Snapshot} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧯 Save Safety Snapshot</button>}
-                {cloudControls.phase1Health && <button onClick={cloudControls.phase1Health} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🩺 Download Health Report</button>}
                 {cloudControls.backup && <button onClick={cloudControls.backup} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>📥 Backup</button>}
                 {cloudControls.restore && <button onClick={cloudControls.restore} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>📤 Restore</button>}
               </div>
@@ -7468,140 +7466,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
     const LS_KEY = "leafdiary_v6";
     const RESET_KEY = "leafdiary_inventory_reset_at";
-
-    /* ══════════════════════════════════════════════════════════
-       PHASE 1 STABILITY LAYER — app safety, local snapshots,
-       corrupted-data repair, startup diagnostics, and crash logs.
-       This does NOT redesign the UI or remove existing systems.
-    ══════════════════════════════════════════════════════════ */
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 1 Stability Build 2026-05-09";
-    const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
-    const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
-    const PHASE1_MAX_SNAPSHOTS = 18;
-
-    const safeJsonParse = (txt, fallback = null) => {
-      try { return txt ? JSON.parse(txt) : fallback; } catch (e) { return fallback; }
-    };
-    const phase1LogError = (source, err, extra = {}) => {
-      try {
-        const logs = safeArray(safeJsonParse(localStorage.getItem(PHASE1_ERROR_KEY), []));
-        logs.push({ id: uid(), source, message: err?.message || String(err || "Unknown error"), stack: err?.stack || "", extra, createdAt: new Date().toISOString(), appVersion: APP_VERSION });
-        localStorage.setItem(PHASE1_ERROR_KEY, JSON.stringify(logs.slice(-75)));
-      } catch (e) {}
-    };
-    window.addEventListener("error", e => phase1LogError("window.error", e.error || e.message, { filename: e.filename, line: e.lineno, col: e.colno }));
-    window.addEventListener("unhandledrejection", e => phase1LogError("unhandledrejection", e.reason || "Unhandled promise rejection"));
-
-    const phase1Number = v => { const n = Number(String(v ?? "").replace(/[^0-9.-]/g, "")); return Number.isFinite(n) ? n : 0; };
-    const phase1Date = v => {
-      if (!v) return today();
-      const d = new Date(String(v).includes("T") ? v : String(v) + "T12:00:00");
-      return isNaN(d) ? today() : d.toISOString().slice(0, 10);
-    };
-    const phase1PlantId = p => String(p?.plantId || p?.plantCode || p?.barcodeValue || "").trim().toUpperCase();
-    const phase1NormalizePlant = (p = {}, i = 0) => {
-      const plantId = phase1PlantId(p) || `MISSING-${String(i + 1).padStart(4, "0")}`;
-      const cost = phase1Number(p.cost);
-      const suggestedPrice = phase1Number(p.suggestedPrice || p.listPrice || p.price);
-      return {
-        ...p,
-        id: p.id || uid(),
-        plantId,
-        plantCode: p.plantCode || plantId,
-        barcodeValue: p.barcodeValue || plantId,
-        barcodeType: p.barcodeType || "CODE128",
-        name: String(p.name || p.plantName || "Unnamed Plant").trim() || "Unnamed Plant",
-        status: STATUSES.includes(p.status) ? p.status : (p.status || "In Stock"),
-        cost,
-        suggestedPrice,
-        salePrice: p.salePrice === "" || p.salePrice == null ? "" : phase1Number(p.salePrice),
-        shippingCost: p.shippingCost === "" || p.shippingCost == null ? "" : phase1Number(p.shippingCost),
-        dateAdded: phase1Date(p.dateAdded || p.createdAt || p.invoiceDate),
-        labelPrinted: !!p.labelPrinted,
-      };
-    };
-    const phase1NormalizeCollection = (arr, normalizer) => safeArray(arr).map((x, i) => normalizer ? normalizer(x, i) : (safeObject(x).id ? safeObject(x) : { ...safeObject(x), id: uid() }));
-    const phase1NormalizeAppData = (data = {}) => ({
-      ...safeObject(data),
-      plants: phase1NormalizeCollection(data.plants, phase1NormalizePlant),
-      expenses: phase1NormalizeCollection(data.expenses),
-      expenseReceipts: phase1NormalizeCollection(data.expenseReceipts),
-      purchaseOrders: phase1NormalizeCollection(data.purchaseOrders),
-      refunds: phase1NormalizeCollection(data.refunds),
-      bundles: phase1NormalizeCollection(data.bundles),
-      timecards: phase1NormalizeCollection(data.timecards),
-      auditLog: safeArray(data.auditLog),
-      bills: phase1NormalizeCollection(data.bills),
-      nurseries: safeArray(data.nurseries),
-      users: safeArray(data.users),
-      settings: safeObject(data.settings),
-      casdCerts: safeArray(data.casdCerts),
-      appVersion: APP_VERSION,
-      lastLocalSaveAt: new Date().toISOString(),
-    });
-    const phase1ReadSnapshots = () => safeArray(safeJsonParse(localStorage.getItem(PHASE1_SNAPSHOT_KEY), []));
-    const phase1CreateSnapshot = (reason, data, options = {}) => {
-      try {
-        const normalized = phase1NormalizeAppData(data || loadLS() || {});
-        const snapshot = {
-          id: uid(),
-          reason: reason || "manual",
-          createdAt: new Date().toISOString(),
-          appVersion: APP_VERSION,
-          counts: {
-            plants: safeArray(normalized.plants).length,
-            inStock: safeArray(normalized.plants).filter(p => p.status === "In Stock").length,
-            sold: safeArray(normalized.plants).filter(p => p.status === "Sold").length,
-            expenses: safeArray(normalized.expenses).length,
-            receipts: safeArray(normalized.expenseReceipts).length,
-            bills: safeArray(normalized.bills).length,
-          },
-          data: normalized
-        };
-        const snapshots = phase1ReadSnapshots();
-        snapshots.push(snapshot);
-        localStorage.setItem(PHASE1_SNAPSHOT_KEY, JSON.stringify(snapshots.slice(-(options.max || PHASE1_MAX_SNAPSHOTS))));
-        return snapshot;
-      } catch (e) { phase1LogError("phase1CreateSnapshot", e, { reason }); return null; }
-    };
-    const phase1DownloadJson = (filename, data) => {
-      const a = Object.assign(document.createElement("a"), {
-        href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })),
-        download: filename
-      });
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1200);
-    };
-    const phase1BuildHealthReport = (data = {}) => {
-      const d = phase1NormalizeAppData(data);
-      const ids = {};
-      safeArray(d.plants).forEach(p => { const id = phase1PlantId(p); if (id) ids[id] = (ids[id] || 0) + 1; });
-      const duplicates = Object.entries(ids).filter(([, n]) => n > 1).map(([id]) => id);
-      const missingPrices = safeArray(d.plants).filter(p => p.status === "In Stock" && !(+p.suggestedPrice > 0)).length;
-      const missingNames = safeArray(d.plants).filter(p => !String(p.name || "").trim()).length;
-      return {
-        ok: !duplicates.length && !missingNames,
-        appVersion: APP_VERSION,
-        duplicates, missingPrices, missingNames,
-        counts: { plants: d.plants.length, expenses: d.expenses.length, receipts: d.expenseReceipts.length, bills: d.bills.length },
-        checkedAt: new Date().toISOString()
-      };
-    };
-
-    const saveLS = (data) => {
-      try { localStorage.setItem(LS_KEY, JSON.stringify(phase1NormalizeAppData(data))); }
-      catch (e) { console.warn("Save failed", e); phase1LogError("saveLS", e); }
-    };
-    const loadLS = () => {
-      try {
-        const d = localStorage.getItem(LS_KEY);
-        return d ? phase1NormalizeAppData(JSON.parse(d)) : null;
-      } catch (e) {
-        phase1LogError("loadLS", e);
-        try { localStorage.setItem(LS_KEY + "_corrupt_" + Date.now(), localStorage.getItem(LS_KEY) || ""); localStorage.removeItem(LS_KEY); } catch (x) {}
-        return null;
-      }
-    };
+    const saveLS = (data) => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) { console.warn("Save failed", e); } };
+    const loadLS = () => { try { const d = localStorage.getItem(LS_KEY); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
     const markLocalInventoryReset = () => { try { localStorage.setItem(RESET_KEY, new Date().toISOString()); } catch (e) {} };
     const localInventoryWasReset = () => { try { return !!localStorage.getItem(RESET_KEY); } catch (e) { return false; } };
     const forceLocalPlantsEmpty = () => {
@@ -8296,27 +8162,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const setTeamSafeSync = (value) => setTeamSafeSyncRaw(!!value);
       const suppressCloudSaveRef = useRef(false);
       const backupRef = useRef();
-      const [phase1Health, setPhase1Health] = useState(() => phase1BuildHealthReport(saved || {}));
-      const [startupMode, setStartupMode] = useState("normal");
-
-      /* Phase 1 startup watchdog: never let the app sit forever on cloud loading. */
-      useEffect(() => {
-        if (session === undefined || !session) return;
-        const t = setTimeout(() => {
-          if (cloudStatusRef.current === "loading") {
-            phase1LogError("startup-watchdog", new Error("Cloud loading exceeded 12 seconds; opening local fallback."));
-            setStartupMode("local-fallback");
-            setCloudStatus("offline");
-            setCloudMsg("Startup watchdog opened local backup because cloud loading took too long.");
-            try {
-              setUsersRaw(p => !safeArray(p).length ? DEFAULT_USERS : p);
-              setBillsRaw(p => !safeArray(p).length ? DEFAULT_BILLS : p);
-              setNurseriesRaw(p => !safeArray(p).length ? DEFAULT_NURSERIES : p);
-            } catch (e) { phase1LogError("startup-watchdog-repair", e); }
-          }
-        }, 12000);
-        return () => clearTimeout(t);
-      }, [session]);
 
       const dirtyCount = useCallback(() => {
         const d = dirtyRef.current || { rows: {}, deletes: {}, states: {} };
@@ -8454,30 +8299,19 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       const cloudCollectionSetter = useCallback((table, rawSetter) => (updater) => {
         rawSetter(prev => {
-          const rawNext = safeArray(applyUpdater(updater, prev));
-          const next = table === "plants" ? rawNext.map(phase1NormalizePlant) : rawNext.map(x => ({ ...safeObject(x), id: safeObject(x).id || uid() }));
-          const removedCount = Math.max(0, safeArray(prev).length - next.length);
-          const changedCount = changedRows(prev, next).length;
-          if ((removedCount > 0 || changedCount >= 10 || next.length >= safeArray(prev).length + 10) && table !== "auditLog") {
-            phase1CreateSnapshot(`before_${table}_bulk_change`, { plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts });
-          }
+          const next = safeArray(applyUpdater(updater, prev));
           queueCollectionChanges(table, prev, next);
           return next;
         });
-      }, [queueCollectionChanges, plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts]);
+      }, [queueCollectionChanges]);
 
       const cloudStateSetter = useCallback((key, rawSetter) => (updater) => {
         rawSetter(prev => {
           const next = applyUpdater(updater, prev);
-          const prevLen = Array.isArray(prev) ? prev.length : 0;
-          const nextLen = Array.isArray(next) ? next.length : prevLen;
-          if (Array.isArray(next) && Math.abs(nextLen - prevLen) >= 10 && key !== "auditLog") {
-            phase1CreateSnapshot(`before_${key}_bulk_change`, { plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts });
-          }
           queueStateChange(key, next);
           return next;
         });
-      }, [queueStateChange, plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts]);
+      }, [queueStateChange]);
 
       const setPlants = cloudCollectionSetter("plants", setPlantsRaw);
       const setExpenses = cloudCollectionSetter("expenses", setExpensesRaw);
@@ -8502,26 +8336,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const setAuditLog = cloudStateSetter("auditLog", setAuditLogRaw);
       const setUsers = cloudStateSetter("users", setUsersRaw);
       const setSettings = cloudStateSetter("settings", setSettingsRaw);
-
-      const buildCurrentAppData = useCallback(() => ({ plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts }), [plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts]);
-      const updatePhase1Health = useCallback(() => setPhase1Health(phase1BuildHealthReport(buildCurrentAppData())), [buildCurrentAppData]);
-      const makePhase1Snapshot = useCallback((reason = "manual_phase1_snapshot") => {
-        const snap = phase1CreateSnapshot(reason, buildCurrentAppData());
-        updatePhase1Health();
-        setSaveMsg(snap ? `✅ Safety snapshot saved (${snap.counts.plants} plants)` : "❌ Snapshot failed");
-        setTimeout(() => setSaveMsg(""), 3000);
-        return snap;
-      }, [buildCurrentAppData, updatePhase1Health]);
-      const downloadPhase1Health = useCallback(() => {
-        const report = { ...phase1BuildHealthReport(buildCurrentAppData()), cloudStatus, cloudMsg, pendingSyncCount, startupMode, snapshots: phase1ReadSnapshots().map(s => ({ id:s.id, reason:s.reason, createdAt:s.createdAt, counts:s.counts })), recentErrors: safeArray(safeJsonParse(localStorage.getItem(PHASE1_ERROR_KEY), [])).slice(-20) };
-        phase1DownloadJson(`leafdiary-phase1-health-${today()}.json`, report);
-      }, [buildCurrentAppData, cloudStatus, cloudMsg, pendingSyncCount, startupMode]);
-
-      useEffect(() => { updatePhase1Health(); }, [plants, expenses, expenseReceipts, bills, users, updatePhase1Health]);
-      useEffect(() => {
-        const t = setInterval(() => { phase1CreateSnapshot("auto_3_minute_safety_snapshot", buildCurrentAppData()); }, 180000);
-        return () => clearInterval(t);
-      }, [buildCurrentAppData]);
 
       const navigate = useCallback((nextPage, opts = {}) => {
         if (!nextPage) return;
@@ -8756,7 +8570,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       }, [loadFromCloud, session, cloudSafeMode]);
 
       const saveAllToCloud = async ({ force = false } = {}) => {
-        phase1CreateSnapshot(force ? "before_owner_force_save" : "before_manual_cloud_save", buildCurrentAppData());
         if (force && user?.role !== "owner") { alert("Only the owner can Force Save."); return; }
         if (force && !window.confirm("Owner Force Save will push this device's current main data to Supabase. Use this only if you know this device has the correct data. Continue?")) return;
         if (!force && dirtyCount()) { await flushTeamSync({ force: false }); return; }
@@ -8798,8 +8611,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       /* Manual backup — exports all data as JSON file */
       const exportBackup = () => {
-        const data = { plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, bills, nurseries, users, settings, auditLog, casdCerts, exportDate: new Date().toISOString(), appVersion: APP_VERSION, phase1Health: phase1BuildHealthReport(buildCurrentAppData()) };
-        phase1CreateSnapshot("manual_backup_downloaded", data);
+        const data = { plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, bills, nurseries, users, settings, auditLog, casdCerts, exportDate: new Date().toISOString() };
         const a = Object.assign(document.createElement("a"), {
           href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })),
           download: `leafdiary-backup-${today()}.json`
@@ -8812,7 +8624,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       /* Restore from backup JSON file and push restored data to Supabase */
       const importBackup = (file) => {
         if (!file) return;
-        phase1CreateSnapshot("before_backup_restore", buildCurrentAppData());
         const r = new FileReader();
         r.onload = async e => {
           try {
@@ -8910,8 +8721,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           mergeChanges: mergeTeamChanges,
           forceSave: () => saveAllToCloud({ force:true }),
           testCloud: async () => { try { setCloudStatus("loading"); setCloudMsg("Testing Supabase connection..."); await cloudRequest("plants?select=id&limit=1", { method: "GET" }); setCloudStatus("synced"); setCloudMsg("Supabase test passed"); alert("Supabase test passed. Cloud connection is working."); } catch (err) { const msg = err && err.message ? err.message : String(err); setCloudStatus("offline"); setCloudMsg("Supabase test failed: " + msg); alert("Supabase test failed: " + msg); } },
-          phase1Snapshot: () => makePhase1Snapshot("manual_from_cloud_controls"),
-          phase1Health: downloadPhase1Health,
           backup: exportBackup,
           restore: () => backupRef.current && backupRef.current.click()
         }} />
@@ -8928,11 +8737,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             <span style={{ fontSize: 11, color: "rgba(255,255,255,.55)", fontWeight: 700 }}>Cloud controls are in the pink + menu</span>
             <input ref={backupRef} type="file" accept=".json" style={{ display: "none" }} onChange={e => importBackup(e.target.files[0])} />
           </div>
-        </div>
-
-        <div style={{ background: phase1Health?.ok ? C.g50 : C.amberBg, borderBottom: `1px solid ${phase1Health?.ok ? C.g200 : C.amber}55`, padding: "6px 16px", display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: phase1Health?.ok ? C.g800 : C.amber, fontWeight: 900 }}>🛡️ Phase 1 Safety: {phase1Health?.ok ? "healthy" : "needs review"}</span>
-          <span style={{ fontSize: 11, color: C.tx3 }}>{APP_VERSION} · {phase1ReadSnapshots().length} local snapshots · {startupMode === "local-fallback" ? "Local fallback active" : "Startup normal"}</span>
         </div>
 
         <div key={page} className={`ld-page-shell ${navDir === "back" ? "ld-slide-back" : "ld-slide-forward"}`}>
