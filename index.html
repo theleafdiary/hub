@@ -1002,6 +1002,7 @@
     function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {}, cloudControls = {} }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const [addOpen, setAddOpen] = useState(false);
+      const [aiMenuOpen, setAiMenuOpen] = useState(false);
       const [menuSearch, setMenuSearch] = useState("");
       const role = user?.role || "employee";
       const tools = getToolsForRole(role);
@@ -1009,7 +1010,17 @@
         ? ["today","plants_ws","shows_ws"]
         : ["today","plants_ws","shows_ws","orders_ws","money_ws"];
       const workspaceById = Object.fromEntries(WORKSPACES.map(w => [w.id, w]));
-      const openPage = id => { setPage(id); setMenuOpen(false); setAddOpen(false); setMenuSearch(""); };
+      const openPage = id => { setPage(id); setMenuOpen(false); setAddOpen(false); setAiMenuOpen(false); setMenuSearch(""); };
+      const phaseStatusItems = Array.isArray(cloudControls.phaseStatusItems) ? cloudControls.phaseStatusItems : [];
+      const AIChipIcon = () => <svg viewBox="0 0 64 64" aria-hidden="true" style={{ width:24, height:24, display:"block" }}>
+        <rect x="14" y="14" width="36" height="36" rx="8" fill="#97d33e"/>
+        <rect x="21" y="21" width="22" height="22" rx="5" fill="#000"/>
+        <path d="M27 39l2.7-14h4.6L37 39h-3.2l-.45-2.8h-2.7L30.2 39H27zm4-5.4h2l-1-6.1-1 6.1zM39 25h3v14h-3V25z" fill="#97d33e"/>
+        {[10,18,26,34,42].map((y,i)=><rect key={"l"+i} x="5" y={y} width="7" height="3" rx="1.5" fill="#97d33e"/>)}
+        {[10,18,26,34,42].map((y,i)=><rect key={"r"+i} x="52" y={y} width="7" height="3" rx="1.5" fill="#97d33e"/>)}
+        {[10,18,26,34,42].map((x,i)=><rect key={"t"+i} x={x} y="5" width="3" height="7" rx="1.5" fill="#97d33e"/>)}
+        {[10,18,26,34,42].map((x,i)=><rect key={"b"+i} x={x} y="52" width="3" height="7" rx="1.5" fill="#97d33e"/>)}
+      </svg>;
       // Pink + menu is reserved for cloud / backup controls only.
       const quickAdd = [];
       const menuGroups = ["Today","Plants","Shows","Sold","Money","Buying","Marketing","Business","Admin"]
@@ -1023,10 +1034,42 @@
           </button>
           <Row gap={7} center>
             {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
+            <button onClick={()=>{ setAiMenuOpen(p=>!p); setAddOpen(false); setMenuOpen(false); }} title="AI tools" aria-label="AI tools" style={{ background:"#050505", color:"#97d33e", border:"2px solid #97d33e", borderRadius:999, width:40, height:40, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", boxShadow: aiMenuOpen ? "0 0 18px rgba(151,211,62,.7)" : "0 0 10px rgba(151,211,62,.28)", padding:0 }}><AIChipIcon /></button>
             <button onClick={()=>setAddOpen(true)} style={{ background:"#fb6392", color:"#fff", border:"none", borderRadius:999, width:38, height:38, fontSize:22, lineHeight:1, fontWeight:900, cursor:"pointer", boxShadow:"0 0 14px rgba(251,99,146,.45)" }}>+</button>
             <button onClick={()=>setMenuOpen(p=>!p)} style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
           </Row>
         </div>
+
+        {aiMenuOpen && <div style={{ position:"fixed", inset:0, zIndex:720, background:"rgba(0,0,0,.38)" }} onClick={()=>setAiMenuOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:55, right:8, width:"min(420px, calc(100vw - 16px))", maxHeight:"calc(100dvh - 82px)", overflowY:"auto", WebkitOverflowScrolling:"touch", background:"#050505", color:"#fff", border:"1px solid rgba(151,211,62,.42)", borderRadius:20, boxShadow:"0 24px 70px rgba(0,0,0,.58)", padding:"14px 14px 16px" }}>
+            <Row between center style={{ marginBottom:12 }}>
+              <Row gap={10} center>
+                <div style={{ width:42, height:42, borderRadius:14, background:"rgba(151,211,62,.12)", border:"1px solid rgba(151,211,62,.35)", display:"flex", alignItems:"center", justifyContent:"center" }}><AIChipIcon /></div>
+                <div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:22, fontWeight:900 }}>AI Command Menu</div><div style={{ fontSize:11, color:"rgba(255,255,255,.62)", fontWeight:700 }}>All AI status, settings, and tools in one clean place.</div></div>
+              </Row>
+              <button onClick={()=>setAiMenuOpen(false)} style={{ background:"rgba(255,255,255,.1)", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:12, padding:"7px 10px", fontSize:18, cursor:"pointer" }}>×</button>
+            </Row>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom:12 }}>
+              <button onClick={()=>openPage("dataai")} style={{ background:"#101010", border:"1px solid rgba(255,255,255,.12)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer" }}>💬 Ask Business AI</button>
+              <button onClick={()=>openPage("execai")} style={{ background:"#101010", border:"1px solid rgba(151,211,62,.35)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer" }}>🧠 Executive AI</button>
+              <button onClick={()=>openPage("aigateway")} style={{ background:"#101010", border:"1px solid rgba(126,231,255,.35)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer" }}>🌐 AI Gateway</button>
+              <button onClick={()=>openPage("aihub")} style={{ background:"#101010", border:"1px solid rgba(255,255,255,.12)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, fontWeight:900, cursor:"pointer" }}>🤖 AI Center</button>
+            </div>
+            {phaseStatusItems.length > 0 && <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {phaseStatusItems.map(item => <div key={item.id || item.title} style={{ background:"#0b0b0b", border:`1px solid ${item.border || "rgba(255,255,255,.12)"}`, borderRadius:14, padding:"10px 11px" }}>
+                <Row between gap={8} center>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:12, color:item.color || "#97d33e", fontWeight:900 }}>{item.icon || "•"} {item.title}</div>
+                    {item.value && <div style={{ fontSize:11, color:"rgba(255,255,255,.72)", marginTop:2, fontWeight:700 }}>{item.value}</div>}
+                    {item.sub && <div style={{ fontSize:10, color:"rgba(255,255,255,.46)", marginTop:2 }}>{item.sub}</div>}
+                  </div>
+                  {item.onClick && <button onClick={item.onClick} style={{ background:"transparent", border:"1px solid rgba(255,255,255,.2)", color:"#fff", borderRadius:999, padding:"7px 9px", fontSize:10, fontWeight:900, cursor:"pointer", fontFamily:F.body, whiteSpace:"nowrap" }}>{item.actionLabel || "Open"}</button>}
+                </Row>
+              </div>)}
+            </div>}
+            <div style={{ marginTop:12, padding:"10px 11px", borderRadius:14, background:"rgba(151,211,62,.08)", border:"1px solid rgba(151,211,62,.22)", color:"rgba(255,255,255,.7)", fontSize:11, lineHeight:1.35 }}>The header stays clean. Open this chip any time for AI setup, gateway status, router tools, diagnostics, and executive decisions.</div>
+          </div>
+        </div>}
 
         {addOpen && <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:700, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={()=>setAddOpen(false)}>
           <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:520, background:"#050505", color:"#fff", borderRadius:"24px 24px 0 0", padding:"18px 16px calc(22px + env(safe-area-inset-bottom,0px))", borderTop:"2px solid #97d33e", boxShadow:"0 -18px 60px rgba(0,0,0,.5)" }}>
@@ -7668,7 +7711,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
        corrupted-data repair, startup diagnostics, and crash logs.
        This does NOT redesign the UI or remove existing systems.
     ══════════════════════════════════════════════════════════ */
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 6.1 AI Gateway Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — Phase 6.1 AI Gateway + Clean AI Menu Build 2026-05-09";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -10089,6 +10132,15 @@ ${local.summary || "Fallback completed."}`;
           phase61Gateway: () => navigate("aigateway"),
           phase4Console: () => navigate("airouter"),
           phase6Console: () => navigate("execai"),
+          phaseStatusItems: [
+            { id:"phase1", icon:"🛡️", title:"Phase 1 Safety", value: phase1Health?.ok ? "Healthy" : "Needs review", sub:`${APP_VERSION} · ${phase1ReadSnapshots().length} local snapshots · ${startupMode === "local-fallback" ? "Local fallback active" : "Startup normal"}`, color: phase1Health?.ok ? "#97d33e" : "#C0570A", border: phase1Health?.ok ? "rgba(151,211,62,.32)" : "rgba(192,87,10,.42)", actionLabel:"Health", onClick:downloadPhase1Health },
+            { id:"phase2", icon:"🧪", title:"Phase 2 Developer Safety", value:`${phase2Report?.score || 0}/100`, sub:"Diagnostics, smoke tests, rollback checkpoints.", color: phase2Report?.ok ? "#97d33e" : "#fb6392", border: phase2Report?.ok ? "rgba(151,211,62,.32)" : "rgba(251,99,146,.42)", actionLabel:"Open", onClick:()=>navigate("devtools") },
+            { id:"phase3", icon:"🧠", title:"Phase 3 Ollama", value:`${phase3StatusLabel(phase3Status?.status || "not_tested")} · ${phase3Config?.primaryModel || "no model"}`, sub:"Local desktop AI connector.", color: phase3StatusColor(phase3Status?.status || "not_tested"), border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("ollama") },
+            { id:"phase61", icon:"🌐", title:"Phase 6.1 AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Mobile AI API bridge for phone use.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
+            { id:"phase4", icon:"🧭", title:"Phase 4 AI Router", value:`${phase4Routes?.enabled ? "Enabled" : "Disabled"} · ${Object.keys(phase4RouteDefinitions(phase4Routes)).length} routes`, sub:"Routes each AI task to the right model.", color: phase4Routes?.enabled ? "#68d8ff" : "rgba(255,255,255,.55)", border:"rgba(104,216,255,.28)", actionLabel:"Open", onClick:()=>navigate("airouter") },
+            { id:"phase5", icon:"💬", title:"Phase 5 Ask AI", value:"Router-connected · fallback protected", sub:"Business questions use gateway/router/fallback.", color:"#97d33e", border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("dataai") },
+            { id:"phase6", icon:"🧠", title:"Phase 6 Executive AI", value:"Command center ready", sub:"CEO-style decisions, simulations and priorities.", color:"#97d33e", border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("execai") },
+          ],
           backup: exportBackup,
           restore: () => backupRef.current && backupRef.current.click()
         }} />
@@ -10107,33 +10159,7 @@ ${local.summary || "Fallback completed."}`;
           </div>
         </div>
 
-        <div style={{ background: phase1Health?.ok ? C.g50 : C.amberBg, borderBottom: `1px solid ${phase1Health?.ok ? C.g200 : C.amber}55`, padding: "6px 16px", display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: phase1Health?.ok ? C.g800 : C.amber, fontWeight: 900 }}>🛡️ Phase 1 Safety: {phase1Health?.ok ? "healthy" : "needs review"}</span>
-          <span style={{ fontSize: 11, color: C.tx3 }}>{APP_VERSION} · {phase1ReadSnapshots().length} local snapshots · {startupMode === "local-fallback" ? "Local fallback active" : "Startup normal"}</span>
-        </div>
-
-        <div style={{ background: phase2Report?.ok ? "#F0FBF4" : "#fff6f8", borderBottom: `1px solid ${phase2Report?.ok ? C.g200 : "#fb639255"}`, padding: "6px 16px", display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: phase2Report?.ok ? C.g800 : "#BE3535", fontWeight: 900 }}>🧪 Phase 2 Developer Safety: {phase2Report?.score || 0}/100</span>
-          <button onClick={() => navigate("devtools")} style={{ background:"transparent", border:"0", color:C.blue, fontSize:11, fontWeight:900, cursor:"pointer", fontFamily:F.body }}>Open Test Console →</button>
-        </div>
-
-        <div style={{ background: phase3Status?.status === "online" ? C.g50 : phase3Status?.status === "disabled" ? "#f7f7f7" : "#fffaf0", borderBottom: `1px solid ${phase3Status?.status === "online" ? C.g200 : phase3Status?.status === "disabled" ? C.bd : C.amber + "55"}`, padding: "6px 16px", display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: phase3StatusColor(phase3Status?.status || "not_tested"), fontWeight: 900 }}>🧠 Phase 3 Ollama: {phase3StatusLabel(phase3Status?.status || "not_tested")} · {phase3Config?.primaryModel || "no model"}</span>
-          <button onClick={() => navigate("ollama")} style={{ background:"transparent", border:"0", color:C.blue, fontSize:11, fontWeight:900, cursor:"pointer", fontFamily:F.body }}>Open Ollama Connector →</button>
-        </div>
-
-        <div style={{ background: phase61Status?.status === "online" ? C.g50 : phase61Config?.enabled ? "#fffaf0" : "#f7f7f7", borderBottom: `1px solid ${phase61Status?.status === "online" ? C.g200 : phase61Config?.enabled ? C.amber + "55" : C.bd}`, padding: "6px 16px", display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), fontWeight: 900 }}>🌐 Phase 6.1 AI Gateway: {phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · {phase61Config?.model || "no model"}</span>
-          <button onClick={() => navigate("aigateway")} style={{ background:"transparent", border:"0", color:C.blue, fontSize:11, fontWeight:900, cursor:"pointer", fontFamily:F.body }}>Open AI Gateway →</button>
-        </div>
-
-        <div style={{ background: phase4Routes?.enabled ? "#eef8ff" : "#f7f7f7", borderBottom: `1px solid ${phase4Routes?.enabled ? "#68d8ff55" : C.bd}`, padding: "6px 16px", display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: phase4Routes?.enabled ? C.blue : C.tx3, fontWeight: 900 }}>🧭 Phase 4 AI Router: {phase4Routes?.enabled ? "enabled" : "disabled"} · {Object.keys(phase4RouteDefinitions(phase4Routes)).length} routes</span>
-          <button onClick={() => navigate("airouter")} style={{ background:"transparent", border:"0", color:C.blue, fontSize:11, fontWeight:900, cursor:"pointer", fontFamily:F.body }}>Open AI Router →</button>
-          <span style={{ fontSize: 11, color: C.g700, fontWeight: 900 }}>💬 Phase 5 Ask AI: router-connected · fallback protected</span>
-          <span style={{ fontSize: 11, color: "#0D2B1A", fontWeight: 900 }}>🧠 Phase 6 Executive AI: command center ready</span>
-          <button onClick={() => navigate("execai")} style={{ background:"transparent", border:"0", color:C.blue, fontSize:11, fontWeight:900, cursor:"pointer", fontFamily:F.body }}>Open Executive AI →</button>
-        </div>
+        {/* Phase status strips moved into the AI chip dropdown to keep the header clean. */}
 
         <div key={page} className={`ld-page-shell ${navDir === "back" ? "ld-slide-back" : "ld-slide-forward"}`}>
           {page === "today" && <WorkspaceHome type="today" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
