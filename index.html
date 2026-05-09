@@ -4358,7 +4358,6 @@
       const [genError, setGenError]     = useState("");
       const [search, setSearch]         = useState("");
       const fileRef = useRef();
-      const canDeleteCert = user?.role === "owner" || user?.role === "admin";
 
       const nextNum = () => casdNextNum(casdCerts);
 
@@ -4428,27 +4427,6 @@
           const w=window.open(url); if(w) w.onload=()=>w.print();
           setTimeout(()=>URL.revokeObjectURL(url),5000);
         } catch(e) { alert("Could not open saved PDF: " + e.message); }
-      };
-
-      const deleteCert = async cert => {
-        if (!canDeleteCert) { alert("Only an admin/owner can delete archived state documents."); return; }
-        const label = `Certificate #${cert.certNumber || cert.documentNumber || cert.id}`;
-        const customer = cert.consigneeName || cert.customerName || "this customer";
-        const ok = confirm(`Delete ${label} for ${customer}? This removes it from the State Docs archive. Download a backup first if you may need it for compliance records.`);
-        if (!ok) return;
-        try {
-          const next = (casdCerts || []).filter(c => String(c.id) !== String(cert.id));
-          saveCasdCertsToLocalBackup(next);
-          setCasdCerts(() => next);
-          try { await cloudDeleteRows("casd_certs", [cert.id]); } catch (e) { console.warn("CASD cloud row delete failed", e); }
-          try { await cloudUpsertState("casdCerts", next); } catch (e) { console.warn("CASD app_state delete backup update failed", e); }
-          if (cert.pdfStorageBucket && cert.pdfStoragePath) {
-            try { await supabase.storage.from(cert.pdfStorageBucket).remove([cert.pdfStoragePath]); } catch (e) { console.warn("CASD storage PDF delete failed", e); }
-          }
-          addAudit && addAudit({ action:`Deleted archived State Document ${label} for ${customer}`, user:user?.name || "Admin", page:"State Docs" });
-        } catch(e) {
-          alert("Could not delete document: " + (e?.message || e));
-        }
       };
       const resetForm = () => { setStep("form"); setCsvMode(false); setCsvText(""); setCsvOrders([]); setConsignee({name:"",address1:"",address2:"",phone:""}); setPlantRows([{id:uid(),qty:"1",name:"",size:""}]); setGenError(""); setDest("CA"); };
 
@@ -4536,7 +4514,6 @@
                         <Row gap={8} style={{flexShrink:0,flexWrap:"wrap",alignSelf:"flex-start"}}>
                           <Btn sz="sm" v="outline" onClick={()=>downloadCert(cert)}>📥 Download</Btn>
                           <Btn sz="sm" onClick={()=>printCert(cert)}>🖨️ Print</Btn>
-                          {canDeleteCert && <Btn sz="sm" v="danger" onClick={()=>deleteCert(cert)}>🗑️ Delete</Btn>}
                         </Row>
                       </Row>
                     </Card>
@@ -5529,271 +5506,83 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const [ids, setIds] = useState(getSavedShowIds());
       const [entry, setEntry] = useState('');
       const [search, setSearch] = useState('');
-      const [platform, setPlatform] = useState('Both');
-      const [potFilter, setPotFilter] = useState('All');
-      const [photoFilter, setPhotoFilter] = useState('All');
-      const [statusFilter, setStatusFilter] = useState('Available');
-      const [nurseryFilter, setNurseryFilter] = useState('All');
-      const [priceFilter, setPriceFilter] = useState('All');
       const [privateListing, setPrivateListing] = useState(false);
       const [whatnotShippingProfile, setWhatnotShippingProfile] = useState('1 lb');
       const [whatnotListingType, setWhatnotListingType] = useState('Auction');
       const [includeWhatnotCost, setIncludeWhatnotCost] = useState(true);
-      const [msg, setMsg] = useState('Pick plants like a shopping cart. Filter first, tap the cards you want, then export.');
-
+      const [msg, setMsg] = useState('');
       useEffect(() => saveShowIds(ids), [ids]);
-
-      const safeIdOf = p => (safePlantId(p) || p?.plantCode || p?.plant_id || '').toString().trim();
-      const byPlantId = id => plants.find(p => safeIdOf(p).toLowerCase() === String(id).trim().toLowerCase());
+      const byPlantId = id => plants.find(p => safePlantId(p).toLowerCase() === String(id).trim().toLowerCase());
       const showPlants = ids.map(id => byPlantId(id)).filter(Boolean);
       const missing = ids.filter(id => !byPlantId(id));
-      const selectedSet = new Set(ids.map(x => String(x).toLowerCase()));
-      const availableStatuses = ['In Stock', 'Ready For Show', 'Needs Photo', 'Needs Label'];
-      const plantStatus = p => p.status || 'In Stock';
-      const potOf = p => (p.potSize || p.pot_size || p.size || '').toString().trim() || 'Unknown';
-      const priceNum = p => +p.suggestedPrice || +p.salePrice || +p.marketRec || +p.price || 0;
-      const photoOf = p => publicPlantPhoto(p);
-      const nurseryOf = p => (p.nurseryName || p.nursery || p.vendorName || p.vendor || p.nurseryCode || '').toString().trim() || 'Unknown';
-      const daysOf = p => dHeld(p.dateAdded || p.date_added || p.createdAt || p.created_at || p.acquiredDate || p.purchaseDate);
-      const isAvailable = p => availableStatuses.includes(plantStatus(p));
       const errors = validatePalmstreetPlants(showPlants);
       const whatnotErrors = validateWhatnotPlants(showPlants);
-
-      const uniquePots = ['All', ...Array.from(new Set((plants || []).map(potOf).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))];
-      const uniqueNurseries = ['All', ...Array.from(new Set((plants || []).map(nurseryOf).filter(Boolean))).sort()];
-
-      const matchesSearch = p => {
-        const q = search.trim().toLowerCase();
-        if (!q) return true;
-        return [p.name, safeIdOf(p), p.plantCode, p.nurseryCode, nurseryOf(p), p.rack, p.shelf, potOf(p)]
-          .join(' ').toLowerCase().includes(q);
-      };
-      const matchesPrice = p => {
-        const price = priceNum(p);
-        if (priceFilter === 'All') return true;
-        if (priceFilter === 'No Price') return !price;
-        if (priceFilter === 'Under $15') return price > 0 && price < 15;
-        if (priceFilter === '$15-$25') return price >= 15 && price <= 25;
-        if (priceFilter === '$25-$50') return price > 25 && price <= 50;
-        if (priceFilter === '$50+') return price > 50;
-        return true;
-      };
-      const filteredPlants = (plants || []).filter(p => {
-        if (!matchesSearch(p)) return false;
-        if (statusFilter === 'Available' && !isAvailable(p)) return false;
-        if (statusFilter !== 'All' && statusFilter !== 'Available' && plantStatus(p) !== statusFilter) return false;
-        if (potFilter !== 'All' && potOf(p) !== potFilter) return false;
-        if (nurseryFilter !== 'All' && nurseryOf(p) !== nurseryFilter) return false;
-        if (photoFilter === 'Has Photo' && !photoOf(p)) return false;
-        if (photoFilter === 'Missing Photo' && photoOf(p)) return false;
-        if (!matchesPrice(p)) return false;
-        return true;
-      }).sort((a, b) => {
-        const aAdded = selectedSet.has(safeIdOf(a).toLowerCase()) ? 1 : 0;
-        const bAdded = selectedSet.has(safeIdOf(b).toLowerCase()) ? 1 : 0;
-        if (aAdded !== bAdded) return aAdded - bAdded;
-        return toTC(a.name || '').localeCompare(toTC(b.name || ''));
-      });
-      const visiblePlants = filteredPlants.slice(0, 80);
-
       const addIds = raw => {
         const found = [], notFound = [];
-        raw.split(/[,
-
-	 ]+/).map(x => x.trim()).filter(Boolean).forEach(id => {
+        raw.split(/[,\n\r\t ]+/).map(x => x.trim()).filter(Boolean).forEach(id => {
           const p = byPlantId(id);
-          if (p) found.push(safeIdOf(p)); else notFound.push(id);
+          if (p) found.push(safePlantId(p)); else notFound.push(id);
         });
         if (found.length) setIds(prev => [...new Set([...prev, ...found])]);
         setEntry('');
         setMsg(`${found.length} added${notFound.length ? ` · ${notFound.length} not found: ${notFound.slice(0, 6).join(', ')}` : ''}`);
       };
-      const addPlant = p => {
-        const id = safeIdOf(p);
-        if (!id) { setMsg('This plant is missing a Plant ID/SKU and cannot be added.'); return; }
-        if (!isAvailable(p) && !confirm(`${id} is ${plantStatus(p)}. Add anyway?`)) return;
-        setIds(prev => prev.includes(id) ? prev : [...prev, id]);
-        setMsg(`Added ${toTC(p.name || 'plant')} ${id} to the show.`);
-      };
-      const togglePlant = p => {
-        const id = safeIdOf(p);
-        if (!id) { setMsg('This plant is missing a Plant ID/SKU and cannot be added.'); return; }
-        if (ids.includes(id)) { removeId(id); setMsg(`Removed ${id} from the show.`); }
-        else addPlant(p);
-      };
-      const addMany = (list, label = 'plants') => {
-        const addable = list.map(p => ({ p, id: safeIdOf(p) })).filter(x => x.id && isAvailable(x.p));
-        if (!addable.length) { setMsg(`No available ${label} to add.`); return; }
-        const newOnes = addable.map(x => x.id).filter(id => !ids.includes(id));
-        if (!newOnes.length) { setMsg(`All matching ${label} are already in the show.`); return; }
-        if (newOnes.length > 100 && !confirm(`Add ${newOnes.length} plants to this show?`)) return;
-        setIds(prev => [...new Set([...prev, ...newOnes])]);
-        setMsg(`Added ${newOnes.length} ${label} to the show.`);
-      };
       const removeId = id => setIds(prev => prev.filter(x => x !== id));
-      const move = (i, dir) => setIds(prev => { const a = [...prev], j = i + dir; if (j < 0 || j >= a.length) return a; [a[i], a[j]] = [a[j], a[i]]; return a; });
+      const move = (i, dir) => setIds(prev => { const a = [...prev], j = i + dir; if (j < 0 || j >= a.length) return a;[a[i], a[j]] = [a[j], a[i]]; return a; });
       const clear = () => { if (confirm('Clear this show list?')) { setIds([]); setMsg('Show list cleared.'); } };
-      const resetFilters = () => { setSearch(''); setPotFilter('All'); setPhotoFilter('All'); setStatusFilter('Available'); setNurseryFilter('All'); setPriceFilter('All'); setMsg('Filters reset.'); };
-      const applyPreset = preset => {
-        setStatusFilter('Available');
-        setSearch('');
-        setNurseryFilter('All');
-        if (preset === 'ready') { setPhotoFilter('Has Photo'); setPriceFilter('All'); setPotFilter('All'); setMsg('Showing plants with photos that are available for show.'); }
-        if (preset === 'missingPhoto') { setPhotoFilter('Missing Photo'); setPriceFilter('All'); setPotFilter('All'); setMsg('Showing plants that need photos before show export.'); }
-        if (preset === 'under25') { setPhotoFilter('All'); setPriceFilter('$15-$25'); setPotFilter('All'); setMsg('Showing plants in the $15-$25 range.'); }
-        if (preset === 'fourInch') { setPhotoFilter('All'); setPriceFilter('All'); setPotFilter(uniquePots.find(x => x.includes('4')) || 'All'); setMsg('Showing 4 inch plants.'); }
-      };
-
-      const fileSafe = () => showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
       const exportPalmstreet = () => {
         if (!showPlants.length) { alert('Add plants to the show first.'); return; }
         if (errors.length) { alert('Fix these before exporting to Palmstreet:\n\n' + errors.slice(0, 25).join('\n') + (errors.length > 25 ? `\n...and ${errors.length - 25} more` : '')); return; }
-        downloadCSVFile(`${fileSafe()}-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(showPlants, { showName, privateListing }));
-        setPlants(prev => prev.map(p => ids.includes(safeIdOf(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: showName } : p));
+        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
+        downloadCSVFile(`${fileSafe}-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(showPlants, { showName, privateListing }));
+        setPlants(prev => prev.map(p => ids.includes(safePlantId(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: showName } : p));
         addAudit && addAudit({ action: `Exported Show Builder to Palmstreet CSV — ${showPlants.length} plants`, user: user.name, page: 'Show Builder' });
-        setMsg(`Palmstreet CSV exported for ${showPlants.length} plants. Palmstreet keeps cents like 15.88.`);
+        setMsg(`Palmstreet CSV exported for ${showPlants.length} plants. Palmstreet prices are kept as entered with cents, so 15.88 stays 15.88. Quantity is 1, SKU equals Plant ID, and Shipping is blank.`);
       };
       const exportWhatnot = () => {
         if (!showPlants.length) { alert('Add plants to the show first.'); return; }
         if (whatnotErrors.length) { alert('Fix these before exporting to Whatnot:\n\n' + whatnotErrors.slice(0, 25).join('\n') + (whatnotErrors.length > 25 ? `\n...and ${whatnotErrors.length - 25} more` : '')); return; }
-        downloadCSVFile(`${fileSafe()}-whatnot-upload-${today()}.csv`, makeWhatnotCSV(showPlants, { showName, shippingProfile: whatnotShippingProfile, listingType: whatnotListingType, includeCost: includeWhatnotCost }));
-        setPlants(prev => prev.map(p => ids.includes(safeIdOf(p)) ? { ...p, whatnotExportedAt: new Date().toISOString(), lastShowName: showName } : p));
+        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
+        downloadCSVFile(`${fileSafe}-whatnot-upload-${today()}.csv`, makeWhatnotCSV(showPlants, { showName, shippingProfile: whatnotShippingProfile, listingType: whatnotListingType, includeCost: includeWhatnotCost }));
+        setPlants(prev => prev.map(p => ids.includes(safePlantId(p)) ? { ...p, whatnotExportedAt: new Date().toISOString(), lastShowName: showName } : p));
         addAudit && addAudit({ action: `Exported Show Builder to Whatnot CSV — ${showPlants.length} plants`, user: user.name, page: 'Show Builder' });
-        setMsg(`Whatnot CSV exported for ${showPlants.length} plants. Whatnot rounds up to whole dollars and uses 1 lb shipping profile.`);
+        setMsg(`Whatnot CSV exported for ${showPlants.length} plants. Prices were rounded up to whole dollars with no $ or decimals.`);
       };
       const exportShowList = () => {
-        if (!showPlants.length) { alert('Add plants to the show first.'); return; }
-        downloadCSVFile(`${fileSafe()}-internal-show-list-${today()}.csv`, makeShowListCSV(showPlants));
-        setMsg(`Internal show list exported for ${showPlants.length} plants.`);
+        if (!showPlants.length) { alert('Add plants first.'); return; }
+        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
+        downloadCSVFile(`${fileSafe}-internal-show-list-${today()}.csv`, makeShowListCSV(showPlants));
+        setMsg('Internal show list exported.');
       };
-      const showValue = showPlants.reduce((s, p) => s + priceNum(p), 0);
-      const missingPhotoCount = showPlants.filter(p => !photoOf(p)).length;
-      const missingPriceCount = showPlants.filter(p => !priceNum(p)).length;
-      const activeFilterCount = [search.trim(), potFilter !== 'All', photoFilter !== 'All', statusFilter !== 'Available', nurseryFilter !== 'All', priceFilter !== 'All'].filter(Boolean).length;
-
-      const FilterButton = ({ active, children, onClick }) => <button onClick={onClick} style={{ border: `1px solid ${active ? C.g700 : C.bd}`, background: active ? C.g700 : C.card, color: active ? '#fff' : C.tx2, borderRadius: 999, padding: '9px 12px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>{children}</button>;
-
-      return <div style={{ padding: '14px 14px 110px', background: C.bg, minHeight: '100vh' }}>
-        <SHdr icon="🎪" title="Show Builder" sub="Pick plants like a cart, then export the correct Palmstreet or Whatnot file."
-          right={<Row gap={6} wrap><Btn onClick={platform === 'Palmstreet' ? exportPalmstreet : platform === 'Whatnot' ? exportWhatnot : exportPalmstreet}>🌴 Export Palmstreet</Btn><Btn v="soft" onClick={exportWhatnot}>🛒 Export Whatnot</Btn><Btn v="outline" onClick={exportShowList}>📋 Show List</Btn><Btn v="ghost" onClick={clear}>Clear</Btn></Row>} />
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 330px) 1fr minmax(280px, 380px)', gap: 14, alignItems: 'start' }}>
+      const quick = plants.filter(p => {
+        const q = search.toLowerCase().trim();
+        if (!q) return false;
+        return safePlantId(p).toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q) || (p.nurseryCode || '').toLowerCase().includes(q);
+      }).slice(0, 30);
+      const inStockCount = showPlants.filter(p => p.status === 'In Stock').length;
+      const value = showPlants.reduce((s, p) => s + (+p.suggestedPrice || +p.salePrice || 0), 0);
+      return <div style={{ padding: '14px 14px 90px', background: C.bg, minHeight: '100vh' }}>
+        <SHdr icon="🎪" title="Show Builder" sub="Build Palmstreet and Whatnot upload files from inventory using Plant ID/SKU numbers"
+          right={<Row gap={6} wrap><Btn onClick={exportWhatnot}>🛒 Export Whatnot CSV</Btn><Btn v="soft" onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear</Btn></Row>} />
+        {msg && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 600 }}>{msg}</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr .8fr', gap: 14, marginBottom: 14 }}>
+          <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>1. Show Setup</div><Inp label="Show Name" value={showName} onChange={setShowName} placeholder="Leaf Diary Friday Rare Plant Show" /><div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:10, marginTop:10 }}><Sel label="Whatnot Type" value={whatnotListingType} onChange={setWhatnotListingType} options={["Auction","Buy It Now","Giveaway"]} /><Inp label="Whatnot Shipping Profile" value={whatnotShippingProfile} onChange={setWhatnotShippingProfile} placeholder="1 lb" /></div><div style={{ marginTop: 10, display:'grid', gap:8 }}><label style={{ fontSize: 13, fontWeight: 600, color: C.tx2, display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={privateListing} onChange={e => setPrivateListing(e.target.checked)} /> Export as private Palmstreet listings</label><label style={{ fontSize: 13, fontWeight: 600, color: C.tx2, display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={includeWhatnotCost} onChange={e => setIncludeWhatnotCost(e.target.checked)} /> Include Cost Per Item in Whatnot CSV</label></div><div style={{ fontSize:12, color:C.tx3, marginTop:10, lineHeight:1.4 }}><b>Palmstreet:</b> uses your sample importer headers exactly and keeps cents, so 15.88 exports as 15.88. <b>Whatnot:</b> uses whole-dollar prices only, so 15.88 exports as 16, Shipping Profile is 1 lb, Title is Plant Name + Plant ID, Description is generated, and missing plant photos use the Leaf Diary logo image.</div></Card>
+          <Card style={{ background: C.g800, color: '#fff' }}><div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', opacity: .75, marginBottom: 8 }}>Current Show</div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{showPlants.length}</div><div style={{ fontSize: 11, opacity: .75 }}>Plants</div></div><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{inStockCount}</div><div style={{ fontSize: 11, opacity: .75 }}>In Stock</div></div><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{$(value)}</div><div style={{ fontSize: 11, opacity: .75 }}>Show Value</div></div></div></Card>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 18, marginBottom: 4 }}>1. Show Setup</div>
-              <div style={{ fontSize: 12, color: C.tx3, marginBottom: 12 }}>Choose platform, then pick plants.</div>
-              <div style={{ display: 'grid', gap: 10 }}>
-                <Inp label="Show Name" value={showName} onChange={setShowName} />
-                <Sel label="Platform" value={platform} onChange={setPlatform} options={['Both', 'Palmstreet', 'Whatnot']} />
-                <Sel label="Whatnot Type" value={whatnotListingType} onChange={setWhatnotListingType} options={['Auction', 'Buy It Now', 'Giveaway']} />
-                <Inp label="Whatnot Shipping Profile" value={whatnotShippingProfile} onChange={setWhatnotShippingProfile} placeholder="1 lb" />
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: C.tx2 }}><input type="checkbox" checked={privateListing} onChange={e => setPrivateListing(e.target.checked)} /> Palmstreet private listing</label>
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: C.tx2 }}><input type="checkbox" checked={includeWhatnotCost} onChange={e => setIncludeWhatnotCost(e.target.checked)} /> Include cost in Whatnot owner export</label>
-              </div>
-            </Card>
-
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 18, marginBottom: 4 }}>2. Find Plants</div>
-              <Inp label="Search" value={search} onChange={setSearch} placeholder="Plant name, Plant ID, nursery, rack" />
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 900, color: C.tx3, textTransform: 'uppercase', marginBottom: 6 }}>Pot Size</div>
-                <Row gap={6} wrap>{uniquePots.slice(0, 12).map(pot => <FilterButton key={pot} active={potFilter === pot} onClick={() => setPotFilter(pot)}>{pot}</FilterButton>)}</Row>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 900, color: C.tx3, textTransform: 'uppercase', marginBottom: 6 }}>Photo</div>
-                <Row gap={6} wrap>{['All', 'Has Photo', 'Missing Photo'].map(x => <FilterButton key={x} active={photoFilter === x} onClick={() => setPhotoFilter(x)}>{x}</FilterButton>)}</Row>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 900, color: C.tx3, textTransform: 'uppercase', marginBottom: 6 }}>Status</div>
-                <Row gap={6} wrap>{['Available', 'In Stock', 'Ready For Show', 'Needs Photo', 'Needs Label', 'All'].map(x => <FilterButton key={x} active={statusFilter === x} onClick={() => setStatusFilter(x)}>{x}</FilterButton>)}</Row>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <Sel label="Nursery" value={nurseryFilter} onChange={setNurseryFilter} options={uniqueNurseries.slice(0, 60)} />
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 900, color: C.tx3, textTransform: 'uppercase', marginBottom: 6 }}>Price</div>
-                <Row gap={6} wrap>{['All', 'Under $15', '$15-$25', '$25-$50', '$50+', 'No Price'].map(x => <FilterButton key={x} active={priceFilter === x} onClick={() => setPriceFilter(x)}>{x}</FilterButton>)}</Row>
-              </div>
-              <Row gap={6} wrap style={{ marginTop: 14 }}>
-                <Btn sz="sm" onClick={() => addMany(filteredPlants, 'filtered plants')} disabled={!filteredPlants.length}>Add All Filtered ({filteredPlants.length})</Btn>
-                <Btn sz="sm" v="outline" onClick={() => addMany((plants || []).filter(isAvailable), 'inventory plants')}>Add All Inventory</Btn>
-                <Btn sz="sm" v="ghost" onClick={resetFilters}>Reset Filters {activeFilterCount ? `(${activeFilterCount})` : ''}</Btn>
-              </Row>
-            </Card>
-
-            <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 16, marginBottom: 8 }}>Quick Picks</div>
-              <Row gap={6} wrap>
-                <Btn sz="sm" v="soft" onClick={() => applyPreset('ready')}>Ready / Has Photo</Btn>
-                <Btn sz="sm" v="soft" onClick={() => applyPreset('fourInch')}>4 inch plants</Btn>
-                <Btn sz="sm" v="soft" onClick={() => applyPreset('under25')}>$15-$25 plants</Btn>
-                <Btn sz="sm" v="soft" onClick={() => applyPreset('missingPhoto')}>Need photos</Btn>
-              </Row>
-            </Card>
+            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>2. Add Plants by ID</div><p style={{ fontSize: 12, color: C.tx3, marginTop: 0 }}>Type or paste plant IDs. You can enter one ID or many IDs separated by spaces, commas, or new lines.</p><textarea value={entry} onChange={e => setEntry(e.target.value)} placeholder={'Example:\nPPC-0001\nPPC-0002'} style={{ width: '100%', minHeight: 92, padding: 12, border: `1.5px solid ${C.bd}`, borderRadius: 10, fontSize: 14, fontFamily: F.mono, resize: 'vertical' }} /><Btn full style={{ marginTop: 8 }} onClick={() => addIds(entry)} disabled={!entry.trim()}>Add Plant IDs to Show</Btn></Card>
+            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>Search Inventory</div><Inp value={search} onChange={setSearch} placeholder="Search plant name, ID, nursery code..." /><div style={{ marginTop: 10, maxHeight: 300, overflowY: 'auto' }}>{quick.length === 0 ? <div style={{ fontSize: 12, color: C.tx3, padding: '14px 0' }}>Search to add plants fast.</div> : quick.map(p => <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.bdS}` }}><div><div style={{ fontSize: 12, fontWeight: 700, color: C.g900 }}>{toTC(p.name)}</div><div style={{ fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{safePlantId(p)} · {$(p.suggestedPrice)}</div></div><Btn sz="sm" v={ids.includes(safePlantId(p)) ? 'ghost' : 'soft'} onClick={() => setIds(prev => [...new Set([...prev, safePlantId(p)])])}>{ids.includes(safePlantId(p)) ? 'Added' : 'Add'}</Btn></div>)}</div></Card>
+            {(errors.length > 0 || whatnotErrors.length > 0 || missing.length > 0) && <Card style={{ background: C.redBg, border: `1px solid ${C.red}40` }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.red, fontSize: 15, marginBottom: 8 }}>Export Warnings</div>{missing.map(id => <div key={id} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Missing inventory plant: {id}</div>)}{errors.slice(0, 8).map((e, i) => <div key={`p-${i}`} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Palmstreet: {e}</div>)}{whatnotErrors.slice(0, 12).map((e, i) => <div key={`w-${i}`} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Whatnot: {e}</div>)}{(errors.length + whatnotErrors.length) > 20 && <div style={{ fontSize: 12, color: C.red }}>...and {(errors.length + whatnotErrors.length) - 20} more</div>}</Card>}
           </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Card style={{ background: C.g900, color: '#fff', border: 0 }}>
-              <Row between wrap center>
-                <div><div style={{ fontSize: 12, opacity: .82 }}>Showing {visiblePlants.length} of {filteredPlants.length} matching plants</div><div style={{ fontFamily: F.display, fontSize: 24, fontWeight: 800 }}>Tap a plant card to add it</div></div>
-                <Tag text={`${showPlants.length} in show`} color="#97d33e" />
-              </Row>
-              {msg && <div style={{ marginTop: 8, fontSize: 13, color: '#D8F8DF' }}>{msg}</div>}
-            </Card>
-
-            <Card>
-              <Row gap={8} wrap center style={{ marginBottom: 12 }}>
-                <Inp value={entry} onChange={setEntry} placeholder="Scan or paste Plant IDs here" onKeyDown={e => { if (e.key === 'Enter') addIds(entry); }} />
-                <Btn onClick={() => addIds(entry)}>Add IDs</Btn>
-              </Row>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
-                {visiblePlants.map(p => {
-                  const id = safeIdOf(p);
-                  const added = ids.includes(id);
-                  const photo = photoOf(p);
-                  const days = daysOf(p);
-                  return <div key={id || p.id || p.name} onClick={() => togglePlant(p)} style={{ border: `2px solid ${added ? C.g600 : C.bd}`, borderRadius: 14, background: added ? C.g50 : C.card, overflow: 'hidden', cursor: 'pointer', boxShadow: added ? '0 8px 22px rgba(46,138,85,.15)' : 'none' }}>
-                    <div style={{ height: 116, background: C.cardAlt, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>{photo ? <img src={photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <div style={{ fontSize: 44 }}>🌿</div>}</div>
-                    <div style={{ padding: 10 }}>
-                      <div style={{ fontWeight: 900, color: C.g900, minHeight: 36 }}>{toTC(p.name || 'Unnamed Plant')}</div>
-                      <div style={{ fontFamily: F.mono, fontSize: 11, color: C.g600, marginTop: 3 }}>{id || 'No Plant ID'}</div>
-                      <Row gap={5} wrap style={{ marginTop: 8 }}><Tag text={potOf(p)} color={C.teal} sm /><SBadge s={plantStatus(p)} />{photo ? <Tag text="Photo" color={C.g600} sm /> : <Tag text="No Photo" color={C.amber} sm />}</Row>
-                      <Row between center style={{ marginTop: 10 }}><div style={{ fontSize: 18, fontWeight: 900, color: C.g900 }}>{priceNum(p) ? `$${priceNum(p).toFixed(2)}` : 'No price'}</div><button onClick={e => { e.stopPropagation(); togglePlant(p); }} style={{ border: 0, borderRadius: 10, padding: '9px 12px', background: added ? C.g700 : C.g100, color: added ? '#fff' : C.g800, fontWeight: 900, cursor: 'pointer' }}>{added ? 'Added ✓' : 'Add'}</button></Row>
-                      <div style={{ fontSize: 11, color: C.tx3, marginTop: 7 }}>{nurseryOf(p)}{days !== null ? ` · ${fDays(days)} held` : ''}</div>
-                    </div>
-                  </div>;
-                })}
-              </div>
-              {!visiblePlants.length && <div style={{ textAlign: 'center', padding: '60px 20px', color: C.tx3 }}><div style={{ fontSize: 42 }}>🔎</div><div style={{ fontFamily: F.display, fontSize: 18, color: C.g900 }}>No plants match these filters</div><p>Tap Reset Filters or choose another pot size/status.</p><Btn v="outline" onClick={resetFilters}>Reset Filters</Btn></div>}
-              {filteredPlants.length > visiblePlants.length && <div style={{ marginTop: 12, textAlign: 'center', color: C.tx3, fontSize: 12 }}>Showing first 80 matching plants. Use search or filters to narrow the list.</div>}
-            </Card>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, position: 'sticky', top: 76 }}>
-            <Card style={{ borderTop: `4px solid ${C.g600}` }}>
-              <div style={{ fontFamily: F.display, fontWeight: 900, color: C.g900, fontSize: 20 }}>3. Show Cart</div>
-              <div style={{ fontSize: 12, color: C.tx3, marginBottom: 12 }}>These are the plants that will export.</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                <KPI label="Plants" value={showPlants.length} />
-                <KPI label="Value" value={$(showValue)} />
-                <KPI label="Missing Photos" value={missingPhotoCount} color={missingPhotoCount ? C.amber : C.g600} />
-                <KPI label="Missing Prices" value={missingPriceCount} color={missingPriceCount ? C.red : C.g600} />
-              </div>
-              <Row gap={6} wrap style={{ marginBottom: 10 }}><Btn full onClick={platform === 'Whatnot' ? exportWhatnot : exportPalmstreet}>{platform === 'Whatnot' ? 'Export Whatnot CSV' : 'Export Palmstreet CSV'}</Btn>{platform === 'Both' && <Btn full v="soft" onClick={exportWhatnot}>Export Whatnot CSV</Btn>}</Row>
-              <div style={{ fontSize: 11, color: C.tx3 }}>Palmstreet keeps cents. Whatnot rounds up to whole dollars and uses Image URL fallback if needed.</div>
-            </Card>
-
-            {(errors.length > 0 || whatnotErrors.length > 0 || missing.length > 0) && <Card style={{ background: C.redBg, border: `1px solid ${C.red}40` }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.red, fontSize: 15, marginBottom: 8 }}>Export Warnings</div>{missing.map(id => <div key={id} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Missing inventory plant: {id}</div>)}{errors.slice(0, 5).map((e, i) => <div key={`p-${i}`} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Palmstreet: {e}</div>)}{whatnotErrors.slice(0, 6).map((e, i) => <div key={`w-${i}`} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Whatnot: {e}</div>)}</Card>}
-
-            <Card>
-              <Row between center style={{ marginBottom: 8 }}><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900 }}>Selected Plants</div><Tag text={`${showPlants.length}`} color={C.g700} /></Row>
-              {showPlants.length === 0 ? <div style={{ textAlign: 'center', padding: '28px 10px', color: C.tx3 }}><div style={{ fontSize: 36 }}>🛒</div><b>Your show cart is empty</b><p style={{ margin: '6px 0 0', fontSize: 12 }}>Tap plant cards to add them.</p></div> : <div style={{ maxHeight: 520, overflowY: 'auto', display: 'grid', gap: 8 }}>{showPlants.map((p, i) => <div key={safeIdOf(p)} style={{ border: `1px solid ${C.bd}`, borderRadius: 10, padding: 8, background: C.cardAlt }}><Row between gap={6}><div style={{ minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 900, color: C.g900 }}>{i + 1}. {toTC(p.name)}</div><div style={{ fontFamily: F.mono, fontSize: 10, color: C.g600 }}>{safeIdOf(p)} · {potOf(p)} · {priceNum(p) ? `$${priceNum(p).toFixed(2)}` : 'No price'}</div></div><Btn sz="sm" v="danger" onClick={() => removeId(safeIdOf(p))}>Remove</Btn></Row><Row gap={4} style={{ marginTop: 6 }}><Btn sz="sm" v="ghost" onClick={() => move(i, -1)}>Move Up</Btn><Btn sz="sm" v="ghost" onClick={() => move(i, 1)}>Move Down</Btn></Row></div>)}</div>}
-            </Card>
-          </div>
+          <Card><Row between wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16 }}>Plants in This Show</div><div style={{ fontSize: 12, color: C.tx3 }}>Order here is the order exported to your internal show list.</div></div><Tag text={`${showPlants.length} plants`} color={C.g700} /></Row>{showPlants.length === 0 ? <div style={{ textAlign: 'center', padding: '60px 20px', color: C.tx3 }}><div style={{ fontSize: 42, marginBottom: 10 }}>🎪</div><div style={{ fontFamily: F.display, fontSize: 18, color: C.g900 }}>No plants added yet</div><p>Add plants by Plant ID from the left panel.</p></div> : <div style={{ overflowX: 'auto', border: `1px solid ${C.bd}`, borderRadius: 10 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}><thead style={{ background: C.cardAlt }}><tr>{['#', 'Plant', 'ID/SKU', 'Pot', 'Price', 'Status', 'Exported', 'Actions'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: C.tx3, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead><tbody>{showPlants.map((p, i) => <tr key={safePlantId(p)} style={{ borderBottom: `1px solid ${C.bdS}` }}><td style={{ padding: '8px 10px', fontWeight: 700, color: C.tx3 }}>{i + 1}</td><td style={{ padding: '8px 10px' }}><b>{toTC(p.name)}</b><div style={{ fontSize: 10, color: C.tx3 }}>{p.nurseryCode || ''} {p.rack ? `· Rack ${p.rack}` : ''}</div></td><td style={{ padding: '8px 10px', fontFamily: F.mono, fontSize: 10, color: C.g600 }}>{safePlantId(p)}</td><td style={{ padding: '8px 10px' }}>{p.potSize || '—'}</td><td style={{ padding: '8px 10px', fontWeight: 700, color: C.g900 }}>{cleanPrice(p) ? `$${cleanPrice(p)}` : '—'}</td><td style={{ padding: '8px 10px' }}><SBadge s={p.status || 'In Stock'} /></td><td style={{ padding: '8px 10px' }}>{p.whatnotExportedAt ? <Tag text="Whatnot" color={C.purple} sm /> : p.palmstreetExportedAt ? <Tag text="Palmstreet" color={C.blue} sm /> : <span style={{ color: C.tx3 }}>No</span>}</td><td style={{ padding: '8px 10px' }}><Row gap={4}><Btn sz="sm" v="ghost" onClick={() => move(i, -1)}>↑</Btn><Btn sz="sm" v="ghost" onClick={() => move(i, 1)}>↓</Btn><Btn sz="sm" v="danger" onClick={() => removeId(safePlantId(p))}>Remove</Btn></Row></td></tr>)}</tbody></table></div>}</Card>
         </div>
       </div>;
     }
 
+    /* ══════════════════════════════════════════════════════════
+       POST-SHOW IMPORT — paste Palmstreet/Whatnot CSV
+    ══════════════════════════════════════════════════════════ */
     function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = {}, setSettings }) {
       const [raw, setRaw] = useState("");
       const [parsed, setParsed] = useState([]);
