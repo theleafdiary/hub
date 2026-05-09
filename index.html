@@ -4603,7 +4603,7 @@
 
               <Card style={{marginBottom:14}}>
                 <div style={{fontFamily:F.display,fontWeight:700,color:C.g900,fontSize:15,marginBottom:4}}>Plants Being Shipped</div>
-                <div style={{fontSize:12,color:C.tx3,marginBottom:14}}>Page 1 holds 11 plants · Page 2 addendum holds 22 more (33 total max per cert)</div>
+                <div style={{fontSize:12,color:C.tx3,marginBottom:14}}>TX/LA: attachment page 1 holds 6 plants · addendum page is only used for plant 7+ (27 total max per cert)</div>
                 <div style={{display:"grid",gridTemplateColumns:"60px 1fr 80px 36px",gap:8,marginBottom:8,padding:"0 4px",fontSize:10,fontWeight:700,color:C.tx3,textTransform:"uppercase",letterSpacing:.5}}>
                   <div>Qty</div><div>Plant Name (as certified)</div><div>Pot Size</div><div></div>
                 </div>
@@ -6982,51 +6982,82 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const bytes = Uint8Array.from(atob(TXSD_TEMPLATE_B64), c => c.charCodeAt(0));
       const pdfDoc = await PDFDocument.load(bytes);
       const form  = pdfDoc.getForm();
-      const tf = (name, val) => { try { form.getTextField(name).setText(val||""); } catch(e){} };
+      const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+      const setField = (name, val, size = 10) => {
+        try {
+          const field = form.getTextField(name);
+          field.setText(String(val || ""));
+          if (field.setFontSize) field.setFontSize(size);
+          return true;
+        } catch(e) { return false; }
+      };
+
+      const clean = v => String(v || "").replace(/\s+/g, " ").trim();
       const { date, consignee, plants: ps } = certData;
-      const rows = (ps || []).slice(0, 21);
-      const totalPages = rows.length > 6 ? "2" : "1";
+      const rows = (ps || []).filter(p => clean(p.name)).slice(0, 27);
+      const firstPageRows = rows.slice(0, 6);
+      const addendumRows = rows.slice(6);
+      const needsAddendum = addendumRows.length > 0;
+      const totalPages = needsAddendum ? "2" : "1";
 
-      // This is the official FDACS-08270 Texas/Louisiana form.
-      // Do not substitute the California/Arizona CASD PDF for TX or LA.
-      tf("Brokers Name and Address 1", `${CASD_SHIP.name} - ${CASD_SHIP.addr1}`);
-      tf("Brokers Name and Address 2", CASD_SHIP.addr2);
-      tf("Contact", CASD_SHIP.contact);
-      tf("Telephone Number", CASD_SHIP.phone);
-      tf("Consignees Name and Address 1", `${consignee.name || ""} - ${consignee.address1 || ""}`);
-      tf("Consignees Name and Address 2", consignee.address2 || "");
-      tf("Contact_2", consignee.name || "");
-      tf("Telephone Number_2", consignee.phone || "");
-      tf("page number", totalPages);
+      // FDACS-08270 official structure:
+      // - PDF page 1 is the FDACS authorization/cover page.
+      // - PDF page 2 is attachment Page 1 and holds the first 6 plants.
+      // - PDF page 3 is attachment Page 2 and must ONLY be used when plant 7+ exists.
+      // Never duplicate the first 6 plants onto page 3.
 
-      rows.forEach((pl, i) => {
+      // Header / shipper / consignee fields on attachment page 1.
+      setField("Brokers Name and Address 1", `${CASD_SHIP.name} - ${CASD_SHIP.addr1}`, 12);
+      setField("Brokers Name and Address 2", CASD_SHIP.addr2, 12);
+      setField("Contact", CASD_SHIP.contact, 12);
+      setField("Telephone Number", CASD_SHIP.phone, 12);
+      setField("Consignees Name and Address 1", `${clean(consignee.name)} - ${clean(consignee.address1)}`, 12);
+      setField("Consignees Name and Address 2", clean(consignee.address2), 12);
+      setField("Contact_2", clean(consignee.name), 12);
+      setField("Telephone Number_2", clean(consignee.phone), 12);
+      setField("page number", totalPages, 11);
+
+      // Attachment page 1 table: only first 6 plants.
+      firstPageRows.forEach((pl, i) => {
         const n = i + 1;
-        tf(`QuantityRow${n}`, pl.qty);
-        tf(`Nursery Stock exactly as certifiedRow${n}`, pl.name);
-        tf(`SizeRow${n}`, pl.size);
-        tf(`BN  RN Row${n}`, CASD_NEM);
-        tf(`IFA Row${n}`, CASD_IFA);
+        setField(`QuantityRow${n}`, clean(pl.qty || "1"), 11);
+        setField(`Nursery Stock exactly as certifiedRow${n}`, clean(pl.name), 10);
+        setField(`SizeRow${n}`, clean(pl.size), 11);
+        setField(`BN  RN Row${n}`, CASD_NEM, 11);
+        setField(`IFA Row${n}`, CASD_IFA, 11);
       });
 
-      // Some copies of the FDACS-08270 PDF expose duplicate page-1 row fields with _2 suffix.
-      // Filling them also keeps the document readable if Acrobat maps the table to those names.
-      rows.slice(0,6).forEach((pl, i) => {
-        const n = i + 1;
-        tf(`QuantityRow${n}_2`, pl.qty);
-        tf(`Nursery Stock exactly as certifiedRow${n}_2`, pl.name);
-        tf(`SizeRow${n}_2`, pl.size);
-        tf(`BN  RN Row${n}_2`, CASD_NEM);
-        tf(`IFA Row${n}_2`, CASD_IFA);
-      });
+      // Attachment addendum page: only plants that did not fit on attachment page 1.
+      // The addendum field names are mixed by the source PDF: row 1-6 use _2 suffix,
+      // and rows 7-21 are unsuffixed. Map plant 7 to addendum row 1, not to page 1.
+      if (needsAddendum) {
+        addendumRows.forEach((pl, i) => {
+          const addendumRow = i + 1;
+          const fieldRow = addendumRow <= 6 ? `${addendumRow}_2` : `${addendumRow}`;
+          setField(`QuantityRow${fieldRow}`, clean(pl.qty || "1"), 10);
+          setField(`Nursery Stock exactly as certifiedRow${fieldRow}`, clean(pl.name), 9);
+          setField(`SizeRow${fieldRow}`, clean(pl.size), 10);
+          setField(`BN  RN Row${fieldRow}`, CASD_NEM, 10);
+          setField(`IFA Row${fieldRow}`, CASD_IFA, 10);
+        });
+      } else {
+        // Remove the addendum page completely when there are 6 or fewer plants.
+        // This prevents a blank or duplicate page 3 from being generated.
+        try { pdfDoc.removePage(2); } catch(e) {}
+      }
 
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const draw = (pageIndex, text, x, y, size=10) => {
         try { pdfDoc.getPage(pageIndex).drawText(String(text || ""), { x, y, size, font, color: rgb(0,0,0) }); } catch(e){}
       };
-      // Date fields on this uploaded TX/LA PDF are not named AcroForm fields, so the app prints the date on top of the date lines.
-      draw(1, date || "", 505, 588, 10);
-      draw(2, date || "", 487, 590, 10);
 
+      // Date lines are not exposed as AcroForm fields in this FDACS PDF.
+      // Coordinates are tuned to the actual uploaded FDACS-08270 template.
+      draw(1, date || "", 472, 590, 10);       // attachment page 1 date line
+      if (needsAddendum) draw(2, date || "", 438, 618, 10); // addendum page date line
+
+      form.updateFieldAppearances(helv);
       form.flatten();
       return await pdfDoc.save();
     }
