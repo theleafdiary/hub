@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Leaf Diary" />
   <meta name="theme-color" content="#174D2F" />
-  <title>Leaf Diary CRM — Phase 4 Show Builder + Exports</title>
+  <title>Leaf Diary CRM — Phase 5 Post-Show Import + Commissions</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -7708,6 +7708,339 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
     /* ══════════════════════════════════════════════════════════
        ROOT APP — Supabase cloud sync + localStorage backup
     ══════════════════════════════════════════════════════════ */
+
+
+    /* ══════════════════════════════════════════════════════════
+       PHASE 5 — POST-SHOW IMPORT, SOLD PLANTS, COMMISSION + TIPS
+       No shipping workflow lives in the CRM. Shipping remains in Palmstreet/Whatnot.
+    ══════════════════════════════════════════════════════════ */
+    const PHASE5_SALE_STATUSES_EXCLUDE = ["refunded", "cancelled", "canceled", "void", "failed"];
+    const phase5Money = v => +String(v ?? "").replace(/[^0-9.-]/g, "") || 0;
+    const phase5Clean = v => String(v ?? "").trim();
+    const phase5LowerMap = row => Object.fromEntries(Object.entries(row || {}).map(([k,v]) => [String(k).trim().toLowerCase(), v]));
+    const phase5First = (row, keys) => {
+      const lower = phase5LowerMap(row);
+      for (const k of keys) {
+        const exact = row[k];
+        if (exact !== undefined && exact !== null && String(exact).trim() !== "") return exact;
+        const lk = String(k).trim().toLowerCase();
+        if (lower[lk] !== undefined && lower[lk] !== null && String(lower[lk]).trim() !== "") return lower[lk];
+      }
+      return "";
+    };
+    const phase5CsvEscape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const phase5DownloadCsv = (filename, rows) => {
+      const csv = rows.map(r => r.map(phase5CsvEscape).join(",")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type:"text/csv;charset=utf-8;" }));
+      a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 800);
+    };
+    function phase5ParseCsv(text) {
+      const rows = [];
+      let row = [], cell = "", q = false;
+      const s = String(text || "").replace(/^\ufeff/, "");
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i], next = s[i+1];
+        if (q) {
+          if (ch === '"' && next === '"') { cell += '"'; i++; }
+          else if (ch === '"') q = false;
+          else cell += ch;
+        } else {
+          if (ch === '"') q = true;
+          else if (ch === ',') { row.push(cell); cell = ""; }
+          else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ""; }
+          else if (ch !== '\r') cell += ch;
+        }
+      }
+      row.push(cell); rows.push(row);
+      const useful = rows.filter(r => r.some(c => String(c || "").trim() !== ""));
+      if (!useful.length) return [];
+      const headers = useful[0].map(h => String(h || "").trim());
+      return useful.slice(1).map((r, idx) => {
+        const obj = { __rowNumber: idx + 2 };
+        headers.forEach((h, i) => obj[h || `Column ${i+1}`] = r[i] ?? "");
+        return obj;
+      });
+    }
+    function phase5DetectPlatform(rows) {
+      const headers = Object.keys(rows[0] || {}).map(h => h.toLowerCase()).join(" | ");
+      if (headers.includes("whatnot") || headers.includes("order id") || headers.includes("buyer") || headers.includes("tips") || headers.includes("sku")) return "Whatnot";
+      if (headers.includes("palmstreet") || headers.includes("buyer username") || headers.includes("item title") || headers.includes("product title")) return "Palmstreet";
+      return headers.includes("sku") ? "Whatnot" : "Palmstreet";
+    }
+    function phase5ExtractPlantIdFromText(text, plants = []) {
+      const t = String(text || "");
+      const direct = t.match(/\b[A-Z]{1,8}-\d{1,6}\b/i);
+      if (direct) return direct[0].toUpperCase();
+      const ids = (plants || []).map(p => String(p.plantId || p.plantCode || "").trim()).filter(Boolean).sort((a,b)=>b.length-a.length);
+      const found = ids.find(id => t.toLowerCase().includes(id.toLowerCase()));
+      return found || "";
+    }
+    function phase5NormalizeSaleRow(row, platform, plants) {
+      const title = phase5Clean(phase5First(row, ["Title", "Item", "Item Title", "Product", "Product Title", "Listing Title", "Name", "Description"]));
+      const sku = phase5Clean(phase5First(row, ["SKU", "Sku", "Seller SKU", "Variant SKU", "Plant ID", "PlantID"]));
+      const extracted = (sku || phase5ExtractPlantIdFromText(title, plants)).toUpperCase();
+      const salePrice = phase5Money(phase5First(row, ["Sold Price", "Sale Price", "Price", "Item Price", "Product Amount", "Subtotal", "Total", "Order Total", "Amount"]));
+      const tips = phase5Money(phase5First(row, ["Tips", "Tip", "Tip Amount", "Gratuity"]));
+      const fees = phase5Money(phase5First(row, ["Platform Fees", "Platform Fee", "Fees", "Fee", "Selling Fee"]));
+      const buyer = phase5Clean(phase5First(row, ["Buyer Username", "Buyer", "Username", "Customer", "Customer Username", "Buyer Name", "Name"]));
+      const orderId = phase5Clean(phase5First(row, ["Order ID", "Order #", "Order Number", "Order", "Reference", "Transaction ID", "Sale ID"]));
+      const status = phase5Clean(phase5First(row, ["Status", "Order Status", "Sale Status", "Payment Status"]));
+      const saleDate = phase5Clean(phase5First(row, ["Date", "Sold Date", "Sale Date", "Order Date", "Created At", "Timestamp"])) || today();
+      const rowKey = `${platform}|${orderId}|${extracted}|${salePrice}|${buyer}|${saleDate}`.toLowerCase();
+      return { id: uid(), raw: row, platform, title, sku, plantId: extracted, salePrice, tips, fees, buyer, orderId, status, saleDate, rowKey, action: "skip", linkedPlantId: "", note: "" };
+    }
+    function phase5MatchSales(rows, plants, platform) {
+      const activePlants = plants || [];
+      const byId = Object.fromEntries(activePlants.map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
+      return rows.map(row => {
+        const sale = phase5NormalizeSaleRow(row, platform, activePlants);
+        const matched = sale.plantId ? byId[sale.plantId] : null;
+        const excluded = PHASE5_SALE_STATUSES_EXCLUDE.includes(String(sale.status || "").toLowerCase());
+        return { ...sale, matched, action: excluded ? "skip" : matched ? "match" : "historical", excluded };
+      });
+    }
+
+    function Phase5PostShowImport({ plants, setPlants, addAudit, user, users = [], settings = {}, setSettings }) {
+      const [step, setStep] = useState("upload");
+      const [platform, setPlatform] = useState("Auto Detect");
+      const [fileName, setFileName] = useState("");
+      const [sales, setSales] = useState([]);
+      const [msg, setMsg] = useState("");
+      const [showName, setShowName] = useState(`Leaf Diary Show ${today()}`);
+      const [showDate, setShowDate] = useState(today());
+      const [hostId, setHostId] = useState("none");
+      const [rate, setRate] = useState(settings.defaultShowCommissionPercent ?? 1);
+      const [lastResult, setLastResult] = useState(null);
+      const fileRef = useRef(null);
+      const employees = (users || []).filter(u => u.role !== "owner" && u.active !== false);
+      const host = employees.find(e => String(e.id) === String(hostId));
+      const chosen = sales.filter(s => ["match", "historical"].includes(s.action) && !s.excluded);
+      const matchedCount = sales.filter(s => s.action === "match" && s.matched && !s.excluded).length;
+      const unmatchedCount = sales.filter(s => !s.matched && !s.excluded).length;
+      const skippedCount = sales.filter(s => s.action === "skip" || s.excluded).length;
+      const grossSales = chosen.reduce((sum, s) => sum + (+s.salePrice || 0), 0);
+      const tipsTotal = chosen.reduce((sum, s) => sum + (+s.tips || 0), 0);
+      const feesTotal = chosen.reduce((sum, s) => sum + (+s.fees || 0), 0);
+      const commissionAmount = hostId !== "none" ? +(grossSales * ((+rate || 0) / 100)).toFixed(2) : 0;
+      const totalOwed = +(commissionAmount + tipsTotal).toFixed(2);
+
+      const loadTextFile = async file => {
+        if (!file) return;
+        setMsg(""); setFileName(file.name || "sales-import.csv");
+        try {
+          let text = "";
+          if (/\.xlsx?$/i.test(file.name || "")) {
+            const buf = await file.arrayBuffer();
+            const wb = XLSX.read(buf, { type:"array" });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            text = XLSX.utils.sheet_to_csv(ws);
+          } else {
+            text = await file.text();
+          }
+          const rows = phase5ParseCsv(text);
+          if (!rows.length) { setMsg("No sales rows found in this file."); return; }
+          const detected = platform === "Auto Detect" ? phase5DetectPlatform(rows) : platform;
+          const normalized = phase5MatchSales(rows, plants, detected);
+          setPlatform(detected);
+          setSales(normalized);
+          setStep("review");
+        } catch (e) {
+          console.error(e); setMsg("Could not read this file. Export it as CSV from Palmstreet/Whatnot and try again.");
+        }
+      };
+      const updateSale = (id, patch) => setSales(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+      const linkToPlant = (id, plantDbId) => {
+        const p = (plants || []).find(x => String(x.id) === String(plantDbId));
+        updateSale(id, { matched: p || null, plantId: p ? (p.plantId || p.plantCode || "") : "", linkedPlantId: plantDbId, action: p ? "match" : "historical" });
+      };
+      const finalize = () => {
+        const importId = uid();
+        const now = new Date().toISOString();
+        const existingKeys = new Set((plants || []).map(p => String(p.saleImportKey || "").toLowerCase()).filter(Boolean));
+        const selected = sales.filter(s => ["match", "historical"].includes(s.action) && !s.excluded && !existingKeys.has(s.rowKey));
+        if (!selected.length) { setMsg("Nothing selected to finalize, or these rows were already imported before."); return; }
+        const updatedPlants = [...(plants || [])];
+        let soldMarked = 0, historicalCreated = 0;
+        selected.forEach(s => {
+          const plant = s.matched || updatedPlants.find(p => String(p.id) === String(s.linkedPlantId));
+          if (plant) {
+            const idx = updatedPlants.findIndex(p => String(p.id) === String(plant.id));
+            if (idx >= 0) {
+              updatedPlants[idx] = {
+                ...updatedPlants[idx], status:"Sold", soldDate:s.saleDate || showDate || today(), saleDate:s.saleDate || showDate || today(), platform:s.platform,
+                showId: importId, showName, salePrice:+s.salePrice || 0, customerUsername:s.buyer || "", customerName:s.buyer || "", orderNumber:s.orderId || "",
+                platformOrderId:s.orderId || "", hostEmployeeId: hostId !== "none" ? hostId : "", hostEmployeeName: host?.name || "", commissionAmount: hostId !== "none" ? +((+s.salePrice || 0) * ((+rate || 0) / 100)).toFixed(2) : 0,
+                tipsAmount:+s.tips || 0, saleImportId:importId, saleImportKey:s.rowKey, saleImportedAt:now, saleImportFile:fileName,
+                fulfillmentStatus:"Platform Managed", crmShippingDisabled:true
+              };
+              soldMarked++;
+            }
+          } else {
+            updatedPlants.unshift({
+              id: uid(), plantId: s.plantId || `HIST-${String(Date.now()).slice(-6)}-${historicalCreated+1}`, plantCode: s.plantId || "", name: s.title || "Historical Platform Sale",
+              potSize:"", cost:0, suggestedPrice:+s.salePrice || 0, status:"Sold", soldDate:s.saleDate || showDate || today(), saleDate:s.saleDate || showDate || today(),
+              platform:s.platform, showId:importId, showName, salePrice:+s.salePrice || 0, customerUsername:s.buyer || "", customerName:s.buyer || "", orderNumber:s.orderId || "",
+              platformOrderId:s.orderId || "", hostEmployeeId: hostId !== "none" ? hostId : "", hostEmployeeName: host?.name || "", commissionAmount: hostId !== "none" ? +((+s.salePrice || 0) * ((+rate || 0) / 100)).toFixed(2) : 0,
+              tipsAmount:+s.tips || 0, historicalImport:true, needsInventoryReview:true, saleImportId:importId, saleImportKey:s.rowKey, saleImportedAt:now, saleImportFile:fileName,
+              fulfillmentStatus:"Platform Managed", crmShippingDisabled:true, dateAdded:s.saleDate || showDate || today()
+            });
+            historicalCreated++;
+          }
+        });
+        setPlants(updatedPlants);
+        if (setSettings) {
+          const exportRecord = { id: importId, showId: importId, showName, platform, fileName, importedAt: now, importedBy: user?.name || "", matchedCount: soldMarked, historicalCreated, skippedCount, plantCount: selected.length, grossSales, tipsTotal, feesTotal, hostEmployeeId: hostId, hostEmployeeName: host?.name || "", commissionRate:+rate || 0, commissionAmount, totalOwed };
+          setSettings(prev => ({
+            ...prev,
+            showSalesImports: [exportRecord, ...(prev.showSalesImports || [])].slice(0, 100),
+            showCommissions: hostId !== "none" ? [
+              ...(prev.showCommissions || []),
+              { id: uid(), employeeId: hostId, employeeName: host?.name || "", showName, platform, saleDate: showDate, importedAt: now, fileName, salesCount: selected.length, grossSales, tips: tipsTotal, percent:+rate || 0, amount: commissionAmount, totalOwed, status:"Unpaid", note:"Phase 5 post-show import: shipping handled inside platform." }
+            ] : (prev.showCommissions || [])
+          }));
+        }
+        addAudit && addAudit({ action:`Phase 5 sales import finalized: ${soldMarked} matched sold, ${historicalCreated} historical, ${$(grossSales)} gross, tips ${$(tipsTotal)}, commission ${$(commissionAmount)}`, user:user?.name || "Owner", page:"Post-Show Import" });
+        setLastResult({ soldMarked, historicalCreated, selected:selected.length, grossSales, tipsTotal, commissionAmount, totalOwed, host:host?.name || "" });
+        setStep("done");
+      };
+      const exportReview = () => phase5DownloadCsv(`leaf-diary-post-show-review-${today()}.csv`, [
+        ["Action", "Matched", "Plant ID", "Title", "Sale Price", "Tips", "Buyer", "Order ID", "Platform", "Status"],
+        ...sales.map(s => [s.action, s.matched ? "YES" : "NO", s.plantId, s.title, s.salePrice, s.tips, s.buyer, s.orderId, s.platform, s.status])
+      ]);
+
+      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="📥" title="Post-Show Import" sub="Upload Palmstreet/Whatnot sales, mark matched plants sold, and create commission/tips payroll. No shipping workflow." />
+        {step === "upload" && <div>
+          <Card style={{ marginBottom:14 }}>
+            <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>Import the show sales file</div>
+            <div style={{ fontSize:13, color:C.tx3, lineHeight:1.6, marginBottom:14 }}>Export the sales CSV/XLSX from Palmstreet or Whatnot after the show. The app matches by SKU = Plant ID first, then falls back to title containing the Plant ID.</div>
+            <Row gap={10} wrap>
+              <Inp label="Show Name" value={showName} onChange={setShowName} />
+              <Inp label="Show Date" type="date" value={showDate} onChange={setShowDate} />
+              <Sel label="Platform" value={platform} onChange={setPlatform} options={["Auto Detect", "Palmstreet", "Whatnot"]} />
+            </Row>
+            <Row gap={10} wrap style={{ marginTop:12 }}>
+              <Sel label="Host Employee" value={hostId} onChange={setHostId} options={[{v:"none", l:"No employee commission / owner show"}, ...employees.map(e => ({ v:e.id, l:e.name || e.email || e.id }))]} />
+              <Inp label="Commission % of gross" type="number" value={rate} onChange={setRate} />
+            </Row>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display:"none" }} onChange={e => loadTextFile(e.target.files?.[0])} />
+            <Row gap={10} wrap style={{ marginTop:16 }}>
+              <Btn sz="lg" onClick={() => fileRef.current?.click()}>📤 Upload Sales CSV/XLSX</Btn>
+              <Btn v="outline" onClick={() => setMsg("Tip: the export must include SKU or the Plant ID in the title for automatic matching. Unmatched rows can be linked or saved as historical sales.")}>How matching works</Btn>
+            </Row>
+          </Card>
+          {msg && <Card style={{ background:C.goldBg, borderColor:C.gold+"66", color:C.tx2 }}>{msg}</Card>}
+          <Card style={{ background:C.cardAlt }}>
+            <b>Not built into CRM:</b> shipping labels, carrier selection, tracking numbers, shipped statuses, delivery tracking, or packing workflows. Those stay inside Palmstreet and Whatnot.
+          </Card>
+        </div>}
+
+        {step === "review" && <div>
+          <Row gap={10} wrap style={{ marginBottom:14 }}>
+            <KPI label="Matched" value={matchedCount} sub="will mark Sold" color={C.g600} />
+            <KPI label="Unmatched" value={unmatchedCount} sub="link / historical / skip" color={C.amber} />
+            <KPI label="Gross Sales" value={$(grossSales)} sub={`${chosen.length} selected rows`} color={C.g700} />
+            <KPI label="Tips" value={$(tipsTotal)} sub="100% to host" color={C.gold} />
+            <KPI label="Commission" value={$(commissionAmount)} sub={host ? host.name : "no host selected"} color={C.purple} />
+          </Row>
+          {msg && <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}55`, borderRadius:10, padding:12, marginBottom:12 }}>{msg}</div>}
+          <Card style={{ marginBottom:14 }}>
+            <Row between center wrap>
+              <div><b>{fileName}</b><div style={{ fontSize:12, color:C.tx3 }}>{platform} · {sales.length} rows · skipped/excluded {skippedCount}</div></div>
+              <Row gap={8} wrap><Btn v="outline" onClick={exportReview}>Export Review CSV</Btn><Btn v="ghost" onClick={() => setStep("upload")}>Back</Btn><Btn onClick={finalize}>✅ Finalize Import</Btn></Row>
+            </Row>
+          </Card>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {sales.map(s => <Card key={s.id} style={{ borderColor:s.excluded || s.action === "skip" ? C.bd : s.matched || s.action === "match" ? C.g300 : C.gold, background:s.excluded || s.action === "skip" ? C.cardAlt : s.matched || s.action === "match" ? C.g50 : C.goldBg }}>
+              <Row between center wrap>
+                <div style={{ flex:1, minWidth:220 }}>
+                  <div style={{ fontWeight:900, color:C.g900 }}>{s.title || s.plantId || "Untitled sale row"}</div>
+                  <div style={{ fontSize:12, color:C.tx3 }}>Plant ID/SKU: <b>{s.plantId || "not found"}</b> · Buyer: {s.buyer || "—"} · Order: {s.orderId || "—"}</div>
+                  {s.excluded && <div style={{ fontSize:12, color:C.red, fontWeight:800 }}>Excluded because status is {s.status}</div>}
+                  {!s.excluded && s.matched && <div style={{ fontSize:12, color:C.g700, fontWeight:800 }}>✅ Matched to {s.matched.name} ({s.matched.plantId || s.matched.plantCode})</div>}
+                  {!s.excluded && !s.matched && <div style={{ fontSize:12, color:C.amber, fontWeight:800 }}>⚠️ Unmatched. Link it, save as historical sale, or skip.</div>}
+                </div>
+                <div style={{ textAlign:"right", minWidth:120 }}><div style={{ fontSize:20, fontWeight:900, color:C.g700 }}>{$(s.salePrice)}</div>{+s.tips > 0 && <div style={{ fontSize:12, color:C.gold }}>Tips {$(s.tips)}</div>}</div>
+              </Row>
+              {!s.excluded && <Row gap={8} wrap style={{ marginTop:10 }}>
+                <button onClick={() => updateSale(s.id, { action:"match" })} disabled={!s.matched} style={{ padding:"9px 12px", borderRadius:8, border:`1px solid ${s.action === "match" ? C.g700 : C.bd}`, background:s.action === "match" ? C.g700 : C.card, color:s.action === "match" ? "#fff" : C.tx2, fontWeight:800, cursor:s.matched ? "pointer" : "not-allowed", opacity:s.matched ? 1 : .45 }}>Use Match</button>
+                <button onClick={() => updateSale(s.id, { action:"historical" })} style={{ padding:"9px 12px", borderRadius:8, border:`1px solid ${s.action === "historical" ? C.gold : C.bd}`, background:s.action === "historical" ? C.gold : C.card, color:s.action === "historical" ? "#fff" : C.tx2, fontWeight:800 }}>Save Historical Sale</button>
+                <button onClick={() => updateSale(s.id, { action:"skip" })} style={{ padding:"9px 12px", borderRadius:8, border:`1px solid ${s.action === "skip" ? C.red : C.bd}`, background:s.action === "skip" ? C.red : C.card, color:s.action === "skip" ? "#fff" : C.tx2, fontWeight:800 }}>Skip</button>
+                {!s.matched && <select value={s.linkedPlantId || ""} onChange={e => linkToPlant(s.id, e.target.value)} style={{ flex:"1 1 260px", padding:"9px 10px", borderRadius:8, border:`1px solid ${C.bd}`, fontFamily:F.body }}>
+                  <option value="">Link to a plant manually...</option>
+                  {(plants || []).filter(p => p.status !== "Sold").map(p => <option key={p.id} value={p.id}>{p.plantId || p.plantCode} · {p.name} · {p.potSize || ""}</option>)}
+                </select>}
+              </Row>}
+            </Card>)}
+          </div>
+        </div>}
+
+        {step === "done" && <div style={{ textAlign:"center", padding:"50px 16px" }}>
+          <div style={{ fontSize:60 }}>✅</div>
+          <h2 style={{ fontFamily:F.display, color:C.g900 }}>Post-Show Import Finalized</h2>
+          <p style={{ color:C.tx3 }}>{lastResult?.soldMarked || 0} matched plants marked Sold · {lastResult?.historicalCreated || 0} historical sales saved</p>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, maxWidth:780, margin:"20px auto" }}>
+            <KPI label="Gross" value={$(lastResult?.grossSales || 0)} color={C.g700} />
+            <KPI label="Tips" value={$(lastResult?.tipsTotal || 0)} color={C.gold} />
+            <KPI label="Commission" value={$(lastResult?.commissionAmount || 0)} sub={lastResult?.host || "no host"} color={C.purple} />
+            <KPI label="Total Owed" value={$(lastResult?.totalOwed || 0)} color={C.red} />
+          </div>
+          <Row gap={10} style={{ justifyContent:"center" }} wrap><Btn onClick={() => { setSales([]); setLastResult(null); setStep("upload"); }}>Import Another Show</Btn><Btn v="outline" onClick={() => setStep("review")}>View Last Review</Btn></Row>
+        </div>}
+      </div>;
+    }
+
+    function Phase5SoldPlants({ plants, settings = {}, setSettings, user }) {
+      const [q, setQ] = useState("");
+      const [platform, setPlatform] = useState("All");
+      const sold = (plants || []).filter(p => p.status === "Sold" || p.saleImportId || p.historicalImport);
+      const filtered = sold.filter(p => {
+        const text = [p.plantId, p.plantCode, p.name, p.platform, p.showName, p.customerUsername, p.customerName, p.orderNumber, p.platformOrderId].join(" ").toLowerCase();
+        return (!q || text.includes(q.toLowerCase())) && (platform === "All" || p.platform === platform);
+      }).sort((a,b)=>String(b.saleImportedAt || b.soldDate || b.saleDate || "").localeCompare(String(a.saleImportedAt || a.soldDate || a.saleDate || "")));
+      const gross = filtered.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
+      const tips = filtered.reduce((s,p)=>s+(+p.tipsAmount || 0),0);
+      const commission = filtered.reduce((s,p)=>s+(+p.commissionAmount || 0),0);
+      const exportRows = [
+        ["Plant ID", "Plant Name", "Platform", "Show", "Sold Date", "Sold Price", "Buyer", "Platform Order ID", "Host Employee", "Commission", "Tips", "Import File", "Imported At"],
+        ...filtered.map(p => [p.plantId || p.plantCode || "", p.name || "", p.platform || "", p.showName || "", p.soldDate || p.saleDate || "", +p.salePrice || +p.suggestedPrice || 0, p.customerUsername || p.customerName || "", p.platformOrderId || p.orderNumber || "", p.hostEmployeeName || "", +p.commissionAmount || 0, +p.tipsAmount || 0, p.saleImportFile || "", p.saleImportedAt || ""])
+      ];
+      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="✅" title="Sold Plants" sub="Simple sales-result review. Shipping, tracking, labels, and delivery status stay inside Palmstreet/Whatnot." right={<Btn v="outline" onClick={() => phase5DownloadCsv(`leaf-diary-sold-plants-${today()}.csv`, exportRows)}>Export CSV</Btn>} />
+        <Row gap={10} wrap style={{ marginBottom:14 }}>
+          <KPI label="Sold Rows" value={filtered.length} color={C.g700} />
+          <KPI label="Gross Sales" value={$(gross)} color={C.g600} />
+          <KPI label="Tips" value={$(tips)} color={C.gold} />
+          <KPI label="Commission" value={$(commission)} color={C.purple} />
+        </Row>
+        <Card style={{ marginBottom:14 }}>
+          <Row gap={10} wrap center>
+            <Inp label="Search sold plants" value={q} onChange={setQ} placeholder="Plant ID, buyer, order ID, show name..." />
+            <Sel label="Platform" value={platform} onChange={setPlatform} options={["All", "Palmstreet", "Whatnot", "Cash", "Shopify"]} />
+          </Row>
+          <div style={{ marginTop:10, padding:10, borderRadius:10, background:C.g50, color:C.tx2, fontSize:12 }}>
+            This screen intentionally has <b>no</b> mark shipped button, tracking field, carrier selection, packing workflow, or shipping label purchase.
+          </div>
+        </Card>
+        <Tbl cols={[
+          {k:"photo", l:"Photo"}, {k:"plant", l:"Plant"}, {k:"platform", l:"Platform"}, {k:"show", l:"Show"}, {k:"price", l:"Sold Price", right:true}, {k:"buyer", l:"Buyer"}, {k:"order", l:"Order Ref"}, {k:"host", l:"Host"}, {k:"pay", l:"Pay", right:true}, {k:"import", l:"Import"}
+        ]} rows={filtered.map(p => ({
+          photo: p.photoUrl || p.photo_url ? <img src={p.photoUrl || p.photo_url} style={{ width:44, height:44, objectFit:"cover", borderRadius:8 }} /> : <div style={{ width:44, height:44, borderRadius:8, background:C.g100, display:"flex", alignItems:"center", justifyContent:"center" }}>🌿</div>,
+          plant: <div><b>{p.plantId || p.plantCode || "—"}</b><div style={{ fontSize:12, color:C.tx3 }}>{p.name || "Sold Plant"}</div></div>,
+          platform: <Tag text={p.platform || "—"} color={p.platform === "Whatnot" ? C.purple : C.g600} sm />,
+          show: <div>{p.showName || "—"}<div style={{ fontSize:11, color:C.tx3 }}>{p.soldDate || p.saleDate || ""}</div></div>,
+          price: <b>{$(+p.salePrice || +p.suggestedPrice || 0)}</b>,
+          buyer: p.customerUsername || p.customerName || "—",
+          order: p.platformOrderId || p.orderNumber || "—",
+          host: p.hostEmployeeName || "—",
+          pay: <div>{$(+p.commissionAmount || 0)}{+p.tipsAmount > 0 && <div style={{ fontSize:11, color:C.gold }}>tips {$(+p.tipsAmount)}</div>}</div>,
+          import: <div style={{ fontSize:11, color:C.tx3 }}>{p.saleImportFile || "—"}<br />{p.saleImportedAt ? String(p.saleImportedAt).slice(0,10) : ""}</div>
+        }))} empty="No sold plants imported yet. Use Post-Show Import after a Palmstreet or Whatnot live show." />
+      </div>;
+    }
+
     function App() {
       const saved = loadLS();
       const [showPwdModal, setShowPwdModal] = useState(false);
@@ -8159,7 +8492,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "dataai" && <BusinessDataAI plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "social" && <SocialMediaCenter plants={plants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} />}
           {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={navigate} />}
-          {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
+          {page === "ship" && CAN.seeReports(user.role) && <Phase5SoldPlants plants={plants} settings={settings} setSettings={setSettings} user={user} />}
           {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
           {page === "pos" && CAN.seeReports(user.role) && <PurchaseOrders purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} user={user} addAudit={addAudit} />}
           {page === "refunds" && CAN.seeReports(user.role) && <RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
@@ -8181,7 +8514,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={navigate} />}
           {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
           {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} />}
-          {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
+          {page === "showimport" && <Phase5PostShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
