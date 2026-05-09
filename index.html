@@ -568,7 +568,7 @@
       const blob = await resizeImageFile(file, 1200, 0.86);
       const filename = `${safeFilePart(plant.plantId || plant.plantCode || plant.id)}-${Date.now()}.jpg`;
       const path = `plants/${filename}`;
-      const { error } = await supabase.storage.from(PLANT_PHOTO_BUCKET).upload(path, blob, { contentType: "image/jpeg", upsert: true });
+      const { error } = await supabase.storage.from(PLANT_PHOTO_BUCKET).upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000", upsert: true });
       if (error) throw error;
       const { data } = supabase.storage.from(PLANT_PHOTO_BUCKET).getPublicUrl(path);
       return { photoUrl: data.publicUrl, photoPath: path, photoUploadedAt: new Date().toISOString() };
@@ -7475,8 +7475,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       saveCasdCertsToLocalBackup(merged);
       const errors = [];
       try { await cloudUpsertRows("casd_certs", merged); } catch (e) { errors.push("casd_certs: " + (e?.message || String(e))); console.error("CASD table save failed", e); }
-      try { await cloudUpsertState("casdCerts", merged); } catch (e) { errors.push("app_state.casdCerts: " + (e?.message || String(e))); console.error("CASD app_state backup save failed", e); }
-      if (errors.length === 2) throw new Error("Archive cloud save failed. " + errors.join(" | "));
+      /* Egress fix: do not duplicate State Doc PDF archive into app_state. casd_certs table + local backup are enough. */
+      if (errors.length === 1) throw new Error("Archive cloud save failed. " + errors.join(" | "));
       return merged;
     }
 
@@ -7717,17 +7717,34 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const [saveMsg, setSaveMsg] = useState("");
       const [cloudStatus, setCloudStatus] = useState("loading");
       const [cloudMsg, setCloudMsg] = useState("Connecting to Supabase cloud...");
+      const [cloudSafeMode, setCloudSafeModeRaw] = useState(() => {
+        try {
+          const stored = localStorage.getItem("ld_cloud_safe_mode");
+          return stored == null ? true : stored === "true";
+        } catch (e) { return true; }
+      });
 
       const cloudReadyRef = useRef(false);
       const cloudStatusRef = useRef("loading");
+      const cloudSafeModeRef = useRef(cloudSafeMode);
       useEffect(() => { cloudStatusRef.current = cloudStatus; }, [cloudStatus]);
+      useEffect(() => {
+        cloudSafeModeRef.current = cloudSafeMode;
+        try { localStorage.setItem("ld_cloud_safe_mode", String(cloudSafeMode)); } catch (e) {}
+        if (cloudSafeMode) {
+          cloudReadyRef.current = false;
+          setCloudStatus("safe");
+          setCloudMsg("Cloud Safe Mode is ON — using local backup only. Click Load From Cloud or Save To Cloud when needed.");
+        }
+      }, [cloudSafeMode]);
+      const setCloudSafeMode = (value) => setCloudSafeModeRaw(!!value);
       const suppressCloudSaveRef = useRef(false);
       const backupRef = useRef();
 
       const cloudCollectionSetter = useCallback((table, rawSetter) => (updater) => {
         rawSetter(prev => {
           const next = safeArray(applyUpdater(updater, prev));
-          if (cloudReadyRef.current && !suppressCloudSaveRef.current) {
+          if (cloudReadyRef.current && !suppressCloudSaveRef.current && !cloudSafeModeRef.current) {
             const removed = missingIds(prev, next);
             setCloudStatus("syncing");
             setCloudMsg("Saving to Supabase cloud...");
@@ -7747,7 +7764,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const cloudStateSetter = useCallback((key, rawSetter) => (updater) => {
         rawSetter(prev => {
           const next = applyUpdater(updater, prev);
-          if (cloudReadyRef.current && !suppressCloudSaveRef.current) {
+          if (cloudReadyRef.current && !suppressCloudSaveRef.current && !cloudSafeModeRef.current) {
             setCloudStatus("syncing");
             setCloudMsg("Saving settings to Supabase...");
             cloudUpsertState(key, next)
@@ -7772,7 +7789,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           const proposed = applyUpdater(updater, prev) || [];
           const next = mergeCasdCertLists(proposed, [...(prev || []), ...loadCasdCertsFromLocalBackup(), ...(window.__casdCertsSnapshot || [])]);
           saveCasdCertsToLocalBackup(next);
-          if (cloudReadyRef.current && !suppressCloudSaveRef.current) {
+          if (cloudReadyRef.current && !suppressCloudSaveRef.current && !cloudSafeModeRef.current) {
             setCloudStatus("syncing");
             setCloudMsg("Saving State Docs legal archive to Supabase...");
             persistCasdCertArchive(next)
@@ -7901,9 +7918,16 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         document.head.appendChild(l);
       }, []);
 
-      const loadFromCloud = useCallback(async ({ silent = false } = {}) => {
+      const loadFromCloud = useCallback(async ({ silent = false, force = false } = {}) => {
+        if (cloudSafeModeRef.current && !force) {
+          cloudReadyRef.current = false;
+          setCloudStatus("safe");
+          setCloudMsg("Cloud Safe Mode is ON — skipped automatic Supabase load to reduce egress.");
+          return;
+        }
         if (!silent) { setCloudStatus("loading"); setCloudMsg("Loading Supabase cloud data..."); }
         try {
+          const loadHeavyArchives = !!force && window.confirm("Load heavy cloud archives too? Choose Cancel for normal low-egress load. Heavy archives can include audit log and state document backups.");
           const [cloudPlants, cloudBills, cloudNurseries, cloudExpenses, cloudExpenseReceipts, cloudPurchaseOrders, cloudRefunds, cloudBundles, cloudTimecards, cloudUsers, cloudSettings, cloudAudit, cloudInventoryReset, cloudCasdCerts, cloudCasdState] = await Promise.all([
             safeCloudRows("plants", safeArray(saved?.plants)),
             safeCloudRows("bills", safeArray(saved?.bills)),
@@ -7916,10 +7940,10 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             safeCloudRows("timecards", safeArray(saved?.timecards)),
             safeCloudState("users", safeUsers(saved?.users).length ? safeUsers(saved?.users) : DEFAULT_USERS),
             safeCloudState("settings", safeSettings(saved?.settings)),
-            safeCloudState("auditLog", safeArray(saved?.auditLog)),
+            loadHeavyArchives ? safeCloudState("auditLog", safeArray(saved?.auditLog)) : Promise.resolve(safeArray(saved?.auditLog)),
             safeCloudState("inventoryResetAt", null),
-            safeCloudRows("casd_certs", []),
-            safeCloudState("casdCerts", safeArray(saved?.casdCerts)),
+            loadHeavyArchives ? safeCloudRows("casd_certs", []) : Promise.resolve([]),
+            loadHeavyArchives ? safeCloudState("casdCerts", safeArray(saved?.casdCerts)) : Promise.resolve(safeArray(saved?.casdCerts)),
           ]);
 
           suppressCloudSaveRef.current = true;
@@ -7968,7 +7992,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           if (!cloudAudit && saved?.auditLog) await cloudUpsertState("auditLog", saved.auditLog);
           if (restoredCasdCerts.length) {
             await cloudUpsertRows("casd_certs", restoredCasdCerts).catch(e => console.warn("CASD table seed failed", e));
-            await cloudUpsertState("casdCerts", restoredCasdCerts).catch(e => console.warn("CASD app_state seed failed", e));
+            /* app_state CASD seed disabled to prevent huge JSON egress. */
           }
         } catch (err) {
           console.error("Supabase load failed", err);
@@ -7988,6 +8012,12 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       useEffect(() => {
         if (!session) return;
+        if (cloudSafeModeRef.current) {
+          cloudReadyRef.current = false;
+          setCloudStatus("safe");
+          setCloudMsg("Cloud Safe Mode is ON — automatic cloud load and 2-minute polling are disabled.");
+          return;
+        }
         let cancelled = false;
         const fallback = setTimeout(() => {
           if (!cancelled && cloudStatusRef.current === "loading") {
@@ -8001,10 +8031,40 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             } catch (e) {}
           }
         }, 9000);
-        loadFromCloud();
-        const timer = setInterval(() => loadFromCloud({ silent: true }), 120000);
-        return () => { cancelled = true; clearTimeout(fallback); clearInterval(timer); };
-      }, [loadFromCloud, session]);
+        loadFromCloud({ force: true });
+        return () => { cancelled = true; clearTimeout(fallback); };
+      }, [loadFromCloud, session, cloudSafeMode]);
+
+      const saveAllToCloud = async () => {
+        if (!window.confirm("Save this device's current Leaf Diary data to Supabase now? This is a manual cloud backup and avoids automatic egress.")) return;
+        try {
+          setCloudStatus("syncing");
+          setCloudMsg("Manual save to Supabase running...");
+          await Promise.all([
+            cloudUpsertRows("plants", plants),
+            cloudUpsertRows("bills", bills),
+            cloudUpsertRows("nurseries", nurseries),
+            cloudUpsertRows("expenses", expenses),
+            cloudUpsertRows("timecards", timecards),
+            cloudUpsertState("expenseReceipts", expenseReceipts),
+            cloudUpsertState("purchaseOrders", purchaseOrders),
+            cloudUpsertState("refunds", refunds),
+            cloudUpsertState("bundles", bundles),
+            cloudUpsertState("users", users),
+            cloudUpsertState("settings", settings),
+          ]);
+          setCloudStatus(cloudSafeModeRef.current ? "safe" : "synced");
+          setCloudMsg("Manual cloud save completed. Cloud Safe Mode remains " + (cloudSafeModeRef.current ? "ON." : "OFF."));
+          setSaveMsg("✅ Manual cloud save complete");
+          setTimeout(() => setSaveMsg(""), 3000);
+        } catch (err) {
+          console.error("Manual cloud save failed", err);
+          const msg = err && err.message ? err.message : String(err);
+          setCloudStatus("offline");
+          setCloudMsg("Manual cloud save failed: " + msg);
+          alert("Manual cloud save failed: " + msg);
+        }
+      };
 
       /* Manual backup — exports all data as JSON file */
       const exportBackup = () => {
@@ -8101,8 +8161,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       if (user?.blocked || user?.active === false) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, padding: 20 }}><Card style={{ maxWidth: 420, textAlign: "center" }}><div style={{ fontSize: 38 }}>🚫</div><h2 style={{ fontFamily: F.display, color: C.red, margin: "8px 0" }}>Access Disabled</h2><p style={{ color: C.tx3 }}>This user is disabled in Leaf Diary. Contact the owner to re-enable access.</p><Btn v="danger" onClick={handleLogout}>Log Out</Btn></Card></div>;
 
       const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit };
-      const cloudDot = cloudStatus === "synced" ? C.g400 : cloudStatus === "syncing" || cloudStatus === "loading" ? C.gold : C.amber;
-      const cloudLabel = cloudStatus === "synced" ? "☁️ Supabase cloud synced" : cloudStatus === "syncing" ? "🔄 Saving to Supabase..." : cloudStatus === "loading" ? "🔄 Loading cloud..." : `⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
+      const cloudDot = cloudStatus === "synced" ? C.g400 : cloudStatus === "safe" ? C.blue : cloudStatus === "syncing" || cloudStatus === "loading" ? C.gold : C.amber;
+      const cloudLabel = cloudStatus === "synced" ? "☁️ Supabase cloud synced" : cloudStatus === "safe" ? "🛡️ Cloud Safe Mode ON — local only" : cloudStatus === "syncing" ? "🔄 Saving to Supabase..." : cloudStatus === "loading" ? "🔄 Loading cloud..." : `⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
         {(showPwdModal || user?.mustChangePassword) && <ChangePasswordModal onClose={() => { if (!user?.mustChangePassword) setShowPwdModal(false); }} user={user} onSuccess={() => { setUsers(prev => prev.map(u => u.id === user.id ? { ...u, mustChangePassword: false } : u)); setUser(prev => prev ? { ...prev, mustChangePassword: false } : prev); setShowPwdModal(false); }} />}
@@ -8117,7 +8177,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {saveMsg && <span style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{saveMsg}</span>}
-            <button onClick={() => loadFromCloud()} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>🔄 Sync Now</button>
+            <button onClick={() => setCloudSafeMode(!cloudSafeMode)} style={{ background: cloudSafeMode ? C.blue : "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 700 }}>{cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Auto Cloud ON"}</button>
+            <button onClick={() => loadFromCloud({ force: true })} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>⬇️ Load From Cloud</button>
+            <button onClick={saveAllToCloud} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>⬆️ Save To Cloud</button>
             <button onClick={async () => { try { setCloudStatus("loading"); setCloudMsg("Testing Supabase connection..."); await cloudRequest("plants?select=id&limit=1", { method: "GET" }); setCloudStatus("synced"); setCloudMsg("Supabase test passed"); alert("Supabase test passed. Cloud connection is working."); } catch (err) { const msg = err && err.message ? err.message : String(err); setCloudStatus("offline"); setCloudMsg("Supabase test failed: " + msg); alert("Supabase test failed: " + msg); } }} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>🧪 Test Cloud</button>
             <button onClick={exportBackup} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>📥 Backup</button>
             <button onClick={() => backupRef.current.click()} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>📤 Restore</button>
