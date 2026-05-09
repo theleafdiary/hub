@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Leaf Diary" />
   <meta name="theme-color" content="#174D2F" />
-  <title>Leaf Diary CRM — Phase 5 Post-Show Import + Commissions</title>
+  <title>Leaf Diary CRM — Phase 1 Simplified</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -352,32 +352,10 @@
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 
 <body>
   <div id="root"></div>
-
-  <script>
-    // Leaf Diary blank-page recovery guard. Keeps bad saved pages from breaking restored builds.
-    (function(){
-      try {
-        var allowed = ["today","plants_ws","shows_ws","orders_ws","money_ws","admin_ws","dash","command","aihub","dataai","cashflow","emp_dash","inv","manual","upload","labels","care","locations","sellthru","showbuilder","liveshow","showimport","bundles","discounts","social","content","ship","customers","retention","refunds","casd","expense","receipts","bills","timecard","payroll","commissions","tax","goals","nursery","pos","intel","reports","history","audit","admin","cleanup","scanplant"];
-        var p = localStorage.getItem("leafDiaryLastPage");
-        if (p && allowed.indexOf(p) === -1) localStorage.setItem("leafDiaryLastPage", "today");
-        var h = JSON.parse(localStorage.getItem("leafDiaryNavHistory") || "[]");
-        if (!Array.isArray(h)) localStorage.setItem("leafDiaryNavHistory", "[]");
-      } catch(e) { try { localStorage.setItem("leafDiaryLastPage", "today"); localStorage.setItem("leafDiaryNavHistory", "[]"); } catch(_){} }
-      window.addEventListener("error", function(e){
-        try {
-          var root = document.getElementById("root");
-          if (root && !root.children.length) {
-            root.innerHTML = '<div style="font-family:system-ui;padding:24px;max-width:720px;margin:40px auto;background:#fff;border:2px solid #be3535;border-radius:16px"><h1 style="margin-top:0;color:#be3535">Leaf Diary could not load</h1><p>A saved screen or browser cache caused a startup error. Click the button below to reset navigation only. Your inventory is not deleted.</p><button onclick="localStorage.setItem(\'leafDiaryLastPage\',\'today\');localStorage.setItem(\'leafDiaryNavHistory\',\'[]\');location.reload();" style="background:#174D2F;color:white;border:0;border-radius:10px;padding:12px 16px;font-weight:800">Reset screen and reload</button><pre style="white-space:pre-wrap;background:#f7f7f7;padding:10px;border-radius:10px;margin-top:14px;font-size:12px">'+String(e.message || e.error || 'Unknown error').replace(/[<>&]/g,function(c){return {"<":"&lt;",">":"&gt;","&":"&amp;"}[c]})+'</pre></div>';
-          }
-        } catch(_){}
-      });
-    })();
-  </script>
   <script type="text/babel">
     const { useState, useRef, useEffect, useCallback } = React;
 
@@ -866,7 +844,6 @@
       { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Today", roles:["owner"] },
       { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Today", roles:["employee"] },
       { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"scanplant", icon:"📸", l:"Scan Plant", group:"Plants", roles:["owner","manager","employee"] },
       { id:"manual", icon:"✏️", l:"Add Plants", group:"Plants", roles:["owner","manager","employee"] },
       { id:"upload", icon:"📸", l:"Upload Invoice", group:"Plants", roles:["owner","manager","employee"] },
       { id:"labels", icon:"🏷️", l:"Labels", group:"Plants", roles:["owner","manager","employee"] },
@@ -907,18 +884,12 @@
     const ROOT_PAGES = ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
       today:"today", dash:"today", command:"today", aihub:"today", dataai:"today", cashflow:"today", emp_dash:"today",
-      plants_ws:"plants_ws", inv:"plants_ws", scanplant:"plants_ws", manual:"plants_ws", upload:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
+      plants_ws:"plants_ws", inv:"plants_ws", manual:"plants_ws", upload:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
       shows_ws:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", showimport:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
       orders_ws:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
       admin_ws:"admin_ws", nursery:"admin_ws", pos:"admin_ws", intel:"admin_ws", reports:"admin_ws", history:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws"
     };
-    const SAFE_APP_PAGES = new Set([
-      ...ROOT_PAGES, ...Object.keys(PAGE_TO_WORKSPACE),
-      "scanplant","phase2_intake","phase3_scan","phase4_showbuilder","phase5_showimport","phase6_money"
-    ]);
-    const normalizePage = (p) => SAFE_APP_PAGES.has(p) ? p : "today";
-
     const getPageLabel = (id) => (TOOL_CATALOG.find(t => t.id === id)?.l || WORKSPACES.find(w => w.id === id)?.l || id);
     const getPageIcon = (id) => (TOOL_CATALOG.find(t => t.id === id)?.icon || WORKSPACES.find(w => w.id === id)?.icon || "•");
     const getWorkspaceForPage = (id) => PAGE_TO_WORKSPACE[id] || "today";
@@ -1007,7 +978,7 @@
       const readyForShow = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || 0));
       const soldToday = plants.filter(p => p.status === "Sold" && String(plantSaleDate(p) || "").slice(0,10) === today());
       const buttons = [
-        ["Scan Plant Label", "scanplant", "📸", "Scan QR/barcode and open the plant card fast."],
+        ["Scan Plant Label", "inv", "📸", "Open inventory search/scan and pull up one plant fast."],
         ["Take Plant Photo", "inv", "📷", `${noPhoto.length} plant(s) need photos before they are show-ready.`],
         ["Print Labels Needed", "labels", "🏷️", `${needsLabel.length} plant label(s) need to be printed.`],
         ["Build Today's Show", "showbuilder", "🎪", `${readyForShow.length} plant(s) look ready for Palmstreet or Whatnot.`],
@@ -1593,168 +1564,6 @@
     /* ══════════════════════════════════════════════════════════
        MANUAL PLANT ENTRY
     ══════════════════════════════════════════════════════════ */
-
-
-    /* ══════════════════════════════════════════════════════════
-       PHASE 3 — SCAN LABEL → PLANT CARD → PHOTO → READY FOR SHOW
-       Safe single-file implementation. Works with phone camera, Bluetooth HID scanner,
-       and manual search fallback. Keeps employee view money-safe.
-    ══════════════════════════════════════════════════════════ */
-    function Phase3PlantScanner({ plants = [], setPlants, user, addAudit, setPage }) {
-      const [mode, setMode] = useState("scan");
-      const [manualCode, setManualCode] = useState("");
-      const [query, setQuery] = useState("");
-      const [selected, setSelected] = useState(null);
-      const [msg, setMsg] = useState("");
-      const [warn, setWarn] = useState("");
-      const [busy, setBusy] = useState(false);
-      const [scanActive, setScanActive] = useState(false);
-      const hidRef = useRef(null);
-      const qrBoxRef = useRef(null);
-      const qrRef = useRef(null);
-      const canSeeMoney = user?.role === "owner" || user?.role === "manager";
-      const canEditLocation = user?.role !== "employee" || user?.permissions?.canEditLocation;
-      const plantCodeOf = p => String(p?.plantId || p?.plantCode || p?.plant_id || p?.sku || p?.id || "").trim();
-      const normalizeCode = v => String(v || "").trim().replace(/^https?:\/\/[^/]+\/plant\//i, "").replace(/^LD:/i, "").trim();
-      const findPlant = code => {
-        const clean = normalizeCode(code).toLowerCase();
-        if (!clean) return null;
-        return (plants || []).find(p => [plantCodeOf(p), p.id, p.sku, p.plant_id, p.plantCode, p.plantId].some(x => String(x || "").trim().toLowerCase() === clean)) || null;
-      };
-      const openPlant = (code, source = "scan") => {
-        const clean = normalizeCode(code);
-        if (!clean) { setWarn("Scan was blank. Try again or search inventory."); return; }
-        const p = findPlant(clean);
-        if (!p) { setSelected(null); setWarn(`Plant not found for ${clean}. Try again, search inventory, or report missing label.`); setMsg(""); return; }
-        setSelected(p); setWarn(""); setMsg(`Opened ${p.name || "plant"} · ${plantCodeOf(p)}`);
-        try { addAudit && addAudit({ action: `Scanned plant ${plantCodeOf(p)} by ${source}`, user: user?.name || "Unknown", page: "Scan Plant", severity: "info" }); } catch(e) {}
-      };
-      const startCamera = async () => {
-        setMode("camera"); setWarn(""); setMsg("Starting camera scanner...");
-        setTimeout(async () => {
-          try {
-            if (!window.Html5Qrcode) throw new Error("html5-qrcode library not loaded yet. Use HID/manual search or refresh.");
-            if (qrRef.current) { try { await qrRef.current.stop(); } catch(e) {} }
-            const elId = "leaf-diary-phase3-qr-reader";
-            qrRef.current = new Html5Qrcode(elId);
-            await qrRef.current.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 }, decoded => {
-              openPlant(decoded, "camera");
-              setMsg("Scan found. Camera paused so you can work on this plant.");
-              stopCamera();
-            }, () => {});
-            setScanActive(true); setMsg("Camera scanner active. Point at the QR/barcode label.");
-          } catch (e) { setWarn("Camera scanner could not start: " + (e?.message || e)); setScanActive(false); setMsg("Use Bluetooth scanner or search fallback below."); }
-        }, 80);
-      };
-      const stopCamera = async () => {
-        try { if (qrRef.current) await qrRef.current.stop(); } catch(e) {}
-        try { if (qrRef.current) await qrRef.current.clear(); } catch(e) {}
-        qrRef.current = null; setScanActive(false);
-      };
-      useEffect(() => () => { try { if (qrRef.current) qrRef.current.stop(); } catch(e) {} }, []);
-      useEffect(() => { if (mode === "hid" && hidRef.current) setTimeout(() => hidRef.current.focus(), 50); }, [mode]);
-      const searchResults = (plants || []).filter(p => {
-        const q = query.trim().toLowerCase();
-        if (!q) return false;
-        return [p.name, plantCodeOf(p), p.nurseryCode, p.location, p.rack, p.shelf, p.potSize, p.status].some(v => String(v || "").toLowerCase().includes(q));
-      }).slice(0, 20);
-      const updatePlant = patch => {
-        if (!selected) return;
-        const id = selected.id;
-        setPlants(prev => (prev || []).map(p => p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p));
-        setSelected(prev => prev ? { ...prev, ...patch, updatedAt: new Date().toISOString() } : prev);
-      };
-      const handlePhoto = async file => {
-        if (!file || !selected) return;
-        setBusy(true); setWarn(""); setMsg("Uploading plant photo...");
-        try {
-          const img = new Image();
-          const objectUrl = URL.createObjectURL(file);
-          const dims = await new Promise(resolve => { img.onload = () => resolve({ w: img.width, h: img.height }); img.onerror = () => resolve({ w: 0, h: 0 }); img.src = objectUrl; });
-          URL.revokeObjectURL(objectUrl);
-          if (dims.w && dims.w < 400) setWarn("Photo may be too small for export. Retake if possible.");
-          const up = await uploadPlantPhotoFile(file, selected);
-          const hasPrice = (+selected.suggestedPrice || +selected.salePrice || 0) > 0;
-          const patch = { photoUrl: up.photoUrl, photo_url: up.photoUrl, photoPath: up.photoPath, photoUploadedAt: up.photoUploadedAt, previousPhotoUrl: selected.photoUrl || selected.photo_url || "", readyForShow: !!hasPrice, status: selected.status === "Needs Photo" ? "In Stock" : (selected.status || "In Stock") };
-          updatePlant(patch);
-          setMsg(hasPrice ? "Photo saved. Plant is ready for show." : "Photo saved. Add a price before exporting to a show.");
-          try { addAudit && addAudit({ action: `Photo uploaded for ${plantCodeOf(selected)}`, user: user?.name || "Unknown", page: "Scan Plant", severity: "info" }); } catch(e) {}
-        } catch (e) {
-          setWarn("Photo upload failed: " + (e?.message || e));
-        } finally { setBusy(false); }
-      };
-      const addToShow = () => {
-        if (!selected) return;
-        if (String(selected.status || "") === "Sold" && user?.role !== "owner") { setWarn("This plant is already Sold. It cannot be added to a show without owner override."); return; }
-        const code = plantCodeOf(selected);
-        const q = JSON.parse(localStorage.getItem("leafDiaryPendingShowQueue") || "[]");
-        const next = Array.from(new Set([...q, code]));
-        localStorage.setItem("leafDiaryPendingShowQueue", JSON.stringify(next));
-        updatePlant({ readyForShow: true, showQueued: true, showQueuedAt: new Date().toISOString() });
-        setMsg(`${code} added to today's pending show queue. Open Show Builder when ready to export.`);
-      };
-      const markDamaged = () => { updatePlant({ status: "Damaged", readyForShow: false }); setMsg("Marked damaged. Plant will not be show-ready."); };
-      const saveNote = () => {
-        const note = prompt("Add plant note:", "");
-        if (note) { updatePlant({ notes: `${selected?.notes || ""}${selected?.notes ? "\n" : ""}${new Date().toLocaleString()}: ${note}` }); setMsg("Note added."); }
-      };
-      const changeLocation = () => {
-        const loc = prompt("Rack / shelf / location:", selected?.location || selected?.rack || "");
-        if (loc !== null) { updatePlant({ location: loc, rack: loc }); setMsg("Location updated."); }
-      };
-      const printOneLabel = () => {
-        if (!selected) return;
-        const code = plantCodeOf(selected);
-        const qrUrl = `https://app.theleafdiary.com/plant/${encodeURIComponent(code)}`;
-        const w = window.open("", "_blank");
-        w.document.write(`<html><head><title>Leaf Diary Label ${code}</title><style>body{font-family:Arial;margin:0;padding:16px}.label{width:3in;height:1.25in;border:1px solid #111;padding:8px;display:flex;gap:8px;align-items:center}.id{font-size:18px;font-weight:900}.name{font-size:12px}.qr{font-size:9px;word-break:break-all}</style></head><body><div class="label"><div><div class="id">${code}</div><div class="name">${selected.name || "Plant"}</div><div class="name">${selected.potSize || ""}</div></div><div class="qr">QR: ${qrUrl}</div></div><script>window.print()<\/script></body></html>`);
-        w.document.close();
-        updatePlant({ labelPrinted: true, labelPrintedAt: new Date().toISOString(), print_count: (+selected.print_count || +selected.printCount || 0) + 1 });
-      };
-      const photo = selected ? (selected.photoUrl || selected.photo_url || selected.photoBase64) : "";
-      return <div className="ld-page page-scroll-safe" style={{ padding: "18px 16px 120px", maxWidth: 980, margin: "0 auto" }}>
-        <SHdr icon="📸" title="Scan Plant Label" sub="Scan a QR/barcode label, open the plant card, take a photo, and make it ready for Palmstreet or Whatnot." right={<Row gap={8} wrap><Btn v="soft" onClick={() => { setMode("hid"); setMsg("Bluetooth scanner mode ready. Scan a label and it will type here automatically."); }}>Bluetooth Scanner</Btn><Btn onClick={startCamera}>Camera Scan</Btn></Row>} />
-        {msg && <div style={{ background: C.g100, border: `1px solid ${C.g300}`, borderRadius: 10, padding: "10px 14px", color: C.g800, fontSize: 13, fontWeight: 800, marginBottom: 12 }}>{msg}</div>}
-        {warn && <div style={{ background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 800, marginBottom: 12 }}>⚠️ {warn}</div>}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 14 }}>
-          <Card>
-            <div style={{ fontWeight: 900, color: C.g900, marginBottom: 8 }}>Scanner</div>
-            {mode === "camera" && <div><div id="leaf-diary-phase3-qr-reader" ref={qrBoxRef} style={{ width: "100%", minHeight: 260, background: C.g900, borderRadius: 12, overflow: "hidden" }}></div><Row gap={8} wrap style={{ marginTop: 10 }}><Btn v="ghost" onClick={stopCamera}>Stop Camera</Btn><Btn v="soft" onClick={startCamera}>{scanActive ? "Restart" : "Start"}</Btn></Row></div>}
-            {mode === "hid" && <div><p style={{ fontSize: 12, color: C.tx3 }}>Bluetooth HID scanners act like a keyboard. Keep this box focused, scan the label, and press/receive Enter.</p><Inp label="Scanner input" value={manualCode} onChange={setManualCode} placeholder="Scan or type Plant ID" onKeyDown={e => { if (e.key === "Enter") { openPlant(manualCode, "bluetooth-hid"); setManualCode(""); } }} /><input ref={hidRef} value={manualCode} onChange={e=>setManualCode(e.target.value)} onKeyDown={e=>{ if(e.key === "Enter"){ openPlant(manualCode, "bluetooth-hid"); setManualCode(""); } }} style={{ position:"absolute", opacity:0, height:1, width:1 }} /><Btn full style={{ marginTop: 8 }} onClick={() => { openPlant(manualCode, "manual-code"); setManualCode(""); }}>Open Plant</Btn></div>}
-            {mode === "scan" && <div><Btn full onClick={startCamera}>📷 Start Camera Scanner</Btn><Btn full v="soft" style={{ marginTop: 8 }} onClick={() => setMode("hid")}>🔫 Use Bluetooth Scanner</Btn></div>}
-            <div style={{ marginTop: 16, borderTop: `1px solid ${C.bd}`, paddingTop: 12 }}>
-              <Inp label="Search fallback" value={query} onChange={setQuery} placeholder="Plant ID, name, nursery code, rack/shelf" />
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 360, overflowY: "auto" }}>
-                {query && searchResults.length === 0 && <div style={{ fontSize: 12, color: C.tx3 }}>No search results.</div>}
-                {searchResults.map(p => <button key={p.id} onClick={() => { setSelected(p); setWarn(""); setMsg(`Opened ${p.name}`); }} style={{ textAlign: "left", background: C.cardAlt, border: `1px solid ${C.bd}`, borderRadius: 10, padding: 10, cursor: "pointer" }}><div style={{ fontWeight: 900, color: C.g900 }}>{p.name}</div><div style={{ fontSize: 12, color: C.tx3 }}>{plantCodeOf(p)} · {p.potSize || "No size"} · {p.status || "In Stock"}</div></button>)}
-              </div>
-              {warn && <Row gap={8} wrap style={{ marginTop: 10 }}><Btn v="soft" onClick={startCamera}>Try Again</Btn><Btn v="ghost" onClick={() => setQuery(normalizeCode(manualCode))}>Search Inventory</Btn><Btn v="danger" onClick={() => setMsg("Missing label reported. Owner should reprint or merge this plant ID.")}>Report Missing Label</Btn></Row>}
-            </div>
-          </Card>
-          <Card style={{ minHeight: 420 }}>
-            {!selected ? <div style={{ textAlign: "center", padding: "60px 20px", color: C.tx3 }}><div style={{ fontSize: 70 }}>🌿</div><h2 style={{ fontFamily: F.display, color: C.g900 }}>No plant selected</h2><p>Scan a label or search inventory to open the plant card.</p></div> : <div>
-              <Row between center wrap style={{ marginBottom: 12 }}><div><h2 style={{ fontFamily: F.display, color: C.g900, margin: 0 }}>{selected.name || "Unnamed Plant"}</h2><div style={{ fontFamily: F.mono, color: C.tx3, fontSize: 13 }}>{plantCodeOf(selected)}</div></div><SBadge s={selected.status || "In Stock"} /></Row>
-              <div style={{ display: "grid", gridTemplateColumns: "220px minmax(0,1fr)", gap: 14 }}>
-                <div style={{ width: "100%", aspectRatio: "1 / 1", borderRadius: 14, background: C.g100, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>{photo ? <img src={photo} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 70 }}>🌿</span>}</div>
-                <div>
-                  <Tbl cols={[{k:"k",l:"Field"},{k:"v",l:"Value"}]} rows={[
-                    {k:"Pot Size", v:selected.potSize || "—"}, {k:"Status", v:selected.status || "In Stock"}, {k:"Location", v:selected.location || selected.rack || selected.shelf || "—"}, {k:"Photo", v:photo ? "Saved" : "Missing"}, {k:"Ready", v:(selected.readyForShow || (photo && (+selected.suggestedPrice||0))) ? "Ready For Show" : "Needs photo/price"}, ...(canSeeMoney ? [{k:"Price", v:$(selected.suggestedPrice || 0)}] : [])
-                  ]} />
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10, marginTop: 14 }}>
-                <label style={{ ...({}), background: C.g700, color: "#fff", borderRadius: 10, padding: "13px 12px", textAlign: "center", fontWeight: 900, cursor: busy ? "not-allowed" : "pointer" }}>📷 {busy ? "Uploading..." : "Take Photo"}<input type="file" accept="image/*" capture="environment" disabled={busy} style={{ display: "none" }} onChange={e => handlePhoto(e.target.files?.[0])} /></label>
-                <Btn full v="gold" onClick={addToShow}>🎪 Add To Show</Btn>
-                <Btn full v="soft" onClick={printOneLabel}>🏷️ Print New Label</Btn>
-              </div>
-              <Row gap={8} wrap style={{ marginTop: 10 }}><Btn v="ghost" onClick={markDamaged}>Mark Damaged</Btn><Btn v="ghost" onClick={saveNote}>Add Note</Btn>{canEditLocation && <Btn v="ghost" onClick={changeLocation}>Change Location</Btn>}<Btn v="outline" onClick={() => setSelected(null)}>Scan Next Plant</Btn></Row>
-              <div style={{ marginTop: 12, fontSize: 12, color: C.tx3 }}>Employee-safe card: cost, profit, margin, invoice totals, nursery financial data, and delete actions are hidden.</div>
-            </div>}
-          </Card>
-        </div>
-      </div>;
-    }
-
     function ManualEntry({ plants, setPlants, nurseries, addAudit, user }) {
       const blank = { name: "", botanicalName: "", potSize: "", cost: "", suggestedPrice: "", salePrice: "", shippingCost: "", status: "In Stock", nurseryCode: nurseries[0]?.code || "", platform: "", rack: "", shelf: "", dateAdded: today(), invoiceNumber: "", notes: "" };
       const [form, setForm] = useState(blank);
@@ -2651,98 +2460,62 @@
 
 
     /* ══════════════════════════════════════════════════════════
-       PHASE 4 — SHOW BUILDER + PALMSTREET / WHATNOT EXPORT HELPERS
-       Scan-first show building. Exact platform headers. No CRM shipping logic.
+       PALMSTREET EXPORT + SHOW BUILDER HELPERS
     ══════════════════════════════════════════════════════════ */
     const PALMSTREET_HEADERS = [
       'Title (product name, 80 character max)*', 'Item description*', 'Image URL', 'Price*', 'Quantity* ',
       'Variation 1 name', 'Variation 1 value ', 'Variation 2 name', 'Variation 2 value', 'Variation 3 name', 'Variation 3 value',
       'SKU', 'Mark "Yes" for Private listing', 'Shipping (Leave empty will follow store setting...)'
     ];
-    const WHATNOT_HEADERS = [
-      'Category', 'Sub Category', 'Title', 'Description', 'Quantity', 'Type', 'Price', 'Shipping Profile', 'Offerable', 'Hazmat', 'Condition', 'Cost Per Item', 'SKU',
-      'Image URL 1', 'Image URL 2', 'Image URL 3', 'Image URL 4', 'Image URL 5', 'Image URL 6', 'Image URL 7', 'Image URL 8'
-    ];
     const SHOW_KEY = 'leafDiaryShowBuilderIds';
-    const SHOW_META_KEY = 'leafDiaryShowBuilderMeta';
-    const SHOW_EXPORT_HISTORY_KEY = 'leafDiaryShowExportHistory';
-    const safePlantId = p => (p?.plantId || p?.plantCode || p?.plant_id || p?.sku || '').toString().trim();
+    const safePlantId = p => (p?.plantId || p?.id || '').toString().trim();
     const csvCell = v => {
       const x = (v ?? '').toString();
       return /[",\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x;
     };
-    const moneyToNumber = v => {
-      const n = +String(v ?? '').replace(/[^0-9.-]/g, '');
-      return Number.isFinite(n) ? n : 0;
+    const cleanPrice = p => {
+      const v = +p.suggestedPrice || +p.salePrice || +p.marketRec || 0;
+      return v > 0 ? v.toFixed(2) : '';
     };
-    const roundShowPrice = (value, mode = 'nearestDollar') => {
-      const n = moneyToNumber(value);
-      if (n <= 0) return 0;
-      if (mode === 'nearest5') return Math.max(1, Math.round(n / 5) * 5);
-      if (mode === 'nearest10') return Math.max(1, Math.round(n / 10) * 10);
-      return Math.max(1, Math.round(n));
-    };
-    const cleanPrice = (p, opts = {}) => {
-      const v = +p.suggestedPrice || +p.suggested_price || +p.salePrice || +p.marketRec || 0;
-      const rounded = roundShowPrice(v, opts.priceRounding || 'nearestDollar');
-      return rounded > 0 ? String(rounded) : '';
-    };
-    const plantPhotoUrls = p => {
-      const urls = [];
-      [p.photoUrl, p.photo_url, p.imageUrl, p.image, p.image_url, p.photoBase64].forEach(u => { if (u && !urls.includes(u)) urls.push(u); });
-      const more = p.photoUrls || p.photo_urls || p.additionalPhotos || p.additional_photo_urls || [];
-      (Array.isArray(more) ? more : String(more || '').split(/[|,\n]/)).forEach(u => { const x = String(u || '').trim(); if (x && !urls.includes(x)) urls.push(x); });
-      return urls;
-    };
-    const primaryPhotoUrl = p => plantPhotoUrls(p)[0] || '';
-    const isPublicHttpsUrl = u => /^https:\/\//i.test(String(u || '').trim());
-    const isShowReadyStatus = p => ['In Stock', 'Ready For Show'].includes(String(p.status || 'In Stock')) || p.readyForShow === true;
     const palmTitle = p => {
       const id = safePlantId(p);
-      const raw = `${toTC(p.name || 'Leaf Diary Plant')} ${id}`.replace(/\s+/g, ' ').trim();
-      return raw.slice(0, 80);
+      const suffix = id ? ` - ${id}` : '';
+      const maxName = Math.max(10, 80 - suffix.length);
+      const name = toTC(p.name || 'Leaf Diary Plant').slice(0, maxName).trim();
+      return `${name}${suffix}`.slice(0, 80);
     };
-    const whatnotTitle = p => `${toTC(p.name || 'Leaf Diary Plant')} ${safePlantId(p)}`.replace(/\s+/g, ' ').trim();
     const smartPlantDescription = (p, showName = '') => {
       const lines = [
-        `Beautiful ${toTC(p.name || 'Leaf Diary plant')}${p.potSize ? ` in a ${p.potSize} pot` : ''}.`,
-        safePlantId(p) ? `Plant ID: ${safePlantId(p)}.` : '',
-        showName ? `Listed for: ${showName}.` : '',
-        'Ships from Florida through the platform order system.',
-        'Leaf Diary · rare roots, real love'
+        `Plant Name: ${toTC(p.name || 'Leaf Diary Plant')}`,
+        safePlantId(p) ? `Plant ID: ${safePlantId(p)}` : '',
+        p.potSize ? `Pot Size: ${p.potSize}` : '',
+        showName ? `Show: ${showName}` : '',
+        '',
+        'Leaf Diary rare plant listing. Exact plant will be shown during the live show. Please review the plant on screen before purchasing.',
+        'rare roots, real love'
       ];
-      return lines.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+      return lines.filter(x => x !== null && x !== undefined).join('\n').replace(/\n{3,}/g, '\n\n');
     };
-    const validateShowPlants = (list, opts = {}) => {
-      const seen = new Map();
+    const validatePalmstreetPlants = list => {
+      const seen = new Set();
       const errors = [];
-      const warnings = [];
-      const allowPlaceholder = !!opts.allowPlaceholderPhoto;
       list.forEach((p, i) => {
-        const row = i + 1, id = safePlantId(p), photo = primaryPhotoUrl(p), price = cleanPrice(p, opts);
-        if (!id) errors.push({ row, id, msg: `Row ${row}: missing Plant ID / SKU`, field: 'id' });
-        if (id && seen.has(id)) {
-          errors.push({ row, id, msg: `Row ${row}: duplicate SKU ${id} also appears on row ${seen.get(id)}`, field: 'duplicate' });
-          errors.push({ row: seen.get(id), id, msg: `Row ${seen.get(id)}: duplicate SKU ${id} also appears on row ${row}`, field: 'duplicate' });
-        }
-        if (id) seen.set(id, row);
-        if (!p.name) errors.push({ row, id, msg: `${id || 'Row ' + row}: missing plant name`, field: 'name' });
-        if (!price) errors.push({ row, id, msg: `${id || 'Row ' + row}: price is blank or zero`, field: 'price' });
-        const rawPrice = +p.suggestedPrice || +p.suggested_price || +p.salePrice || 0;
-        if (rawPrice && rawPrice % 1 !== 0) warnings.push({ row, id, msg: `${id}: decimal price ${rawPrice} will export as integer ${price}`, field: 'price_round' });
-        if (!isShowReadyStatus(p)) errors.push({ row, id, msg: `${id || 'Row ' + row}: status is ${p.status || 'Unknown'}, not In Stock / Ready For Show`, field: 'status' });
-        if (!photo && !allowPlaceholder) errors.push({ row, id, msg: `${id || 'Row ' + row}: missing photo URL`, field: 'photo' });
-        if (photo && !isPublicHttpsUrl(photo) && !String(photo).startsWith('data:image')) warnings.push({ row, id, msg: `${id}: photo URL is not public HTTPS. Platform upload may reject it.`, field: 'photo_url' });
-        if (palmTitle(p).length > 80) warnings.push({ row, id, msg: `${id}: Palmstreet title was truncated to 80 characters`, field: 'title' });
+        const row = i + 1, id = safePlantId(p);
+        if (!id) errors.push(`Row ${row}: missing Plant ID / SKU`);
+        if (id && seen.has(id)) errors.push(`Row ${row}: duplicate Plant ID ${id}`);
+        if (id) seen.add(id);
+        if (!p.name) errors.push(`${id || 'Row ' + row}: missing plant name`);
+        if (!cleanPrice(p)) errors.push(`${id || 'Row ' + row}: missing suggested price / sale price`);
+        if (p.status && p.status !== 'In Stock') errors.push(`${id || 'Row ' + row}: status is ${p.status}, not In Stock`);
       });
-      return { errors, warnings };
+      return errors;
     };
     const makePalmstreetCSV = (list, opts = {}) => {
       const rows = list.map(p => [
         palmTitle(p),
         smartPlantDescription(p, opts.showName || ''),
-        primaryPhotoUrl(p) || opts.placeholderPhotoUrl || '',
-        cleanPrice(p, opts),
+        p.imageUrl || p.photoUrl || p.image || '',
+        cleanPrice(p),
         '1',
         '', '', '', '', '', '',
         safePlantId(p),
@@ -2751,38 +2524,9 @@
       ].map(csvCell).join(','));
       return PALMSTREET_HEADERS.map(csvCell).join(',') + '\n' + rows.join('\n');
     };
-    const makeWhatnotCSV = (list, opts = {}) => {
-      const category = opts.whatnotCategory || 'Home & Garden';
-      const subCategory = opts.whatnotSubCategory || 'Plants & Garden';
-      const type = opts.listingType || 'Auction';
-      const shippingProfile = opts.whatnotShippingProfile || '';
-      const offerable = opts.offerable === false ? 'FALSE' : 'TRUE';
-      const canIncludeCost = opts.includeCost === true;
-      const rows = list.map(p => {
-        const imgs = plantPhotoUrls(p).slice(0, 8);
-        while (imgs.length < 8) imgs.push('');
-        return [
-          category,
-          subCategory,
-          whatnotTitle(p),
-          smartPlantDescription(p, opts.showName || ''),
-          '1',
-          type,
-          cleanPrice(p, opts),
-          shippingProfile,
-          offerable,
-          'Not Hazmat',
-          'New',
-          canIncludeCost ? String(roundShowPrice(p.cost || 0, 'nearestDollar') || '') : '',
-          safePlantId(p),
-          ...imgs
-        ].map(csvCell).join(',');
-      });
-      return WHATNOT_HEADERS.map(csvCell).join(',') + '\n' + rows.join('\n');
-    };
     const makeShowListCSV = list => {
-      const headers = ['Order', 'Plant ID', 'Plant Name', 'Pot Size', 'Suggested Price', 'Status', 'Nursery', 'Rack', 'Shelf', 'Photo URL'];
-      const rows = list.map((p, i) => [i + 1, safePlantId(p), toTC(p.name), p.potSize || '', cleanPrice(p), p.status || '', p.nurseryCode || '', p.rack || p.location || '', p.shelf || '', primaryPhotoUrl(p)].map(csvCell).join(','));
+      const headers = ['Order', 'Plant ID', 'Plant Name', 'Pot Size', 'Suggested Price', 'Status', 'Nursery', 'Rack', 'Shelf'];
+      const rows = list.map((p, i) => [i + 1, safePlantId(p), toTC(p.name), p.potSize || '', cleanPrice(p), p.status || '', p.nurseryCode || '', p.rack || '', p.shelf || ''].map(csvCell).join(','));
       return headers.map(csvCell).join(',') + '\n' + rows.join('\n');
     };
     const downloadCSVFile = (filename, csv) => {
@@ -2793,10 +2537,6 @@
     };
     const getSavedShowIds = () => { try { return JSON.parse(localStorage.getItem(SHOW_KEY) || '[]'); } catch { return []; } };
     const saveShowIds = ids => localStorage.setItem(SHOW_KEY, JSON.stringify([...new Set(ids)]));
-    const getSavedShowMeta = () => { try { return JSON.parse(localStorage.getItem(SHOW_META_KEY) || '{}'); } catch { return {}; } };
-    const saveShowMeta = meta => localStorage.setItem(SHOW_META_KEY, JSON.stringify(meta || {}));
-    const getShowExportHistory = () => { try { return JSON.parse(localStorage.getItem(SHOW_EXPORT_HISTORY_KEY) || '[]'); } catch { return []; } };
-    const saveShowExportHistory = rows => localStorage.setItem(SHOW_EXPORT_HISTORY_KEY, JSON.stringify(rows || []));
 
     /* ══════════════════════════════════════════════════════════
        LABELS
@@ -4257,7 +3997,7 @@
           {[["footerTabs", "Owner / Manager Footer"], ["employeeFooterTabs", "Employee Footer"]].map(([key, label]) => {
             const ownerChoices = [
               ["dash", "🏠 Dashboard"], ["command", "🚀 Command Center"], ["aihub", "🤖 AI Center"], ["social", "📣 Social Center"], ["cashflow", "💵 Cash Flow"], ["ship", "📦 Order Fulfillment"],
-              ["inv", "🌿 Inventory"], ["scanplant", "📸 Scan Plant"], ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Receipt Scanner"],
+              ["inv", "🌿 Inventory"], ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Receipt Scanner"],
               ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
               ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
               ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 Buy Intel"], ["tax", "🧾 Tax Center"],
@@ -5680,190 +5420,68 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       </div>;
     }
 
-    function ShowBuilder({ plants, setPlants, user, addAudit, users = [], settings = {} }) {
-      const defaultMeta = getSavedShowMeta();
-      const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-      const [showName, setShowName] = useState(defaultMeta.showName || `Leaf Diary ${dayName} Show ${today()}`);
-      const [platform, setPlatform] = useState(defaultMeta.platform || 'Both');
-      const [showDateTime, setShowDateTime] = useState(defaultMeta.showDateTime || `${today()}T19:00`);
-      const [hostEmployeeId, setHostEmployeeId] = useState(defaultMeta.hostEmployeeId || '');
-      const [listingType, setListingType] = useState(defaultMeta.listingType || 'Auction');
-      const [priceRounding, setPriceRounding] = useState(defaultMeta.priceRounding || settings?.defaultPriceRounding || 'nearestDollar');
-      const [privateListing, setPrivateListing] = useState(defaultMeta.privateListing || false);
-      const [allowPlaceholderPhoto, setAllowPlaceholderPhoto] = useState(defaultMeta.allowPlaceholderPhoto || false);
-      const [includeCost, setIncludeCost] = useState(defaultMeta.includeCost || false);
-      const [ids, setIds] = useState(() => {
-        const pending = (() => { try { return JSON.parse(localStorage.getItem('leafDiaryPendingShowQueue') || '[]'); } catch { return []; } })();
-        return [...new Set([...getSavedShowIds(), ...pending].filter(Boolean))];
-      });
+    function ShowBuilder({ plants, setPlants, user, addAudit }) {
+      const [showName, setShowName] = useState(`Leaf Diary Show ${today()}`);
+      const [ids, setIds] = useState(getSavedShowIds());
       const [entry, setEntry] = useState('');
       const [search, setSearch] = useState('');
+      const [privateListing, setPrivateListing] = useState(false);
       const [msg, setMsg] = useState('');
-      const [warn, setWarn] = useState('');
-      const [scanMode, setScanMode] = useState(false);
-      const [cameraMode, setCameraMode] = useState(false);
-      const [smartGenus, setSmartGenus] = useState('Monstera');
-      const [history, setHistory] = useState(getShowExportHistory());
-      const hidRef = useRef(null);
-      const qrRef = useRef(null);
-      const qrDivId = 'leaf-diary-showbuilder-qr-reader';
-      const isOwner = user?.role === 'owner';
-      const canIncludeCost = isOwner || user?.permissions?.canSeeCost;
-      const employees = (users || []).filter(u => u.active !== false && u.role !== 'owner');
-      const meta = { showName, platform, showDateTime, hostEmployeeId, listingType, priceRounding, privateListing, allowPlaceholderPhoto, includeCost };
       useEffect(() => saveShowIds(ids), [ids]);
-      useEffect(() => saveShowMeta(meta), [showName, platform, showDateTime, hostEmployeeId, listingType, priceRounding, privateListing, allowPlaceholderPhoto, includeCost]);
-      useEffect(() => { if (scanMode && hidRef.current) setTimeout(() => hidRef.current.focus(), 60); }, [scanMode]);
-      useEffect(() => () => { try { if (qrRef.current) qrRef.current.stop(); } catch(e) {} }, []);
-      const cleanCode = v => String(v || '').trim().replace(/^https?:\/\/[^/]+\/plant\//i, '').replace(/^LD:/i, '').trim();
-      const byPlantId = id => plants.find(p => safePlantId(p).toLowerCase() === cleanCode(id).toLowerCase());
+      const byPlantId = id => plants.find(p => safePlantId(p).toLowerCase() === String(id).trim().toLowerCase());
       const showPlants = ids.map(id => byPlantId(id)).filter(Boolean);
       const missing = ids.filter(id => !byPlantId(id));
-      const value = showPlants.reduce((s, p) => s + (+cleanPrice(p, { priceRounding }) || 0), 0);
-      const validation = validateShowPlants(showPlants, { priceRounding, allowPlaceholderPhoto });
-      const errors = validation.errors;
-      const warnings = validation.warnings;
-      const addPlantToShow = (p, source = 'manual') => {
-        if (!p) return false;
-        const id = safePlantId(p);
-        if (!id) { setWarn('This plant does not have a Plant ID / SKU. Export is blocked until fixed.'); return false; }
-        if (ids.includes(id)) { setWarn(`${id} is already in this show.`); return false; }
-        if (String(p.status || '') === 'Sold' && !isOwner) { setWarn(`${id} is already Sold. It cannot be added without owner override.`); return false; }
-        if (!isShowReadyStatus(p) && !isOwner) { setWarn(`${id} is ${p.status || 'not ready'}. Owner override required.`); return false; }
-        setIds(prev => [...prev, id]);
-        setMsg(`Added ${id} · ${p.name || 'Plant'} by ${source}.`);
-        setWarn('');
-        try { addAudit && addAudit({ action: `Added ${id} to Show Builder by ${source}`, user: user?.name || 'Unknown', page: 'Show Builder' }); } catch(e) {}
-        return true;
-      };
-      const addCode = (code, source = 'scan') => {
-        const clean = cleanCode(code);
-        if (!clean) return;
-        const p = byPlantId(clean);
-        if (!p) { setWarn(`Plant not found: ${clean}. Search inventory or report missing label.`); return; }
-        addPlantToShow(p, source);
-      };
+      const errors = validatePalmstreetPlants(showPlants);
       const addIds = raw => {
-        const parts = raw.split(/[,\n\r\t ]+/).map(x => x.trim()).filter(Boolean);
-        let added = 0, notFound = [];
-        parts.forEach(id => { const p = byPlantId(id); if (p && addPlantToShow(p, 'typed ID')) added++; else if (!p) notFound.push(id); });
+        const found = [], notFound = [];
+        raw.split(/[,\n\r\t ]+/).map(x => x.trim()).filter(Boolean).forEach(id => {
+          const p = byPlantId(id);
+          if (p) found.push(safePlantId(p)); else notFound.push(id);
+        });
+        if (found.length) setIds(prev => [...new Set([...prev, ...found])]);
         setEntry('');
-        if (notFound.length) setWarn(`Not found: ${notFound.join(', ')}`);
-        if (added) setMsg(`Added ${added} plant(s) to the show.`);
-      };
-      const quick = (plants || []).filter(p => {
-        const q = search.trim().toLowerCase();
-        if (!q) return false;
-        return [safePlantId(p), p.name, p.nurseryCode, p.potSize, p.status, p.rack, p.shelf, p.location].some(v => String(v || '').toLowerCase().includes(q));
-      }).slice(0, 25);
-      const smartAdd = type => {
-        let list = [];
-        if (type === 'ready') list = plants.filter(p => isShowReadyStatus(p) && primaryPhotoUrl(p) && cleanPrice(p, { priceRounding }));
-        if (type === 'photos_prices') list = plants.filter(p => primaryPhotoUrl(p) && cleanPrice(p, { priceRounding }) && String(p.status || 'In Stock') !== 'Sold');
-        if (type === 'genus') list = plants.filter(p => String(p.name || '').toLowerCase().includes(smartGenus.toLowerCase()) && isShowReadyStatus(p));
-        list = list.filter(p => safePlantId(p) && !ids.includes(safePlantId(p)));
-        if (!list.length) { setWarn('No matching plants found for that smart add filter.'); return; }
-        if (!confirm(`Add ${list.length} plants to this show?`)) return;
-        setIds(prev => [...new Set([...prev, ...list.map(safePlantId)])]);
-        setMsg(`Smart added ${list.length} plants.`);
+        setMsg(`${found.length} added${notFound.length ? ` · ${notFound.length} not found: ${notFound.slice(0, 6).join(', ')}` : ''}`);
       };
       const removeId = id => setIds(prev => prev.filter(x => x !== id));
-      const move = (i, dir) => setIds(prev => { const n = [...prev]; const j = i + dir; if (j < 0 || j >= n.length) return n; [n[i], n[j]] = [n[j], n[i]]; return n; });
-      const clearShow = () => { if (confirm('Clear this show list?')) { setIds([]); localStorage.removeItem('leafDiaryPendingShowQueue'); setMsg('Show list cleared.'); } };
-      const startCamera = async () => {
-        setCameraMode(true); setMsg('Starting camera scanner...'); setWarn('');
-        setTimeout(async () => {
-          try {
-            if (!window.Html5Qrcode) throw new Error('html5-qrcode library not loaded. Use Bluetooth scanner or search.');
-            if (qrRef.current) { try { await qrRef.current.stop(); } catch(e) {} }
-            qrRef.current = new Html5Qrcode(qrDivId);
-            await qrRef.current.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 250, height: 250 } }, decoded => addCode(decoded, 'camera scan'), () => {});
-            setMsg('Camera scan mode active. Point at plant label. Each scan adds to the show.');
-          } catch (e) { setWarn('Camera scanner could not start: ' + (e?.message || e)); setCameraMode(false); }
-        }, 80);
-      };
-      const stopCamera = async () => { try { if (qrRef.current) await qrRef.current.stop(); } catch(e) {} try { if (qrRef.current) await qrRef.current.clear(); } catch(e) {} qrRef.current = null; setCameraMode(false); };
-      const exportOpts = {
-        showName, priceRounding, privateListing, allowPlaceholderPhoto, placeholderPhotoUrl: settings?.placeholderPhotoUrl || '',
-        listingType, whatnotCategory: settings?.whatnotCategory || 'Home & Garden', whatnotSubCategory: settings?.whatnotSubCategory || 'Plants & Garden',
-        whatnotShippingProfile: settings?.whatnotShippingProfile || '', offerable: settings?.whatnotOfferable !== false, includeCost: canIncludeCost && includeCost
-      };
-      const recordExport = (exportPlatform, filename) => {
-        const row = { id: uid(), show_id: showName.replace(/\s+/g, '-').toLowerCase(), showName, platform: exportPlatform, filename, plant_count: showPlants.length, total_list_price: value, user_id: user?.id || '', user_name: user?.name || '', timestamp: new Date().toISOString(), host_employee_id: hostEmployeeId };
-        const next = [row, ...getShowExportHistory()].slice(0, 50);
-        saveShowExportHistory(next); setHistory(next);
-        try { addAudit && addAudit({ action: `Exported ${exportPlatform} show CSV — ${showPlants.length} plants`, user: user?.name || 'Unknown', page: 'Show Builder', details: filename }); } catch(e) {}
-      };
-      const assertCanExport = () => {
-        if (!showPlants.length) { setWarn('Add plants before exporting.'); return false; }
-        if (errors.length) { setWarn('Export blocked. Fix the red validation issues first.'); return false; }
-        if (warnings.some(w => w.field === 'price_round')) {
-          if (!confirm('Some decimal prices will export as integers. Continue?')) return false;
-        }
-        return true;
-      };
+      const move = (i, dir) => setIds(prev => { const a = [...prev], j = i + dir; if (j < 0 || j >= a.length) return a;[a[i], a[j]] = [a[j], a[i]]; return a; });
+      const clear = () => { if (confirm('Clear this show list?')) { setIds([]); setMsg('Show list cleared.'); } };
       const exportPalmstreet = () => {
-        if (!assertCanExport()) return;
-        const file = `${showName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'leaf-diary-show'}-palmstreet.csv`;
-        downloadCSVFile(file, makePalmstreetCSV(showPlants, exportOpts));
-        setPlants(prev => prev.map(p => ids.includes(safePlantId(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: showName, lastShowPlatform: 'Palmstreet' } : p));
-        recordExport('Palmstreet', file);
-        setMsg('Palmstreet CSV downloaded. Plants were NOT marked sold. Sold happens only after post-show import finalize.');
+        if (!showPlants.length) { alert('Add plants to the show first.'); return; }
+        if (errors.length) { alert('Fix these before exporting to Palmstreet:\n\n' + errors.slice(0, 25).join('\n') + (errors.length > 25 ? `\n...and ${errors.length - 25} more` : '')); return; }
+        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
+        downloadCSVFile(`${fileSafe}-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(showPlants, { showName, privateListing }));
+        setPlants(prev => prev.map(p => ids.includes(safePlantId(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: showName } : p));
+        addAudit && addAudit({ action: `Exported Show Builder to Palmstreet CSV — ${showPlants.length} plants`, user: user.name, page: 'Show Builder' });
+        setMsg(`Palmstreet CSV exported for ${showPlants.length} plants.`);
       };
-      const exportWhatnot = () => {
-        if (!assertCanExport()) return;
-        const file = `${showName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'leaf-diary-show'}-whatnot.csv`;
-        downloadCSVFile(file, makeWhatnotCSV(showPlants, exportOpts));
-        setPlants(prev => prev.map(p => ids.includes(safePlantId(p)) ? { ...p, whatnotExportedAt: new Date().toISOString(), lastShowName: showName, lastShowPlatform: 'Whatnot' } : p));
-        recordExport('Whatnot', file);
-        setMsg('Whatnot CSV downloaded with integer prices and Plant ID as SKU. Plants were NOT marked sold.');
+      const exportShowList = () => {
+        if (!showPlants.length) { alert('Add plants first.'); return; }
+        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
+        downloadCSVFile(`${fileSafe}-internal-show-list-${today()}.csv`, makeShowListCSV(showPlants));
+        setMsg('Internal show list exported.');
       };
-      const exportBoth = () => { exportPalmstreet(); setTimeout(exportWhatnot, 250); };
-      const exportInternal = () => {
-        if (!showPlants.length) { setWarn('Add plants before exporting an internal sheet.'); return; }
-        const file = `${showName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'leaf-diary-show'}-internal-show-list.csv`;
-        downloadCSVFile(file, makeShowListCSV(showPlants));
-        recordExport('Internal Show Sheet', file);
-      };
-      return <div className="ld-page page-scroll-safe" style={{ padding: '18px 16px 120px', maxWidth: 1180, margin: '0 auto' }}>
-        <SHdr icon="🎪" title="Show Builder" sub="Scan plants into a show, validate every required field, then export exact Palmstreet and Whatnot upload files." right={<Row gap={8} wrap><Btn v="soft" onClick={() => setScanMode(!scanMode)}>{scanMode ? 'Hide Bluetooth Scan' : 'Bluetooth Scan Mode'}</Btn><Btn v="soft" onClick={cameraMode ? stopCamera : startCamera}>{cameraMode ? 'Stop Camera' : 'Camera Scan'}</Btn><Btn v="danger" onClick={clearShow}>Clear Show</Btn></Row>} />
-        {msg && <div style={{ background: C.g100, border: `1px solid ${C.g300}`, borderRadius: 10, padding: '10px 14px', color: C.g800, fontSize: 13, fontWeight: 800, marginBottom: 12 }}>{msg}</div>}
-        {warn && <div style={{ background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: '10px 14px', color: C.red, fontSize: 13, fontWeight: 800, marginBottom: 12 }}>⚠️ {warn}</div>}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
-          <KPI label="Plants" value={showPlants.length} sub="in current show" color={C.g700} />
-          <KPI label="List Value" value={$(value)} sub="export price total" color={C.gold} />
-          <KPI label="Errors" value={errors.length} sub="must fix before export" color={errors.length ? C.red : C.g600} />
-          <KPI label="Warnings" value={warnings.length} sub="review before download" color={warnings.length ? C.amber : C.g600} />
+      const quick = plants.filter(p => {
+        const q = search.toLowerCase().trim();
+        if (!q) return false;
+        return safePlantId(p).toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q) || (p.nurseryCode || '').toLowerCase().includes(q);
+      }).slice(0, 30);
+      const inStockCount = showPlants.filter(p => p.status === 'In Stock').length;
+      const value = showPlants.reduce((s, p) => s + (+p.suggestedPrice || +p.salePrice || 0), 0);
+      return <div style={{ padding: '14px 14px 90px', background: C.bg, minHeight: '100vh' }}>
+        <SHdr icon="🎪" title="Show Builder" sub="Build a Palmstreet upload file from inventory using Plant ID numbers"
+          right={<Row gap={6} wrap><Btn onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear</Btn></Row>} />
+        {msg && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 600 }}>{msg}</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr .8fr', gap: 14, marginBottom: 14 }}>
+          <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>1. Show Setup</div><Inp label="Show Name" value={showName} onChange={setShowName} placeholder="Leaf Diary Friday Rare Plant Show" /><div style={{ marginTop: 10 }}><label style={{ fontSize: 13, fontWeight: 600, color: C.tx2, display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={privateListing} onChange={e => setPrivateListing(e.target.checked)} /> Export as private Palmstreet listings</label></div></Card>
+          <Card style={{ background: C.g800, color: '#fff' }}><div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', opacity: .75, marginBottom: 8 }}>Current Show</div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{showPlants.length}</div><div style={{ fontSize: 11, opacity: .75 }}>Plants</div></div><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{inStockCount}</div><div style={{ fontSize: 11, opacity: .75 }}>In Stock</div></div><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{$(value)}</div><div style={{ fontSize: 11, opacity: .75 }}>Show Value</div></div></div></Card>
         </div>
-        <Card style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 17, marginBottom: 12 }}>1. Show Setup</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10 }}>
-            <Inp label="Show Name" value={showName} onChange={setShowName} />
-            <Sel label="Platform" value={platform} onChange={setPlatform} options={['Palmstreet','Whatnot','Both']} />
-            <Inp label="Show Date / Time" type="datetime-local" value={showDateTime} onChange={setShowDateTime} />
-            <Sel label="Listing Type" value={listingType} onChange={setListingType} options={['Auction','Buy It Now']} />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginTop: 10 }}>
-            <Sel label="Host Employee" value={hostEmployeeId} onChange={setHostEmployeeId} options={[{v:'',l:'No host selected'}, ...employees.map(e => ({ v:e.id, l:e.name || e.email || e.id }))]} />
-            <Sel label="Price Rounding" value={priceRounding} onChange={setPriceRounding} options={[{v:'nearestDollar',l:'Nearest Dollar'}, {v:'nearest5',l:'Nearest $5'}, {v:'nearest10',l:'Nearest $10'}]} />
-            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:800, color:C.tx2, paddingTop:24 }}><input type="checkbox" checked={privateListing} onChange={e=>setPrivateListing(e.target.checked)} /> Palmstreet private listing</label>
-            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:800, color:C.tx2, paddingTop:24 }}><input type="checkbox" checked={includeCost} disabled={!canIncludeCost} onChange={e=>setIncludeCost(e.target.checked)} /> Include cost on Whatnot owner export</label>
-          </div>
-          <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:800, color:C.tx3, marginTop:10 }}><input type="checkbox" checked={allowPlaceholderPhoto} onChange={e=>setAllowPlaceholderPhoto(e.target.checked)} /> Allow placeholder photo only when owner explicitly approves. Default is block missing photos.</label>
-        </Card>
-        <div style={{ display: 'grid', gridTemplateColumns: '390px 1fr', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {scanMode && <Card style={{ border: `2px solid ${C.g500}` }}><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, marginBottom:8 }}>Bluetooth HID Scanner</div><p style={{ fontSize:12, color:C.tx3, marginTop:0 }}>Scanner acts like a keyboard. Scan a plant label and press Enter automatically.</p><input ref={hidRef} defaultValue="" onKeyDown={e=>{ if(e.key === 'Enter'){ addCode(e.currentTarget.value, 'Bluetooth scanner'); e.currentTarget.value=''; } }} placeholder="Scanner input focused here" style={{ width:'100%', padding:14, border:`2px solid ${C.g500}`, borderRadius:10, fontSize:18, fontFamily:F.mono }} /></Card>}
-            {cameraMode && <Card><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, marginBottom:8 }}>Camera Scanner</div><div id={qrDivId} style={{ width:'100%', minHeight:260, background:C.g900, borderRadius:12, overflow:'hidden' }}></div></Card>}
-            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>Add Plants by ID</div><textarea value={entry} onChange={e => setEntry(e.target.value)} placeholder={'Example:\nPPC-0001\nPPC-0002'} style={{ width: '100%', minHeight: 92, padding: 12, border: `1.5px solid ${C.bd}`, borderRadius: 10, fontSize: 14, fontFamily: F.mono, resize: 'vertical' }} /><Btn full style={{ marginTop: 8 }} onClick={() => addIds(entry)} disabled={!entry.trim()}>Add Plant IDs</Btn></Card>
-            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>Search Inventory</div><Inp value={search} onChange={setSearch} placeholder="Search plant name, ID, nursery code, rack..." /><div style={{ marginTop: 10, maxHeight: 300, overflowY: 'auto' }}>{quick.length === 0 ? <div style={{ fontSize: 12, color: C.tx3, padding: '14px 0' }}>Search to add plants fast.</div> : quick.map(p => <div key={p.id || safePlantId(p)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap:8, padding: '8px 0', borderBottom: `1px solid ${C.bdS}` }}><div style={{ display:'flex', gap:8, alignItems:'center' }}>{primaryPhotoUrl(p) ? <img src={primaryPhotoUrl(p)} style={{ width:38, height:38, objectFit:'cover', borderRadius:8 }} /> : <div style={{ width:38, height:38, borderRadius:8, background:C.g100, display:'flex', alignItems:'center', justifyContent:'center' }}>🌿</div>}<div><div style={{ fontSize: 12, fontWeight: 700, color: C.g900 }}>{toTC(p.name)}</div><div style={{ fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{safePlantId(p)} · {$(cleanPrice(p, { priceRounding }))} · {p.status || 'In Stock'}</div></div></div><Btn sz="sm" v={ids.includes(safePlantId(p)) ? 'ghost' : 'soft'} onClick={() => addPlantToShow(p, 'search')}>{ids.includes(safePlantId(p)) ? 'Added' : 'Add'}</Btn></div>)}</div></Card>
-            {isOwner && <Card><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, marginBottom:10 }}>Smart Add</div><Row gap={8} wrap><Btn v="soft" sz="sm" onClick={() => smartAdd('ready')}>All Ready For Show</Btn><Btn v="soft" sz="sm" onClick={() => smartAdd('photos_prices')}>With Photos + Prices</Btn></Row><Row gap={8} wrap style={{ marginTop:8 }}><Inp value={smartGenus} onChange={setSmartGenus} placeholder="Genus, e.g. Monstera" /><Btn v="soft" sz="sm" onClick={() => smartAdd('genus')}>Add Genus</Btn></Row></Card>}
-            {(errors.length > 0 || warnings.length > 0 || missing.length > 0) && <Card style={{ background: errors.length ? C.redBg : C.amberBg, border: `1px solid ${(errors.length ? C.red : C.amber)}40` }}><div style={{ fontFamily: F.display, fontWeight: 700, color: errors.length ? C.red : C.amber, fontSize: 15, marginBottom: 8 }}>Export Validation</div>{missing.map(id => <div key={id} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Missing inventory plant: {id}</div>)}{errors.slice(0, 14).map((e, i) => <div key={'e'+i} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>• {e.msg}</div>)}{warnings.slice(0, 10).map((e, i) => <div key={'w'+i} style={{ fontSize: 12, color: C.amber, marginBottom: 4 }}>• {e.msg}</div>)}</Card>}
+            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>2. Add Plants by ID</div><p style={{ fontSize: 12, color: C.tx3, marginTop: 0 }}>Type or paste plant IDs. You can enter one ID or many IDs separated by spaces, commas, or new lines.</p><textarea value={entry} onChange={e => setEntry(e.target.value)} placeholder={'Example:\nPPC-0001\nPPC-0002'} style={{ width: '100%', minHeight: 92, padding: 12, border: `1.5px solid ${C.bd}`, borderRadius: 10, fontSize: 14, fontFamily: F.mono, resize: 'vertical' }} /><Btn full style={{ marginTop: 8 }} onClick={() => addIds(entry)} disabled={!entry.trim()}>Add Plant IDs to Show</Btn></Card>
+            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>Search Inventory</div><Inp value={search} onChange={setSearch} placeholder="Search plant name, ID, nursery code..." /><div style={{ marginTop: 10, maxHeight: 300, overflowY: 'auto' }}>{quick.length === 0 ? <div style={{ fontSize: 12, color: C.tx3, padding: '14px 0' }}>Search to add plants fast.</div> : quick.map(p => <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.bdS}` }}><div><div style={{ fontSize: 12, fontWeight: 700, color: C.g900 }}>{toTC(p.name)}</div><div style={{ fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{safePlantId(p)} · {$(p.suggestedPrice)}</div></div><Btn sz="sm" v={ids.includes(safePlantId(p)) ? 'ghost' : 'soft'} onClick={() => setIds(prev => [...new Set([...prev, safePlantId(p)])])}>{ids.includes(safePlantId(p)) ? 'Added' : 'Add'}</Btn></div>)}</div></Card>
+            {(errors.length > 0 || missing.length > 0) && <Card style={{ background: C.redBg, border: `1px solid ${C.red}40` }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.red, fontSize: 15, marginBottom: 8 }}>Export Warnings</div>{missing.map(id => <div key={id} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Missing inventory plant: {id}</div>)}{errors.slice(0, 12).map((e, i) => <div key={i} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>• {e}</div>)}{errors.length > 12 && <div style={{ fontSize: 12, color: C.red }}>...and {errors.length - 12} more</div>}</Card>}
           </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-            <Card><Row between wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16 }}>Plants in This Show</div><div style={{ fontSize: 12, color: C.tx3 }}>Manual reorder controls set export order. Export never marks plants sold.</div></div><Row gap={8} wrap><Btn v="outline" onClick={exportInternal}>Internal Sheet</Btn>{(platform === 'Palmstreet' || platform === 'Both') && <Btn onClick={exportPalmstreet}>Export Palmstreet</Btn>}{(platform === 'Whatnot' || platform === 'Both') && <Btn onClick={exportWhatnot}>Export Whatnot</Btn>}{platform === 'Both' && <Btn v="gold" onClick={exportBoth}>Export Both</Btn>}</Row></Row>{showPlants.length === 0 ? <div style={{ textAlign: 'center', padding: '60px 20px', color: C.tx3 }}><div style={{ fontSize: 42, marginBottom: 10 }}>🎪</div><div style={{ fontFamily: F.display, fontSize: 18, color: C.g900 }}>No plants added yet</div><p>Scan labels, search, or paste Plant IDs.</p></div> : <div style={{ overflowX: 'auto', border: `1px solid ${C.bd}`, borderRadius: 10 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}><thead style={{ background: C.cardAlt }}><tr>{['#','Photo','Plant','SKU','Pot','Price','Status','Checks','Actions'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: C.tx3, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead><tbody>{showPlants.map((p, i) => { const id=safePlantId(p); const rowErr=errors.filter(e=>e.id===id || e.row===i+1); const rowWarn=warnings.filter(e=>e.id===id || e.row===i+1); return <tr key={id || i} style={{ borderBottom: `1px solid ${C.bdS}`, background: rowErr.length ? C.redBg : rowWarn.length ? C.amberBg : 'transparent' }}><td style={{ padding: '8px 10px', fontWeight: 700, color: C.tx3 }}>{i + 1}</td><td style={{ padding:'8px 10px' }}>{primaryPhotoUrl(p) ? <img src={primaryPhotoUrl(p)} style={{ width:46, height:46, objectFit:'cover', borderRadius:8 }} /> : <span style={{ color:C.red, fontWeight:800 }}>No photo</span>}</td><td style={{ padding: '8px 10px' }}><b>{toTC(p.name)}</b><div style={{ fontSize: 10, color: C.tx3 }}>{p.nurseryCode || ''} {p.rack || p.location ? `· ${p.rack || p.location}` : ''}</div></td><td style={{ padding: '8px 10px', fontFamily: F.mono, fontSize: 10, color: C.g600 }}>{id}</td><td style={{ padding: '8px 10px' }}>{p.potSize || '—'}</td><td style={{ padding: '8px 10px', fontWeight: 700, color: C.g900 }}>{cleanPrice(p, { priceRounding }) ? '$' + cleanPrice(p, { priceRounding }) : '—'}</td><td style={{ padding: '8px 10px' }}><SBadge s={p.status || 'In Stock'} /></td><td style={{ padding:'8px 10px' }}>{rowErr.length ? <Tag text="Fix" color={C.red} sm /> : rowWarn.length ? <Tag text="Warn" color={C.amber} sm /> : <Tag text="Ready" color={C.g600} sm />}</td><td style={{ padding: '8px 10px' }}><Row gap={4}><Btn sz="sm" v="ghost" onClick={() => move(i, -1)}>↑</Btn><Btn sz="sm" v="ghost" onClick={() => move(i, 1)}>↓</Btn><Btn sz="sm" v="danger" onClick={() => removeId(id)}>Remove</Btn></Row></td></tr>; })}</tbody></table></div>}</Card>
-            <Card><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, marginBottom:8 }}>Export History</div>{history.length === 0 ? <div style={{ fontSize:12, color:C.tx3 }}>No show exports yet.</div> : <div style={{ display:'flex', flexDirection:'column', gap:6 }}>{history.slice(0,6).map(h => <div key={h.id} style={{ fontSize:12, color:C.tx2, display:'flex', justifyContent:'space-between', gap:8, borderBottom:`1px solid ${C.bdS}`, paddingBottom:6 }}><span><b>{h.platform}</b> · {h.plant_count} plants · {h.filename}</span><span style={{ color:C.tx3 }}>{new Date(h.timestamp).toLocaleString()}</span></div>)}</div>}</Card>
-          </div>
+          <Card><Row between wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16 }}>Plants in This Show</div><div style={{ fontSize: 12, color: C.tx3 }}>Order here is the order exported to your internal show list.</div></div><Tag text={`${showPlants.length} plants`} color={C.g700} /></Row>{showPlants.length === 0 ? <div style={{ textAlign: 'center', padding: '60px 20px', color: C.tx3 }}><div style={{ fontSize: 42, marginBottom: 10 }}>🎪</div><div style={{ fontFamily: F.display, fontSize: 18, color: C.g900 }}>No plants added yet</div><p>Add plants by Plant ID from the left panel.</p></div> : <div style={{ overflowX: 'auto', border: `1px solid ${C.bd}`, borderRadius: 10 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}><thead style={{ background: C.cardAlt }}><tr>{['#', 'Plant', 'ID', 'Pot', 'Price', 'Status', 'Exported', 'Actions'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: C.tx3, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead><tbody>{showPlants.map((p, i) => <tr key={safePlantId(p)} style={{ borderBottom: `1px solid ${C.bdS}` }}><td style={{ padding: '8px 10px', fontWeight: 700, color: C.tx3 }}>{i + 1}</td><td style={{ padding: '8px 10px' }}><b>{toTC(p.name)}</b><div style={{ fontSize: 10, color: C.tx3 }}>{p.nurseryCode || ''} {p.rack ? `· Rack ${p.rack}` : ''}</div></td><td style={{ padding: '8px 10px', fontFamily: F.mono, fontSize: 10, color: C.g600 }}>{safePlantId(p)}</td><td style={{ padding: '8px 10px' }}>{p.potSize || '—'}</td><td style={{ padding: '8px 10px', fontWeight: 700, color: C.g900 }}>{$(p.suggestedPrice || p.salePrice)}</td><td style={{ padding: '8px 10px' }}><SBadge s={p.status || 'In Stock'} /></td><td style={{ padding: '8px 10px' }}>{p.palmstreetExportedAt ? <Tag text="Yes" color={C.blue} sm /> : <span style={{ color: C.tx3 }}>No</span>}</td><td style={{ padding: '8px 10px' }}><Row gap={4}><Btn sz="sm" v="ghost" onClick={() => move(i, -1)}>↑</Btn><Btn sz="sm" v="ghost" onClick={() => move(i, 1)}>↓</Btn><Btn sz="sm" v="danger" onClick={() => removeId(safePlantId(p))}>Remove</Btn></Row></td></tr>)}</tbody></table></div>}</Card>
         </div>
       </div>;
     }
@@ -7735,590 +7353,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
     /* ══════════════════════════════════════════════════════════
        ROOT APP — Supabase cloud sync + localStorage backup
     ══════════════════════════════════════════════════════════ */
-
-
-    /* ══════════════════════════════════════════════════════════
-       PHASE 5 — POST-SHOW IMPORT, SOLD PLANTS, COMMISSION + TIPS
-       No shipping workflow lives in the CRM. Shipping remains in Palmstreet/Whatnot.
-    ══════════════════════════════════════════════════════════ */
-    const PHASE5_SALE_STATUSES_EXCLUDE = ["refunded", "cancelled", "canceled", "void", "failed"];
-    const phase5Money = v => +String(v ?? "").replace(/[^0-9.-]/g, "") || 0;
-    const phase5Clean = v => String(v ?? "").trim();
-    const phase5LowerMap = row => Object.fromEntries(Object.entries(row || {}).map(([k,v]) => [String(k).trim().toLowerCase(), v]));
-    const phase5First = (row, keys) => {
-      const lower = phase5LowerMap(row);
-      for (const k of keys) {
-        const exact = row[k];
-        if (exact !== undefined && exact !== null && String(exact).trim() !== "") return exact;
-        const lk = String(k).trim().toLowerCase();
-        if (lower[lk] !== undefined && lower[lk] !== null && String(lower[lk]).trim() !== "") return lower[lk];
-      }
-      return "";
-    };
-    const phase5CsvEscape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const phase5DownloadCsv = (filename, rows) => {
-      const csv = rows.map(r => r.map(phase5CsvEscape).join(",")).join("\n");
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type:"text/csv;charset=utf-8;" }));
-      a.download = filename;
-      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 800);
-    };
-    function phase5ParseCsv(text) {
-      const rows = [];
-      let row = [], cell = "", q = false;
-      const s = String(text || "").replace(/^\ufeff/, "");
-      for (let i = 0; i < s.length; i++) {
-        const ch = s[i], next = s[i+1];
-        if (q) {
-          if (ch === '"' && next === '"') { cell += '"'; i++; }
-          else if (ch === '"') q = false;
-          else cell += ch;
-        } else {
-          if (ch === '"') q = true;
-          else if (ch === ',') { row.push(cell); cell = ""; }
-          else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ""; }
-          else if (ch !== '\r') cell += ch;
-        }
-      }
-      row.push(cell); rows.push(row);
-      const useful = rows.filter(r => r.some(c => String(c || "").trim() !== ""));
-      if (!useful.length) return [];
-      const headers = useful[0].map(h => String(h || "").trim());
-      return useful.slice(1).map((r, idx) => {
-        const obj = { __rowNumber: idx + 2 };
-        headers.forEach((h, i) => obj[h || `Column ${i+1}`] = r[i] ?? "");
-        return obj;
-      });
-    }
-    function phase5DetectPlatform(rows) {
-      const headers = Object.keys(rows[0] || {}).map(h => h.toLowerCase()).join(" | ");
-      if (headers.includes("whatnot") || headers.includes("order id") || headers.includes("buyer") || headers.includes("tips") || headers.includes("sku")) return "Whatnot";
-      if (headers.includes("palmstreet") || headers.includes("buyer username") || headers.includes("item title") || headers.includes("product title")) return "Palmstreet";
-      return headers.includes("sku") ? "Whatnot" : "Palmstreet";
-    }
-    function phase5ExtractPlantIdFromText(text, plants = []) {
-      const t = String(text || "");
-      const direct = t.match(/\b[A-Z]{1,8}-\d{1,6}\b/i);
-      if (direct) return direct[0].toUpperCase();
-      const ids = (plants || []).map(p => String(p.plantId || p.plantCode || "").trim()).filter(Boolean).sort((a,b)=>b.length-a.length);
-      const found = ids.find(id => t.toLowerCase().includes(id.toLowerCase()));
-      return found || "";
-    }
-    function phase5NormalizeSaleRow(row, platform, plants) {
-      const title = phase5Clean(phase5First(row, ["Title", "Item", "Item Title", "Product", "Product Title", "Listing Title", "Name", "Description"]));
-      const sku = phase5Clean(phase5First(row, ["SKU", "Sku", "Seller SKU", "Variant SKU", "Plant ID", "PlantID"]));
-      const extracted = (sku || phase5ExtractPlantIdFromText(title, plants)).toUpperCase();
-      const salePrice = phase5Money(phase5First(row, ["Sold Price", "Sale Price", "Price", "Item Price", "Product Amount", "Subtotal", "Total", "Order Total", "Amount"]));
-      const tips = phase5Money(phase5First(row, ["Tips", "Tip", "Tip Amount", "Gratuity"]));
-      const fees = phase5Money(phase5First(row, ["Platform Fees", "Platform Fee", "Fees", "Fee", "Selling Fee"]));
-      const buyer = phase5Clean(phase5First(row, ["Buyer Username", "Buyer", "Username", "Customer", "Customer Username", "Buyer Name", "Name"]));
-      const orderId = phase5Clean(phase5First(row, ["Order ID", "Order #", "Order Number", "Order", "Reference", "Transaction ID", "Sale ID"]));
-      const status = phase5Clean(phase5First(row, ["Status", "Order Status", "Sale Status", "Payment Status"]));
-      const saleDate = phase5Clean(phase5First(row, ["Date", "Sold Date", "Sale Date", "Order Date", "Created At", "Timestamp"])) || today();
-      const rowKey = `${platform}|${orderId}|${extracted}|${salePrice}|${buyer}|${saleDate}`.toLowerCase();
-      return { id: uid(), raw: row, platform, title, sku, plantId: extracted, salePrice, tips, fees, buyer, orderId, status, saleDate, rowKey, action: "skip", linkedPlantId: "", note: "" };
-    }
-    function phase5MatchSales(rows, plants, platform) {
-      const activePlants = plants || [];
-      const byId = Object.fromEntries(activePlants.map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
-      return rows.map(row => {
-        const sale = phase5NormalizeSaleRow(row, platform, activePlants);
-        const matched = sale.plantId ? byId[sale.plantId] : null;
-        const excluded = PHASE5_SALE_STATUSES_EXCLUDE.includes(String(sale.status || "").toLowerCase());
-        return { ...sale, matched, action: excluded ? "skip" : matched ? "match" : "historical", excluded };
-      });
-    }
-
-    function Phase5PostShowImport({ plants, setPlants, addAudit, user, users = [], settings = {}, setSettings }) {
-      const [step, setStep] = useState("upload");
-      const [platform, setPlatform] = useState("Auto Detect");
-      const [fileName, setFileName] = useState("");
-      const [sales, setSales] = useState([]);
-      const [msg, setMsg] = useState("");
-      const [showName, setShowName] = useState(`Leaf Diary Show ${today()}`);
-      const [showDate, setShowDate] = useState(today());
-      const [hostId, setHostId] = useState("none");
-      const [rate, setRate] = useState(settings.defaultShowCommissionPercent ?? 1);
-      const [lastResult, setLastResult] = useState(null);
-      const fileRef = useRef(null);
-      const employees = (users || []).filter(u => u.role !== "owner" && u.active !== false);
-      const host = employees.find(e => String(e.id) === String(hostId));
-      const chosen = sales.filter(s => ["match", "historical"].includes(s.action) && !s.excluded);
-      const matchedCount = sales.filter(s => s.action === "match" && s.matched && !s.excluded).length;
-      const unmatchedCount = sales.filter(s => !s.matched && !s.excluded).length;
-      const skippedCount = sales.filter(s => s.action === "skip" || s.excluded).length;
-      const grossSales = chosen.reduce((sum, s) => sum + (+s.salePrice || 0), 0);
-      const tipsTotal = chosen.reduce((sum, s) => sum + (+s.tips || 0), 0);
-      const feesTotal = chosen.reduce((sum, s) => sum + (+s.fees || 0), 0);
-      const commissionAmount = hostId !== "none" ? +(grossSales * ((+rate || 0) / 100)).toFixed(2) : 0;
-      const totalOwed = +(commissionAmount + tipsTotal).toFixed(2);
-
-      const loadTextFile = async file => {
-        if (!file) return;
-        setMsg(""); setFileName(file.name || "sales-import.csv");
-        try {
-          let text = "";
-          if (/\.xlsx?$/i.test(file.name || "")) {
-            const buf = await file.arrayBuffer();
-            const wb = XLSX.read(buf, { type:"array" });
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            text = XLSX.utils.sheet_to_csv(ws);
-          } else {
-            text = await file.text();
-          }
-          const rows = phase5ParseCsv(text);
-          if (!rows.length) { setMsg("No sales rows found in this file."); return; }
-          const detected = platform === "Auto Detect" ? phase5DetectPlatform(rows) : platform;
-          const normalized = phase5MatchSales(rows, plants, detected);
-          setPlatform(detected);
-          setSales(normalized);
-          setStep("review");
-        } catch (e) {
-          console.error(e); setMsg("Could not read this file. Export it as CSV from Palmstreet/Whatnot and try again.");
-        }
-      };
-      const updateSale = (id, patch) => setSales(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
-      const linkToPlant = (id, plantDbId) => {
-        const p = (plants || []).find(x => String(x.id) === String(plantDbId));
-        updateSale(id, { matched: p || null, plantId: p ? (p.plantId || p.plantCode || "") : "", linkedPlantId: plantDbId, action: p ? "match" : "historical" });
-      };
-      const finalize = () => {
-        const importId = uid();
-        const now = new Date().toISOString();
-        const existingKeys = new Set((plants || []).map(p => String(p.saleImportKey || "").toLowerCase()).filter(Boolean));
-        const selected = sales.filter(s => ["match", "historical"].includes(s.action) && !s.excluded && !existingKeys.has(s.rowKey));
-        if (!selected.length) { setMsg("Nothing selected to finalize, or these rows were already imported before."); return; }
-        const updatedPlants = [...(plants || [])];
-        let soldMarked = 0, historicalCreated = 0;
-        selected.forEach(s => {
-          const plant = s.matched || updatedPlants.find(p => String(p.id) === String(s.linkedPlantId));
-          if (plant) {
-            const idx = updatedPlants.findIndex(p => String(p.id) === String(plant.id));
-            if (idx >= 0) {
-              updatedPlants[idx] = {
-                ...updatedPlants[idx], status:"Sold", soldDate:s.saleDate || showDate || today(), saleDate:s.saleDate || showDate || today(), platform:s.platform,
-                showId: importId, showName, salePrice:+s.salePrice || 0, customerUsername:s.buyer || "", customerName:s.buyer || "", orderNumber:s.orderId || "",
-                platformOrderId:s.orderId || "", hostEmployeeId: hostId !== "none" ? hostId : "", hostEmployeeName: host?.name || "", commissionAmount: hostId !== "none" ? +((+s.salePrice || 0) * ((+rate || 0) / 100)).toFixed(2) : 0,
-                tipsAmount:+s.tips || 0, saleImportId:importId, saleImportKey:s.rowKey, saleImportedAt:now, saleImportFile:fileName,
-                fulfillmentStatus:"Platform Managed", crmShippingDisabled:true
-              };
-              soldMarked++;
-            }
-          } else {
-            updatedPlants.unshift({
-              id: uid(), plantId: s.plantId || `HIST-${String(Date.now()).slice(-6)}-${historicalCreated+1}`, plantCode: s.plantId || "", name: s.title || "Historical Platform Sale",
-              potSize:"", cost:0, suggestedPrice:+s.salePrice || 0, status:"Sold", soldDate:s.saleDate || showDate || today(), saleDate:s.saleDate || showDate || today(),
-              platform:s.platform, showId:importId, showName, salePrice:+s.salePrice || 0, customerUsername:s.buyer || "", customerName:s.buyer || "", orderNumber:s.orderId || "",
-              platformOrderId:s.orderId || "", hostEmployeeId: hostId !== "none" ? hostId : "", hostEmployeeName: host?.name || "", commissionAmount: hostId !== "none" ? +((+s.salePrice || 0) * ((+rate || 0) / 100)).toFixed(2) : 0,
-              tipsAmount:+s.tips || 0, historicalImport:true, needsInventoryReview:true, saleImportId:importId, saleImportKey:s.rowKey, saleImportedAt:now, saleImportFile:fileName,
-              fulfillmentStatus:"Platform Managed", crmShippingDisabled:true, dateAdded:s.saleDate || showDate || today()
-            });
-            historicalCreated++;
-          }
-        });
-        setPlants(updatedPlants);
-        if (setSettings) {
-          const exportRecord = { id: importId, showId: importId, showName, platform, fileName, importedAt: now, importedBy: user?.name || "", matchedCount: soldMarked, historicalCreated, skippedCount, plantCount: selected.length, grossSales, tipsTotal, feesTotal, hostEmployeeId: hostId, hostEmployeeName: host?.name || "", commissionRate:+rate || 0, commissionAmount, totalOwed };
-          setSettings(prev => ({
-            ...prev,
-            showSalesImports: [exportRecord, ...(prev.showSalesImports || [])].slice(0, 100),
-            showCommissions: hostId !== "none" ? [
-              ...(prev.showCommissions || []),
-              { id: uid(), employeeId: hostId, employeeName: host?.name || "", showName, platform, saleDate: showDate, importedAt: now, fileName, salesCount: selected.length, grossSales, tips: tipsTotal, percent:+rate || 0, amount: commissionAmount, totalOwed, status:"Unpaid", note:"Phase 5 post-show import: shipping handled inside platform." }
-            ] : (prev.showCommissions || [])
-          }));
-        }
-        addAudit && addAudit({ action:`Phase 5 sales import finalized: ${soldMarked} matched sold, ${historicalCreated} historical, ${$(grossSales)} gross, tips ${$(tipsTotal)}, commission ${$(commissionAmount)}`, user:user?.name || "Owner", page:"Post-Show Import" });
-        setLastResult({ soldMarked, historicalCreated, selected:selected.length, grossSales, tipsTotal, commissionAmount, totalOwed, host:host?.name || "" });
-        setStep("done");
-      };
-      const exportReview = () => phase5DownloadCsv(`leaf-diary-post-show-review-${today()}.csv`, [
-        ["Action", "Matched", "Plant ID", "Title", "Sale Price", "Tips", "Buyer", "Order ID", "Platform", "Status"],
-        ...sales.map(s => [s.action, s.matched ? "YES" : "NO", s.plantId, s.title, s.salePrice, s.tips, s.buyer, s.orderId, s.platform, s.status])
-      ]);
-
-      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="📥" title="Post-Show Import" sub="Upload Palmstreet/Whatnot sales, mark matched plants sold, and create commission/tips payroll. No shipping workflow." />
-        {step === "upload" && <div>
-          <Card style={{ marginBottom:14 }}>
-            <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>Import the show sales file</div>
-            <div style={{ fontSize:13, color:C.tx3, lineHeight:1.6, marginBottom:14 }}>Export the sales CSV/XLSX from Palmstreet or Whatnot after the show. The app matches by SKU = Plant ID first, then falls back to title containing the Plant ID.</div>
-            <Row gap={10} wrap>
-              <Inp label="Show Name" value={showName} onChange={setShowName} />
-              <Inp label="Show Date" type="date" value={showDate} onChange={setShowDate} />
-              <Sel label="Platform" value={platform} onChange={setPlatform} options={["Auto Detect", "Palmstreet", "Whatnot"]} />
-            </Row>
-            <Row gap={10} wrap style={{ marginTop:12 }}>
-              <Sel label="Host Employee" value={hostId} onChange={setHostId} options={[{v:"none", l:"No employee commission / owner show"}, ...employees.map(e => ({ v:e.id, l:e.name || e.email || e.id }))]} />
-              <Inp label="Commission % of gross" type="number" value={rate} onChange={setRate} />
-            </Row>
-            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display:"none" }} onChange={e => loadTextFile(e.target.files?.[0])} />
-            <Row gap={10} wrap style={{ marginTop:16 }}>
-              <Btn sz="lg" onClick={() => fileRef.current?.click()}>📤 Upload Sales CSV/XLSX</Btn>
-              <Btn v="outline" onClick={() => setMsg("Tip: the export must include SKU or the Plant ID in the title for automatic matching. Unmatched rows can be linked or saved as historical sales.")}>How matching works</Btn>
-            </Row>
-          </Card>
-          {msg && <Card style={{ background:C.goldBg, borderColor:C.gold+"66", color:C.tx2 }}>{msg}</Card>}
-          <Card style={{ background:C.cardAlt }}>
-            <b>Not built into CRM:</b> shipping labels, carrier selection, tracking numbers, shipped statuses, delivery tracking, or packing workflows. Those stay inside Palmstreet and Whatnot.
-          </Card>
-        </div>}
-
-        {step === "review" && <div>
-          <Row gap={10} wrap style={{ marginBottom:14 }}>
-            <KPI label="Matched" value={matchedCount} sub="will mark Sold" color={C.g600} />
-            <KPI label="Unmatched" value={unmatchedCount} sub="link / historical / skip" color={C.amber} />
-            <KPI label="Gross Sales" value={$(grossSales)} sub={`${chosen.length} selected rows`} color={C.g700} />
-            <KPI label="Tips" value={$(tipsTotal)} sub="100% to host" color={C.gold} />
-            <KPI label="Commission" value={$(commissionAmount)} sub={host ? host.name : "no host selected"} color={C.purple} />
-          </Row>
-          {msg && <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}55`, borderRadius:10, padding:12, marginBottom:12 }}>{msg}</div>}
-          <Card style={{ marginBottom:14 }}>
-            <Row between center wrap>
-              <div><b>{fileName}</b><div style={{ fontSize:12, color:C.tx3 }}>{platform} · {sales.length} rows · skipped/excluded {skippedCount}</div></div>
-              <Row gap={8} wrap><Btn v="outline" onClick={exportReview}>Export Review CSV</Btn><Btn v="ghost" onClick={() => setStep("upload")}>Back</Btn><Btn onClick={finalize}>✅ Finalize Import</Btn></Row>
-            </Row>
-          </Card>
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            {sales.map(s => <Card key={s.id} style={{ borderColor:s.excluded || s.action === "skip" ? C.bd : s.matched || s.action === "match" ? C.g300 : C.gold, background:s.excluded || s.action === "skip" ? C.cardAlt : s.matched || s.action === "match" ? C.g50 : C.goldBg }}>
-              <Row between center wrap>
-                <div style={{ flex:1, minWidth:220 }}>
-                  <div style={{ fontWeight:900, color:C.g900 }}>{s.title || s.plantId || "Untitled sale row"}</div>
-                  <div style={{ fontSize:12, color:C.tx3 }}>Plant ID/SKU: <b>{s.plantId || "not found"}</b> · Buyer: {s.buyer || "—"} · Order: {s.orderId || "—"}</div>
-                  {s.excluded && <div style={{ fontSize:12, color:C.red, fontWeight:800 }}>Excluded because status is {s.status}</div>}
-                  {!s.excluded && s.matched && <div style={{ fontSize:12, color:C.g700, fontWeight:800 }}>✅ Matched to {s.matched.name} ({s.matched.plantId || s.matched.plantCode})</div>}
-                  {!s.excluded && !s.matched && <div style={{ fontSize:12, color:C.amber, fontWeight:800 }}>⚠️ Unmatched. Link it, save as historical sale, or skip.</div>}
-                </div>
-                <div style={{ textAlign:"right", minWidth:120 }}><div style={{ fontSize:20, fontWeight:900, color:C.g700 }}>{$(s.salePrice)}</div>{+s.tips > 0 && <div style={{ fontSize:12, color:C.gold }}>Tips {$(s.tips)}</div>}</div>
-              </Row>
-              {!s.excluded && <Row gap={8} wrap style={{ marginTop:10 }}>
-                <button onClick={() => updateSale(s.id, { action:"match" })} disabled={!s.matched} style={{ padding:"9px 12px", borderRadius:8, border:`1px solid ${s.action === "match" ? C.g700 : C.bd}`, background:s.action === "match" ? C.g700 : C.card, color:s.action === "match" ? "#fff" : C.tx2, fontWeight:800, cursor:s.matched ? "pointer" : "not-allowed", opacity:s.matched ? 1 : .45 }}>Use Match</button>
-                <button onClick={() => updateSale(s.id, { action:"historical" })} style={{ padding:"9px 12px", borderRadius:8, border:`1px solid ${s.action === "historical" ? C.gold : C.bd}`, background:s.action === "historical" ? C.gold : C.card, color:s.action === "historical" ? "#fff" : C.tx2, fontWeight:800 }}>Save Historical Sale</button>
-                <button onClick={() => updateSale(s.id, { action:"skip" })} style={{ padding:"9px 12px", borderRadius:8, border:`1px solid ${s.action === "skip" ? C.red : C.bd}`, background:s.action === "skip" ? C.red : C.card, color:s.action === "skip" ? "#fff" : C.tx2, fontWeight:800 }}>Skip</button>
-                {!s.matched && <select value={s.linkedPlantId || ""} onChange={e => linkToPlant(s.id, e.target.value)} style={{ flex:"1 1 260px", padding:"9px 10px", borderRadius:8, border:`1px solid ${C.bd}`, fontFamily:F.body }}>
-                  <option value="">Link to a plant manually...</option>
-                  {(plants || []).filter(p => p.status !== "Sold").map(p => <option key={p.id} value={p.id}>{p.plantId || p.plantCode} · {p.name} · {p.potSize || ""}</option>)}
-                </select>}
-              </Row>}
-            </Card>)}
-          </div>
-        </div>}
-
-        {step === "done" && <div style={{ textAlign:"center", padding:"50px 16px" }}>
-          <div style={{ fontSize:60 }}>✅</div>
-          <h2 style={{ fontFamily:F.display, color:C.g900 }}>Post-Show Import Finalized</h2>
-          <p style={{ color:C.tx3 }}>{lastResult?.soldMarked || 0} matched plants marked Sold · {lastResult?.historicalCreated || 0} historical sales saved</p>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, maxWidth:780, margin:"20px auto" }}>
-            <KPI label="Gross" value={$(lastResult?.grossSales || 0)} color={C.g700} />
-            <KPI label="Tips" value={$(lastResult?.tipsTotal || 0)} color={C.gold} />
-            <KPI label="Commission" value={$(lastResult?.commissionAmount || 0)} sub={lastResult?.host || "no host"} color={C.purple} />
-            <KPI label="Total Owed" value={$(lastResult?.totalOwed || 0)} color={C.red} />
-          </div>
-          <Row gap={10} style={{ justifyContent:"center" }} wrap><Btn onClick={() => { setSales([]); setLastResult(null); setStep("upload"); }}>Import Another Show</Btn><Btn v="outline" onClick={() => setStep("review")}>View Last Review</Btn></Row>
-        </div>}
-      </div>;
-    }
-
-    function Phase5SoldPlants({ plants, settings = {}, setSettings, user }) {
-      const [q, setQ] = useState("");
-      const [platform, setPlatform] = useState("All");
-      const sold = (plants || []).filter(p => p.status === "Sold" || p.saleImportId || p.historicalImport);
-      const filtered = sold.filter(p => {
-        const text = [p.plantId, p.plantCode, p.name, p.platform, p.showName, p.customerUsername, p.customerName, p.orderNumber, p.platformOrderId].join(" ").toLowerCase();
-        return (!q || text.includes(q.toLowerCase())) && (platform === "All" || p.platform === platform);
-      }).sort((a,b)=>String(b.saleImportedAt || b.soldDate || b.saleDate || "").localeCompare(String(a.saleImportedAt || a.soldDate || a.saleDate || "")));
-      const gross = filtered.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
-      const tips = filtered.reduce((s,p)=>s+(+p.tipsAmount || 0),0);
-      const commission = filtered.reduce((s,p)=>s+(+p.commissionAmount || 0),0);
-      const exportRows = [
-        ["Plant ID", "Plant Name", "Platform", "Show", "Sold Date", "Sold Price", "Buyer", "Platform Order ID", "Host Employee", "Commission", "Tips", "Import File", "Imported At"],
-        ...filtered.map(p => [p.plantId || p.plantCode || "", p.name || "", p.platform || "", p.showName || "", p.soldDate || p.saleDate || "", +p.salePrice || +p.suggestedPrice || 0, p.customerUsername || p.customerName || "", p.platformOrderId || p.orderNumber || "", p.hostEmployeeName || "", +p.commissionAmount || 0, +p.tipsAmount || 0, p.saleImportFile || "", p.saleImportedAt || ""])
-      ];
-      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="✅" title="Sold Plants" sub="Simple sales-result review. Shipping, tracking, labels, and delivery status stay inside Palmstreet/Whatnot." right={<Btn v="outline" onClick={() => phase5DownloadCsv(`leaf-diary-sold-plants-${today()}.csv`, exportRows)}>Export CSV</Btn>} />
-        <Row gap={10} wrap style={{ marginBottom:14 }}>
-          <KPI label="Sold Rows" value={filtered.length} color={C.g700} />
-          <KPI label="Gross Sales" value={$(gross)} color={C.g600} />
-          <KPI label="Tips" value={$(tips)} color={C.gold} />
-          <KPI label="Commission" value={$(commission)} color={C.purple} />
-        </Row>
-        <Card style={{ marginBottom:14 }}>
-          <Row gap={10} wrap center>
-            <Inp label="Search sold plants" value={q} onChange={setQ} placeholder="Plant ID, buyer, order ID, show name..." />
-            <Sel label="Platform" value={platform} onChange={setPlatform} options={["All", "Palmstreet", "Whatnot", "Cash", "Shopify"]} />
-          </Row>
-          <div style={{ marginTop:10, padding:10, borderRadius:10, background:C.g50, color:C.tx2, fontSize:12 }}>
-            This screen intentionally has <b>no</b> mark shipped button, tracking field, carrier selection, packing workflow, or shipping label purchase.
-          </div>
-        </Card>
-        <Tbl cols={[
-          {k:"photo", l:"Photo"}, {k:"plant", l:"Plant"}, {k:"platform", l:"Platform"}, {k:"show", l:"Show"}, {k:"price", l:"Sold Price", right:true}, {k:"buyer", l:"Buyer"}, {k:"order", l:"Order Ref"}, {k:"host", l:"Host"}, {k:"pay", l:"Pay", right:true}, {k:"import", l:"Import"}
-        ]} rows={filtered.map(p => ({
-          photo: p.photoUrl || p.photo_url ? <img src={p.photoUrl || p.photo_url} style={{ width:44, height:44, objectFit:"cover", borderRadius:8 }} /> : <div style={{ width:44, height:44, borderRadius:8, background:C.g100, display:"flex", alignItems:"center", justifyContent:"center" }}>🌿</div>,
-          plant: <div><b>{p.plantId || p.plantCode || "—"}</b><div style={{ fontSize:12, color:C.tx3 }}>{p.name || "Sold Plant"}</div></div>,
-          platform: <Tag text={p.platform || "—"} color={p.platform === "Whatnot" ? C.purple : C.g600} sm />,
-          show: <div>{p.showName || "—"}<div style={{ fontSize:11, color:C.tx3 }}>{p.soldDate || p.saleDate || ""}</div></div>,
-          price: <b>{$(+p.salePrice || +p.suggestedPrice || 0)}</b>,
-          buyer: p.customerUsername || p.customerName || "—",
-          order: p.platformOrderId || p.orderNumber || "—",
-          host: p.hostEmployeeName || "—",
-          pay: <div>{$(+p.commissionAmount || 0)}{+p.tipsAmount > 0 && <div style={{ fontSize:11, color:C.gold }}>tips {$(+p.tipsAmount)}</div>}</div>,
-          import: <div style={{ fontSize:11, color:C.tx3 }}>{p.saleImportFile || "—"}<br />{p.saleImportedAt ? String(p.saleImportedAt).slice(0,10) : ""}</div>
-        }))} empty="No sold plants imported yet. Use Post-Show Import after a Palmstreet or Whatnot live show." />
-      </div>;
-    }
-
-
-
-    /* ══════════════════════════════════════════════════════════
-       PHASE 6 — MONEY: RECEIPTS, BILLS, PAYROLL + REPORTS
-       Owner-focused money tools. Employees do not see accounting screens.
-    ══════════════════════════════════════════════════════════ */
-    const PHASE6_VENDOR_MEMORY_KEY = "leafDiaryVendorCategoryMemory";
-    const phase6Money = v => +String(v ?? "").replace(/[^0-9.-]/g, "") || 0;
-    const phase6Date = v => {
-      if (!v) return today();
-      const d = new Date(String(v).includes("T") ? v : String(v) + "T12:00:00");
-      return isNaN(d) ? today() : d.toISOString().slice(0,10);
-    };
-    const phase6ReadVendorMemory = () => { try { return JSON.parse(localStorage.getItem(PHASE6_VENDOR_MEMORY_KEY) || "{}"); } catch(e) { return {}; } };
-    const phase6SaveVendorMemory = memory => { try { localStorage.setItem(PHASE6_VENDOR_MEMORY_KEY, JSON.stringify(memory || {})); } catch(e) {} };
-    const phase6GuessCategory = vendor => {
-      const v = String(vendor || "").toLowerCase();
-      const mem = phase6ReadVendorMemory();
-      const hit = Object.keys(mem).find(k => v.includes(k));
-      if (hit) return mem[hit];
-      if (/shell|chevron|wawa|circle k|racetrac|speedway|bp|exxon|mobil|marathon/.test(v)) return "Gas & Mileage";
-      if (/home depot|lowe|harbor freight|ace/.test(v)) return "Tools & Equipment";
-      if (/walmart|target|sam.?s|costco/.test(v)) return "Other";
-      if (/ups|usps|fedex|u.?line|staples/.test(v)) return "Shipping Supplies";
-      if (/shopify|cloudflare|ionos|godaddy|google|openai/.test(v)) return "Software & Website";
-      return "Other";
-    };
-    const phase6Csv = (filename, rows) => {
-      const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-      const csv = rows.map(r => r.map(esc).join(",")).join("\n");
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type:"text/csv;charset=utf-8;" }));
-      a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 800);
-    };
-    const phase6ExtractReceiptLocal = (file) => {
-      const name = String(file?.name || "receipt");
-      const clean = name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
-      const vendor = clean.split(" ").slice(0,3).join(" ") || "Unknown Vendor";
-      return { vendor, date: today(), amount: "", tax: "", paymentMethod: "", category: phase6GuessCategory(vendor), documentType:"receipt", confidence: 55, rawOcrText: `Local draft created from file name: ${name}. Review and fill missing amount/date before saving.` };
-    };
-    const phase6ImagePreview = file => new Promise(resolve => {
-      if (!file || !String(file.type || "").startsWith("image/")) return resolve("");
-      const r = new FileReader(); r.onload = e => resolve(e.target.result || ""); r.onerror = () => resolve(""); r.readAsDataURL(file);
-    });
-    const phase6PayrollLinesFromSoldPlants = plants => {
-      const map = {};
-      (plants || []).forEach(p => {
-        if (!(+p.commissionAmount || +p.tipsAmount)) return;
-        const key = [p.saleImportId || p.showId || p.showName || "show", p.hostEmployeeId || p.hostEmployeeName || "host"].join("|");
-        if (!map[key]) map[key] = { id:key, source:"show-import", showName:p.showName || "Imported Show", date:p.soldDate || p.saleDate || today(), platform:p.platform || "", hostEmployeeId:p.hostEmployeeId || "", hostEmployeeName:p.hostEmployeeName || "", grossSales:0, commission:0, tips:0, totalOwed:0, status:p.payrollStatus || "Unpaid" };
-        map[key].grossSales += (+p.salePrice || +p.suggestedPrice || 0);
-        map[key].commission += (+p.commissionAmount || 0);
-        map[key].tips += (+p.tipsAmount || 0);
-        map[key].totalOwed = map[key].commission + map[key].tips;
-      });
-      return Object.values(map).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-    };
-
-    function ReceiptScanner({ receipts = [], setReceipts, expenses = [], setExpenses, bills = [], setBills, addAudit, user }) {
-      const [step, setStep] = useState("upload");
-      const [draft, setDraft] = useState(null);
-      const [preview, setPreview] = useState("");
-      const [splitItems, setSplitItems] = useState([]);
-      const [msg, setMsg] = useState("");
-      const fileRef = useRef(null);
-      const canSeeMoney = user?.role === "owner" || user?.role === "manager";
-      const loadFile = async file => {
-        if (!file) return;
-        setMsg("Reading receipt...");
-        const local = phase6ExtractReceiptLocal(file);
-        const image = await phase6ImagePreview(file);
-        setPreview(image);
-        setDraft({ ...local, id: uid(), fileName:file.name || "receipt", fileType:file.type || "", savedImageUrl:"", imageBase64:image, reviewStatus:"Needs Review" });
-        setSplitItems([]);
-        setStep("review");
-        setMsg("Review before saving. AI/OCR Edge Function can replace this local draft when deployed.");
-      };
-      const upd = k => v => setDraft(p => ({ ...(p || {}), [k]: v }));
-      const addSplit = () => setSplitItems(p => [...p, { id:uid(), description:"", category:"Other", amount:"", business:true }]);
-      const updateSplit = (id, patch) => setSplitItems(p => p.map(x => x.id === id ? { ...x, ...patch } : x));
-      const removeSplit = id => setSplitItems(p => p.filter(x => x.id !== id));
-      const saveReceipt = () => {
-        if (!draft?.vendor || !draft?.date || !phase6Money(draft.amount)) { setMsg("Vendor, date, and amount are required before saving."); return; }
-        const memory = phase6ReadVendorMemory();
-        if (draft.vendor && draft.category) { memory[String(draft.vendor).toLowerCase().trim()] = draft.category; phase6SaveVendorMemory(memory); }
-        const receipt = { ...draft, amount:phase6Money(draft.amount), tax:phase6Money(draft.tax), category:draft.category || "Other", rawOcrText:draft.rawOcrText || "", ocrText:draft.rawOcrText || "", archivedAt:new Date().toISOString(), reviewStatus:"Approved", splitItems };
-        setReceipts(prev => [receipt, ...(prev || [])]);
-        const businessSplits = splitItems.filter(i => i.business !== false && phase6Money(i.amount));
-        if (businessSplits.length) {
-          setExpenses(prev => [...businessSplits.map(i => ({ id:uid(), date:receipt.date, vendor:receipt.vendor, amount:phase6Money(i.amount), category:i.category, paymentMethod:receipt.paymentMethod, receiptId:receipt.id, description:i.description || receipt.vendor, source:"receipt-split" })), ...(prev || [])]);
-        } else {
-          setExpenses(prev => [{ id:uid(), date:receipt.date, vendor:receipt.vendor, amount:receipt.amount, category:receipt.category, paymentMethod:receipt.paymentMethod, receiptId:receipt.id, description:`Receipt: ${receipt.vendor}`, source:"receipt" }, ...(prev || [])]);
-        }
-        if (/bill|utility_bill|software_bill/i.test(receipt.documentType || "") && setBills) {
-          setBills(prev => [{ id:uid(), name:receipt.vendor, amount:receipt.amount, dueDate:receipt.date, category:"Software", frequency:"Monthly", payMethod:receipt.paymentMethod, vendor:receipt.vendor, notes:"Created from receipt/bill scanner", status:"Unpaid", autoRenew:true }, ...(prev || [])]);
-        }
-        addAudit?.({ action:"Saved receipt", page:"Receipt Scanner", details:`${receipt.vendor} ${$(receipt.amount)} categorized as ${receipt.category}` });
-        setStep("upload"); setDraft(null); setPreview(""); setSplitItems([]); setMsg("✅ Receipt saved, archived, and expense created.");
-      };
-      const recent = (receipts || []).slice(0, 10);
-      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="🧾" title="Receipt Scanner" sub="Owner money tool: scan receipt or bill, review, save expense. Employees do not see accounting unless allowed." right={<Btn onClick={() => fileRef.current?.click()}>📸 Scan Receipt / PDF</Btn>} />
-        <input ref={fileRef} type="file" accept="image/*,.pdf,.heic,.heif" capture="environment" style={{ display:"none" }} onChange={e => loadFile(e.target.files?.[0])} />
-        {msg && <Card style={{ marginBottom:12, background:C.g50, border:`1px solid ${C.g200}`, color:C.tx2, fontSize:13 }}>{msg}</Card>}
-        {step === "upload" && <>
-          <Card style={{ textAlign:"center", padding:"34px 18px", marginBottom:14, border:`2px dashed ${C.g300}` }} onClick={() => fileRef.current?.click()}>
-            <div style={{ fontSize:48 }}>📸</div><h2 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0" }}>Scan a receipt, bill, or PDF</h2>
-            <p style={{ color:C.tx3, margin:"0 auto 14px", maxWidth:620 }}>Accepts photo/PDF, creates review draft, saves category memory, and archives image/OCR text for search.</p>
-            <Btn>Choose File / Open Camera</Btn>
-          </Card>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:10, marginBottom:14 }}>
-            <KPI label="Archived Receipts" value={(receipts || []).length} color={C.g700} />
-            <KPI label="Receipt Expenses" value={$((expenses || []).filter(e => e.source === "receipt" || e.source === "receipt-split").reduce((s,e)=>s+(+e.amount||0),0))} color={C.gold} />
-            <KPI label="Vendor Memory" value={Object.keys(phase6ReadVendorMemory()).length} color={C.purple} />
-          </div>
-          <Tbl cols={[{k:"date",l:"Date"},{k:"vendor",l:"Vendor"},{k:"category",l:"Category"},{k:"amount",l:"Amount",right:true},{k:"ocr",l:"Archive"}]} rows={recent.map(r => ({ date:r.date, vendor:r.vendor, category:r.category, amount:$(r.amount), ocr:<Tag text={r.rawOcrText || r.ocrText ? "OCR saved" : "Image saved"} color={C.g600} sm /> }))} empty="No receipts saved yet." />
-        </>}
-        {step === "review" && draft && <Card>
-          <SHdr icon="✅" title="Review Receipt Before Saving" sub="Nothing is saved to expenses until you approve this screen." />
-          <div style={{ display:"grid", gridTemplateColumns:"minmax(220px,340px) 1fr", gap:14 }}>
-            <div>{preview ? <img src={preview} style={{ width:"100%", borderRadius:12, border:`1px solid ${C.bd}` }} /> : <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:40, textAlign:"center" }}>PDF / File Attached</div>}</div>
-            <div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:10 }}>
-                <Inp label="Vendor *" value={draft.vendor} onChange={upd("vendor")} required />
-                <Inp label="Date *" type="date" value={draft.date} onChange={upd("date")} required />
-                <Inp label="Amount *" type="number" value={draft.amount} onChange={upd("amount")} required />
-                <Inp label="Tax" type="number" value={draft.tax} onChange={upd("tax")} />
-                <Sel label="Category" value={draft.category} onChange={upd("category")} options={RECEIPT_CATS} />
-                <Sel label="Payment Method" value={draft.paymentMethod} onChange={upd("paymentMethod")} options={["", ...PAY_METHS]} />
-                <Sel label="Document Type" value={draft.documentType} onChange={upd("documentType")} options={["receipt","bill","utility_bill","software_bill","nursery_invoice"]} />
-              </div>
-              <div style={{ marginTop:10 }}><Inp label="Searchable OCR / Notes" value={draft.rawOcrText} onChange={upd("rawOcrText")} placeholder="OCR text, notes, or item details..." /></div>
-              <Card style={{ marginTop:12, background:C.cardAlt }}>
-                <Row between center><b>Item split for Walmart/Home Depot/etc.</b><Btn sz="sm" v="soft" onClick={addSplit}>+ Add Split</Btn></Row>
-                {splitItems.length === 0 && <p style={{ color:C.tx3, fontSize:12 }}>Optional. Use this to split tape, bins, tools, packaging, or personal/non-business items.</p>}
-                {splitItems.map(i => <div key={i.id} style={{ display:"grid", gridTemplateColumns:"1.4fr 1fr .8fr .8fr auto", gap:8, marginTop:8, alignItems:"end" }}>
-                  <Inp label="Item" value={i.description} onChange={v=>updateSplit(i.id,{description:v})} />
-                  <Sel label="Category" value={i.category} onChange={v=>updateSplit(i.id,{category:v})} options={[...RECEIPT_CATS,"Personal / Non-Business"]} />
-                  <Inp label="Amount" type="number" value={i.amount} onChange={v=>updateSplit(i.id,{amount:v})} />
-                  <label style={{ fontSize:12, color:C.tx2 }}><input type="checkbox" checked={i.business !== false} onChange={e=>updateSplit(i.id,{business:e.target.checked})} /> Business</label>
-                  <Btn sz="sm" v="ghost" onClick={()=>removeSplit(i.id)}>✕</Btn>
-                </div>)}
-              </Card>
-              <Row gap={8} style={{ marginTop:14 }}><Btn onClick={saveReceipt}>Save Receipt + Expense</Btn><Btn v="ghost" onClick={()=>{setStep("upload");setDraft(null);}}>Cancel</Btn></Row>
-            </div>
-          </div>
-        </Card>}
-      </div>;
-    }
-
-    function Bills({ bills = [], setBills }) {
-      const blank = { name:"", amount:"", dueDate:today(), category:BILL_CATS[0], frequency:"Monthly", payMethod:"", vendor:"", notes:"", status:"Unpaid", autoRenew:true };
-      const [form, setForm] = useState(blank);
-      const [show, setShow] = useState(false);
-      const [editId, setEditId] = useState(null);
-      const upd = k => v => setForm(p => ({ ...p, [k]: v }));
-      const addMonths = (dateStr, months) => { const d = new Date((dateStr || today()) + "T12:00:00"); const day = d.getDate(); d.setMonth(d.getMonth() + months); if (d.getDate() < day) d.setDate(0); return d.toISOString().slice(0,10); };
-      const nextDue = b => b.frequency === "Weekly" ? new Date(new Date((b.dueDate || today()) + "T12:00:00").getTime()+7*864e5).toISOString().slice(0,10) : b.frequency === "Quarterly" ? addMonths(b.dueDate,3) : b.frequency === "Annually" ? addMonths(b.dueDate,12) : addMonths(b.dueDate,1);
-      const save = () => { if (!form.name || !phase6Money(form.amount) || !form.dueDate) return; const row = { ...form, amount:phase6Money(form.amount) }; setBills(prev => editId ? (prev || []).map(b => b.id === editId ? { ...row, id:editId } : b) : [{ ...row, id:uid(), createdAt:new Date().toISOString() }, ...(prev || [])]); setEditId(null); setForm(blank); setShow(false); };
-      const markPaid = id => setBills(prev => { const list = prev || []; const bill = list.find(b => b.id === id); const paid = list.map(b => b.id === id ? { ...b, status:"Paid", paidDate:today() } : b); if (!bill || !bill.autoRenew || bill.frequency === "One-Time") return paid; return [{ ...bill, id:uid(), status:"Unpaid", paidDate:"", dueDate:nextDue(bill), previousBillId:bill.id, createdAt:new Date().toISOString(), notes:`${bill.notes || ""} Auto-created after paid.`.trim() }, ...paid]; });
-      const del = id => setBills(prev => (prev || []).filter(b => b.id !== id));
-      const edit = b => { setForm({ ...b }); setEditId(b.id); setShow(true); };
-      const days = d => Math.ceil((new Date(String(d || today()) + "T12:00:00") - new Date()) / 864e5);
-      const unpaid = (bills || []).filter(b => b.status !== "Paid").sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
-      const paid = (bills || []).filter(b => b.status === "Paid").sort((a,b)=>String(b.paidDate||b.dueDate).localeCompare(String(a.paidDate||a.dueDate)));
-      const dueSoon = unpaid.filter(b => days(b.dueDate) <= 14);
-      const recurringMonthly = (bills || []).filter(b => b.autoRenew && b.status !== "Paid").reduce((s,b)=>s+(+b.amount||0) * (b.frequency === "Weekly" ? 4.33 : b.frequency === "Quarterly" ? 1/3 : b.frequency === "Annually" ? 1/12 : 1),0);
-      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="📅" title="Bills" sub="Recurring bills auto-create the next bill when marked Paid." right={<Btn onClick={()=>{setShow(!show);setEditId(null);setForm(blank);}}>{show ? "Cancel" : "+ Add Bill"}</Btn>} />
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, marginBottom:14 }}>
-          <KPI label="Due Soon" value={$(dueSoon.reduce((s,b)=>s+(+b.amount||0),0))} sub={`${dueSoon.length} bills in 14 days`} color={dueSoon.length ? C.amber : C.g600} />
-          <KPI label="Recurring Monthly" value={$(recurringMonthly)} color={C.purple} />
-          <KPI label="Unpaid Total" value={$(unpaid.reduce((s,b)=>s+(+b.amount||0),0))} color={C.red} />
-          <KPI label="Tracked Bills" value={(bills || []).length} />
-        </div>
-        {show && <Card style={{ marginBottom:14 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10 }}>
-            <Inp label="Bill Name *" value={form.name} onChange={upd("name")} required />
-            <Inp label="Amount *" type="number" value={form.amount} onChange={upd("amount")} required />
-            <Inp label="Due Date *" type="date" value={form.dueDate} onChange={upd("dueDate")} required />
-            <Inp label="Vendor" value={form.vendor} onChange={upd("vendor")} />
-            <Sel label="Category" value={form.category} onChange={upd("category")} options={BILL_CATS} />
-            <Sel label="Frequency" value={form.frequency} onChange={upd("frequency")} options={BILL_FREQ} />
-            <Sel label="Pay Method" value={form.payMethod} onChange={upd("payMethod")} options={["",...PAY_METHS]} />
-          </div>
-          <div style={{ marginTop:10 }}><Inp label="Notes" value={form.notes} onChange={upd("notes")} /></div>
-          <label style={{ display:"flex", alignItems:"center", gap:8, marginTop:10, fontSize:13 }}><input type="checkbox" checked={!!form.autoRenew} onChange={e=>setForm(p=>({...p,autoRenew:e.target.checked}))} /> Recurring / auto-create next bill when paid</label>
-          <Row gap={8} style={{ marginTop:12 }}><Btn onClick={save}>{editId ? "Save Bill" : "Add Bill"}</Btn><Btn v="ghost" onClick={()=>{setShow(false);setEditId(null);}}>Cancel</Btn></Row>
-        </Card>}
-        <Tbl cols={[{k:"count",l:"Due"},{k:"name",l:"Bill"},{k:"vendor",l:"Vendor"},{k:"freq",l:"Frequency"},{k:"amount",l:"Amount",right:true},{k:"actions",l:"Actions"}]} rows={unpaid.map(b => ({
-          count:<Tag text={days(b.dueDate) < 0 ? `${Math.abs(days(b.dueDate))}d overdue` : `${days(b.dueDate)}d left`} color={days(b.dueDate) < 0 ? C.red : days(b.dueDate) <= 7 ? C.amber : C.g600} sm />,
-          name:<div><b>{b.name}</b><div style={{ fontSize:11, color:C.tx3 }}>Due {b.dueDate}</div></div>, vendor:b.vendor || "—", freq:<span>{b.frequency}{b.autoRenew ? " 🔄" : ""}</span>, amount:<b>{$(b.amount)}</b>, actions:<Row gap={6}><Btn sz="sm" v="soft" onClick={()=>markPaid(b.id)}>Paid</Btn><Btn sz="sm" v="ghost" onClick={()=>edit(b)}>Edit</Btn><Btn sz="sm" v="ghost" onClick={()=>del(b.id)}>✕</Btn></Row>
-        }))} empty="No unpaid bills." />
-        {paid.length > 0 && <Card style={{ marginTop:14 }}><b>Recently Paid</b>{paid.slice(0,8).map(b => <Row key={b.id} between center style={{ borderTop:`1px solid ${C.bdS}`, padding:"8px 0", marginTop:8 }}><span>{b.name} <small style={{ color:C.tx3 }}>paid {b.paidDate}</small></span><b>{$(b.amount)}</b></Row>)}</Card>}
-      </div>;
-    }
-
-    function Payroll({ timecards = [], employees = [], plants = [], settings = {}, setSettings }) {
-      const [from, setFrom] = useState(today().slice(0,8) + "01");
-      const [to, setTo] = useState(today());
-      const inRange = d => { const x = phase6Date(d); return x >= from && x <= to; };
-      const clockLines = (timecards || []).filter(t => inRange(t.date || t.createdAt)).map(t => ({ type:"Timecard", employee:t.userName || employees.find(e=>e.id===t.userId)?.name || "Employee", date:t.date || today(), gross:+t.totalPay || 0, commission:0, tips:0, total:+t.totalPay || 0, status:t.payrollStatus || "Unpaid" }));
-      const commissionLines = phase6PayrollLinesFromSoldPlants(plants).filter(l => inRange(l.date)).map(l => ({ type:"Show Commission", employee:l.hostEmployeeName || "Host", date:l.date, show:l.showName, gross:l.grossSales, commission:l.commission, tips:l.tips, total:l.totalOwed, status:l.status }));
-      const rows = [...clockLines, ...commissionLines].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-      const markAllPaid = () => { const paid = rows.map(r => ({ ...r, paidAt:new Date().toISOString(), status:"Paid" })); setSettings?.(prev => ({ ...(prev || {}), lastPayrollPaidAt:new Date().toISOString(), lastPayrollPaidRows:paid })); alert("Payroll marked paid for this pay run. Commission source rows stay saved in sold plants."); };
-      const exportRows = [["Type","Employee","Date","Show","Gross Sales","Commission","Tips","Total Owed","Status"], ...rows.map(r => [r.type,r.employee,r.date,r.show||"",r.gross,r.commission,r.tips,r.total,r.status])];
-      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="👥" title="Payroll" sub="Timecards + show commission/tips from finalized imports." right={<Row gap={8}><Btn v="outline" onClick={()=>phase6Csv(`leaf-diary-payroll-${from}-to-${to}.csv`, exportRows)}>Export CSV</Btn><Btn onClick={markAllPaid}>Mark Pay Run Paid</Btn></Row>} />
-        <Card style={{ marginBottom:14 }}><Row gap={10} wrap center><Inp label="From" type="date" value={from} onChange={setFrom} /><Inp label="To" type="date" value={to} onChange={setTo} /></Row></Card>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:10, marginBottom:14 }}>
-          <KPI label="Total Owed" value={$(rows.reduce((s,r)=>s+(+r.total||0),0))} color={C.red} />
-          <KPI label="Timecards" value={$(clockLines.reduce((s,r)=>s+(+r.total||0),0))} color={C.gold} />
-          <KPI label="Commission" value={$(commissionLines.reduce((s,r)=>s+(+r.commission||0),0))} color={C.purple} />
-          <KPI label="Tips" value={$(commissionLines.reduce((s,r)=>s+(+r.tips||0),0))} color={C.g600} />
-        </div>
-        <Tbl cols={[{k:"type",l:"Type"},{k:"employee",l:"Employee"},{k:"date",l:"Date"},{k:"show",l:"Show"},{k:"gross",l:"Gross",right:true},{k:"commission",l:"Commission",right:true},{k:"tips",l:"Tips",right:true},{k:"total",l:"Total",right:true},{k:"status",l:"Status"}]} rows={rows.map(r => ({ type:r.type, employee:r.employee, date:r.date, show:r.show || "—", gross:$(r.gross), commission:$(r.commission), tips:$(r.tips), total:<b>{$(r.total)}</b>, status:<Tag text={r.status || "Unpaid"} color={r.status === "Paid" ? C.g600 : C.amber} sm /> }))} empty="No payroll rows in this date range." />
-      </div>;
-    }
-
-    function Reports({ plants = [], expenses = [], timecards = [], nurseries = [], casdCerts = [], user, settings = {} }) {
-      const [tab, setTab] = useState("month");
-      const [from, setFrom] = useState(today().slice(0,8) + "01");
-      const [to, setTo] = useState(today());
-      const inRange = d => { const x = phase6Date(d); return x >= from && x <= to; };
-      const sold = (plants || []).filter(p => (p.status === "Sold" || p.saleImportId || p.historicalImport) && inRange(p.soldDate || p.saleDate || p.saleImportedAt || p.dateAdded));
-      const inStock = (plants || []).filter(p => p.status === "In Stock" || p.readyForShow);
-      const exps = (expenses || []).filter(e => inRange(e.date || e.createdAt));
-      const gross = sold.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
-      const cogs = sold.reduce((s,p)=>s+(+p.cost || 0),0);
-      const expTotal = exps.reduce((s,e)=>s+(+e.amount || 0),0);
-      const payrollLines = phase6PayrollLinesFromSoldPlants(plants).filter(l => inRange(l.date));
-      const payrollOwed = payrollLines.reduce((s,l)=>s+(+l.totalOwed||0),0) + (timecards || []).filter(t=>inRange(t.date)).reduce((s,t)=>s+(+t.totalPay||0),0);
-      const inventoryValue = inStock.reduce((s,p)=>s+(+p.cost || 0),0);
-      const platformRows = ["Palmstreet","Whatnot","Cash","Shopify","Other"].map(platform => { const list = sold.filter(p => (p.platform || "Other") === platform || (!p.platform && platform === "Other")); const g = list.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0); const c = list.reduce((s,p)=>s+(+p.cost||0),0); return { platform, count:list.length, gross:g, profit:g-c }; }).filter(r=>r.count || r.gross);
-      const showMap = {}; sold.forEach(p => { const k = p.showName || "Unknown Show"; if (!showMap[k]) showMap[k]={show:k,date:p.soldDate||p.saleDate||"",platform:p.platform||"",host:p.hostEmployeeName||"",count:0,gross:0,tips:0,commission:0}; showMap[k].count++; showMap[k].gross += (+p.salePrice||+p.suggestedPrice||0); showMap[k].tips += (+p.tipsAmount||0); showMap[k].commission += (+p.commissionAmount||0); });
-      const showRows = Object.values(showMap).sort((a,b)=>b.gross-a.gross);
-      const ageBuckets = [["0-14",0,14],["15-30",15,30],["31-60",31,60],["61-90",61,90],["90+",91,9999]].map(([label,min,max]) => { const list = inStock.filter(p => { const d=dHeld(p.dateAdded); return d !== null && d>=min && d<=max; }); return { label, count:list.length, cost:list.reduce((s,p)=>s+(+p.cost||0),0) }; });
-      const nurseryMap = {}; (plants || []).forEach(p => { const n = p.nursery || p.nurseryName || p.vendor || "Unknown"; if (!nurseryMap[n]) nurseryMap[n]={nursery:n,bought:0,sold:0,gross:0,cost:0}; nurseryMap[n].bought++; nurseryMap[n].cost += (+p.cost||0); if (p.status === "Sold") { nurseryMap[n].sold++; nurseryMap[n].gross += (+p.salePrice||+p.suggestedPrice||0); }});
-      const nurseryRows = Object.values(nurseryMap).map(n=>({...n, sellThru:n.bought?Math.round(n.sold/n.bought*100):0, profit:n.gross-n.cost})).sort((a,b)=>b.profit-a.profit);
-      const taxRows = [["Date","Type","Vendor/Show","Category","Amount"], ...exps.map(e=>[e.date,"Expense",e.vendor||e.description||"",e.category||"Other",e.amount]), ...sold.map(p=>[p.soldDate||p.saleDate,"COGS",p.nursery||p.name||"Plant","Inventory COGS",p.cost||0]), ...payrollLines.map(l=>[l.date,"Payroll",l.hostEmployeeName||l.showName,"Commission/Tips",l.totalOwed])];
-      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="📈" title="Reports" sub="Owner-only profit reports without turning the employee app into accounting software." right={<Btn v="outline" onClick={()=>phase6Csv(`leaf-diary-tax-ready-${from}-to-${to}.csv`, taxRows)}>Tax Ready Export</Btn>} />
-        <Card style={{ marginBottom:14 }}><Row gap={10} wrap center><Inp label="From" type="date" value={from} onChange={setFrom} /><Inp label="To" type="date" value={to} onChange={setTo} />{["month","platform","shows","aging","nursery","tax"].map(t => <button key={t} onClick={()=>setTab(t)} style={{ padding:"10px 12px", borderRadius:9, border:`1px solid ${tab===t?C.g700:C.bd}`, background:tab===t?C.g700:C.card, color:tab===t?"#fff":C.tx2, fontWeight:800 }}>{t[0].toUpperCase()+t.slice(1)}</button>)}</Row></Card>
-        {tab === "month" && <><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, marginBottom:14 }}><KPI label="Revenue" value={$(gross)} color={C.g700} /><KPI label="COGS" value={$(cogs)} color={C.amber} /><KPI label="Expenses" value={$(expTotal)} color={C.red} /><KPI label="Gross Profit" value={$(gross-cogs)} color={C.g600} /><KPI label="Estimated Net" value={$(gross-cogs-expTotal-payrollOwed)} color={C.purple} /><KPI label="Inventory Value" value={$(inventoryValue)} /><KPI label="Payroll Owed" value={$(payrollOwed)} color={C.gold} /></div></>}
-        {tab === "platform" && <Tbl cols={[{k:"platform",l:"Platform"},{k:"count",l:"Sold"},{k:"gross",l:"Gross",right:true},{k:"profit",l:"Profit",right:true}]} rows={platformRows.map(r=>({platform:r.platform,count:r.count,gross:$(r.gross),profit:$(r.profit)}))} empty="No platform sales in range." />}
-        {tab === "shows" && <Tbl cols={[{k:"show",l:"Show"},{k:"date",l:"Date"},{k:"platform",l:"Platform"},{k:"host",l:"Host"},{k:"count",l:"Sold"},{k:"gross",l:"Gross",right:true},{k:"avg",l:"Avg Sale",right:true},{k:"tips",l:"Tips",right:true},{k:"commission",l:"Commission",right:true}]} rows={showRows.map(r=>({show:r.show,date:r.date,platform:r.platform,host:r.host,count:r.count,gross:$(r.gross),avg:$(r.count?r.gross/r.count:0),tips:$(r.tips),commission:$(r.commission)}))} empty="No show sales in range." />}
-        {tab === "aging" && <Tbl cols={[{k:"bucket",l:"Age Bucket"},{k:"count",l:"Plants"},{k:"cost",l:"Cost At Risk",right:true}]} rows={ageBuckets.map(r=>({bucket:r.label,count:r.count,cost:$(r.cost)}))} />}
-        {tab === "nursery" && <Tbl cols={[{k:"nursery",l:"Supplier"},{k:"bought",l:"Bought"},{k:"sold",l:"Sold"},{k:"sell",l:"Sell-Through"},{k:"gross",l:"Gross",right:true},{k:"profit",l:"Profit",right:true}]} rows={nurseryRows.map(r=>({nursery:r.nursery,bought:r.bought,sold:r.sold,sell:`${r.sellThru}%`,gross:$(r.gross),profit:$(r.profit)}))} empty="No nursery data yet." />}
-        {tab === "tax" && <Card><b>Tax Ready Export</b><p style={{ color:C.tx3 }}>Exports receipts, expenses, COGS, payroll commission/tips, and categories for your accountant.</p><Btn onClick={()=>phase6Csv(`leaf-diary-tax-ready-${from}-to-${to}.csv`, taxRows)}>Download Accountant CSV</Btn></Card>}
-      </div>;
-    }
     function App() {
       const saved = loadLS();
       const [showPwdModal, setShowPwdModal] = useState(false);
@@ -8330,7 +7364,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       }, []);
 
       const [user, setUser] = useState(null);
-      const [page, setPageRaw] = useState(() => { try { return normalizePage(localStorage.getItem("leafDiaryLastPage") || saved?.settings?.lastPage || "today"); } catch(e) { return "today"; } });
+      const [page, setPageRaw] = useState(() => { try { return localStorage.getItem("leafDiaryLastPage") || saved?.settings?.lastPage || "today"; } catch(e) { return "today"; } });
       const [navHistory, setNavHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("leafDiaryNavHistory") || "[]"); } catch(e) { return []; } });
       const [navDir, setNavDir] = useState("forward");
       const [plants, setPlantsRaw] = useState(safeArray(saved?.plants));
@@ -8421,7 +7455,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const setSettings = cloudStateSetter("settings", setSettingsRaw);
 
       const navigate = useCallback((nextPage, opts = {}) => {
-        nextPage = normalizePage(nextPage);
         if (!nextPage) return;
         setPageRaw(prev => {
           if (prev === nextPage) return prev;
@@ -8463,10 +7496,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         setNavHistory([]); setNavDir("forward"); setPageRaw(nextPage || "today");
         try { localStorage.setItem("leafDiaryLastPage", nextPage || "today"); localStorage.setItem("leafDiaryNavHistory", "[]"); } catch(e) {}
       }, []);
-      useEffect(() => {
-        if (!normalizePage(page) || normalizePage(page) !== page) { setPageRaw("today"); return; }
-        try { localStorage.setItem("leafDiaryLastPage", page); } catch(e) {}
-      }, [page]);
+      useEffect(() => { try { localStorage.setItem("leafDiaryLastPage", page); } catch(e) {} }, [page]);
 
 
       /* Migration: clean legacy LD- prefixes only. Never bump or recycle short nursery codes like CF-001. */
@@ -8774,7 +7804,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "dataai" && <BusinessDataAI plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "social" && <SocialMediaCenter plants={plants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} />}
           {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={navigate} />}
-          {page === "ship" && CAN.seeReports(user.role) && <Phase5SoldPlants plants={plants} settings={settings} setSettings={setSettings} user={user} />}
+          {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
           {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
           {page === "pos" && CAN.seeReports(user.role) && <PurchaseOrders purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} user={user} addAudit={addAudit} />}
           {page === "refunds" && CAN.seeReports(user.role) && <RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
@@ -8787,7 +7817,6 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "commissions" && user.role === "owner" && <CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} />}
           {page === "emp_dash" && <EmpDash plants={plants} user={user} timecards={timecards} />}
           {page === "dash" && user.role === "employee" && <EmpDash plants={plants} user={user} timecards={timecards} />}
-          {page === "scanplant" && <Phase3PlantScanner plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "upload" && <InvoiceUpload {...P} />}
           {page === "manual" && <ManualEntry {...P} />}
           {page === "history" && <PastInvoices {...P} />}
@@ -8795,17 +7824,17 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} settings={settings} />}
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={navigate} />}
           {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
-          {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} />}
-          {page === "showimport" && <Phase5PostShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
+          {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
+          {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
           {page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
           {page === "receipts" && <ReceiptScanner receipts={expenseReceipts} setReceipts={setExpenseReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} />}
           {page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} />}
-          {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} plants={plants} settings={settings} setSettings={setSettings} />}
+          {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} />}
           {page === "intel" && CAN.seeReports(user.role) && <BuyIntel plants={plants} settings={settings} />}
-          {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} settings={settings} />}
+          {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} />}
           {page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
           {page === "audit" && CAN.seeAudit(user.role) && <AuditLog auditLog={auditLog} />}
           {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
