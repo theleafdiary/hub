@@ -1089,6 +1089,7 @@
                 {cloudControls.phase2Console && <button onClick={cloudControls.phase2Console} style={{ background:"#111", border:"1px solid #fb6392", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Phase 2 Test Console</button>}
                 {cloudControls.phase3Console && <button onClick={cloudControls.phase3Console} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧠 Ollama Connector</button>}
                 {cloudControls.phase61Gateway && <button onClick={cloudControls.phase61Gateway} style={{ background:"#111", border:"1px solid #7EE7FF", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🌐 AI Gateway</button>}
+                {cloudControls.phase7ShowBuilder && <button onClick={cloudControls.phase7ShowBuilder} style={{ background:"#111", border:"1px solid #fb6392", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🎪 Phase 7 AI Show Builder</button>}
                 {cloudControls.phase4Console && <button onClick={cloudControls.phase4Console} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧭 AI Router</button>}
                 {cloudControls.phase6Console && <button onClick={cloudControls.phase6Console} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧠 Executive AI</button>}
                 {cloudControls.backup && <button onClick={cloudControls.backup} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>📥 Backup</button>}
@@ -6120,7 +6121,168 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       </div>;
     }
 
-    function ShowBuilder({ plants, setPlants, user, addAudit }) {
+    /* ══════════════════════════════════════════════════════════
+       PHASE 7 — AI SHOW BUILDER ENGINE
+       Local deterministic plan first; Ollama/AI Router can enhance the notes.
+       This does not change export formats, inventory status, or current UI flow.
+    ══════════════════════════════════════════════════════════ */
+    const PHASE7_SHOW_PLAN_KEY = "leafdiary_phase7_last_show_plan";
+    const phase7Num = v => Number.isFinite(+String(v ?? "").replace(/[^0-9.-]/g, "")) ? +String(v ?? "").replace(/[^0-9.-]/g, "") : 0;
+    const phase7PlantId = p => String(p?.plantId || p?.plantCode || p?.barcodeValue || p?.id || "").trim();
+    const phase7Price = p => phase7Num(p?.suggestedPrice || p?.listPrice || p?.price || p?.salePrice);
+    const phase7Cost = p => phase7Num(p?.cost || p?.wholesaleCost || p?.unitCost);
+    const phase7Photo = p => !!(p?.photoUrl || p?.photo_url || p?.imageUrl || p?.image_url || p?.photoBase64);
+    const phase7Age = p => dHeld(p?.dateAdded || p?.createdAt || p?.invoiceDate || today()) || 0;
+    const phase7Pot = p => String(p?.potSize || p?.pot_size || p?.size || "").trim();
+    const phase7Margin = p => phase7Price(p) > 0 ? Math.round(((phase7Price(p) - phase7Cost(p)) / phase7Price(p)) * 100) : 0;
+    const phase7CleanName = p => toTC(p?.name || p?.title || "Unnamed Plant");
+    const phase7Money = v => $(phase7Num(v));
+    const phase7SafeArray = v => Array.isArray(v) ? v : [];
+    const phase7UniqueById = arr => {
+      const seen = new Set();
+      return phase7SafeArray(arr).filter(p => {
+        const id = phase7PlantId(p).toLowerCase();
+        if (!id || seen.has(id)) return false;
+        seen.add(id); return true;
+      });
+    };
+    function phase7PlantScore(p, opts = {}) {
+      const price = phase7Price(p), age = phase7Age(p), hasPhoto = phase7Photo(p), margin = phase7Margin(p);
+      let score = 0;
+      score += Math.min(price, 160) * 0.55;
+      score += hasPhoto ? 24 : -18;
+      score += margin >= 60 ? 14 : margin >= 45 ? 6 : -8;
+      score += age >= 45 ? 15 : age >= 30 ? 7 : 0;
+      if (opts.platform === "Whatnot") score += price <= 45 ? 8 : 0;
+      if (opts.platform === "Palmstreet") score += hasPhoto ? 8 : 0;
+      if ((opts.showType || "").toLowerCase().includes("clearance")) score += age >= 45 ? 35 : price <= 25 ? 14 : 0;
+      if ((opts.showType || "").toLowerCase().includes("rare") || (opts.showType || "").toLowerCase().includes("premium")) score += price >= 50 ? 28 : -4;
+      if ((opts.showType || "").toLowerCase().includes("photo")) score += hasPhoto ? 35 : -50;
+      return Math.round(score);
+    }
+    function phase7PickPool(pool, count, used) {
+      const out = [];
+      for (const p of pool) {
+        const id = phase7PlantId(p).toLowerCase();
+        if (!id || used.has(id)) continue;
+        used.add(id); out.push(p);
+        if (out.length >= count) break;
+      }
+      return out;
+    }
+    function phase7EstimateSellThrough(platform, showType, plants) {
+      let base = platform === "Whatnot" ? 0.58 : 0.52;
+      if ((showType || "").toLowerCase().includes("clearance")) base += 0.08;
+      if ((showType || "").toLowerCase().includes("rare")) base -= 0.04;
+      const photoRatio = plants.length ? plants.filter(phase7Photo).length / plants.length : 0;
+      base += (photoRatio - 0.5) * 0.10;
+      return Math.max(0.35, Math.min(0.78, base));
+    }
+    function phase7TalkingPoint(p, i, platform) {
+      const price = phase7Price(p), age = phase7Age(p), pot = phase7Pot(p) || "pot size not listed";
+      const genus = gOf(p?.name);
+      const care = genus === "Alocasia" ? "bright indirect light and steady humidity" : genus === "Hoya" ? "bright light and careful watering" : genus === "Anthurium" ? "humidity and chunky airy mix" : "bright indirect light and stable care";
+      const urgency = age >= 45 ? "value pick from aging inventory" : price >= 50 ? "premium collector hook" : "easy add-on plant";
+      return `${i + 1}. ${phase7CleanName(p)} (${phase7PlantId(p)}) — ${pot}, ${phase7Money(price)}. Position it as a ${urgency}. Mention ${care}.`;
+    }
+    function phase7SequencePlants(selected, platform) {
+      const plants = phase7UniqueById(selected);
+      const premium = plants.filter(p => phase7Price(p) >= 50).sort((a,b)=>phase7Price(b)-phase7Price(a));
+      const aging = plants.filter(p => phase7Age(p) >= 45).sort((a,b)=>phase7Age(b)-phase7Age(a));
+      const mid = plants.filter(p => phase7Price(p) > 20 && phase7Price(p) < 50).sort((a,b)=>phase7PlantScore(b,{platform})-phase7PlantScore(a,{platform}));
+      const low = plants.filter(p => phase7Price(p) <= 20).sort((a,b)=>phase7Age(b)-phase7Age(a));
+      const used = new Set(), order = [];
+      order.push(...phase7PickPool(premium, Math.min(2, premium.length), used));
+      let safety = 0;
+      while (order.length < plants.length && safety < 300) {
+        safety++;
+        const before = order.length;
+        order.push(...phase7PickPool(mid, 2, used));
+        order.push(...phase7PickPool(aging, 1, used));
+        order.push(...phase7PickPool(low, 1, used));
+        order.push(...phase7PickPool(premium, 1, used));
+        const remaining = plants.filter(p => !used.has(phase7PlantId(p).toLowerCase())).sort((a,b)=>phase7PlantScore(b,{platform})-phase7PlantScore(a,{platform}));
+        if (remaining.length && order.length < plants.length) order.push(...phase7PickPool(remaining, 1, used));
+        if (order.length === before) break;
+      }
+      const closer = [...order].sort((a,b)=>phase7Price(b)-phase7Price(a))[0];
+      if (closer && order.length > 3) {
+        const id = phase7PlantId(closer);
+        const next = order.filter(p => phase7PlantId(p) !== id);
+        next.push(closer);
+        return next;
+      }
+      return order;
+    }
+    function phase7BuildShowPlan({ plants = [], platform = "Whatnot", showType = "Balanced Profit Show", targetCount = 30, targetRevenue = 0, brief = "" } = {}) {
+      const inStock = phase7SafeArray(plants).filter(p => String(p?.status || "In Stock") === "In Stock" && phase7PlantId(p) && phase7Price(p) > 0);
+      const noPrice = phase7SafeArray(plants).filter(p => String(p?.status || "In Stock") === "In Stock" && !phase7Price(p));
+      const count = Math.max(5, Math.min(120, parseInt(targetCount, 10) || 30));
+      const opts = { platform, showType };
+      const premium = inStock.filter(p => phase7Price(p) >= 50).sort((a,b)=>phase7PlantScore(b,opts)-phase7PlantScore(a,opts));
+      const aging = inStock.filter(p => phase7Age(p) >= 45).sort((a,b)=>phase7Age(b)-phase7Age(a));
+      const photoReady = inStock.filter(p => phase7Photo(p)).sort((a,b)=>phase7PlantScore(b,opts)-phase7PlantScore(a,opts));
+      const mid = inStock.filter(p => phase7Price(p) >= 20 && phase7Price(p) < 50).sort((a,b)=>phase7PlantScore(b,opts)-phase7PlantScore(a,opts));
+      const low = inStock.filter(p => phase7Price(p) < 20).sort((a,b)=>phase7PlantScore(b,opts)-phase7PlantScore(a,opts));
+      const allRanked = [...inStock].sort((a,b)=>phase7PlantScore(b,opts)-phase7PlantScore(a,opts));
+      const used = new Set();
+      let selected = [];
+      const lowerType = String(showType || "").toLowerCase();
+      if (lowerType.includes("clearance")) {
+        selected.push(...phase7PickPool(aging, Math.ceil(count * .55), used));
+        selected.push(...phase7PickPool(premium, Math.ceil(count * .15), used));
+        selected.push(...phase7PickPool(low, Math.ceil(count * .20), used));
+        selected.push(...phase7PickPool(allRanked, count - selected.length, used));
+      } else if (lowerType.includes("rare") || lowerType.includes("premium")) {
+        selected.push(...phase7PickPool(premium, Math.ceil(count * .45), used));
+        selected.push(...phase7PickPool(photoReady, Math.ceil(count * .35), used));
+        selected.push(...phase7PickPool(aging, Math.ceil(count * .10), used));
+        selected.push(...phase7PickPool(allRanked, count - selected.length, used));
+      } else if (lowerType.includes("photo")) {
+        selected.push(...phase7PickPool(photoReady, count, used));
+        selected.push(...phase7PickPool(allRanked, count - selected.length, used));
+      } else {
+        selected.push(...phase7PickPool(premium, Math.ceil(count * .20), used));
+        selected.push(...phase7PickPool(mid, Math.ceil(count * .35), used));
+        selected.push(...phase7PickPool(aging, Math.ceil(count * .25), used));
+        selected.push(...phase7PickPool(low, Math.ceil(count * .10), used));
+        selected.push(...phase7PickPool(allRanked, count - selected.length, used));
+      }
+      selected = phase7SequencePlants(selected.slice(0, count), platform);
+      const plantIds = selected.map(phase7PlantId).filter(Boolean);
+      const showValue = selected.reduce((s,p)=>s+phase7Price(p),0);
+      const showCost = selected.reduce((s,p)=>s+phase7Cost(p),0);
+      const avgPrice = selected.length ? showValue / selected.length : 0;
+      const sellThrough = phase7EstimateSellThrough(platform, showType, selected);
+      const estimatedRevenue = showValue * sellThrough;
+      const platformFeeRate = platform === "Palmstreet" ? PS_FEE : platform === "Whatnot" ? WN_FEE : 0.09;
+      const estimatedFees = estimatedRevenue * platformFeeRate;
+      const estimatedProfit = estimatedRevenue - (showCost * sellThrough) - estimatedFees;
+      const missingPhotos = selected.filter(p => !phase7Photo(p));
+      const agingSelected = selected.filter(p => phase7Age(p) >= 45);
+      const premiumSelected = selected.filter(p => phase7Price(p) >= 50);
+      const opener = selected.slice(0, 3).map(p => `${phase7PlantId(p)} ${phase7CleanName(p)}`);
+      const closer = selected.length ? `${phase7PlantId(selected[selected.length-1])} ${phase7CleanName(selected[selected.length-1])}` : "No closer selected";
+      const warnings = [];
+      if (!selected.length) warnings.push("No eligible In Stock plants with prices were found.");
+      if (missingPhotos.length) warnings.push(`${missingPhotos.length} selected plant(s) are missing photos. They may still export, but photos improve show performance.`);
+      if (noPrice.length) warnings.push(`${noPrice.length} In Stock plant(s) have no price and were skipped.`);
+      if (targetRevenue && estimatedRevenue < phase7Num(targetRevenue)) warnings.push(`Estimated revenue ${phase7Money(estimatedRevenue)} is below target ${phase7Money(targetRevenue)}. Increase plant count or include more premium plants.`);
+      const strategy = [
+        `Platform: ${platform}. Keep ${platform === "Whatnot" ? "opening bids whole-dollar and high-energy" : "listing copy clean with care details and strong photos"}.`,
+        `Open with ${opener.join(" • ") || "your strongest photo-ready plant"}.`,
+        `Use ${agingSelected.length} aging plant(s) as value moments in the middle instead of starting with clearance.` ,
+        `Close with ${closer}.`,
+        brief ? `Owner brief included: ${brief}` : "Owner brief: no extra instructions."
+      ];
+      return { ok:true, phase:"Phase 7 AI Show Builder", platform, showType, targetCount:count, targetRevenue:phase7Num(targetRevenue), plantIds, selectedPlants:selected, showValue, showCost, avgPrice, sellThrough, estimatedRevenue, estimatedFees, estimatedProfit, premiumCount:premiumSelected.length, agingCount:agingSelected.length, missingPhotoCount:missingPhotos.length, skippedNoPrice:noPrice.length, strategy, warnings, talkingPoints:selected.map((p,i)=>phase7TalkingPoint(p,i,platform)), generatedAt:new Date().toISOString(), appVersion:APP_VERSION };
+    }
+    function phase7BuildAIPrompt(plan) {
+      return `You are the Leaf Diary AI Show Director. Improve this show plan without inventing plant data. Keep it practical for a live plant seller on Whatnot/Palmstreet. Return: 1) opener strategy, 2) middle pacing, 3) clearance placement, 4) closer, 5) 8 short live talking points. Data:\n${JSON.stringify({ platform:plan.platform, showType:plan.showType, plantIds:plan.plantIds, value:plan.showValue, estimatedRevenue:plan.estimatedRevenue, estimatedProfit:plan.estimatedProfit, strategy:plan.strategy, warnings:plan.warnings, talkingPoints:plan.talkingPoints.slice(0,20) }, null, 2)}`;
+    }
+
+
+    function ShowBuilder({ plants, setPlants, user, addAudit, settings = {}, setSettings, phase3Config, phase4Routes }) {
       const LOGO_FALLBACK = "https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200";
       const [showName, setShowName] = useState(`Leaf Diary Show ${today()}`);
       const [ids, setIds] = useState(getSavedShowIds());
@@ -6139,6 +6301,15 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const [whatnotListingType, setWhatnotListingType] = useState('Auction');
       const [includeWhatnotCost, setIncludeWhatnotCost] = useState(true);
       const [msg, setMsg] = useState('');
+      const [phase7Platform, setPhase7Platform] = useState(settings?.phase7ShowPlatform || 'Whatnot');
+      const [phase7ShowType, setPhase7ShowType] = useState(settings?.phase7ShowType || 'Balanced Profit Show');
+      const [phase7TargetCount, setPhase7TargetCount] = useState(settings?.phase7TargetCount || 30);
+      const [phase7TargetRevenue, setPhase7TargetRevenue] = useState(settings?.phase7TargetRevenue || '');
+      const [phase7Brief, setPhase7Brief] = useState(settings?.phase7ShowBrief || '');
+      const [phase7Plan, setPhase7Plan] = useState(() => safeObject(settings?.phase7LastShowPlan).ok ? settings.phase7LastShowPlan : null);
+      const [phase7AiText, setPhase7AiText] = useState(settings?.phase7LastAiText || '');
+      const [phase7Busy, setPhase7Busy] = useState(false);
+
 
       useEffect(() => saveShowIds(ids), [ids]);
       useEffect(() => setVisibleLimit(60), [pickSearch, potFilter, photoFilter, statusFilter, priceFilter, hideAdded, viewMode]);
@@ -6285,6 +6456,43 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         setMsg(`Added ${ready.length} show-ready plants with photos and prices.`);
       };
 
+      const runPhase7ShowBuilder = async () => {
+        setPhase7Busy(true);
+        const plan = phase7BuildShowPlan({ plants, platform:phase7Platform, showType:phase7ShowType, targetCount:phase7TargetCount, targetRevenue:phase7TargetRevenue, brief:phase7Brief });
+        setPhase7Plan(plan);
+        setPhase7AiText('');
+        try { localStorage.setItem(PHASE7_SHOW_PLAN_KEY, JSON.stringify(plan)); } catch(e) {}
+        setSettings && setSettings(prev => ({ ...prev, phase7LastShowPlan:plan, phase7ShowPlatform:phase7Platform, phase7ShowType:phase7ShowType, phase7TargetCount:phase7TargetCount, phase7TargetRevenue:phase7TargetRevenue, phase7ShowBrief:phase7Brief, phase7LastRun:new Date().toISOString() }));
+        addAudit && addAudit({ action:`Phase 7 AI Show Builder created ${plan.plantIds.length}-plant ${phase7Platform} plan`, page:'Show Builder', user:user?.name || 'Owner', details:`Value ${phase7Money(plan.showValue)} · est revenue ${phase7Money(plan.estimatedRevenue)} · est profit ${phase7Money(plan.estimatedProfit)}` });
+        setMsg(`AI Show Builder created ${plan.plantIds.length} plant plan for ${phase7Platform}. Review it, then apply to show cart.`);
+        if (typeof phase4RouteAI === 'function') {
+          try {
+            const appData = { plants };
+            const res = await phase4RouteAI({ question:'Improve this Leaf Diary show plan.', forcedRoute:'shows', appData, user, phase3Cfg:phase3Config, phase4Cfg:phase4Routes, extraPrompt:phase7BuildAIPrompt(plan) });
+            const txt = res?.answer || '';
+            setPhase7AiText(txt);
+            setSettings && setSettings(prev => ({ ...prev, phase7LastAiText:txt }));
+          } catch(e) { if (typeof phase1LogError === 'function') phase1LogError('phase7RouteEnhancement', e); }
+        }
+        setPhase7Busy(false);
+      };
+      const applyPhase7Plan = () => {
+        if (!phase7Plan?.plantIds?.length) { setMsg('Build an AI show plan first.'); return; }
+        if (ids.length && !confirm('Replace the current show cart with the AI plan?')) return;
+        setIds(phase7Plan.plantIds);
+        setShowName(`${phase7Platform} ${phase7ShowType} ${today()}`);
+        setMsg(`Applied ${phase7Plan.plantIds.length} AI-selected plants to the show cart. Export formats are unchanged.`);
+      };
+      const addPhase7PlanToCart = () => {
+        if (!phase7Plan?.plantIds?.length) { setMsg('Build an AI show plan first.'); return; }
+        addPlantIds(phase7Plan.plantIds);
+        setMsg(`Added ${phase7Plan.plantIds.length} AI-selected plants to existing cart.`);
+      };
+      const downloadPhase7Plan = () => {
+        const plan = phase7Plan || phase7BuildShowPlan({ plants, platform:phase7Platform, showType:phase7ShowType, targetCount:phase7TargetCount, targetRevenue:phase7TargetRevenue, brief:phase7Brief });
+        phase1DownloadJson(`leafdiary-phase7-ai-show-plan-${today()}.json`, { plan, aiText:phase7AiText, exportedAt:new Date().toISOString(), appVersion:APP_VERSION });
+      };
+
       const FilterButton = ({ active, children, onClick }) => <button onClick={onClick} style={{ border: `1.5px solid ${active ? C.g700 : C.bd}`, background: active ? C.g700 : C.card, color: active ? '#fff' : C.tx2, borderRadius: 999, padding: '9px 12px', fontSize: 13, fontWeight: 800, cursor: 'pointer', minHeight: 42 }}>{children}</button>;
       const PlantCard = ({ p }) => {
         const id = plantIdOf(p);
@@ -6314,12 +6522,48 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       };
 
       return <div style={{ padding: '14px 14px 120px', background: C.bg, minHeight: '100vh' }}>
-        <SHdr icon="🎪" title="Show Builder" sub="Pick plants visually, build a show cart, then export using your existing Palmstreet and Whatnot files."
+        <SHdr icon="🎪" title="Show Builder" sub="Phase 7 AI show planner plus your existing visual picker and unchanged Palmstreet/Whatnot exports."
           right={<Row gap={6} wrap><Btn onClick={exportWhatnot}>🛒 Export Whatnot CSV</Btn><Btn v="soft" onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear Show</Btn></Row>} />
         {msg && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 800 }}>{msg}</div>}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 330px) minmax(0, 1fr) minmax(300px, 390px)', gap: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Card style={{ borderTop: `4px solid #fb6392`, background:'#fff7fb' }}>
+              <Row between center wrap gap={8} style={{ marginBottom:10 }}>
+                <div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:19 }}>🤖 Phase 7 AI Show Builder</div><div style={{ fontSize:12, color:C.tx3 }}>Build a Whatnot or Palmstreet show automatically, then review before export.</div></div>
+                <Tag text="AI show director" color={C.purple} />
+              </Row>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+                <Sel label="Platform" value={phase7Platform} onChange={setPhase7Platform} options={["Whatnot", "Palmstreet"]} />
+                <Sel label="Show Type" value={phase7ShowType} onChange={setPhase7ShowType} options={["Balanced Profit Show", "Rare Collector Show", "Clearance Cash Unlock", "Photo-Ready Fast Show", "Premium Anchor Show"]} />
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+                <Inp label="Target Plant Count" type="number" value={phase7TargetCount} onChange={setPhase7TargetCount} />
+                <Inp label="Target Revenue" type="number" value={phase7TargetRevenue} onChange={setPhase7TargetRevenue} placeholder="optional" />
+              </div>
+              <textarea value={phase7Brief} onChange={e=>setPhase7Brief(e.target.value)} placeholder="Optional: Friday night rare show, push aging inventory, include premium hooks, avoid no-photo plants..." style={{ width:'100%', minHeight:72, padding:11, border:`1.5px solid ${C.bd}`, borderRadius:10, fontSize:13, fontFamily:F.body, resize:'vertical', marginBottom:10 }} />
+              <Row gap={7} wrap>
+                <Btn onClick={runPhase7ShowBuilder} disabled={phase7Busy}>{phase7Busy ? 'Building...' : '🤖 Build AI Show'}</Btn>
+                <Btn v="soft" onClick={applyPhase7Plan} disabled={!phase7Plan?.plantIds?.length}>Replace Cart</Btn>
+                <Btn v="outline" onClick={addPhase7PlanToCart} disabled={!phase7Plan?.plantIds?.length}>Add To Cart</Btn>
+                <Btn v="ghost" onClick={downloadPhase7Plan}>Download Plan</Btn>
+              </Row>
+              {phase7Plan && <div style={{ marginTop:12 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:8, marginBottom:8 }}>
+                  <KPI label="AI Plants" value={phase7Plan.plantIds.length} sub={`${phase7Plan.premiumCount} premium · ${phase7Plan.agingCount} aging`} color="#fb6392" />
+                  <KPI label="Est. Revenue" value={phase7Money(phase7Plan.estimatedRevenue)} sub={`Value ${phase7Money(phase7Plan.showValue)}`} color={C.gold} />
+                  <KPI label="Est. Profit" value={phase7Money(phase7Plan.estimatedProfit)} sub={`${Math.round((phase7Plan.sellThrough||0)*100)}% sell-through`} color={phase7Plan.estimatedProfit >= 0 ? C.g600 : C.red} />
+                  <KPI label="Warnings" value={(phase7Plan.warnings||[]).length} sub={`${phase7Plan.missingPhotoCount} missing photos`} color={(phase7Plan.warnings||[]).length ? C.amber : C.g600} />
+                </div>
+                {(phase7Plan.warnings||[]).length > 0 && <div style={{ background:C.amberBg, border:`1px solid ${C.amber}40`, borderRadius:10, padding:9, marginBottom:8 }}>{phase7Plan.warnings.slice(0,3).map((w,i)=><div key={i} style={{ fontSize:11, color:C.amber, fontWeight:800 }}>⚠️ {w}</div>)}</div>}
+                <details open style={{ background:C.card, border:`1px solid ${C.bdS}`, borderRadius:10, padding:10 }}>
+                  <summary style={{ cursor:'pointer', fontWeight:900, color:C.g900 }}>AI show order preview</summary>
+                  <div style={{ marginTop:8, maxHeight:170, overflowY:'auto' }}>{(phase7Plan.selectedPlants||[]).slice(0,18).map((p,i)=><div key={phase7PlantId(p)} style={{ display:'flex', justifyContent:'space-between', gap:8, borderBottom:`1px solid ${C.bdS}`, padding:'6px 0' }}><div style={{ minWidth:0 }}><b style={{ fontSize:11 }}>{i+1}. {phase7CleanName(p)}</b><div style={{ fontSize:10, color:C.tx3, fontFamily:F.mono }}>{phase7PlantId(p)} · {phase7Pot(p)||'No pot'} · {phase7Age(p)}d</div></div><span style={{ fontSize:11, fontWeight:900, color:C.g900 }}>{phase7Money(phase7Price(p))}</span></div>)}</div>
+                </details>
+                {phase7AiText && <div style={{ marginTop:8, background:'#000', color:'#fff', borderRadius:10, padding:10, fontSize:12, lineHeight:1.45, whiteSpace:'pre-wrap', maxHeight:180, overflowY:'auto' }}>{phase7AiText}</div>}
+              </div>}
+            </Card>
+
             <Card style={{ borderTop: `4px solid ${C.g600}` }}>
               <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 18, marginBottom: 4 }}>1. Show Setup</div>
               <div style={{ fontSize: 12, color: C.tx3, marginBottom: 12 }}>Your export settings stay the same. Only plant picking changed.</div>
@@ -7711,7 +7955,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
        corrupted-data repair, startup diagnostics, and crash logs.
        This does NOT redesign the UI or remove existing systems.
     ══════════════════════════════════════════════════════════ */
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 6.1 Ollama API Gateway + Clean AI Menu Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — Phase 7 AI Show Builder + Ollama API Gateway Build 2026-05-09";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -10130,6 +10374,7 @@ ${local.summary || "Fallback completed."}`;
           phase2Console: () => navigate("devtools"),
           phase3Console: () => navigate("ollama"),
           phase61Gateway: () => navigate("aigateway"),
+          phase7ShowBuilder: () => navigate("showbuilder"),
           phase4Console: () => navigate("airouter"),
           phase6Console: () => navigate("execai"),
           phaseStatusItems: [
@@ -10137,6 +10382,7 @@ ${local.summary || "Fallback completed."}`;
             { id:"phase2", icon:"🧪", title:"Phase 2 Developer Safety", value:`${phase2Report?.score || 0}/100`, sub:"Diagnostics, smoke tests, rollback checkpoints.", color: phase2Report?.ok ? "#97d33e" : "#fb6392", border: phase2Report?.ok ? "rgba(151,211,62,.32)" : "rgba(251,99,146,.42)", actionLabel:"Open", onClick:()=>navigate("devtools") },
             { id:"phase3", icon:"🧠", title:"Phase 3 Ollama", value:`${phase3StatusLabel(phase3Status?.status || "not_tested")} · ${phase3Config?.primaryModel || "no model"}`, sub:"Local desktop AI connector.", color: phase3StatusColor(phase3Status?.status || "not_tested"), border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("ollama") },
             { id:"phase61", icon:"🌐", title:"Phase 6.1 AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Mobile Ollama API bridge for phone use.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
+            { id:"phase7", icon:"🎪", title:"Phase 7 AI Show Builder", value:`${settings?.phase7LastShowPlan?.ok ? `${settings.phase7LastShowPlan.plantIds?.length || 0} plants planned` : "Ready to build"}`, sub:"AI show planner inside Show Builder. Review first, then export normally.", color:"#fb6392", border:"rgba(251,99,146,.30)", actionLabel:"Open", onClick:()=>navigate("showbuilder") },
             { id:"phase4", icon:"🧭", title:"Phase 4 AI Router", value:`${phase4Routes?.enabled ? "Enabled" : "Disabled"} · ${Object.keys(phase4RouteDefinitions(phase4Routes)).length} routes`, sub:"Routes each AI task to the right model.", color: phase4Routes?.enabled ? "#68d8ff" : "rgba(255,255,255,.55)", border:"rgba(104,216,255,.28)", actionLabel:"Open", onClick:()=>navigate("airouter") },
             { id:"phase5", icon:"💬", title:"Phase 5 Ask AI", value:"Router-connected · fallback protected", sub:"Business questions use gateway/router/fallback.", color:"#97d33e", border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("dataai") },
             { id:"phase6", icon:"🧠", title:"Phase 6 Executive AI", value:"Command center ready", sub:"CEO-style decisions, simulations and priorities.", color:"#97d33e", border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("execai") },
@@ -10195,7 +10441,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} settings={settings} />}
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={navigate} />}
           {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
-          {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
+          {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
           {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
