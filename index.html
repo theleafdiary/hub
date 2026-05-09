@@ -5530,17 +5530,23 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const photoOf = p => p?.photoUrl || p?.photo_url || p?.imageUrl || p?.image_url || p?.photoBase64 || '';
       const nurseryOf = p => String(p?.nurseryCode || p?.nursery || p?.vendor || '').trim();
       const statusOf = p => p?.status || 'In Stock';
+      const isShowablePlant = p => statusOf(p) === 'In Stock';
+      const showablePlants = plants.filter(isShowablePlant);
       const selectedSet = new Set(ids.map(x => String(x).toLowerCase()));
       const byPlantId = id => plants.find(p => plantIdOf(p).toLowerCase() === String(id).trim().toLowerCase());
-      const showPlants = ids.map(id => byPlantId(id)).filter(Boolean);
+      const showPlants = ids.map(id => byPlantId(id)).filter(p => p && isShowablePlant(p));
       const missing = ids.filter(id => !byPlantId(id));
       const errors = validatePalmstreetPlants(showPlants);
       const whatnotErrors = validateWhatnotPlants(showPlants);
 
       const addPlantIds = list => {
         const clean = (list || []).map(x => String(x || '').trim()).filter(Boolean);
-        if (!clean.length) return;
-        setIds(prev => Array.from(new Set([...prev, ...clean])));
+        const showable = clean.filter(id => {
+          const p = byPlantId(id);
+          return p && isShowablePlant(p);
+        }).map(id => plantIdOf(byPlantId(id)));
+        if (!showable.length) { setMsg('Only In Stock plants can be added to a show.'); return; }
+        setIds(prev => Array.from(new Set([...prev, ...showable])));
       };
       const addIds = raw => {
         const found = [], notFound = [];
@@ -5556,6 +5562,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const togglePlant = p => {
         const id = plantIdOf(p);
         if (!id) return;
+        if (!isShowablePlant(p)) { setMsg(`${toTC(p.name)} cannot be added because it is ${statusOf(p)}. Only In Stock plants can go into a show.`); return; }
         if (selectedSet.has(id.toLowerCase())) {
           removeId(id);
           setMsg(`${toTC(p.name)} removed from show.`);
@@ -5593,8 +5600,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         setMsg('Internal show list exported.');
       };
 
-      const availablePots = Array.from(new Set(plants.map(potOf).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-      const allStatuses = Array.from(new Set(plants.map(statusOf).filter(Boolean))).sort();
+      const availablePots = Array.from(new Set(showablePlants.map(potOf).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      const allStatuses = ['In Stock'];
       const matchesPrice = p => {
         const price = priceOf(p);
         if (priceFilter === 'All') return true;
@@ -5606,11 +5613,11 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         if (priceFilter === 'Missing') return !price;
         return true;
       };
-      const filteredPlants = plants.filter(p => {
+      const filteredPlants = showablePlants.filter(p => {
         const id = plantIdOf(p);
         if (!id) return false;
         if (hideAdded && selectedSet.has(id.toLowerCase())) return false;
-        if (statusFilter !== 'All' && statusOf(p) !== statusFilter) return false;
+        if (!isShowablePlant(p)) return false;
         if (potFilter !== 'All') {
           const pot = potOf(p) || 'Unknown';
           if (potFilter === 'Unknown') { if (pot !== 'Unknown') return false; }
@@ -5627,7 +5634,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         return true;
       });
       const visiblePlants = filteredPlants.slice(0, visibleLimit);
-      const quick = plants.filter(p => {
+      const quick = showablePlants.filter(p => {
         const q = search.toLowerCase().trim();
         if (!q) return false;
         return plantIdOf(p).toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q) || (p.nurseryCode || '').toLowerCase().includes(q);
@@ -5646,11 +5653,11 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         setMsg(`Added ${toAdd.length} filtered plants to the show.`);
       };
       const addAllInventory = () => {
-        const all = plants.map(plantIdOf).filter(Boolean);
-        if (!all.length) { setMsg('No inventory plants found.'); return; }
-        if (!confirm(`Add all ${all.length} inventory plants to this show?`)) return;
+        const all = showablePlants.map(plantIdOf).filter(Boolean);
+        if (!all.length) { setMsg('No In Stock plants found.'); return; }
+        if (!confirm(`Add all ${all.length} In Stock plants to this show?`)) return;
         addPlantIds(all);
-        setMsg(`Added all ${all.length} inventory plants to the show.`);
+        setMsg(`Added all ${all.length} In Stock plants to the show.`);
       };
       const addShowReady = () => {
         const ready = plants.filter(p => statusOf(p) === 'In Stock' && priceOf(p) > 0 && photoOf(p)).map(plantIdOf).filter(Boolean);
@@ -5709,7 +5716,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             </Card>
 
             <Card style={{ borderTop: `4px solid ${C.blue}` }}>
-              <Row between center style={{ marginBottom: 10 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 18 }}>2. Find Plants</div><div style={{ fontSize: 12, color: C.tx3 }}>{filteredPlants.length} match · {showPlants.length} in show</div></div><Btn sz="sm" v="ghost" onClick={clearFilters}>Reset</Btn></Row>
+              <Row between center style={{ marginBottom: 10 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 18 }}>2. Find Plants</div><div style={{ fontSize: 12, color: C.tx3 }}>{filteredPlants.length} In Stock match · {showPlants.length} in show</div></div><Btn sz="sm" v="ghost" onClick={clearFilters}>Reset</Btn></Row>
               <Inp value={pickSearch} onChange={setPickSearch} placeholder="Search name, Plant ID, nursery, rack..." />
               <div style={{ marginTop: 12, fontSize: 12, fontWeight: 900, color: C.tx2 }}>Pot Size</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
@@ -5723,9 +5730,9 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
               </div>
               <div style={{ marginTop: 12, fontSize: 12, fontWeight: 900, color: C.tx2 }}>Status</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                <FilterButton active={statusFilter === 'All'} onClick={() => setStatusFilter('All')}>All</FilterButton>
-                {allStatuses.slice(0, 8).map(s => <FilterButton key={s} active={statusFilter === s} onClick={() => setStatusFilter(s)}>{s}</FilterButton>)}
+                <FilterButton active={true} onClick={() => setStatusFilter('In Stock')}>In Stock Only</FilterButton>
               </div>
+              <div style={{ marginTop: 6, fontSize: 11, color: C.tx3, fontWeight: 700 }}>Sold, dead, damaged, personal, and returned plants are never available for show export.</div>
               <div style={{ marginTop: 12, fontSize: 12, fontWeight: 900, color: C.tx2 }}>Price</div>
               <select value={priceFilter} onChange={e => setPriceFilter(e.target.value)} style={{ width: '100%', marginTop: 6, padding: 12, border: `1.5px solid ${C.bd}`, borderRadius: 10, background: C.card, fontSize: 14 }}>
                 <option value="All">All prices</option><option value="0-15">$0–$15</option><option value="15-25">$15–$25</option><option value="25-50">$25–$50</option><option value="50-100">$50–$100</option><option value="100+">$100+</option><option value="Missing">Missing price</option>
@@ -5734,7 +5741,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
               <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
                 <Btn full onClick={addFiltered} disabled={!filteredPlants.length}>Add All {filteredPlants.length} Filtered</Btn>
                 <Btn full v="soft" onClick={addShowReady}>Add Show-Ready Plants</Btn>
-                <Btn full v="outline" onClick={addAllInventory}>Add All Inventory</Btn>
+                <Btn full v="outline" onClick={addAllInventory}>Add All In Stock</Btn>
               </div>
             </Card>
 
