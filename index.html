@@ -739,7 +739,7 @@
     function Btn({ children, onClick, v = "fill", sz = "md", full, disabled, style: s = {} }) {
       const pad = sz === "sm" ? "8px 14px" : sz === "lg" ? "15px 32px" : "12px 20px";
       const fs = sz === "sm" ? 12 : sz === "lg" ? 16 : 14;
-      const VS = { fill: { background: C.g700, color: "#fff", border: `1px solid ${C.g700}` }, soft: { background: C.g100, color: C.g800, border: `1px solid ${C.g300}` }, outline: { background: "transparent", color: C.g700, border: `1.5px solid ${C.g700}` }, ghost: { background: "transparent", color: C.tx3, border: `1px solid ${C.bd}` }, danger: { background: C.red, color: "#fff", border: `1px solid ${C.red}` }, gold: { background: C.gold, color: "#fff", border: `1px solid ${C.gold}` } };
+      const VS = { fill: { background: "#000", color: "#fff", border: "1px solid #000" }, soft: { background: C.g100, color: C.g800, border: `1px solid ${C.g300}` }, outline: { background: "transparent", color: C.g700, border: `1.5px solid ${C.g700}` }, ghost: { background: "transparent", color: C.tx3, border: `1px solid ${C.bd}` }, danger: { background: C.red, color: "#fff", border: `1px solid ${C.red}` }, gold: { background: C.gold, color: "#fff", border: `1px solid ${C.gold}` } };
       return <button onClick={onClick} disabled={disabled} style={{ ...VS[v], padding: pad, fontSize: fs, fontWeight: 600, borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer", fontFamily: F.body, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", opacity: disabled ? .5 : 1, width: full ? "100%" : undefined, justifyContent: full ? "center" : undefined, transition: "opacity .12s", ...s }}>{children}</button>;
     }
     const Card = ({ children, style: s = {}, onClick }) => <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "16px 20px", cursor: onClick ? "pointer" : undefined, ...s }}>{children}</div>;
@@ -913,7 +913,7 @@
     }
 
 
-    function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {} }) {
+    function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {}, cloudControls = {} }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const [addOpen, setAddOpen] = useState(false);
       const [menuSearch, setMenuSearch] = useState("");
@@ -927,7 +927,7 @@
       const quickAdd = [
         ["Add Plant","manual","✏️"], ["Upload Invoice","upload","📸"], ["Scan Receipt","receipts","🧾"],
         ["Import Show","showimport","📥"], ["Scan Receipt","receipts","🧾"], ["Live Show","liveshow","🎥"],
-        ["Sold Review","ship","✅"], ["Ask Leaf Diary","dataai","💬"]
+        ["Sold Review","ship","✅"]
       ].filter(x => tools.some(t => t.id === x[1]) || WORKSPACES.some(w => w.id === x[1]));
       const menuGroups = ["Today","Plants","Shows","Sold","Money","Buying","Marketing","Business","Admin"]
         .map(g => ({ group:g, items:tools.filter(t => t.group === g && (!menuSearch || (t.l + " " + t.group).toLowerCase().includes(menuSearch.toLowerCase()))) }))
@@ -941,7 +941,6 @@
           <Row gap={7} center>
             {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
             <button onClick={()=>setAddOpen(true)} style={{ background:"#fb6392", color:"#fff", border:"none", borderRadius:999, width:38, height:38, fontSize:22, lineHeight:1, fontWeight:900, cursor:"pointer", boxShadow:"0 0 14px rgba(251,99,146,.45)" }}>+</button>
-            <button onClick={()=>setPage("dataai")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:20, padding:"7px 10px", fontSize:12, fontWeight:900, cursor:"pointer" }}>🤖</button>
             <button onClick={()=>setMenuOpen(p=>!p)} style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
           </Row>
         </div>
@@ -950,6 +949,20 @@
           <div onClick={e=>e.stopPropagation()} style={{ width:"100%", maxWidth:520, background:"#050505", color:"#fff", borderRadius:"24px 24px 0 0", padding:"18px 16px calc(22px + env(safe-area-inset-bottom,0px))", borderTop:"2px solid #97d33e", boxShadow:"0 -18px 60px rgba(0,0,0,.5)" }}>
             <Row between center style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:22, color:"#97d33e", fontWeight:900 }}>Quick Add</div><div style={{ fontSize:12, color:"rgba(255,255,255,.65)" }}>One button for the things you do all day.</div></div><button onClick={()=>setAddOpen(false)} style={{ background:"rgba(255,255,255,.1)", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:12, padding:"8px 12px", fontSize:18 }}>×</button></Row>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{quickAdd.map(([label,id,icon]) => <button key={id} onClick={()=>openPage(id)} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:16, padding:"15px 12px", textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><div style={{ fontSize:24 }}>{icon}</div><div style={{ fontWeight:900, marginTop:5 }}>{label}</div></button>)}</div>
+            {cloudControls && <div style={{ marginTop:14, paddingTop:14, borderTop:"1px solid rgba(255,255,255,.12)" }}>
+              <div style={{ fontSize:12, fontWeight:900, color:"#97d33e", letterSpacing:.7, textTransform:"uppercase", marginBottom:9 }}>Cloud & Backup Controls</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:9 }}>
+                {cloudControls.toggleSafeMode && <button onClick={cloudControls.toggleSafeMode} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>{cloudControls.cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Cloud ON"}</button>}
+                {cloudControls.toggleTeamSync && <button onClick={cloudControls.toggleTeamSync} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>{cloudControls.teamSafeSync ? `👥 Team Sync ON${cloudControls.pendingSyncCount ? ` (${cloudControls.pendingSyncCount})` : ""}` : "👥 Team Sync OFF"}</button>}
+                {cloudControls.loadFromCloud && <button onClick={cloudControls.loadFromCloud} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>⬇️ Load From Cloud</button>}
+                {cloudControls.saveChanges && <button onClick={cloudControls.saveChanges} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>💾 Save Changes{cloudControls.pendingSyncCount ? ` (${cloudControls.pendingSyncCount})` : ""}</button>}
+                {cloudControls.mergeChanges && cloudControls.syncConflict && <button onClick={cloudControls.mergeChanges} style={{ background:"#111", border:"1px solid #C0570A", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🔀 Merge Changes</button>}
+                {cloudControls.forceSave && user?.role === "owner" && <button onClick={cloudControls.forceSave} style={{ background:"#111", border:"1px solid #BE3535", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>⚠️ Owner Force Save</button>}
+                {cloudControls.testCloud && <button onClick={cloudControls.testCloud} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Test Cloud</button>}
+                {cloudControls.backup && <button onClick={cloudControls.backup} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>📥 Backup</button>}
+                {cloudControls.restore && <button onClick={cloudControls.restore} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>📤 Restore</button>}
+              </div>
+            </div>}
           </div>
         </div>}
 
@@ -5939,7 +5952,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         return <div onClick={() => togglePlant(p)} style={{ border: `2px solid ${selected ? C.g600 : C.bd}`, background: selected ? C.g50 : C.card, borderRadius: 16, overflow: 'hidden', cursor: 'pointer', boxShadow: selected ? '0 10px 26px rgba(46,138,85,.16)' : '0 4px 14px rgba(13,43,26,.05)', transition: 'transform .12s, border-color .12s, box-shadow .12s' }}>
           <div style={{ height: viewMode === 'Photo Wall' ? 160 : 118, background: '#F1F6F3', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
             {photo ? <img src={photo} loading="lazy" alt={p.name || id} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={LOGO_FALLBACK} loading="lazy" alt="Leaf Diary" style={{ width: 70, height: 70, objectFit: 'contain', opacity: .7 }} />}
-            {selected && <div style={{ position: 'absolute', top: 8, right: 8, background: C.g700, color: '#fff', borderRadius: 999, padding: '5px 9px', fontWeight: 900, fontSize: 12 }}>Added ✓</div>}
+            {selected && <div style={{ position: 'absolute', top: 8, right: 8, background: "#000", color: '#fff', borderRadius: 999, padding: '5px 9px', fontWeight: 900, fontSize: 12 }}>Added ✓</div>}
             {missingPhoto && <div style={{ position: 'absolute', left: 8, bottom: 8, background: C.amberBg, color: C.amber, border: `1px solid ${C.amber}55`, borderRadius: 999, padding: '4px 8px', fontWeight: 800, fontSize: 11 }}>No photo</div>}
           </div>
           <div style={{ padding: 12 }}>
@@ -8583,7 +8596,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       if (session === undefined) return <div style={{ height: "100vh", background: C.bg }}></div>;
       if (!session) return <AuthScreen />;
-      if (cloudStatus === "loading" || !user) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16, padding: 22, textAlign: "center" }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div><div>Connecting to Leaf Diary Cloud...</div><button onClick={() => { resetBrokenNavStorage(); const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const repairedOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, phone: "", jobTitle: "Owner", hourlyRate: 0, active: true, mustChangePassword: false, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Repair Startup", authStatus: "auth-created" }; const nextUsers = safeArray(users).some(u => u.email === email) ? safeArray(users) : [repairedOwner, ...safeArray(users)]; setUsersRaw(nextUsers); setUser(repairedOwner); try { cloudUpsertState("users", nextUsers); } catch(e) {} setCloudStatus("synced"); setCloudMsg("Startup repaired — app opened locally."); resetToPage("today"); }} style={{ marginTop: 8, background: C.g700, color: "#fff", border: "none", borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Repair Startup</button><button onClick={() => { const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const localOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, active: true, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Offline Continue", authStatus: "auth-created" }; setUser(localOwner); setCloudStatus("offline"); resetToPage("today"); }} style={{ background: C.card, color: C.g800, border: `1px solid ${C.g300}`, borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Open App Offline</button><div style={{ maxWidth: 420, fontSize: 12, color: C.tx3 }}>Use Repair Startup only if the app stays here after deleting data. It does not restore deleted inventory; it creates/repairs your owner profile so the app can open cleanly.</div></div>;
+      if (cloudStatus === "loading" || !user) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, color: C.tx3, flexDirection: "column", gap: 16, padding: 22, textAlign: "center" }}><div className="spin" style={{ width: 24, height: 24, border: `2px solid ${C.g200}`, borderTopColor: C.g600, borderRadius: "50%" }}></div><div>Connecting to Leaf Diary Cloud...</div><button onClick={() => { resetBrokenNavStorage(); const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const repairedOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, phone: "", jobTitle: "Owner", hourlyRate: 0, active: true, mustChangePassword: false, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Repair Startup", authStatus: "auth-created" }; const nextUsers = safeArray(users).some(u => u.email === email) ? safeArray(users) : [repairedOwner, ...safeArray(users)]; setUsersRaw(nextUsers); setUser(repairedOwner); try { cloudUpsertState("users", nextUsers); } catch(e) {} setCloudStatus("synced"); setCloudMsg("Startup repaired — app opened locally."); resetToPage("today"); }} style={{ marginTop: 8, background: "#000", color: "#fff", border: "none", borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Repair Startup</button><button onClick={() => { const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const localOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, active: true, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Offline Continue", authStatus: "auth-created" }; setUser(localOwner); setCloudStatus("offline"); resetToPage("today"); }} style={{ background: C.card, color: C.g800, border: `1px solid ${C.g300}`, borderRadius: 10, padding: "10px 14px", fontWeight: 800 }}>Open App Offline</button><div style={{ maxWidth: 420, fontSize: 12, color: C.tx3 }}>Use Repair Startup only if the app stays here after deleting data. It does not restore deleted inventory; it creates/repairs your owner profile so the app can open cleanly.</div></div>;
       if (user?.blocked || user?.active === false) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, padding: 20 }}><Card style={{ maxWidth: 420, textAlign: "center" }}><div style={{ fontSize: 38 }}>🚫</div><h2 style={{ fontFamily: F.display, color: C.red, margin: "8px 0" }}>Access Disabled</h2><p style={{ color: C.tx3 }}>This user is disabled in Leaf Diary. Contact the owner to re-enable access.</p><Btn v="danger" onClick={handleLogout}>Log Out</Btn></Card></div>;
 
       const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit };
@@ -8592,26 +8605,32 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
         {(showPwdModal || user?.mustChangePassword) && <ChangePasswordModal onClose={() => { if (!user?.mustChangePassword) setShowPwdModal(false); }} user={user} onSuccess={() => { setUsers(prev => prev.map(u => u.id === user.id ? { ...u, mustChangePassword: false } : u)); setUser(prev => prev ? { ...prev, mustChangePassword: false } : prev); setShowPwdModal(false); }} />}
-        <Nav page={page} setPage={navigate} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} />
+        <Nav page={page} setPage={navigate} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} cloudControls={{
+          cloudSafeMode,
+          teamSafeSync,
+          pendingSyncCount,
+          syncConflict,
+          toggleSafeMode: () => setCloudSafeMode(!cloudSafeMode),
+          toggleTeamSync: () => setTeamSafeSync(!teamSafeSync),
+          loadFromCloud: () => loadFromCloud({ force: true }),
+          saveChanges: () => flushTeamSync({ force:false }),
+          mergeChanges: mergeTeamChanges,
+          forceSave: () => saveAllToCloud({ force:true }),
+          testCloud: async () => { try { setCloudStatus("loading"); setCloudMsg("Testing Supabase connection..."); await cloudRequest("plants?select=id&limit=1", { method: "GET" }); setCloudStatus("synced"); setCloudMsg("Supabase test passed"); alert("Supabase test passed. Cloud connection is working."); } catch (err) { const msg = err && err.message ? err.message : String(err); setCloudStatus("offline"); setCloudMsg("Supabase test failed: " + msg); alert("Supabase test failed: " + msg); } },
+          backup: exportBackup,
+          restore: () => backupRef.current && backupRef.current.click()
+        }} />
         <BackBreadcrumbBar page={page} navHistory={navHistory} goBack={goBack} goTo={navigate} goCrumb={goCrumb} />
 
-        {/* Cloud sync indicator strip */}
-        <div style={{ background: C.g900, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {/* Cloud sync indicator strip — compact status only. Controls moved into pink + menu. */}
+        <div style={{ background: "#000", padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", borderTop:"1px solid rgba(151,211,62,.22)", borderBottom:"1px solid rgba(151,211,62,.22)" }}>
           <div title={cloudMsg} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: cloudDot }} />
             <span style={{ fontSize: 11, color: "rgba(255,255,255,.72)", fontWeight: 600 }}>{cloudLabel}</span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {saveMsg && <span style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{saveMsg}</span>}
-            <button onClick={() => setCloudSafeMode(!cloudSafeMode)} style={{ background: cloudSafeMode ? C.blue : "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 700 }}>{cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Cloud ON"}</button>
-            <button onClick={() => setTeamSafeSync(!teamSafeSync)} style={{ background: teamSafeSync ? C.g700 : "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 700 }}>{teamSafeSync ? `👥 Team Sync ON${pendingSyncCount ? ` (${pendingSyncCount})` : ""}` : "👥 Team Sync OFF"}</button>
-            <button onClick={() => loadFromCloud({ force: true })} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>⬇️ Load From Cloud</button>
-            <button onClick={() => flushTeamSync({ force:false })} style={{ background: pendingSyncCount ? C.gold : "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 700 }}>💾 Save Changes{pendingSyncCount ? ` (${pendingSyncCount})` : ""}</button>
-            {syncConflict && <button onClick={mergeTeamChanges} style={{ background: C.amber, border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 800 }}>🔀 Merge Changes</button>}
-            {user?.role === "owner" && <button onClick={() => saveAllToCloud({ force:true })} style={{ background: C.red, border: "none", borderRadius: 6, padding: "4px 10px", color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 800 }}>⚠️ Owner Force Save</button>}
-            <button onClick={async () => { try { setCloudStatus("loading"); setCloudMsg("Testing Supabase connection..."); await cloudRequest("plants?select=id&limit=1", { method: "GET" }); setCloudStatus("synced"); setCloudMsg("Supabase test passed"); alert("Supabase test passed. Cloud connection is working."); } catch (err) { const msg = err && err.message ? err.message : String(err); setCloudStatus("offline"); setCloudMsg("Supabase test failed: " + msg); alert("Supabase test failed: " + msg); } }} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>🧪 Test Cloud</button>
-            <button onClick={exportBackup} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>📥 Backup</button>
-            <button onClick={() => backupRef.current.click()} style={{ background: "rgba(255,255,255,.12)", border: "none", borderRadius: 6, padding: "4px 10px", color: "rgba(255,255,255,.8)", fontSize: 11, cursor: "pointer", fontFamily: F.body, fontWeight: 600 }}>📤 Restore</button>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,.55)", fontWeight: 700 }}>Cloud controls are in the pink + menu</span>
             <input ref={backupRef} type="file" accept=".json" style={{ display: "none" }} onChange={e => importBackup(e.target.files[0])} />
           </div>
         </div>
