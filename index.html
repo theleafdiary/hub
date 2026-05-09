@@ -3427,73 +3427,336 @@
     /* ══════════════════════════════════════════════════════════
        TIMECARD
     ══════════════════════════════════════════════════════════ */
-    function Timecard({ timecards, setTimecards, user, employees }) {
-      const isOwner = user.role !== "employee";
-      const [selEmp, setSelEmp] = useState(isOwner ? employees[0]?.id || user.id : user.id);
-      const [rate, setRate] = useState("15");
-      const [showAdd, setShowAdd] = useState(false);
-      const [manual, setManual] = useState({ date: today(), in: "09:00", out: "17:00", break_: "30", notes: "" });
-      const myTC = isOwner ? timecards.filter(t => t.userId === selEmp) : timecards.filter(t => t.userId === user.id);
-      const todayTC = timecards.find(t => t.userId === user.id && t.date === today() && !t.out);
-      const clockIn = () => { if (todayTC) return; const now = new Date().toTimeString().slice(0, 5); setTimecards(p => [...p, { id: uid(), userId: user.id, userName: user.name, date: today(), in: now, out: "", break_: 0, hours: "", totalPay: "", notes: "", rate: +rate }]); };
-      const clockOut = () => { const now = new Date().toTimeString().slice(0, 5); setTimecards(p => p.map(t => { if (t.id !== todayTC.id) return t; const [ih, im] = t.in.split(":").map(Number), [oh, om] = now.split(":").map(Number); const hours = Math.max(0, ((oh * 60 + om) - (ih * 60 + im) - (+t.break_ || 0)) / 60); return { ...t, out: now, hours: +hours.toFixed(2), totalPay: +(hours * (+t.rate || +rate)).toFixed(2) }; })); };
-      const addManual = () => { const [ih, im] = manual.in.split(":").map(Number), [oh, om] = manual.out.split(":").map(Number); const hours = Math.max(0, ((oh * 60 + om) - (ih * 60 + im) - (+manual.break_ || 0)) / 60); const target = isOwner ? selEmp : user.id; const tUser = employees.find(e => e.id === target) || user; setTimecards(p => [...p, { id: uid(), userId: target, userName: tUser.name, ...manual, break_: +manual.break_, hours: +hours.toFixed(2), totalPay: +(hours * (+rate)).toFixed(2), rate: +rate }]); setShowAdd(false); };
-      const wkHrs = myTC.filter(t => new Date(t.date) >= new Date(Date.now() - 7 * 864e5)).reduce((s, t) => s + (+t.hours || 0), 0);
-      const wkPay = myTC.filter(t => new Date(t.date) >= new Date(Date.now() - 7 * 864e5)).reduce((s, t) => s + (+t.totalPay || 0), 0);
-      const moPay = myTC.filter(t => t.date?.startsWith(today().slice(0, 7))).reduce((s, t) => s + (+t.totalPay || 0), 0);
-      return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="⏱️" title={isOwner ? "Timecard Manager" : "My Timecard"} sub="Clock in/out · Manual entries · Feeds into payroll"
-          right={<Row gap={6}><Btn sz="sm" v="ghost" onClick={() => setShowAdd(p => !p)}>+ Manual Entry</Btn>{!isOwner && !todayTC && <Btn sz="sm" onClick={clockIn}>🟢 Clock In</Btn>}{!isOwner && todayTC && <Btn sz="sm" v="outline" onClick={clockOut}>🔴 Clock Out</Btn>}</Row>} />
-        {isOwner && <div style={{ marginBottom: 14, maxWidth: 280 }}><Sel label="View Employee" value={selEmp} onChange={setSelEmp} options={employees.map(e => ({ v: e.id, l: `${e.name} (${e.role})` }))} /></div>}
-        {todayTC && !isOwner && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 9, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: C.g500 }} /><span style={{ fontWeight: 700, color: C.g800 }}>Clocked in since {todayTC.in}</span></div>}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
-          <KPI label="This Week Hours" value={`${wkHrs.toFixed(1)}h`} color={C.blue} />
-          <KPI label="This Week Pay" value={$(wkPay)} color={C.gold} />
-          <KPI label="This Month Pay" value={$(moPay)} color={C.g600} />
-          <div style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "14px 14px", borderTop: `3px solid ${C.tx3}` }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.tx3, letterSpacing: .5, textTransform: "uppercase", marginBottom: 6 }}>Hourly Rate</div>
-            <input type="number" value={rate} onChange={e => setRate(e.target.value)} style={{ fontSize: 24, fontWeight: 700, color: C.g800, fontFamily: F.display, border: "none", background: "transparent", width: "100%", outline: "none" }} placeholder="15.00" />
-          </div>
-        </div>
-        {showAdd && <Card style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, marginBottom: 10 }}>Manual Shift Entry</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10 }}>
-            <Inp label="Date" type="date" value={manual.date} onChange={v => setManual(p => ({ ...p, date: v }))} />
-            <Inp label="Time In" type="time" value={manual.in} onChange={v => setManual(p => ({ ...p, in: v }))} />
-            <Inp label="Time Out" type="time" value={manual.out} onChange={v => setManual(p => ({ ...p, out: v }))} />
-            <Inp label="Break (min)" type="number" value={manual.break_} onChange={v => setManual(p => ({ ...p, break_: v }))} />
-            <Inp label="Notes" value={manual.notes} onChange={v => setManual(p => ({ ...p, notes: v }))} />
-          </div>
-          <Row gap={8} wrap style={{ marginTop: 10, width: "100%" }}><Btn onClick={addManual}>Add Shift</Btn><Btn v="ghost" onClick={() => setShowAdd(false)}>Cancel</Btn></Row>
-        </Card>}
-        <Tbl cols={[{ k: "date", l: "Date" }, { k: "in_", l: "In" }, { k: "out_", l: "Out" }, { k: "brk", l: "Break" }, { k: "hrs", l: "Hours" }, { k: "rate_", l: "Rate" }, { k: "pay_", l: "Pay" }]}
-          rows={myTC.slice().reverse().map(t => ({ date: t.date, in_: t.in, out_: t.out || <Tag text="Active" color={C.g500} sm />, brk: t.break_ ? `${t.break_}m` : "—", hrs: t.hours ? `${t.hours}h` : "—", rate_: `$${t.rate || rate}/hr`, pay_: t.totalPay ? <span style={{ fontWeight: 700, color: C.gold }}>{$(t.totalPay)}</span> : "—" }))}
-          empty="No shifts yet" />
-      </div>;
+    function timeToMinutes(t) {
+      if (!t) return 0;
+      const parts = String(t).split(":").map(Number);
+      return ((parts[0] || 0) * 60) + (parts[1] || 0);
+    }
+    function minutesToHours(min) { return Math.max(0, Math.round((+min || 0) / 6) / 10); }
+    function shiftHours(date, timeIn, timeOut, breakMin = 0) {
+      if (!date || !timeIn) return 0;
+      const start = timeToMinutes(timeIn);
+      const end = timeOut ? timeToMinutes(timeOut) : (new Date().getHours() * 60 + new Date().getMinutes());
+      let minutes = end - start;
+      if (minutes < 0) minutes += 24 * 60; // simple overnight support
+      minutes = Math.max(0, minutes - (+breakMin || 0));
+      return +minutesToHours(minutes).toFixed(2);
+    }
+    function weekStartOf(dateStr) {
+      const d = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+      const day = d.getDay(); // Sun 0
+      d.setDate(d.getDate() - day);
+      return d.toISOString().slice(0, 10);
+    }
+    function inSameWeek(a, b = today()) { return weekStartOf(a) === weekStartOf(b); }
+    function employeePaySettings(settings, employeeId) {
+      const all = settings.employeePaySettings || {};
+      return {
+        hourlyRate: 15,
+        maxDailyHours: 8,
+        maxWeeklyHours: 40,
+        reminderMinutesBeforeEnd: 15,
+        scheduledEnd: "17:00",
+        phone: "",
+        taxFederalPercent: 10,
+        taxStatePercent: 0,
+        bonusPercent: 1,
+        ...((all && all[employeeId]) || {})
+      };
+    }
+    function employeeCommissionRows(settings, employeeId) {
+      return (settings.showCommissions || []).filter(c => c.employeeId === employeeId);
+    }
+    function commissionAmountForEmployee(settings, employeeId, filter = "unpaid") {
+      return employeeCommissionRows(settings, employeeId)
+        .filter(c => filter === "all" || String(c.status || "Unpaid") !== "Paid")
+        .reduce((s, c) => s + (+c.amount || 0), 0);
+    }
+    function estimatedWithholding(gross, payCfg = {}) {
+      const fica = (+gross || 0) * 0.0765;
+      const federal = (+gross || 0) * ((+payCfg.taxFederalPercent || 0) / 100);
+      const state = (+gross || 0) * ((+payCfg.taxStatePercent || 0) / 100);
+      return { fica:+fica.toFixed(2), federal:+federal.toFixed(2), state:+state.toFixed(2), total:+(fica + federal + state).toFixed(2) };
     }
 
     /* ══════════════════════════════════════════════════════════
-       PAYROLL
+       MOBILE-FIRST TIMECARD + PAYROLL
     ══════════════════════════════════════════════════════════ */
-    function Payroll({ timecards, employees }) {
-      const data = employees.map(e => ({ ...e, monthly: timecards.filter(t => t.userId === e.id && t.date?.startsWith(today().slice(0, 7))).reduce((s, t) => s + (+t.totalPay || 0), 0), ytd: timecards.filter(t => t.userId === e.id).reduce((s, t) => s + (+t.totalPay || 0), 0), hours: timecards.filter(t => t.userId === e.id && t.date?.startsWith(today().slice(0, 7))).reduce((s, t) => s + (+t.hours || 0), 0) }));
-      return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="👥" title="Payroll" sub="Pulled automatically from timecard data" />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 20 }}>
-          <KPI label="This Month" value={$(data.reduce((s, e) => s + e.monthly, 0))} color={C.red} />
-          <KPI label="Employees" value={employees.length} />
-          <KPI label="YTD Payroll" value={$(data.reduce((s, e) => s + e.ytd, 0))} color={C.amber} />
+    function Timecard({ timecards, setTimecards, user, employees, settings, setSettings, addAudit }) {
+      const isOwner = user.role !== "employee";
+      const workerList = (employees || []).filter(e => e.role !== "owner");
+      const [selEmp, setSelEmp] = useState(isOwner ? (workerList[0]?.id || user.id) : user.id);
+      const activeEmp = (employees || []).find(e => e.id === selEmp) || user;
+      const payCfg = employeePaySettings(settings, selEmp);
+      const [showManual, setShowManual] = useState(false);
+      const [manual, setManual] = useState({ date: today(), in: "09:00", out: "17:00", break_: "30", notes: "" });
+      const [msg, setMsg] = useState("");
+      const [noticeAllowed, setNoticeAllowed] = useState(false);
+
+      const visibleCards = isOwner ? timecards.filter(t => t.userId === selEmp) : timecards.filter(t => t.userId === user.id);
+      const activeShift = timecards.find(t => t.userId === user.id && !t.out && t.status !== "Closed");
+      const selectedActiveShift = timecards.find(t => t.userId === selEmp && !t.out && t.status !== "Closed");
+      const selectedToday = timecards.filter(t => t.userId === selEmp && t.date === today());
+      const activeHours = selectedActiveShift ? shiftHours(selectedActiveShift.date, selectedActiveShift.in, "", selectedActiveShift.break_) : 0;
+      const weekRows = timecards.filter(t => t.userId === selEmp && inSameWeek(t.date));
+      const weekHoursClosed = weekRows.reduce((s,t)=>s+(+t.hours || 0),0);
+      const weekHoursLive = weekHoursClosed + (selectedActiveShift ? activeHours : 0);
+      const monthRows = timecards.filter(t => t.userId === selEmp && String(t.date || "").startsWith(today().slice(0,7)));
+      const monthHourlyPay = monthRows.reduce((s,t)=>s+(+t.totalPay || 0),0);
+      const unpaidBonus = commissionAmountForEmployee(settings, selEmp, "unpaid");
+      const grossPaycheck = monthHourlyPay + unpaidBonus;
+      const tax = estimatedWithholding(grossPaycheck, payCfg);
+
+      const setEmpPayCfg = patch => setSettings(prev => ({
+        ...prev,
+        employeePaySettings: {
+          ...(prev.employeePaySettings || {}),
+          [selEmp]: { ...employeePaySettings(prev, selEmp), ...patch }
+        }
+      }));
+
+      useEffect(() => {
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") setNoticeAllowed(true);
+      }, []);
+
+      useEffect(() => {
+        if (!activeShift) return;
+        const timer = setInterval(() => {
+          const cfg = employeePaySettings(settings, user.id);
+          const h = shiftHours(activeShift.date, activeShift.in, "", activeShift.break_);
+          const minutesUntilEnd = timeToMinutes(cfg.scheduledEnd) - (new Date().getHours() * 60 + new Date().getMinutes());
+          const nearEnd = minutesUntilEnd <= (+cfg.reminderMinutesBeforeEnd || 15) && minutesUntilEnd >= 0;
+          if ((h >= (+cfg.maxDailyHours || 8) || nearEnd) && typeof Notification !== "undefined" && Notification.permission === "granted") {
+            new Notification("Leaf Diary Timecard", { body: h >= (+cfg.maxDailyHours || 8) ? "You are at your daily hour limit. Please clock out." : "Reminder: your shift is ending soon. Please clock out on time." });
+          }
+        }, 60000);
+        return () => clearInterval(timer);
+      }, [activeShift, settings, user.id]);
+
+      const requestNotifications = async () => {
+        if (typeof Notification === "undefined") { setMsg("This browser does not support reminders."); return; }
+        const result = await Notification.requestPermission();
+        setNoticeAllowed(result === "granted");
+        setMsg(result === "granted" ? "Browser reminders enabled while this app is open." : "Reminder permission was not enabled.");
+      };
+
+      const clockIn = () => {
+        if (activeShift) { setMsg("You are already clocked in."); return; }
+        const now = new Date().toTimeString().slice(0, 5);
+        const row = {
+          id: uid(),
+          userId: user.id,
+          userName: user.name,
+          date: today(),
+          in: now,
+          out: "",
+          break_: 0,
+          hours: 0,
+          regularHours: 0,
+          overtimeHours: 0,
+          hourlyRate: +employeePaySettings(settings, user.id).hourlyRate || 15,
+          totalPay: 0,
+          status: "Open",
+          source: "employee-clock",
+          notes: "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        setTimecards(p => [...p, row]);
+        addAudit && addAudit({ page:"Timecard", action:"Clock In", details:`${user.name} clocked in at ${now}` });
+        setMsg("Clocked in. Your shift is tracking now.");
+      };
+
+      const clockOut = () => {
+        if (!activeShift) { setMsg("You are not clocked in."); return; }
+        const now = new Date().toTimeString().slice(0, 5);
+        setTimecards(prev => prev.map(t => {
+          if (t.id !== activeShift.id) return t;
+          const rawHours = shiftHours(t.date, t.in, now, t.break_);
+          const priorWeekHours = prev.filter(x => x.userId === t.userId && x.id !== t.id && inSameWeek(x.date)).reduce((s,x)=>s+(+x.hours || 0),0);
+          const regularHours = Math.max(0, Math.min(rawHours, (+employeePaySettings(settings, t.userId).maxWeeklyHours || 40) - priorWeekHours));
+          const overtimeHours = Math.max(0, rawHours - regularHours);
+          const rate = +t.hourlyRate || +employeePaySettings(settings, t.userId).hourlyRate || 15;
+          return { ...t, out: now, hours: rawHours, regularHours:+regularHours.toFixed(2), overtimeHours:+overtimeHours.toFixed(2), totalPay:+((regularHours * rate) + (overtimeHours * rate * 1.5)).toFixed(2), status:"Closed", updatedAt:new Date().toISOString() };
+        }));
+        addAudit && addAudit({ page:"Timecard", action:"Clock Out", details:`${user.name} clocked out at ${now}` });
+        setMsg("Clocked out and saved.");
+      };
+
+      const addManual = () => {
+        const target = isOwner ? selEmp : user.id;
+        const targetUser = (employees || []).find(e => e.id === target) || user;
+        const cfg = employeePaySettings(settings, target);
+        const rawHours = shiftHours(manual.date, manual.in, manual.out, manual.break_);
+        const priorWeekHours = timecards.filter(x => x.userId === target && inSameWeek(x.date, manual.date)).reduce((s,x)=>s+(+x.hours || 0),0);
+        const regularHours = Math.max(0, Math.min(rawHours, (+cfg.maxWeeklyHours || 40) - priorWeekHours));
+        const overtimeHours = Math.max(0, rawHours - regularHours);
+        const totalPay = +((regularHours * (+cfg.hourlyRate || 15)) + (overtimeHours * (+cfg.hourlyRate || 15) * 1.5)).toFixed(2);
+        setTimecards(p => [...p, { id: uid(), userId: target, userName: targetUser.name, ...manual, break_:+manual.break_ || 0, hours:rawHours, regularHours:+regularHours.toFixed(2), overtimeHours:+overtimeHours.toFixed(2), hourlyRate:+cfg.hourlyRate || 15, totalPay, status:"Closed", source:"manual", createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() }]);
+        setShowManual(false);
+        setMsg("Manual shift added.");
+      };
+
+      const markPaidBonus = () => {
+        if (!isOwner) return;
+        if (!confirm(`Mark unpaid show bonuses for ${activeEmp.name} as paid?`)) return;
+        setSettings(prev => ({ ...prev, showCommissions: (prev.showCommissions || []).map(c => c.employeeId === selEmp && String(c.status || "Unpaid") !== "Paid" ? { ...c, status:"Paid", paidAt:new Date().toISOString() } : c) }));
+      };
+
+      const smsBody = encodeURIComponent(`Leaf Diary reminder: please clock out on time today. Your daily limit is ${payCfg.maxDailyHours || 8} hours.`);
+      const smsHref = payCfg.phone ? `sms:${String(payCfg.phone).replace(/[^0-9+]/g,"")}?&body=${smsBody}` : "";
+
+      const warning = weekHoursLive >= (+payCfg.maxWeeklyHours || 40)
+        ? { color:C.red, text:`Over weekly limit: ${weekHoursLive.toFixed(1)} / ${payCfg.maxWeeklyHours || 40} hours` }
+        : weekHoursLive >= ((+payCfg.maxWeeklyHours || 40) - 4)
+          ? { color:C.amber, text:`Close to weekly limit: ${weekHoursLive.toFixed(1)} / ${payCfg.maxWeeklyHours || 40} hours` }
+          : selectedActiveShift && activeHours >= (+payCfg.maxDailyHours || 8)
+            ? { color:C.red, text:`Daily limit reached: ${activeHours.toFixed(1)} / ${payCfg.maxDailyHours || 8} hours today` }
+            : selectedActiveShift && activeHours >= ((+payCfg.maxDailyHours || 8) - .5)
+              ? { color:C.amber, text:`Close to daily limit: ${activeHours.toFixed(1)} / ${payCfg.maxDailyHours || 8} hours today` }
+              : null;
+
+      const exportRows = [["Employee","Date","Clock In","Clock Out","Break Minutes","Regular Hours","Overtime Hours","Hourly Rate","Hourly Pay","Status","Notes"], ...visibleCards.map(t => [t.userName, t.date, t.in, t.out || "ACTIVE", t.break_ || 0, t.regularHours || t.hours || 0, t.overtimeHours || 0, t.hourlyRate || payCfg.hourlyRate, t.totalPay || 0, t.status || "", t.notes || ""])];
+      const todayHours = selectedToday.reduce((s,t)=>s+(+t.hours || 0),0) + (selectedActiveShift ? activeHours : 0);
+
+      return <div style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="⏱️" title={isOwner ? "Employee Timecard" : "My Timecard"} sub="Clock in/out · 8-hour daily guard · 40-hour weekly guard · payroll totals"
+          right={<Row gap={8} wrap>{isOwner && <Btn sz="sm" v="outline" onClick={() => downloadCsv(`leaf-diary-timecards-${selEmp}-${today()}.csv`, exportRows)}>Export CSV</Btn>}{!isOwner && !activeShift && <Btn sz="lg" onClick={clockIn}>🟢 Clock In</Btn>}{!isOwner && activeShift && <Btn sz="lg" v="danger" onClick={clockOut}>🔴 Clock Out</Btn>}</Row>} />
+
+        {msg && <div style={{ background:"#000", color:"#fff", border:`1px solid ${C.g300}`, borderRadius:14, padding:"12px 14px", marginBottom:12, fontWeight:800 }}>{msg}</div>}
+
+        {isOwner && <Card style={{ marginBottom:12, border:`2px solid ${warning ? warning.color : C.bd}` }}>
+          <Row gap={10} wrap center>
+            <div style={{ flex:"1 1 220px" }}><Sel label="Employee" value={selEmp} onChange={setSelEmp} options={workerList.map(e => ({ v:e.id, l:`${e.name} (${e.role})` }))} /></div>
+            <div style={{ flex:"1 1 140px" }}><Inp label="Hourly Rate" type="number" value={payCfg.hourlyRate} onChange={v => setEmpPayCfg({ hourlyRate:+v || 0 })} /></div>
+            <div style={{ flex:"1 1 130px" }}><Inp label="Daily Max" type="number" value={payCfg.maxDailyHours} onChange={v => setEmpPayCfg({ maxDailyHours:+v || 8 })} /></div>
+            <div style={{ flex:"1 1 130px" }}><Inp label="Weekly Max" type="number" value={payCfg.maxWeeklyHours} onChange={v => setEmpPayCfg({ maxWeeklyHours:+v || 40 })} /></div>
+            <div style={{ flex:"1 1 160px" }}><Inp label="Shift End" type="time" value={payCfg.scheduledEnd} onChange={v => setEmpPayCfg({ scheduledEnd:v })} /></div>
+            <div style={{ flex:"1 1 180px" }}><Inp label="Phone For SMS Link" value={payCfg.phone} onChange={v => setEmpPayCfg({ phone:v })} placeholder="352..." /></div>
+          </Row>
+          {warning && <div style={{ marginTop:12, background:warning.color+"18", border:`1px solid ${warning.color}`, color:warning.color, borderRadius:12, padding:12, fontWeight:900 }}>{warning.text}</div>}
+          <div style={{ marginTop:10, fontSize:12, color:C.tx3 }}>Automatic text messages require a Twilio/Supabase Edge Function. This version gives in-app alerts, browser notifications while open, and an owner SMS link.</div>
+        </Card>}
+
+        {!isOwner && <Card style={{ marginBottom:12, textAlign:"center", border:`2px solid ${activeShift ? C.g500 : C.bd}` }}>
+          <div style={{ fontSize:12, fontWeight:900, color:C.tx3, textTransform:"uppercase", letterSpacing:.7 }}>Current Status</div>
+          <div style={{ fontFamily:F.display, fontSize:34, fontWeight:900, color:activeShift ? C.g700 : C.tx1, margin:"6px 0" }}>{activeShift ? "Clocked In" : "Clocked Out"}</div>
+          {activeShift && <div style={{ color:C.tx2, fontWeight:800 }}>Started {activeShift.in} · {shiftHours(activeShift.date, activeShift.in, "", activeShift.break_).toFixed(1)}h today</div>}
+          <Row gap={8} wrap style={{ justifyContent:"center", marginTop:14 }}>
+            {!noticeAllowed && <Btn v="outline" onClick={requestNotifications}>Enable Reminders</Btn>}
+            {!activeShift ? <Btn sz="lg" onClick={clockIn}>🟢 Clock In</Btn> : <Btn sz="lg" v="danger" onClick={clockOut}>🔴 Clock Out</Btn>}
+          </Row>
+        </Card>}
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10, marginBottom:12 }}>
+          <KPI label="Today" value={`${todayHours.toFixed(1)}h`} color={C.blue} />
+          <KPI label="This Week" value={`${weekHoursLive.toFixed(1)}h`} sub={`${Math.max(0, (+payCfg.maxWeeklyHours || 40) - weekHoursLive).toFixed(1)}h left`} color={weekHoursLive >= (+payCfg.maxWeeklyHours || 40) ? C.red : C.g600} />
+          <KPI label="Hourly Pay" value={$(monthHourlyPay)} sub="This month" color={C.gold} />
+          <KPI label="Show Bonus" value={$(unpaidBonus)} sub="Unpaid commissions" color={C.purple} />
         </div>
-        {data.map(e => <Card key={e.id} style={{ marginBottom: 10 }}>
-          <Row between center>
-            <div><div style={{ fontWeight: 700, fontSize: 14 }}>{e.name}</div><div style={{ fontSize: 12, color: C.tx3 }}>{e.role}</div></div>
-            <Row gap={16} center>
-              {[["This Month", $(e.monthly), C.gold], ["Hours", `${e.hours.toFixed(1)}h`, C.tx1], ["YTD", $(e.ytd), C.g600]].map(([l, v, c]) => (
-                <div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 9, color: C.tx3, fontWeight: 700, textTransform: "uppercase", letterSpacing: .5, marginBottom: 3 }}>{l}</div><div style={{ fontWeight: 700, color: c, fontSize: 15, fontFamily: F.display }}>{v}</div></div>
-              ))}
+
+        <Card style={{ marginBottom:12 }}>
+          <Row between wrap center>
+            <div>
+              <div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900 }}>Estimated Current Paycheck</div>
+              <div style={{ fontSize:12, color:C.tx3 }}>Hourly + unpaid Whatnot/Palmstreet show bonuses. Tax estimate is not tax advice.</div>
+            </div>
+            {isOwner && unpaidBonus > 0 && <Btn v="gold" onClick={markPaidBonus}>Mark Bonuses Paid</Btn>}
+          </Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10, marginTop:12 }}>
+            <KPI label="Gross" value={$(grossPaycheck)} color={C.g600}/>
+            <KPI label="Est. Taxes" value={$(tax.total)} color={C.red}/>
+            <KPI label="Net Estimate" value={$(grossPaycheck - tax.total)} color={C.blue}/>
+            <KPI label="Bonus Rate" value={`${payCfg.bonusPercent || 1}%`} color={C.purple}/>
+          </div>
+          <div style={{ fontSize:12, color:C.tx3, marginTop:10 }}>Estimated withholding: FICA {$(tax.fica)}, Federal {$(tax.federal)}, State {$(tax.state)}. Use your accountant/payroll provider for final taxes.</div>
+        </Card>
+
+        {isOwner && <Card style={{ marginBottom:12 }}>
+          <Row between center wrap>
+            <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900 }}>Owner Actions</div>
+            <Row gap={8} wrap>
+              <Btn v="ghost" onClick={() => setShowManual(p=>!p)}>+ Manual Shift</Btn>
+              {smsHref ? <a href={smsHref} style={{ textDecoration:"none" }}><Btn v="outline">Text Clock-Out Reminder</Btn></a> : <Btn v="ghost" disabled>Add phone to text</Btn>}
             </Row>
           </Row>
+        </Card>}
+
+        {showManual && <Card style={{ marginBottom:12 }}>
+          <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Add Manual Shift</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:10 }}>
+            <Inp label="Date" type="date" value={manual.date} onChange={v => setManual(p => ({ ...p, date:v }))}/>
+            <Inp label="Clock In" type="time" value={manual.in} onChange={v => setManual(p => ({ ...p, in:v }))}/>
+            <Inp label="Clock Out" type="time" value={manual.out} onChange={v => setManual(p => ({ ...p, out:v }))}/>
+            <Inp label="Break Minutes" type="number" value={manual.break_} onChange={v => setManual(p => ({ ...p, break_:v }))}/>
+            <Inp label="Notes" value={manual.notes} onChange={v => setManual(p => ({ ...p, notes:v }))}/>
+          </div>
+          <Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={addManual}>Save Shift</Btn><Btn v="ghost" onClick={() => setShowManual(false)}>Cancel</Btn></Row>
+        </Card>}
+
+        <Tbl cols={[{k:"date",l:"Date"},{k:"in_",l:"In"},{k:"out_",l:"Out"},{k:"hrs",l:"Hours"},{k:"ot",l:"OT"},{k:"rate_",l:"Rate"},{k:"pay_",l:"Pay"},{k:"status_",l:"Status"}]}
+          rows={visibleCards.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t => ({ date:t.date, in_:t.in, out_:t.out || <Tag text="ACTIVE" color={C.g600}/>, hrs:`${(+t.hours || (t.out ? 0 : shiftHours(t.date,t.in,"",t.break_))).toFixed(1)}h`, ot:(+t.overtimeHours || 0) ? <b style={{color:C.red}}>{(+t.overtimeHours).toFixed(1)}h</b> : "—", rate_:`$${t.hourlyRate || payCfg.hourlyRate}/hr`, pay_:t.totalPay ? <b style={{color:C.gold}}>{$(t.totalPay)}</b> : "—", status_:<Tag text={t.status || (t.out ? "Closed" : "Open")} color={t.out ? C.tx3 : C.g600}/> }))}
+          empty="No shifts yet." />
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(4,minmax(0,1fr))"]{grid-template-columns:1fr 1fr!important}}`}</style>
+      </div>;
+    }
+
+    function Payroll({ timecards, employees, settings, setSettings, user }) {
+      const workerList = (employees || []).filter(e => e.role !== "owner");
+      const [period, setPeriod] = useState("month");
+      const month = today().slice(0,7);
+      const rows = workerList.map(e => {
+        const cfg = employeePaySettings(settings, e.id);
+        const shifts = (timecards || []).filter(t => t.userId === e.id);
+        const periodShifts = period === "week" ? shifts.filter(t => inSameWeek(t.date)) : shifts.filter(t => String(t.date || "").startsWith(month));
+        const regular = periodShifts.reduce((s,t)=>s+(+t.regularHours || +t.hours || 0),0);
+        const overtime = periodShifts.reduce((s,t)=>s+(+t.overtimeHours || 0),0);
+        const hourlyPay = periodShifts.reduce((s,t)=>s+(+t.totalPay || 0),0);
+        const unpaidBonus = commissionAmountForEmployee(settings, e.id, "unpaid");
+        const gross = hourlyPay + unpaidBonus;
+        const tax = estimatedWithholding(gross, cfg);
+        const active = shifts.find(t => !t.out && t.status !== "Closed");
+        const weekHours = shifts.filter(t => inSameWeek(t.date)).reduce((s,t)=>s+(+t.hours || 0),0) + (active ? shiftHours(active.date, active.in, "", active.break_) : 0);
+        return { ...e, cfg, shifts:periodShifts, regular, overtime, hourlyPay, unpaidBonus, gross, tax, net:gross-tax.total, active, weekHours };
+      });
+
+      const exportRows = [["Employee","Period","Regular Hours","Overtime Hours","Hourly Pay","Show Bonus","Gross","FICA Estimate","Federal Estimate","State Estimate","Net Estimate","Weekly Hours","Status"], ...rows.map(r => [r.name, period, r.regular.toFixed(2), r.overtime.toFixed(2), r.hourlyPay.toFixed(2), r.unpaidBonus.toFixed(2), r.gross.toFixed(2), r.tax.fica.toFixed(2), r.tax.federal.toFixed(2), r.tax.state.toFixed(2), r.net.toFixed(2), r.weekHours.toFixed(2), r.active ? "Clocked In" : "Clocked Out"])];
+
+      const markEmployeePaid = empId => {
+        if (!confirm("Mark this employee's unpaid bonuses as paid? This does not delete timecard history.")) return;
+        setSettings(prev => ({ ...prev, showCommissions:(prev.showCommissions || []).map(c => c.employeeId === empId && String(c.status || "Unpaid") !== "Paid" ? { ...c, status:"Paid", paidAt:new Date().toISOString() } : c) }));
+      };
+
+      return <div style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
+        <SHdr icon="💵" title="Payroll Center" sub="Hourly pay · overtime warnings · show bonuses · tax estimate" right={<Row gap={8} wrap><Sel label="" value={period} onChange={setPeriod} options={[{v:"week",l:"This Week"},{v:"month",l:"This Month"}]} /><Btn v="outline" onClick={()=>downloadCsv(`leaf-diary-payroll-${period}-${today()}.csv`, exportRows)}>Export Payroll CSV</Btn></Row>} />
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10, marginBottom:14 }}>
+          <KPI label="Gross Payroll" value={$(rows.reduce((s,r)=>s+r.gross,0))} color={C.g600}/>
+          <KPI label="Est. Taxes" value={$(rows.reduce((s,r)=>s+r.tax.total,0))} color={C.red}/>
+          <KPI label="Net Estimate" value={$(rows.reduce((s,r)=>s+r.net,0))} color={C.blue}/>
+          <KPI label="Unpaid Bonuses" value={$(rows.reduce((s,r)=>s+r.unpaidBonus,0))} color={C.purple}/>
+        </div>
+        {rows.map(r => <Card key={r.id} style={{ marginBottom:12, border:`2px solid ${r.weekHours >= (+r.cfg.maxWeeklyHours || 40) ? C.red : r.weekHours >= ((+r.cfg.maxWeeklyHours || 40)-4) ? C.amber : C.bd}` }}>
+          <Row between wrap center>
+            <div>
+              <div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900 }}>{r.name}</div>
+              <div style={{ fontSize:12, color:C.tx3 }}>{r.active ? `Clocked in since ${r.active.in}` : "Clocked out"} · Weekly {r.weekHours.toFixed(1)} / {r.cfg.maxWeeklyHours || 40}h</div>
+            </div>
+            <Row gap={8} wrap>
+              {r.weekHours >= (+r.cfg.maxWeeklyHours || 40) && <Tag text="OVER 40 WARNING" color={C.red}/>}
+              {r.weekHours >= ((+r.cfg.maxWeeklyHours || 40)-4) && r.weekHours < (+r.cfg.maxWeeklyHours || 40) && <Tag text="CLOSE TO 40" color={C.amber}/>}
+              {r.unpaidBonus > 0 && <Btn sz="sm" v="gold" onClick={()=>markEmployeePaid(r.id)}>Mark Bonus Paid</Btn>}
+            </Row>
+          </Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:10, marginTop:12 }}>
+            <KPI label="Hours" value={`${(r.regular+r.overtime).toFixed(1)}h`} sub={`OT ${r.overtime.toFixed(1)}h`} color={C.tx1}/>
+            <KPI label="Hourly" value={$(r.hourlyPay)} color={C.gold}/>
+            <KPI label="Bonus" value={$(r.unpaidBonus)} sub="Show commission" color={C.purple}/>
+            <KPI label="Gross" value={$(r.gross)} color={C.g600}/>
+            <KPI label="Net Est." value={$(r.net)} color={C.blue}/>
+          </div>
+          <div style={{ fontSize:12, color:C.tx3, marginTop:8 }}>Estimated taxes: {$(r.tax.total)} total. FICA {$(r.tax.fica)}, Federal {$(r.tax.federal)}, State {$(r.tax.state)}.</div>
         </Card>)}
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(4,minmax(0,1fr))"],div[style*="grid-template-columns:repeat(5,minmax(0,1fr))"]{grid-template-columns:1fr 1fr!important}}`}</style>
       </div>;
     }
 
@@ -8333,7 +8596,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
         <BackBreadcrumbBar page={page} navHistory={navHistory} goBack={goBack} goTo={navigate} goCrumb={goCrumb} />
 
         {/* Cloud sync indicator strip */}
-        <div style={{ background: "#000", padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ background: C.g900, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <div title={cloudMsg} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: cloudDot }} />
             <span style={{ fontSize: 11, color: "rgba(255,255,255,.72)", fontWeight: 600 }}>{cloudLabel}</span>
@@ -8393,8 +8656,8 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
           {page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
           {page === "receipts" && <ReceiptScanner receipts={expenseReceipts} setReceipts={setExpenseReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} />}
-          {page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} />}
-          {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} />}
+          {page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} settings={settings} setSettings={setSettings} addAudit={addAudit} />}
+          {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} settings={settings} setSettings={setSettings} user={user} />}
           {page === "intel" && CAN.seeReports(user.role) && <BuyIntel plants={plants} settings={settings} />}
           {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} />}
           {page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
