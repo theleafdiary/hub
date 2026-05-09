@@ -7666,7 +7666,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
        corrupted-data repair, startup diagnostics, and crash logs.
        This does NOT redesign the UI or remove existing systems.
     ══════════════════════════════════════════════════════════ */
-    const APP_VERSION = "Leaf Diary Business Hub — Phase 6 Executive Command Center Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — Phase 6 Executive Command Center + Ollama Connection Fix Build 2026-05-09";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -8572,21 +8572,41 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
     const PHASE3_CONFIG_KEY = "leafdiary_phase3_ollama_config";
     const PHASE3_REPORT_KEY = "leafdiary_phase3_ollama_reports";
     const PHASE3_DEFAULT_CONFIG = {
-      enabled: false,
-      baseUrl: "http://localhost:11434",
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
       primaryModel: "llama3.1:8b",
       fastModel: "llama3.2:3b",
       visionModel: "llava:latest",
       financeModel: "mistral:latest",
       codingModel: "codellama:latest",
-      timeoutMs: 18000,
+      timeoutMs: 30000,
       maxContextPlants: 120,
       allowBrowserOllama: true,
       fallbackMode: "localLeafAI"
     };
+    const phase3NormalizeBaseUrl = (url) => {
+      let u = String(url || PHASE3_DEFAULT_CONFIG.baseUrl).trim();
+      if (!u) u = PHASE3_DEFAULT_CONFIG.baseUrl;
+      if (!/^https?:\/\//i.test(u)) u = "http://" + u;
+      return u.replace(/\/+$/, "");
+    };
+    const phase3BrowserOrigin = () => {
+      try { return window.location && window.location.origin && window.location.origin !== "null" ? window.location.origin : "file://local"; }
+      catch(e) { return "unknown-origin"; }
+    };
+    const phase3CandidateBaseUrls = (cfg = phase3ReadConfig()) => {
+      const base = phase3NormalizeBaseUrl(cfg.baseUrl || PHASE3_DEFAULT_CONFIG.baseUrl);
+      const list = [base];
+      if (base.includes("localhost")) list.push(base.replace("localhost", "127.0.0.1"));
+      if (base.includes("127.0.0.1")) list.push(base.replace("127.0.0.1", "localhost"));
+      return [...new Set(list)];
+    };
     const phase3ReadConfig = () => ({ ...PHASE3_DEFAULT_CONFIG, ...safeObject(safeJsonParse(localStorage.getItem(PHASE3_CONFIG_KEY), {})) });
     const phase3SaveConfig = cfg => {
       const next = { ...PHASE3_DEFAULT_CONFIG, ...safeObject(cfg) };
+      next.baseUrl = phase3NormalizeBaseUrl(next.baseUrl);
+      next.timeoutMs = Math.max(8000, +next.timeoutMs || PHASE3_DEFAULT_CONFIG.timeoutMs);
+      next.maxContextPlants = Math.max(10, +next.maxContextPlants || PHASE3_DEFAULT_CONFIG.maxContextPlants);
       try { localStorage.setItem(PHASE3_CONFIG_KEY, JSON.stringify(next)); } catch(e) { phase1LogError("phase3SaveConfig", e); }
       return next;
     };
@@ -8599,39 +8619,92 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       } catch(e) { phase1LogError("phase3SaveReport", e); }
       return report;
     };
-    const phase3StatusLabel = status => status === "online" ? "online" : status === "testing" ? "testing" : status === "disabled" ? "disabled" : status === "cors" ? "CORS blocked" : status === "offline" ? "offline" : "not tested";
-    const phase3StatusColor = status => status === "online" ? C.g600 : status === "testing" ? C.gold : status === "disabled" ? C.tx3 : status === "cors" ? C.amber : status === "offline" ? C.red : C.amber;
+    const phase3StatusLabel = status => status === "online" ? "online" : status === "testing" ? "testing" : status === "disabled" ? "disabled" : status === "cors" ? "CORS/origin blocked" : status === "model_missing" ? "model missing" : status === "offline" ? "offline" : "not tested";
+    const phase3StatusColor = status => status === "online" ? C.g600 : status === "testing" ? C.gold : status === "disabled" ? C.tx3 : status === "cors" ? C.amber : status === "model_missing" ? C.amber : status === "offline" ? C.red : C.amber;
     const phase3BuildStatus = (status = "not_tested", extra = {}) => ({ status, label: phase3StatusLabel(status), checkedAt: new Date().toISOString(), ...extra });
+    const phase3SetupText = () => {
+      const origin = phase3BrowserOrigin();
+      return {
+        origin,
+        mac: `launchctl setenv OLLAMA_ORIGINS "*"
+launchctl setenv OLLAMA_HOST "127.0.0.1:11434"
+# Then fully quit and reopen Ollama`,
+        windows: `setx OLLAMA_ORIGINS "*"
+setx OLLAMA_HOST "127.0.0.1:11434"
+# Then fully quit and reopen Ollama`,
+        linux: `OLLAMA_ORIGINS="*" OLLAMA_HOST="127.0.0.1:11434" ollama serve`,
+        curl: `curl http://127.0.0.1:11434/api/tags`,
+        note: `Current app origin: ${origin}. If the app is opened on a phone, localhost means the phone, not the computer running Ollama.`
+      };
+    };
     const phase3FriendlyError = err => {
       const msg = err?.message || String(err || "Unknown Ollama error");
-      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) return "Ollama could not be reached from the browser. Start Ollama, check the URL, and allow browser origins if needed.";
-      if (msg.toLowerCase().includes("cors")) return "Ollama is reachable but browser CORS blocked the request. Set OLLAMA_ORIGINS=* or allow this app origin, then restart Ollama.";
-      if (msg.includes("404")) return "Ollama responded, but the endpoint/model was not found. Check the model name and pull it in Ollama.";
+      const lower = msg.toLowerCase();
+      if (err?.name === "AbortError" || lower.includes("timeout") || lower.includes("timed out")) return "Ollama timed out. Start a smaller model, increase timeout, or make sure the model is already pulled.";
+      if (lower.includes("model") && (lower.includes("not found") || lower.includes("pull") || lower.includes("404"))) return "Ollama connected, but that model is not installed. Pull the model or choose one from the installed model list.";
+      if (lower.includes("cors") || lower.includes("origin") || lower.includes("access-control")) return "Ollama is reachable but the browser origin is blocked. Quick fix: set OLLAMA_ORIGINS=* and restart Ollama.";
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || lower.includes("load failed")) return "The browser could not reach Ollama. Make sure Ollama is running, try http://127.0.0.1:11434, and set OLLAMA_ORIGINS=* then restart Ollama. If you are on a phone, run the app on the same computer as Ollama or use a LAN/proxy URL.";
       return msg;
     };
     async function phase3FetchOllama(path, options = {}, cfg = phase3ReadConfig()) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), Math.max(5000, +cfg.timeoutMs || 18000));
-      const base = String(cfg.baseUrl || PHASE3_DEFAULT_CONFIG.baseUrl).replace(/\/$/, "");
-      try {
-        const res = await fetch(base + path, { ...options, signal: controller.signal, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
-        const text = await res.text();
-        let json = null;
-        try { json = text ? JSON.parse(text) : null; } catch(e) { json = { raw: text }; }
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 240)}`);
-        return json;
-      } finally { clearTimeout(timeout); }
+      const bases = phase3CandidateBaseUrls(cfg);
+      let lastErr = null;
+      for (const base of bases) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), Math.max(8000, +cfg.timeoutMs || 30000));
+        try {
+          const res = await fetch(base + path, {
+            method: options.method || "GET",
+            body: options.body,
+            mode: "cors",
+            credentials: "omit",
+            cache: "no-store",
+            signal: controller.signal,
+            headers: { "Accept": "application/json", ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) }
+          });
+          const text = await res.text();
+          let json = null;
+          try { json = text ? JSON.parse(text) : null; } catch(e) { json = { raw: text }; }
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 240)}`);
+          try {
+            const current = phase3ReadConfig();
+            if (current.baseUrl !== base) localStorage.setItem(PHASE3_CONFIG_KEY, JSON.stringify({ ...current, baseUrl: base }));
+          } catch(e) {}
+          return json;
+        } catch(e) {
+          lastErr = e;
+          try { lastErr.message = `${e.message || e} | Tried ${base}${path}`; } catch(_) {}
+        } finally { clearTimeout(timeout); }
+      }
+      throw lastErr || new Error(`Ollama request failed. Tried: ${bases.join(", ")}${path}`);
+    }
+    async function phase3GetOllamaVersion(cfg = phase3ReadConfig()) {
+      try { return await phase3FetchOllama("/api/version", { method: "GET" }, cfg); }
+      catch(e) { return null; }
     }
     async function phase3ListOllamaModels(cfg = phase3ReadConfig()) {
-      const data = await phase3FetchOllama("/api/tags", { method: "GET", headers: {} }, cfg);
-      return safeArray(data?.models).map(m => ({ name: m.name, size: m.size, modified_at: m.modified_at }));
+      const data = await phase3FetchOllama("/api/tags", { method: "GET" }, cfg);
+      return safeArray(data?.models).map(m => ({ name: m.name || m.model, size: m.size, modified_at: m.modified_at })).filter(m => m.name);
     }
-    async function phase3GenerateOllama({ prompt, system = "", model = "", cfg = phase3ReadConfig(), context = null }) {
-      const selected = model || cfg.primaryModel || PHASE3_DEFAULT_CONFIG.primaryModel;
-      const body = { model: selected, prompt: String(prompt || ""), system: String(system || ""), stream: false };
+    async function phase3GenerateRaw({ prompt, system = "", model = "", cfg = phase3ReadConfig(), context = null }) {
+      const body = { model, prompt: String(prompt || ""), system: String(system || ""), stream: false };
       if (context) body.context = context;
       const data = await phase3FetchOllama("/api/generate", { method: "POST", body: JSON.stringify(body) }, cfg);
-      return { ok:true, model:selected, answer:data?.response || "", raw:data, generatedAt:new Date().toISOString() };
+      return { ok:true, model, answer:data?.response || "", raw:data, generatedAt:new Date().toISOString() };
+    }
+    async function phase3GenerateOllama({ prompt, system = "", model = "", cfg = phase3ReadConfig(), context = null }) {
+      const selected = String(model || cfg.primaryModel || PHASE3_DEFAULT_CONFIG.primaryModel).trim();
+      try {
+        return await phase3GenerateRaw({ prompt, system, model:selected, cfg, context });
+      } catch(firstErr) {
+        const friendly = phase3FriendlyError(firstErr);
+        if (!friendly.toLowerCase().includes("model") && !String(firstErr?.message || "").includes("404")) throw firstErr;
+        const models = await phase3ListOllamaModels(cfg);
+        const fallback = models[0]?.name;
+        if (!fallback || fallback === selected) throw firstErr;
+        const retry = await phase3GenerateRaw({ prompt, system, model:fallback, cfg, context });
+        return { ...retry, requestedModel:selected, model:fallback, modelFallback:true, warning:`Requested model ${selected} was not installed. Used ${fallback} instead.` };
+      }
     }
     function phase3BuildBusinessContext(appData = {}, user = {}) {
       const plants = safeArray(appData.plants);
@@ -8641,34 +8714,46 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const aging45 = inStock.filter(p => dHeld(p.dateAdded) >= 45);
       const ownerFinancials = user?.role === "owner";
       const visiblePlants = inStock.slice(0, phase3ReadConfig().maxContextPlants || 120).map(p => `${p.plantId || p.plantCode || "NO-ID"} | ${p.name || "Plant"} | ${p.potSize || ""} | status ${p.status || ""} | price ${ownerFinancials ? $(p.suggestedPrice || 0) : "hidden"} | days ${fDays(dHeld(p.dateAdded))}`).join("\n");
-      return `Leaf Diary local AI business context. User role: ${user?.role || "employee"}. In stock: ${inStock.length}. Sold last 30 days: ${sold30.length}. Missing photos: ${noPhoto.length}. Aging 45+ days: ${aging45.length}. Financial data is ${ownerFinancials ? "allowed" : "restricted"} for this user.\n\nVisible in-stock inventory sample:\n${visiblePlants || "No in-stock plants available."}`;
+      return `Leaf Diary local AI business context. User role: ${user?.role || "employee"}. In stock: ${inStock.length}. Sold last 30 days: ${sold30.length}. Missing photos: ${noPhoto.length}. Aging 45+ days: ${aging45.length}. Financial data is ${ownerFinancials ? "allowed" : "restricted"} for this user.
+
+Visible in-stock inventory sample:
+${visiblePlants || "No in-stock plants available."}`;
     }
     async function phase3AskLocalAI({ question, appData = {}, user = {}, cfg = phase3ReadConfig(), task = "business_chat" }) {
       if (!cfg.enabled) return { ok:false, fallback:true, reason:"Ollama is disabled", answer:"Ollama is disabled. Existing localLeafAI fallback remains active." };
       const system = "You are the local Leaf Diary business AI. Be direct, specific, and use real plant IDs when available. Never reveal owner financial data to non-owner roles. Recommend actions, but do not modify data.";
-      const prompt = `${phase3BuildBusinessContext(appData, user)}\n\nTask: ${task}\nQuestion: ${question}\n\nAnswer with a practical action plan for Leaf Diary.`;
+      const prompt = `${phase3BuildBusinessContext(appData, user)}
+
+Task: ${task}
+Question: ${question}
+
+Answer with a practical action plan for Leaf Diary.`;
       try { return await phase3GenerateOllama({ prompt, system, model: cfg.primaryModel, cfg }); }
       catch(e) {
         phase1LogError("phase3AskLocalAI", e, { task });
-        return { ok:false, fallback:true, error:phase3FriendlyError(e), answer:"Ollama was unavailable, so Leaf Diary should use localLeafAI fallback for this task." };
+        return { ok:false, fallback:true, error:phase3FriendlyError(e), setup:phase3SetupText(), answer:"Ollama was unavailable, so Leaf Diary used the safe local fallback for this task." };
       }
     }
     async function phase3TestOllamaConnection(cfg = phase3ReadConfig()) {
       const startedAt = Date.now();
+      const cleanCfg = phase3SaveConfig({ ...cfg, enabled: !!cfg.enabled });
       try {
-        const models = await phase3ListOllamaModels(cfg);
+        const version = await phase3GetOllamaVersion(cleanCfg);
+        const models = await phase3ListOllamaModels(cleanCfg);
         const modelNames = models.map(m => m.name);
-        const preferred = cfg.primaryModel || modelNames[0] || PHASE3_DEFAULT_CONFIG.primaryModel;
+        let preferred = cleanCfg.primaryModel || modelNames[0] || PHASE3_DEFAULT_CONFIG.primaryModel;
+        if (!modelNames.includes(preferred) && modelNames.length) preferred = modelNames[0];
         let generate = null;
-        if (modelNames.includes(preferred)) {
-          generate = await phase3GenerateOllama({ cfg, model: preferred, prompt:"Reply with one short sentence confirming Leaf Diary local AI is connected.", system:"You are a connection test." });
+        if (preferred) {
+          generate = await phase3GenerateOllama({ cfg:cleanCfg, model: preferred, prompt:"Reply with one short sentence confirming Leaf Diary local AI is connected.", system:"You are a connection test." });
         }
-        const report = phase3SaveReport({ ok:true, status:"online", models:modelNames, preferredModel:preferred, generatedAnswer:generate?.answer || "Model list loaded. Generation test skipped because preferred model is not installed.", ms:Date.now()-startedAt, checkedAt:new Date().toISOString(), appVersion:APP_VERSION });
+        const report = phase3SaveReport({ ok:true, status:"online", baseUrl:phase3ReadConfig().baseUrl, origin:phase3BrowserOrigin(), version, models:modelNames, preferredModel:preferred, generatedAnswer:generate?.answer || "Model list loaded. Generation test skipped because no model is installed.", modelFallback:generate?.modelFallback || false, warning:generate?.warning || "", setup:phase3SetupText(), ms:Date.now()-startedAt, checkedAt:new Date().toISOString(), appVersion:APP_VERSION });
         return report;
       } catch(e) {
         const friendly = phase3FriendlyError(e);
-        const status = friendly.toLowerCase().includes("cors") ? "cors" : "offline";
-        const report = phase3SaveReport({ ok:false, status, error:friendly, rawError:e?.message || String(e), ms:Date.now()-startedAt, checkedAt:new Date().toISOString(), appVersion:APP_VERSION });
+        const lower = friendly.toLowerCase();
+        const status = lower.includes("origin") || lower.includes("cors") ? "cors" : lower.includes("model") ? "model_missing" : "offline";
+        const report = phase3SaveReport({ ok:false, status, error:friendly, rawError:e?.message || String(e), baseUrl:cleanCfg.baseUrl, triedBaseUrls:phase3CandidateBaseUrls(cleanCfg), origin:phase3BrowserOrigin(), setup:phase3SetupText(), ms:Date.now()-startedAt, checkedAt:new Date().toISOString(), appVersion:APP_VERSION });
         phase1LogError("phase3TestOllamaConnection", e);
         return report;
       }
@@ -8768,6 +8853,12 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
             <Card style={{ background:C.amberBg, border:`1px solid ${C.amber}40` }}>
               <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>If Browser Test Fails</div>
               <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55 }}>Make sure Ollama is running locally. Browser apps may need Ollama origins enabled. The safe fallback remains active either way, so the app will not break.</div>
+              <div style={{ marginTop:12, background:C.goldBg, border:`1px solid ${C.gold}55`, borderRadius:12, padding:12 }}>
+                <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:6 }}>Ollama Connection Fix</div>
+                <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55, marginBottom:8 }}>If the test fails in a browser, the normal fix is to allow browser origins and restart Ollama. Your app origin is shown in the report. If you open the app on a phone, localhost points to the phone, not the computer running Ollama.</div>
+                <pre style={{ whiteSpace:"pre-wrap", background:"#111", color:"#97d33e", borderRadius:10, padding:10, fontSize:11, overflowX:"auto" }}>{phase3SetupText().mac}</pre>
+              </div>
+
             </Card>
           </div>
         </div>
