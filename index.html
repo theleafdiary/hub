@@ -2482,6 +2482,7 @@
       condition: 'New'
     };
     const SHOW_KEY = 'leafDiaryShowBuilderIds';
+    const LEAF_DIARY_LOGO_IMAGE = 'https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200';
     const safePlantId = p => (p?.plantId || p?.id || '').toString().trim();
     const csvCell = v => {
       const x = (v ?? '').toString();
@@ -2502,6 +2503,10 @@
       return String(Math.max(0, Math.ceil(raw)));
     };
     const publicPlantPhoto = p => (p.photoUrl || p.imageUrl || p.image || p.photo_url || '').toString().trim();
+    const whatnotPlantPhoto = p => {
+      const img = publicPlantPhoto(p);
+      return isPublicHttpsUrl(img) ? img : LEAF_DIARY_LOGO_IMAGE;
+    };
     const isPublicHttpsUrl = url => /^https:\/\//i.test((url || '').toString().trim());
     const palmTitle = p => {
       const id = safePlantId(p);
@@ -2564,7 +2569,7 @@
         const row = i + 1;
         const id = safePlantId(p);
         const price = wholeDollarPrice(p);
-        const img = publicPlantPhoto(p);
+        const img = whatnotPlantPhoto(p);
         if (!id) errors.push(`Row ${row}: missing Plant ID / SKU`);
         if (id && seen.has(id)) errors.push(`Row ${row}: duplicate SKU / Plant ID ${id}`);
         if (id) seen.add(id);
@@ -2572,8 +2577,7 @@
         if (!price) errors.push(`${id || 'Row ' + row}: missing price. Whatnot requires a positive whole-dollar integer.`);
         if (price && !/^\d+$/.test(price)) errors.push(`${id || 'Row ' + row}: price must be whole dollars only, no $ symbol or decimals.`);
         if (p.status && !['In Stock', 'Ready For Show', 'Needs Label', 'Needs Photo'].includes(p.status)) errors.push(`${id || 'Row ' + row}: status is ${p.status}, not available for show export`);
-        if (!img) errors.push(`${id || 'Row ' + row}: missing photo URL for Image URL 1`);
-        if (img && !isPublicHttpsUrl(img)) errors.push(`${id || 'Row ' + row}: Image URL 1 must be a public https:// URL`);
+        if (!isPublicHttpsUrl(img)) errors.push(`${id || 'Row ' + row}: Image URL 1 must be a public https:// URL`);
       });
       return errors;
     };
@@ -2593,7 +2597,7 @@
         d.condition,
         opts.includeCost === false ? '' : wholeDollarCost(p),
         safePlantId(p),
-        publicPlantPhoto(p),
+        whatnotPlantPhoto(p),
         '', '', '', '', '', '', ''
       ].map(csvCell).join(','));
       return WHATNOT_HEADERS.map(csvCell).join(',') + '\n' + rows.join('\n');
@@ -5559,7 +5563,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           right={<Row gap={6} wrap><Btn onClick={exportWhatnot}>🛒 Export Whatnot CSV</Btn><Btn v="soft" onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear</Btn></Row>} />
         {msg && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 600 }}>{msg}</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr .8fr', gap: 14, marginBottom: 14 }}>
-          <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>1. Show Setup</div><Inp label="Show Name" value={showName} onChange={setShowName} placeholder="Leaf Diary Friday Rare Plant Show" /><div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:10, marginTop:10 }}><Sel label="Whatnot Type" value={whatnotListingType} onChange={setWhatnotListingType} options={["Auction","Buy It Now","Giveaway"]} /><Inp label="Whatnot Shipping Profile" value={whatnotShippingProfile} onChange={setWhatnotShippingProfile} placeholder="1 lb" /></div><div style={{ marginTop: 10, display:'grid', gap:8 }}><label style={{ fontSize: 13, fontWeight: 600, color: C.tx2, display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={privateListing} onChange={e => setPrivateListing(e.target.checked)} /> Export as private Palmstreet listings</label><label style={{ fontSize: 13, fontWeight: 600, color: C.tx2, display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={includeWhatnotCost} onChange={e => setIncludeWhatnotCost(e.target.checked)} /> Include Cost Per Item in Whatnot CSV</label></div><div style={{ fontSize:12, color:C.tx3, marginTop:10, lineHeight:1.4 }}><b>Palmstreet:</b> uses your sample importer headers exactly and keeps cents, so 15.88 exports as 15.88. <b>Whatnot:</b> uses whole-dollar prices only, so 15.88 exports as 16, and Shipping Profile is 1 lb.</div></Card>
+          <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>1. Show Setup</div><Inp label="Show Name" value={showName} onChange={setShowName} placeholder="Leaf Diary Friday Rare Plant Show" /><div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:10, marginTop:10 }}><Sel label="Whatnot Type" value={whatnotListingType} onChange={setWhatnotListingType} options={["Auction","Buy It Now","Giveaway"]} /><Inp label="Whatnot Shipping Profile" value={whatnotShippingProfile} onChange={setWhatnotShippingProfile} placeholder="1 lb" /></div><div style={{ marginTop: 10, display:'grid', gap:8 }}><label style={{ fontSize: 13, fontWeight: 600, color: C.tx2, display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={privateListing} onChange={e => setPrivateListing(e.target.checked)} /> Export as private Palmstreet listings</label><label style={{ fontSize: 13, fontWeight: 600, color: C.tx2, display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={includeWhatnotCost} onChange={e => setIncludeWhatnotCost(e.target.checked)} /> Include Cost Per Item in Whatnot CSV</label></div><div style={{ fontSize:12, color:C.tx3, marginTop:10, lineHeight:1.4 }}><b>Palmstreet:</b> uses your sample importer headers exactly and keeps cents, so 15.88 exports as 15.88. <b>Whatnot:</b> uses whole-dollar prices only, so 15.88 exports as 16, Shipping Profile is 1 lb, Title is Plant Name + Plant ID, Description is generated, and missing plant photos use the Leaf Diary logo image.</div></Card>
           <Card style={{ background: C.g800, color: '#fff' }}><div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', opacity: .75, marginBottom: 8 }}>Current Show</div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{showPlants.length}</div><div style={{ fontSize: 11, opacity: .75 }}>Plants</div></div><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{inStockCount}</div><div style={{ fontSize: 11, opacity: .75 }}>In Stock</div></div><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{$(value)}</div><div style={{ fontSize: 11, opacity: .75 }}>Show Value</div></div></div></Card>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 14 }}>
