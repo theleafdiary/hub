@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Leaf Diary" />
   <meta name="theme-color" content="#174D2F" />
-  <title>Leaf Diary CRM — Phase 3 Scan + Photo Ready</title>
+  <title>Leaf Diary CRM — Phase 4 Show Builder + Exports</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -2624,62 +2624,98 @@
 
 
     /* ══════════════════════════════════════════════════════════
-       PALMSTREET EXPORT + SHOW BUILDER HELPERS
+       PHASE 4 — SHOW BUILDER + PALMSTREET / WHATNOT EXPORT HELPERS
+       Scan-first show building. Exact platform headers. No CRM shipping logic.
     ══════════════════════════════════════════════════════════ */
     const PALMSTREET_HEADERS = [
       'Title (product name, 80 character max)*', 'Item description*', 'Image URL', 'Price*', 'Quantity* ',
       'Variation 1 name', 'Variation 1 value ', 'Variation 2 name', 'Variation 2 value', 'Variation 3 name', 'Variation 3 value',
       'SKU', 'Mark "Yes" for Private listing', 'Shipping (Leave empty will follow store setting...)'
     ];
+    const WHATNOT_HEADERS = [
+      'Category', 'Sub Category', 'Title', 'Description', 'Quantity', 'Type', 'Price', 'Shipping Profile', 'Offerable', 'Hazmat', 'Condition', 'Cost Per Item', 'SKU',
+      'Image URL 1', 'Image URL 2', 'Image URL 3', 'Image URL 4', 'Image URL 5', 'Image URL 6', 'Image URL 7', 'Image URL 8'
+    ];
     const SHOW_KEY = 'leafDiaryShowBuilderIds';
-    const safePlantId = p => (p?.plantId || p?.id || '').toString().trim();
+    const SHOW_META_KEY = 'leafDiaryShowBuilderMeta';
+    const SHOW_EXPORT_HISTORY_KEY = 'leafDiaryShowExportHistory';
+    const safePlantId = p => (p?.plantId || p?.plantCode || p?.plant_id || p?.sku || '').toString().trim();
     const csvCell = v => {
       const x = (v ?? '').toString();
       return /[",\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x;
     };
-    const cleanPrice = p => {
-      const v = +p.suggestedPrice || +p.salePrice || +p.marketRec || 0;
-      return v > 0 ? v.toFixed(2) : '';
+    const moneyToNumber = v => {
+      const n = +String(v ?? '').replace(/[^0-9.-]/g, '');
+      return Number.isFinite(n) ? n : 0;
     };
+    const roundShowPrice = (value, mode = 'nearestDollar') => {
+      const n = moneyToNumber(value);
+      if (n <= 0) return 0;
+      if (mode === 'nearest5') return Math.max(1, Math.round(n / 5) * 5);
+      if (mode === 'nearest10') return Math.max(1, Math.round(n / 10) * 10);
+      return Math.max(1, Math.round(n));
+    };
+    const cleanPrice = (p, opts = {}) => {
+      const v = +p.suggestedPrice || +p.suggested_price || +p.salePrice || +p.marketRec || 0;
+      const rounded = roundShowPrice(v, opts.priceRounding || 'nearestDollar');
+      return rounded > 0 ? String(rounded) : '';
+    };
+    const plantPhotoUrls = p => {
+      const urls = [];
+      [p.photoUrl, p.photo_url, p.imageUrl, p.image, p.image_url, p.photoBase64].forEach(u => { if (u && !urls.includes(u)) urls.push(u); });
+      const more = p.photoUrls || p.photo_urls || p.additionalPhotos || p.additional_photo_urls || [];
+      (Array.isArray(more) ? more : String(more || '').split(/[|,\n]/)).forEach(u => { const x = String(u || '').trim(); if (x && !urls.includes(x)) urls.push(x); });
+      return urls;
+    };
+    const primaryPhotoUrl = p => plantPhotoUrls(p)[0] || '';
+    const isPublicHttpsUrl = u => /^https:\/\//i.test(String(u || '').trim());
+    const isShowReadyStatus = p => ['In Stock', 'Ready For Show'].includes(String(p.status || 'In Stock')) || p.readyForShow === true;
     const palmTitle = p => {
       const id = safePlantId(p);
-      const suffix = id ? ` - ${id}` : '';
-      const maxName = Math.max(10, 80 - suffix.length);
-      const name = toTC(p.name || 'Leaf Diary Plant').slice(0, maxName).trim();
-      return `${name}${suffix}`.slice(0, 80);
+      const raw = `${toTC(p.name || 'Leaf Diary Plant')} ${id}`.replace(/\s+/g, ' ').trim();
+      return raw.slice(0, 80);
     };
+    const whatnotTitle = p => `${toTC(p.name || 'Leaf Diary Plant')} ${safePlantId(p)}`.replace(/\s+/g, ' ').trim();
     const smartPlantDescription = (p, showName = '') => {
       const lines = [
-        `Plant Name: ${toTC(p.name || 'Leaf Diary Plant')}`,
-        safePlantId(p) ? `Plant ID: ${safePlantId(p)}` : '',
-        p.potSize ? `Pot Size: ${p.potSize}` : '',
-        showName ? `Show: ${showName}` : '',
-        '',
-        'Leaf Diary rare plant listing. Exact plant will be shown during the live show. Please review the plant on screen before purchasing.',
-        'rare roots, real love'
+        `Beautiful ${toTC(p.name || 'Leaf Diary plant')}${p.potSize ? ` in a ${p.potSize} pot` : ''}.`,
+        safePlantId(p) ? `Plant ID: ${safePlantId(p)}.` : '',
+        showName ? `Listed for: ${showName}.` : '',
+        'Ships from Florida through the platform order system.',
+        'Leaf Diary · rare roots, real love'
       ];
-      return lines.filter(x => x !== null && x !== undefined).join('\n').replace(/\n{3,}/g, '\n\n');
+      return lines.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
     };
-    const validatePalmstreetPlants = list => {
-      const seen = new Set();
+    const validateShowPlants = (list, opts = {}) => {
+      const seen = new Map();
       const errors = [];
+      const warnings = [];
+      const allowPlaceholder = !!opts.allowPlaceholderPhoto;
       list.forEach((p, i) => {
-        const row = i + 1, id = safePlantId(p);
-        if (!id) errors.push(`Row ${row}: missing Plant ID / SKU`);
-        if (id && seen.has(id)) errors.push(`Row ${row}: duplicate Plant ID ${id}`);
-        if (id) seen.add(id);
-        if (!p.name) errors.push(`${id || 'Row ' + row}: missing plant name`);
-        if (!cleanPrice(p)) errors.push(`${id || 'Row ' + row}: missing suggested price / sale price`);
-        if (p.status && p.status !== 'In Stock') errors.push(`${id || 'Row ' + row}: status is ${p.status}, not In Stock`);
+        const row = i + 1, id = safePlantId(p), photo = primaryPhotoUrl(p), price = cleanPrice(p, opts);
+        if (!id) errors.push({ row, id, msg: `Row ${row}: missing Plant ID / SKU`, field: 'id' });
+        if (id && seen.has(id)) {
+          errors.push({ row, id, msg: `Row ${row}: duplicate SKU ${id} also appears on row ${seen.get(id)}`, field: 'duplicate' });
+          errors.push({ row: seen.get(id), id, msg: `Row ${seen.get(id)}: duplicate SKU ${id} also appears on row ${row}`, field: 'duplicate' });
+        }
+        if (id) seen.set(id, row);
+        if (!p.name) errors.push({ row, id, msg: `${id || 'Row ' + row}: missing plant name`, field: 'name' });
+        if (!price) errors.push({ row, id, msg: `${id || 'Row ' + row}: price is blank or zero`, field: 'price' });
+        const rawPrice = +p.suggestedPrice || +p.suggested_price || +p.salePrice || 0;
+        if (rawPrice && rawPrice % 1 !== 0) warnings.push({ row, id, msg: `${id}: decimal price ${rawPrice} will export as integer ${price}`, field: 'price_round' });
+        if (!isShowReadyStatus(p)) errors.push({ row, id, msg: `${id || 'Row ' + row}: status is ${p.status || 'Unknown'}, not In Stock / Ready For Show`, field: 'status' });
+        if (!photo && !allowPlaceholder) errors.push({ row, id, msg: `${id || 'Row ' + row}: missing photo URL`, field: 'photo' });
+        if (photo && !isPublicHttpsUrl(photo) && !String(photo).startsWith('data:image')) warnings.push({ row, id, msg: `${id}: photo URL is not public HTTPS. Platform upload may reject it.`, field: 'photo_url' });
+        if (palmTitle(p).length > 80) warnings.push({ row, id, msg: `${id}: Palmstreet title was truncated to 80 characters`, field: 'title' });
       });
-      return errors;
+      return { errors, warnings };
     };
     const makePalmstreetCSV = (list, opts = {}) => {
       const rows = list.map(p => [
         palmTitle(p),
         smartPlantDescription(p, opts.showName || ''),
-        p.imageUrl || p.photoUrl || p.image || '',
-        cleanPrice(p),
+        primaryPhotoUrl(p) || opts.placeholderPhotoUrl || '',
+        cleanPrice(p, opts),
         '1',
         '', '', '', '', '', '',
         safePlantId(p),
@@ -2688,9 +2724,38 @@
       ].map(csvCell).join(','));
       return PALMSTREET_HEADERS.map(csvCell).join(',') + '\n' + rows.join('\n');
     };
+    const makeWhatnotCSV = (list, opts = {}) => {
+      const category = opts.whatnotCategory || 'Home & Garden';
+      const subCategory = opts.whatnotSubCategory || 'Plants & Garden';
+      const type = opts.listingType || 'Auction';
+      const shippingProfile = opts.whatnotShippingProfile || '';
+      const offerable = opts.offerable === false ? 'FALSE' : 'TRUE';
+      const canIncludeCost = opts.includeCost === true;
+      const rows = list.map(p => {
+        const imgs = plantPhotoUrls(p).slice(0, 8);
+        while (imgs.length < 8) imgs.push('');
+        return [
+          category,
+          subCategory,
+          whatnotTitle(p),
+          smartPlantDescription(p, opts.showName || ''),
+          '1',
+          type,
+          cleanPrice(p, opts),
+          shippingProfile,
+          offerable,
+          'Not Hazmat',
+          'New',
+          canIncludeCost ? String(roundShowPrice(p.cost || 0, 'nearestDollar') || '') : '',
+          safePlantId(p),
+          ...imgs
+        ].map(csvCell).join(',');
+      });
+      return WHATNOT_HEADERS.map(csvCell).join(',') + '\n' + rows.join('\n');
+    };
     const makeShowListCSV = list => {
-      const headers = ['Order', 'Plant ID', 'Plant Name', 'Pot Size', 'Suggested Price', 'Status', 'Nursery', 'Rack', 'Shelf'];
-      const rows = list.map((p, i) => [i + 1, safePlantId(p), toTC(p.name), p.potSize || '', cleanPrice(p), p.status || '', p.nurseryCode || '', p.rack || '', p.shelf || ''].map(csvCell).join(','));
+      const headers = ['Order', 'Plant ID', 'Plant Name', 'Pot Size', 'Suggested Price', 'Status', 'Nursery', 'Rack', 'Shelf', 'Photo URL'];
+      const rows = list.map((p, i) => [i + 1, safePlantId(p), toTC(p.name), p.potSize || '', cleanPrice(p), p.status || '', p.nurseryCode || '', p.rack || p.location || '', p.shelf || '', primaryPhotoUrl(p)].map(csvCell).join(','));
       return headers.map(csvCell).join(',') + '\n' + rows.join('\n');
     };
     const downloadCSVFile = (filename, csv) => {
@@ -2701,6 +2766,10 @@
     };
     const getSavedShowIds = () => { try { return JSON.parse(localStorage.getItem(SHOW_KEY) || '[]'); } catch { return []; } };
     const saveShowIds = ids => localStorage.setItem(SHOW_KEY, JSON.stringify([...new Set(ids)]));
+    const getSavedShowMeta = () => { try { return JSON.parse(localStorage.getItem(SHOW_META_KEY) || '{}'); } catch { return {}; } };
+    const saveShowMeta = meta => localStorage.setItem(SHOW_META_KEY, JSON.stringify(meta || {}));
+    const getShowExportHistory = () => { try { return JSON.parse(localStorage.getItem(SHOW_EXPORT_HISTORY_KEY) || '[]'); } catch { return []; } };
+    const saveShowExportHistory = rows => localStorage.setItem(SHOW_EXPORT_HISTORY_KEY, JSON.stringify(rows || []));
 
     /* ══════════════════════════════════════════════════════════
        LABELS
@@ -5584,68 +5653,190 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       </div>;
     }
 
-    function ShowBuilder({ plants, setPlants, user, addAudit }) {
-      const [showName, setShowName] = useState(`Leaf Diary Show ${today()}`);
-      const [ids, setIds] = useState(getSavedShowIds());
+    function ShowBuilder({ plants, setPlants, user, addAudit, users = [], settings = {} }) {
+      const defaultMeta = getSavedShowMeta();
+      const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      const [showName, setShowName] = useState(defaultMeta.showName || `Leaf Diary ${dayName} Show ${today()}`);
+      const [platform, setPlatform] = useState(defaultMeta.platform || 'Both');
+      const [showDateTime, setShowDateTime] = useState(defaultMeta.showDateTime || `${today()}T19:00`);
+      const [hostEmployeeId, setHostEmployeeId] = useState(defaultMeta.hostEmployeeId || '');
+      const [listingType, setListingType] = useState(defaultMeta.listingType || 'Auction');
+      const [priceRounding, setPriceRounding] = useState(defaultMeta.priceRounding || settings?.defaultPriceRounding || 'nearestDollar');
+      const [privateListing, setPrivateListing] = useState(defaultMeta.privateListing || false);
+      const [allowPlaceholderPhoto, setAllowPlaceholderPhoto] = useState(defaultMeta.allowPlaceholderPhoto || false);
+      const [includeCost, setIncludeCost] = useState(defaultMeta.includeCost || false);
+      const [ids, setIds] = useState(() => {
+        const pending = (() => { try { return JSON.parse(localStorage.getItem('leafDiaryPendingShowQueue') || '[]'); } catch { return []; } })();
+        return [...new Set([...getSavedShowIds(), ...pending].filter(Boolean))];
+      });
       const [entry, setEntry] = useState('');
       const [search, setSearch] = useState('');
-      const [privateListing, setPrivateListing] = useState(false);
       const [msg, setMsg] = useState('');
+      const [warn, setWarn] = useState('');
+      const [scanMode, setScanMode] = useState(false);
+      const [cameraMode, setCameraMode] = useState(false);
+      const [smartGenus, setSmartGenus] = useState('Monstera');
+      const [history, setHistory] = useState(getShowExportHistory());
+      const hidRef = useRef(null);
+      const qrRef = useRef(null);
+      const qrDivId = 'leaf-diary-showbuilder-qr-reader';
+      const isOwner = user?.role === 'owner';
+      const canIncludeCost = isOwner || user?.permissions?.canSeeCost;
+      const employees = (users || []).filter(u => u.active !== false && u.role !== 'owner');
+      const meta = { showName, platform, showDateTime, hostEmployeeId, listingType, priceRounding, privateListing, allowPlaceholderPhoto, includeCost };
       useEffect(() => saveShowIds(ids), [ids]);
-      const byPlantId = id => plants.find(p => safePlantId(p).toLowerCase() === String(id).trim().toLowerCase());
+      useEffect(() => saveShowMeta(meta), [showName, platform, showDateTime, hostEmployeeId, listingType, priceRounding, privateListing, allowPlaceholderPhoto, includeCost]);
+      useEffect(() => { if (scanMode && hidRef.current) setTimeout(() => hidRef.current.focus(), 60); }, [scanMode]);
+      useEffect(() => () => { try { if (qrRef.current) qrRef.current.stop(); } catch(e) {} }, []);
+      const cleanCode = v => String(v || '').trim().replace(/^https?:\/\/[^/]+\/plant\//i, '').replace(/^LD:/i, '').trim();
+      const byPlantId = id => plants.find(p => safePlantId(p).toLowerCase() === cleanCode(id).toLowerCase());
       const showPlants = ids.map(id => byPlantId(id)).filter(Boolean);
       const missing = ids.filter(id => !byPlantId(id));
-      const errors = validatePalmstreetPlants(showPlants);
+      const value = showPlants.reduce((s, p) => s + (+cleanPrice(p, { priceRounding }) || 0), 0);
+      const validation = validateShowPlants(showPlants, { priceRounding, allowPlaceholderPhoto });
+      const errors = validation.errors;
+      const warnings = validation.warnings;
+      const addPlantToShow = (p, source = 'manual') => {
+        if (!p) return false;
+        const id = safePlantId(p);
+        if (!id) { setWarn('This plant does not have a Plant ID / SKU. Export is blocked until fixed.'); return false; }
+        if (ids.includes(id)) { setWarn(`${id} is already in this show.`); return false; }
+        if (String(p.status || '') === 'Sold' && !isOwner) { setWarn(`${id} is already Sold. It cannot be added without owner override.`); return false; }
+        if (!isShowReadyStatus(p) && !isOwner) { setWarn(`${id} is ${p.status || 'not ready'}. Owner override required.`); return false; }
+        setIds(prev => [...prev, id]);
+        setMsg(`Added ${id} · ${p.name || 'Plant'} by ${source}.`);
+        setWarn('');
+        try { addAudit && addAudit({ action: `Added ${id} to Show Builder by ${source}`, user: user?.name || 'Unknown', page: 'Show Builder' }); } catch(e) {}
+        return true;
+      };
+      const addCode = (code, source = 'scan') => {
+        const clean = cleanCode(code);
+        if (!clean) return;
+        const p = byPlantId(clean);
+        if (!p) { setWarn(`Plant not found: ${clean}. Search inventory or report missing label.`); return; }
+        addPlantToShow(p, source);
+      };
       const addIds = raw => {
-        const found = [], notFound = [];
-        raw.split(/[,\n\r\t ]+/).map(x => x.trim()).filter(Boolean).forEach(id => {
-          const p = byPlantId(id);
-          if (p) found.push(safePlantId(p)); else notFound.push(id);
-        });
-        if (found.length) setIds(prev => [...new Set([...prev, ...found])]);
+        const parts = raw.split(/[,\n\r\t ]+/).map(x => x.trim()).filter(Boolean);
+        let added = 0, notFound = [];
+        parts.forEach(id => { const p = byPlantId(id); if (p && addPlantToShow(p, 'typed ID')) added++; else if (!p) notFound.push(id); });
         setEntry('');
-        setMsg(`${found.length} added${notFound.length ? ` · ${notFound.length} not found: ${notFound.slice(0, 6).join(', ')}` : ''}`);
+        if (notFound.length) setWarn(`Not found: ${notFound.join(', ')}`);
+        if (added) setMsg(`Added ${added} plant(s) to the show.`);
+      };
+      const quick = (plants || []).filter(p => {
+        const q = search.trim().toLowerCase();
+        if (!q) return false;
+        return [safePlantId(p), p.name, p.nurseryCode, p.potSize, p.status, p.rack, p.shelf, p.location].some(v => String(v || '').toLowerCase().includes(q));
+      }).slice(0, 25);
+      const smartAdd = type => {
+        let list = [];
+        if (type === 'ready') list = plants.filter(p => isShowReadyStatus(p) && primaryPhotoUrl(p) && cleanPrice(p, { priceRounding }));
+        if (type === 'photos_prices') list = plants.filter(p => primaryPhotoUrl(p) && cleanPrice(p, { priceRounding }) && String(p.status || 'In Stock') !== 'Sold');
+        if (type === 'genus') list = plants.filter(p => String(p.name || '').toLowerCase().includes(smartGenus.toLowerCase()) && isShowReadyStatus(p));
+        list = list.filter(p => safePlantId(p) && !ids.includes(safePlantId(p)));
+        if (!list.length) { setWarn('No matching plants found for that smart add filter.'); return; }
+        if (!confirm(`Add ${list.length} plants to this show?`)) return;
+        setIds(prev => [...new Set([...prev, ...list.map(safePlantId)])]);
+        setMsg(`Smart added ${list.length} plants.`);
       };
       const removeId = id => setIds(prev => prev.filter(x => x !== id));
-      const move = (i, dir) => setIds(prev => { const a = [...prev], j = i + dir; if (j < 0 || j >= a.length) return a;[a[i], a[j]] = [a[j], a[i]]; return a; });
-      const clear = () => { if (confirm('Clear this show list?')) { setIds([]); setMsg('Show list cleared.'); } };
+      const move = (i, dir) => setIds(prev => { const n = [...prev]; const j = i + dir; if (j < 0 || j >= n.length) return n; [n[i], n[j]] = [n[j], n[i]]; return n; });
+      const clearShow = () => { if (confirm('Clear this show list?')) { setIds([]); localStorage.removeItem('leafDiaryPendingShowQueue'); setMsg('Show list cleared.'); } };
+      const startCamera = async () => {
+        setCameraMode(true); setMsg('Starting camera scanner...'); setWarn('');
+        setTimeout(async () => {
+          try {
+            if (!window.Html5Qrcode) throw new Error('html5-qrcode library not loaded. Use Bluetooth scanner or search.');
+            if (qrRef.current) { try { await qrRef.current.stop(); } catch(e) {} }
+            qrRef.current = new Html5Qrcode(qrDivId);
+            await qrRef.current.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 250, height: 250 } }, decoded => addCode(decoded, 'camera scan'), () => {});
+            setMsg('Camera scan mode active. Point at plant label. Each scan adds to the show.');
+          } catch (e) { setWarn('Camera scanner could not start: ' + (e?.message || e)); setCameraMode(false); }
+        }, 80);
+      };
+      const stopCamera = async () => { try { if (qrRef.current) await qrRef.current.stop(); } catch(e) {} try { if (qrRef.current) await qrRef.current.clear(); } catch(e) {} qrRef.current = null; setCameraMode(false); };
+      const exportOpts = {
+        showName, priceRounding, privateListing, allowPlaceholderPhoto, placeholderPhotoUrl: settings?.placeholderPhotoUrl || '',
+        listingType, whatnotCategory: settings?.whatnotCategory || 'Home & Garden', whatnotSubCategory: settings?.whatnotSubCategory || 'Plants & Garden',
+        whatnotShippingProfile: settings?.whatnotShippingProfile || '', offerable: settings?.whatnotOfferable !== false, includeCost: canIncludeCost && includeCost
+      };
+      const recordExport = (exportPlatform, filename) => {
+        const row = { id: uid(), show_id: showName.replace(/\s+/g, '-').toLowerCase(), showName, platform: exportPlatform, filename, plant_count: showPlants.length, total_list_price: value, user_id: user?.id || '', user_name: user?.name || '', timestamp: new Date().toISOString(), host_employee_id: hostEmployeeId };
+        const next = [row, ...getShowExportHistory()].slice(0, 50);
+        saveShowExportHistory(next); setHistory(next);
+        try { addAudit && addAudit({ action: `Exported ${exportPlatform} show CSV — ${showPlants.length} plants`, user: user?.name || 'Unknown', page: 'Show Builder', details: filename }); } catch(e) {}
+      };
+      const assertCanExport = () => {
+        if (!showPlants.length) { setWarn('Add plants before exporting.'); return false; }
+        if (errors.length) { setWarn('Export blocked. Fix the red validation issues first.'); return false; }
+        if (warnings.some(w => w.field === 'price_round')) {
+          if (!confirm('Some decimal prices will export as integers. Continue?')) return false;
+        }
+        return true;
+      };
       const exportPalmstreet = () => {
-        if (!showPlants.length) { alert('Add plants to the show first.'); return; }
-        if (errors.length) { alert('Fix these before exporting to Palmstreet:\n\n' + errors.slice(0, 25).join('\n') + (errors.length > 25 ? `\n...and ${errors.length - 25} more` : '')); return; }
-        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
-        downloadCSVFile(`${fileSafe}-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(showPlants, { showName, privateListing }));
-        setPlants(prev => prev.map(p => ids.includes(safePlantId(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: showName } : p));
-        addAudit && addAudit({ action: `Exported Show Builder to Palmstreet CSV — ${showPlants.length} plants`, user: user.name, page: 'Show Builder' });
-        setMsg(`Palmstreet CSV exported for ${showPlants.length} plants.`);
+        if (!assertCanExport()) return;
+        const file = `${showName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'leaf-diary-show'}-palmstreet.csv`;
+        downloadCSVFile(file, makePalmstreetCSV(showPlants, exportOpts));
+        setPlants(prev => prev.map(p => ids.includes(safePlantId(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: showName, lastShowPlatform: 'Palmstreet' } : p));
+        recordExport('Palmstreet', file);
+        setMsg('Palmstreet CSV downloaded. Plants were NOT marked sold. Sold happens only after post-show import finalize.');
       };
-      const exportShowList = () => {
-        if (!showPlants.length) { alert('Add plants first.'); return; }
-        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
-        downloadCSVFile(`${fileSafe}-internal-show-list-${today()}.csv`, makeShowListCSV(showPlants));
-        setMsg('Internal show list exported.');
+      const exportWhatnot = () => {
+        if (!assertCanExport()) return;
+        const file = `${showName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'leaf-diary-show'}-whatnot.csv`;
+        downloadCSVFile(file, makeWhatnotCSV(showPlants, exportOpts));
+        setPlants(prev => prev.map(p => ids.includes(safePlantId(p)) ? { ...p, whatnotExportedAt: new Date().toISOString(), lastShowName: showName, lastShowPlatform: 'Whatnot' } : p));
+        recordExport('Whatnot', file);
+        setMsg('Whatnot CSV downloaded with integer prices and Plant ID as SKU. Plants were NOT marked sold.');
       };
-      const quick = plants.filter(p => {
-        const q = search.toLowerCase().trim();
-        if (!q) return false;
-        return safePlantId(p).toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q) || (p.nurseryCode || '').toLowerCase().includes(q);
-      }).slice(0, 30);
-      const inStockCount = showPlants.filter(p => p.status === 'In Stock').length;
-      const value = showPlants.reduce((s, p) => s + (+p.suggestedPrice || +p.salePrice || 0), 0);
-      return <div style={{ padding: '14px 14px 90px', background: C.bg, minHeight: '100vh' }}>
-        <SHdr icon="🎪" title="Show Builder" sub="Build a Palmstreet upload file from inventory using Plant ID numbers"
-          right={<Row gap={6} wrap><Btn onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear</Btn></Row>} />
-        {msg && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 600 }}>{msg}</div>}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr .8fr', gap: 14, marginBottom: 14 }}>
-          <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>1. Show Setup</div><Inp label="Show Name" value={showName} onChange={setShowName} placeholder="Leaf Diary Friday Rare Plant Show" /><div style={{ marginTop: 10 }}><label style={{ fontSize: 13, fontWeight: 600, color: C.tx2, display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={privateListing} onChange={e => setPrivateListing(e.target.checked)} /> Export as private Palmstreet listings</label></div></Card>
-          <Card style={{ background: C.g800, color: '#fff' }}><div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', opacity: .75, marginBottom: 8 }}>Current Show</div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{showPlants.length}</div><div style={{ fontSize: 11, opacity: .75 }}>Plants</div></div><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{inStockCount}</div><div style={{ fontSize: 11, opacity: .75 }}>In Stock</div></div><div><div style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700 }}>{$(value)}</div><div style={{ fontSize: 11, opacity: .75 }}>Show Value</div></div></div></Card>
+      const exportBoth = () => { exportPalmstreet(); setTimeout(exportWhatnot, 250); };
+      const exportInternal = () => {
+        if (!showPlants.length) { setWarn('Add plants before exporting an internal sheet.'); return; }
+        const file = `${showName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'leaf-diary-show'}-internal-show-list.csv`;
+        downloadCSVFile(file, makeShowListCSV(showPlants));
+        recordExport('Internal Show Sheet', file);
+      };
+      return <div className="ld-page page-scroll-safe" style={{ padding: '18px 16px 120px', maxWidth: 1180, margin: '0 auto' }}>
+        <SHdr icon="🎪" title="Show Builder" sub="Scan plants into a show, validate every required field, then export exact Palmstreet and Whatnot upload files." right={<Row gap={8} wrap><Btn v="soft" onClick={() => setScanMode(!scanMode)}>{scanMode ? 'Hide Bluetooth Scan' : 'Bluetooth Scan Mode'}</Btn><Btn v="soft" onClick={cameraMode ? stopCamera : startCamera}>{cameraMode ? 'Stop Camera' : 'Camera Scan'}</Btn><Btn v="danger" onClick={clearShow}>Clear Show</Btn></Row>} />
+        {msg && <div style={{ background: C.g100, border: `1px solid ${C.g300}`, borderRadius: 10, padding: '10px 14px', color: C.g800, fontSize: 13, fontWeight: 800, marginBottom: 12 }}>{msg}</div>}
+        {warn && <div style={{ background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: '10px 14px', color: C.red, fontSize: 13, fontWeight: 800, marginBottom: 12 }}>⚠️ {warn}</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
+          <KPI label="Plants" value={showPlants.length} sub="in current show" color={C.g700} />
+          <KPI label="List Value" value={$(value)} sub="export price total" color={C.gold} />
+          <KPI label="Errors" value={errors.length} sub="must fix before export" color={errors.length ? C.red : C.g600} />
+          <KPI label="Warnings" value={warnings.length} sub="review before download" color={warnings.length ? C.amber : C.g600} />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 14 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>2. Add Plants by ID</div><p style={{ fontSize: 12, color: C.tx3, marginTop: 0 }}>Type or paste plant IDs. You can enter one ID or many IDs separated by spaces, commas, or new lines.</p><textarea value={entry} onChange={e => setEntry(e.target.value)} placeholder={'Example:\nPPC-0001\nPPC-0002'} style={{ width: '100%', minHeight: 92, padding: 12, border: `1.5px solid ${C.bd}`, borderRadius: 10, fontSize: 14, fontFamily: F.mono, resize: 'vertical' }} /><Btn full style={{ marginTop: 8 }} onClick={() => addIds(entry)} disabled={!entry.trim()}>Add Plant IDs to Show</Btn></Card>
-            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>Search Inventory</div><Inp value={search} onChange={setSearch} placeholder="Search plant name, ID, nursery code..." /><div style={{ marginTop: 10, maxHeight: 300, overflowY: 'auto' }}>{quick.length === 0 ? <div style={{ fontSize: 12, color: C.tx3, padding: '14px 0' }}>Search to add plants fast.</div> : quick.map(p => <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.bdS}` }}><div><div style={{ fontSize: 12, fontWeight: 700, color: C.g900 }}>{toTC(p.name)}</div><div style={{ fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{safePlantId(p)} · {$(p.suggestedPrice)}</div></div><Btn sz="sm" v={ids.includes(safePlantId(p)) ? 'ghost' : 'soft'} onClick={() => setIds(prev => [...new Set([...prev, safePlantId(p)])])}>{ids.includes(safePlantId(p)) ? 'Added' : 'Add'}</Btn></div>)}</div></Card>
-            {(errors.length > 0 || missing.length > 0) && <Card style={{ background: C.redBg, border: `1px solid ${C.red}40` }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.red, fontSize: 15, marginBottom: 8 }}>Export Warnings</div>{missing.map(id => <div key={id} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Missing inventory plant: {id}</div>)}{errors.slice(0, 12).map((e, i) => <div key={i} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>• {e}</div>)}{errors.length > 12 && <div style={{ fontSize: 12, color: C.red }}>...and {errors.length - 12} more</div>}</Card>}
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 17, marginBottom: 12 }}>1. Show Setup</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10 }}>
+            <Inp label="Show Name" value={showName} onChange={setShowName} />
+            <Sel label="Platform" value={platform} onChange={setPlatform} options={['Palmstreet','Whatnot','Both']} />
+            <Inp label="Show Date / Time" type="datetime-local" value={showDateTime} onChange={setShowDateTime} />
+            <Sel label="Listing Type" value={listingType} onChange={setListingType} options={['Auction','Buy It Now']} />
           </div>
-          <Card><Row between wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16 }}>Plants in This Show</div><div style={{ fontSize: 12, color: C.tx3 }}>Order here is the order exported to your internal show list.</div></div><Tag text={`${showPlants.length} plants`} color={C.g700} /></Row>{showPlants.length === 0 ? <div style={{ textAlign: 'center', padding: '60px 20px', color: C.tx3 }}><div style={{ fontSize: 42, marginBottom: 10 }}>🎪</div><div style={{ fontFamily: F.display, fontSize: 18, color: C.g900 }}>No plants added yet</div><p>Add plants by Plant ID from the left panel.</p></div> : <div style={{ overflowX: 'auto', border: `1px solid ${C.bd}`, borderRadius: 10 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}><thead style={{ background: C.cardAlt }}><tr>{['#', 'Plant', 'ID', 'Pot', 'Price', 'Status', 'Exported', 'Actions'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: C.tx3, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead><tbody>{showPlants.map((p, i) => <tr key={safePlantId(p)} style={{ borderBottom: `1px solid ${C.bdS}` }}><td style={{ padding: '8px 10px', fontWeight: 700, color: C.tx3 }}>{i + 1}</td><td style={{ padding: '8px 10px' }}><b>{toTC(p.name)}</b><div style={{ fontSize: 10, color: C.tx3 }}>{p.nurseryCode || ''} {p.rack ? `· Rack ${p.rack}` : ''}</div></td><td style={{ padding: '8px 10px', fontFamily: F.mono, fontSize: 10, color: C.g600 }}>{safePlantId(p)}</td><td style={{ padding: '8px 10px' }}>{p.potSize || '—'}</td><td style={{ padding: '8px 10px', fontWeight: 700, color: C.g900 }}>{$(p.suggestedPrice || p.salePrice)}</td><td style={{ padding: '8px 10px' }}><SBadge s={p.status || 'In Stock'} /></td><td style={{ padding: '8px 10px' }}>{p.palmstreetExportedAt ? <Tag text="Yes" color={C.blue} sm /> : <span style={{ color: C.tx3 }}>No</span>}</td><td style={{ padding: '8px 10px' }}><Row gap={4}><Btn sz="sm" v="ghost" onClick={() => move(i, -1)}>↑</Btn><Btn sz="sm" v="ghost" onClick={() => move(i, 1)}>↓</Btn><Btn sz="sm" v="danger" onClick={() => removeId(safePlantId(p))}>Remove</Btn></Row></td></tr>)}</tbody></table></div>}</Card>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginTop: 10 }}>
+            <Sel label="Host Employee" value={hostEmployeeId} onChange={setHostEmployeeId} options={[{v:'',l:'No host selected'}, ...employees.map(e => ({ v:e.id, l:e.name || e.email || e.id }))]} />
+            <Sel label="Price Rounding" value={priceRounding} onChange={setPriceRounding} options={[{v:'nearestDollar',l:'Nearest Dollar'}, {v:'nearest5',l:'Nearest $5'}, {v:'nearest10',l:'Nearest $10'}]} />
+            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:800, color:C.tx2, paddingTop:24 }}><input type="checkbox" checked={privateListing} onChange={e=>setPrivateListing(e.target.checked)} /> Palmstreet private listing</label>
+            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:800, color:C.tx2, paddingTop:24 }}><input type="checkbox" checked={includeCost} disabled={!canIncludeCost} onChange={e=>setIncludeCost(e.target.checked)} /> Include cost on Whatnot owner export</label>
+          </div>
+          <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:800, color:C.tx3, marginTop:10 }}><input type="checkbox" checked={allowPlaceholderPhoto} onChange={e=>setAllowPlaceholderPhoto(e.target.checked)} /> Allow placeholder photo only when owner explicitly approves. Default is block missing photos.</label>
+        </Card>
+        <div style={{ display: 'grid', gridTemplateColumns: '390px 1fr', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {scanMode && <Card style={{ border: `2px solid ${C.g500}` }}><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, marginBottom:8 }}>Bluetooth HID Scanner</div><p style={{ fontSize:12, color:C.tx3, marginTop:0 }}>Scanner acts like a keyboard. Scan a plant label and press Enter automatically.</p><input ref={hidRef} defaultValue="" onKeyDown={e=>{ if(e.key === 'Enter'){ addCode(e.currentTarget.value, 'Bluetooth scanner'); e.currentTarget.value=''; } }} placeholder="Scanner input focused here" style={{ width:'100%', padding:14, border:`2px solid ${C.g500}`, borderRadius:10, fontSize:18, fontFamily:F.mono }} /></Card>}
+            {cameraMode && <Card><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, marginBottom:8 }}>Camera Scanner</div><div id={qrDivId} style={{ width:'100%', minHeight:260, background:C.g900, borderRadius:12, overflow:'hidden' }}></div></Card>}
+            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>Add Plants by ID</div><textarea value={entry} onChange={e => setEntry(e.target.value)} placeholder={'Example:\nPPC-0001\nPPC-0002'} style={{ width: '100%', minHeight: 92, padding: 12, border: `1.5px solid ${C.bd}`, borderRadius: 10, fontSize: 14, fontFamily: F.mono, resize: 'vertical' }} /><Btn full style={{ marginTop: 8 }} onClick={() => addIds(entry)} disabled={!entry.trim()}>Add Plant IDs</Btn></Card>
+            <Card><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 }}>Search Inventory</div><Inp value={search} onChange={setSearch} placeholder="Search plant name, ID, nursery code, rack..." /><div style={{ marginTop: 10, maxHeight: 300, overflowY: 'auto' }}>{quick.length === 0 ? <div style={{ fontSize: 12, color: C.tx3, padding: '14px 0' }}>Search to add plants fast.</div> : quick.map(p => <div key={p.id || safePlantId(p)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap:8, padding: '8px 0', borderBottom: `1px solid ${C.bdS}` }}><div style={{ display:'flex', gap:8, alignItems:'center' }}>{primaryPhotoUrl(p) ? <img src={primaryPhotoUrl(p)} style={{ width:38, height:38, objectFit:'cover', borderRadius:8 }} /> : <div style={{ width:38, height:38, borderRadius:8, background:C.g100, display:'flex', alignItems:'center', justifyContent:'center' }}>🌿</div>}<div><div style={{ fontSize: 12, fontWeight: 700, color: C.g900 }}>{toTC(p.name)}</div><div style={{ fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{safePlantId(p)} · {$(cleanPrice(p, { priceRounding }))} · {p.status || 'In Stock'}</div></div></div><Btn sz="sm" v={ids.includes(safePlantId(p)) ? 'ghost' : 'soft'} onClick={() => addPlantToShow(p, 'search')}>{ids.includes(safePlantId(p)) ? 'Added' : 'Add'}</Btn></div>)}</div></Card>
+            {isOwner && <Card><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, marginBottom:10 }}>Smart Add</div><Row gap={8} wrap><Btn v="soft" sz="sm" onClick={() => smartAdd('ready')}>All Ready For Show</Btn><Btn v="soft" sz="sm" onClick={() => smartAdd('photos_prices')}>With Photos + Prices</Btn></Row><Row gap={8} wrap style={{ marginTop:8 }}><Inp value={smartGenus} onChange={setSmartGenus} placeholder="Genus, e.g. Monstera" /><Btn v="soft" sz="sm" onClick={() => smartAdd('genus')}>Add Genus</Btn></Row></Card>}
+            {(errors.length > 0 || warnings.length > 0 || missing.length > 0) && <Card style={{ background: errors.length ? C.redBg : C.amberBg, border: `1px solid ${(errors.length ? C.red : C.amber)}40` }}><div style={{ fontFamily: F.display, fontWeight: 700, color: errors.length ? C.red : C.amber, fontSize: 15, marginBottom: 8 }}>Export Validation</div>{missing.map(id => <div key={id} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Missing inventory plant: {id}</div>)}{errors.slice(0, 14).map((e, i) => <div key={'e'+i} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>• {e.msg}</div>)}{warnings.slice(0, 10).map((e, i) => <div key={'w'+i} style={{ fontSize: 12, color: C.amber, marginBottom: 4 }}>• {e.msg}</div>)}</Card>}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            <Card><Row between wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16 }}>Plants in This Show</div><div style={{ fontSize: 12, color: C.tx3 }}>Manual reorder controls set export order. Export never marks plants sold.</div></div><Row gap={8} wrap><Btn v="outline" onClick={exportInternal}>Internal Sheet</Btn>{(platform === 'Palmstreet' || platform === 'Both') && <Btn onClick={exportPalmstreet}>Export Palmstreet</Btn>}{(platform === 'Whatnot' || platform === 'Both') && <Btn onClick={exportWhatnot}>Export Whatnot</Btn>}{platform === 'Both' && <Btn v="gold" onClick={exportBoth}>Export Both</Btn>}</Row></Row>{showPlants.length === 0 ? <div style={{ textAlign: 'center', padding: '60px 20px', color: C.tx3 }}><div style={{ fontSize: 42, marginBottom: 10 }}>🎪</div><div style={{ fontFamily: F.display, fontSize: 18, color: C.g900 }}>No plants added yet</div><p>Scan labels, search, or paste Plant IDs.</p></div> : <div style={{ overflowX: 'auto', border: `1px solid ${C.bd}`, borderRadius: 10 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}><thead style={{ background: C.cardAlt }}><tr>{['#','Photo','Plant','SKU','Pot','Price','Status','Checks','Actions'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: C.tx3, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead><tbody>{showPlants.map((p, i) => { const id=safePlantId(p); const rowErr=errors.filter(e=>e.id===id || e.row===i+1); const rowWarn=warnings.filter(e=>e.id===id || e.row===i+1); return <tr key={id || i} style={{ borderBottom: `1px solid ${C.bdS}`, background: rowErr.length ? C.redBg : rowWarn.length ? C.amberBg : 'transparent' }}><td style={{ padding: '8px 10px', fontWeight: 700, color: C.tx3 }}>{i + 1}</td><td style={{ padding:'8px 10px' }}>{primaryPhotoUrl(p) ? <img src={primaryPhotoUrl(p)} style={{ width:46, height:46, objectFit:'cover', borderRadius:8 }} /> : <span style={{ color:C.red, fontWeight:800 }}>No photo</span>}</td><td style={{ padding: '8px 10px' }}><b>{toTC(p.name)}</b><div style={{ fontSize: 10, color: C.tx3 }}>{p.nurseryCode || ''} {p.rack || p.location ? `· ${p.rack || p.location}` : ''}</div></td><td style={{ padding: '8px 10px', fontFamily: F.mono, fontSize: 10, color: C.g600 }}>{id}</td><td style={{ padding: '8px 10px' }}>{p.potSize || '—'}</td><td style={{ padding: '8px 10px', fontWeight: 700, color: C.g900 }}>{cleanPrice(p, { priceRounding }) ? '$' + cleanPrice(p, { priceRounding }) : '—'}</td><td style={{ padding: '8px 10px' }}><SBadge s={p.status || 'In Stock'} /></td><td style={{ padding:'8px 10px' }}>{rowErr.length ? <Tag text="Fix" color={C.red} sm /> : rowWarn.length ? <Tag text="Warn" color={C.amber} sm /> : <Tag text="Ready" color={C.g600} sm />}</td><td style={{ padding: '8px 10px' }}><Row gap={4}><Btn sz="sm" v="ghost" onClick={() => move(i, -1)}>↑</Btn><Btn sz="sm" v="ghost" onClick={() => move(i, 1)}>↓</Btn><Btn sz="sm" v="danger" onClick={() => removeId(id)}>Remove</Btn></Row></td></tr>; })}</tbody></table></div>}</Card>
+            <Card><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, marginBottom:8 }}>Export History</div>{history.length === 0 ? <div style={{ fontSize:12, color:C.tx3 }}>No show exports yet.</div> : <div style={{ display:'flex', flexDirection:'column', gap:6 }}>{history.slice(0,6).map(h => <div key={h.id} style={{ fontSize:12, color:C.tx2, display:'flex', justifyContent:'space-between', gap:8, borderBottom:`1px solid ${C.bdS}`, paddingBottom:6 }}><span><b>{h.platform}</b> · {h.plant_count} plants · {h.filename}</span><span style={{ color:C.tx3 }}>{new Date(h.timestamp).toLocaleString()}</span></div>)}</div>}</Card>
+          </div>
         </div>
       </div>;
     }
@@ -7989,7 +8180,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           {page === "labels" && <Labels plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} settings={settings} />}
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={navigate} />}
           {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
-          {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
+          {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} />}
           {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
