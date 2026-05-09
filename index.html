@@ -766,10 +766,15 @@
         nurseryRows.slice(0,8).forEach(n => add(recommendations,"Nursery score",`${n.name}: ${n.count} bought, ${n.sold} sold, ${$(n.profit)} profit, ${n.dead} dead/damaged.`,"nursery", n.dead>2?"warning":"info"));
       }
       if (["live_show_plan","show_forecast"].includes(task)) {
-        const premium = [...inStock].filter(p => (+p.suggestedPrice||0)>=50).sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,8);
-        premium.forEach((p,i)=>add(actions,`Premium hook #${i+1}`,`${p.name} ${p.plantId||""} — list ${$(p.suggestedPrice)}. Use as opener, mid-show spike, or closer.`,"showbuilder","info"));
-        aging45.slice(0,8).forEach(p=>add(actions,"Clearance push",`${p.name} ${p.plantId||""} held ${fDays(dHeld(p.dateAdded))}. Bundle or start low to move capital.`,"discounts","warning"));
-        add(recommendations,"Show revenue forecast",`If you sell 60% of ${inStock.length} in-stock plants at current average in-stock price, rough gross potential is ${$(inStock.reduce((s,p)=>s+(+p.suggestedPrice||0),0)*0.60)}.`,"showbuilder","info");
+        const priceOf = p => +p.suggestedPrice || +p.listPrice || +p.price || 0;
+        const plantIdOf = p => p.plantId || p.plantCode || p.sku || p.id || "NO-ID";
+        const sortedShow = [...inStock].sort((a,b)=>priceOf(b)-priceOf(a) || (dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
+        const premium = sortedShow.filter(p => priceOf(p)>=50).slice(0,12);
+        const clearance = [...aging45].sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0)).slice(0,12);
+        premium.forEach((p,i)=>add(actions,`Premium hook #${i+1}`,`${plantIdOf(p)} ${p.name} — list ${$(priceOf(p))}. Use as opener, mid-show spike, or closer.`,"showbuilder","info"));
+        clearance.forEach(p=>add(actions,"Clearance push",`${plantIdOf(p)} ${p.name} held ${fDays(dHeld(p.dateAdded))}. Bundle or start low to move capital.`,"discounts","warning"));
+        add(recommendations,"Complete in-stock show pool",`${sortedShow.length} In Stock plants are eligible. The AI should never include Sold, Dead, Damaged, Personal, or Returned plants in show builds.`,"showbuilder","info");
+        add(recommendations,"Show revenue forecast",`If you sell 60% of ${sortedShow.length} in-stock plants at current average in-stock price, rough gross potential is ${$(sortedShow.reduce((s,p)=>s+priceOf(p),0)*0.60)}.`,"showbuilder","info");
       }
       if (task === "live_script") {
         [...inStock].filter(p=>+p.suggestedPrice>0).sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,10).forEach(p=>add(actions,"Live talking point",`${p.name}: mention pot size ${p.potSize||"unknown"}, Plant ID ${p.plantId||p.plantCode||""}, and why it is a good Leaf Diary pick.`,"liveshow","info"));
@@ -5404,10 +5409,74 @@
           ].join("\n"), actions:[{label:"Open Show Builder", page:"showbuilder"},{label:"Open Inventory", page:"inv"}] };
         }
         if (text.includes("show") || text.includes("whatnot") || text.includes("palmstreet")) {
-          const premium = [...inStock].filter(p=>(+p.suggestedPrice||0)>=50).sort((a,b)=>(+b.suggestedPrice||0)-(+a.suggestedPrice||0)).slice(0,8);
-          const clears = aging.slice(0,8);
-          return { title:"AI Show Builder Plan", body:`Suggested show mix:\n• ${premium.length} premium hook plants\n• ${clears.length} aging/clearance plants\n• ${Math.max(0, Math.min(25, inStock.length-premium.length-clears.length))} normal inventory plants\n\nPremium hooks:\n${premium.map(p=>`- ${p.plantId||""} ${p.name} ${canMoney?$(p.suggestedPrice):""}`).join("\n") || "No premium hooks found."}\n\nClearance pushes:\n${clears.map(p=>`- ${p.plantId||""} ${p.name} held ${fDays(dHeld(p.dateAdded))}`).join("\n") || "No aging clearance list found."}`, actions:[{label:"Open Show Builder", page:"showbuilder"},{label:"Open Discounts", page:"discounts"}] };
+          const platform = text.includes("whatnot") ? "Whatnot" : text.includes("palmstreet") ? "Palmstreet" : "Live Show";
+          const wantsAllInventory = /\b(all|every|entire|full|complete|current inventory|all inventory|all my current inventory)\b/.test(text);
+          const priceOf = p => +p.suggestedPrice || +p.listPrice || +p.price || 0;
+          const photoOf = p => p.photoUrl || p.photo_url || p.imageUrl || p.photoBase64 || "";
+          const plantIdOf = p => p.plantId || p.plantCode || p.sku || p.id || "NO-ID";
+          const showSort = arr => [...arr].sort((a,b) => {
+            const pa = priceOf(a), pb = priceOf(b);
+            const aa = dHeld(a.dateAdded) || 0, bb = dHeld(b.dateAdded) || 0;
+            return pb - pa || bb - aa || String(a.name||"").localeCompare(String(b.name||""));
+          });
+          const fullShowList = showSort(inStock);
+          const premium = fullShowList.filter(p=>priceOf(p)>=50).slice(0,12);
+          const clears = showSort(aging).slice(0,12);
+          const normal = fullShowList.filter(p => !premium.some(x=>plantIdOf(x)===plantIdOf(p)) && !clears.some(x=>plantIdOf(x)===plantIdOf(p)));
+          const showTotal = fullShowList.reduce((s,p)=>s+priceOf(p),0);
+          const whatnotTotal = fullShowList.reduce((s,p)=>s+Math.ceil(priceOf(p)),0);
+          const missingPhoto = fullShowList.filter(p=>!photoOf(p));
+          const missingPrice = fullShowList.filter(p=>!priceOf(p));
+          const lines = fullShowList.map((p,i)=>{
+            const rawPrice = priceOf(p);
+            const exportPrice = platform === "Whatnot" ? Math.ceil(rawPrice) : rawPrice;
+            const img = photoOf(p) ? "photo ready" : (platform === "Whatnot" ? "uses Leaf Diary logo fallback" : "missing photo");
+            return `${String(i+1).padStart(3,"0")}. ${plantIdOf(p)} — ${p.name || "Unnamed Plant"} · ${p.potSize || p.pot_size || "pot ?"} · ${canMoney ? (platform === "Whatnot" ? `Whatnot export $${exportPrice}` : `price ${$(rawPrice)}`) : "price hidden"} · ${img}`;
+          });
+          if (wantsAllInventory) {
+            return { title:`Complete ${platform} Show Build — ALL In-Stock Inventory`, body:[
+              `I found ${fullShowList.length} In Stock plants and included ALL of them.`,
+              `This answer is no longer capped at 8 hooks / 8 clearance / 25 normal plants.`,
+              canMoney ? `Current inventory list value: ${$(showTotal)}${platform === "Whatnot" ? ` · Whatnot rounded export total: ${$(whatnotTotal)}` : ""}` : `Inventory count: ${fullShowList.length}`,
+              `Missing photos: ${missingPhoto.length}${platform === "Whatnot" ? " — Whatnot can use the Leaf Diary logo fallback." : ""}`,
+              `Missing prices: ${missingPrice.length} — fix these before export if price is required.`,
+              `Sold/dead/damaged/personal plants were excluded automatically.`,
+              "",
+              "Premium hooks:",
+              premium.map(p=>`- ${plantIdOf(p)} ${p.name} ${canMoney?$(priceOf(p)):""}`).join("
+") || "No premium hooks found.",
+              "",
+              "Aging / clearance pushes:",
+              clears.map(p=>`- ${plantIdOf(p)} ${p.name} held ${fDays(dHeld(p.dateAdded))}`).join("
+") || "No aging plants found.",
+              "",
+              `Complete ${platform} show list (${fullShowList.length} plants):`,
+              lines.join("
+")
+            ].join("
+"), actions:[{label:"Open Show Builder", page:"showbuilder"},{label:"Open Inventory", page:"inv"},{label:"Open Discounts", page:"discounts"}] };
+          }
+          return { title:`AI ${platform} Show Builder Plan`, body:[
+            `I found ${fullShowList.length} In Stock plants available for this show.`,
+            `Suggested balanced show mix:`,
+            `• ${premium.length} premium hook plants`,
+            `• ${clears.length} aging/clearance plants`,
+            `• ${normal.length} normal inventory plants available`,
+            canMoney ? `Total available show value: ${$(showTotal)}${platform === "Whatnot" ? ` · Whatnot rounded total: ${$(whatnotTotal)}` : ""}` : "",
+            "",
+            "Premium hooks:",
+            premium.map(p=>`- ${plantIdOf(p)} ${p.name} ${canMoney?$(priceOf(p)):""}`).join("
+") || "No premium hooks found.",
+            "",
+            "Clearance pushes:",
+            clears.map(p=>`- ${plantIdOf(p)} ${p.name} held ${fDays(dHeld(p.dateAdded))}`).join("
+") || "No aging clearance list found.",
+            "",
+            "To include every plant, ask: build me a Whatnot show with all my current inventory that is in stock."
+          ].join("
+"), actions:[{label:"Open Show Builder", page:"showbuilder"},{label:"Open Discounts", page:"discounts"},{label:"Open Inventory", page:"inv"}] };
         }
+
         if (text.includes("photo")) return { title:"Plants Missing Photos", body:noPhoto.slice(0,40).map(p=>`${p.plantId||""} ${p.name||"Plant"} · ${p.potSize||""}`).join("\n") || "No missing-photo plants found.", actions:[{label:"Open Inventory", page:"inv"}] };
         if (text.includes("price")) return { title:"Pricing Cleanup", body:noPrice.slice(0,40).map(p=>`${p.plantId||""} ${p.name||"Plant"} · cost ${canMoney?$(p.cost):"hidden"}`).join("\n") || "No missing-price plants found.", actions:[{label:"Open Inventory", page:"inv"}] };
         if (text.includes("aging") || text.includes("old") || text.includes("discount")) return { title:"Aging Inventory", body:aging.slice(0,40).map(p=>`${p.plantId||""} ${p.name} · held ${fDays(dHeld(p.dateAdded))} · ${canMoney?`cost ${$(p.cost)} price ${$(p.suggestedPrice)}`:""}`).join("\n") || "No aging inventory found.", actions:[{label:"Open Discounts", page:"discounts"},{label:"Open Show Builder", page:"showbuilder"}] };
@@ -8734,7 +8803,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {saveMsg && <span style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{saveMsg}</span>}
-            <span style={{ fontSize: 11, color: "rgba(255,255,255,.55)", fontWeight: 700 }}></span>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,.55)", fontWeight: 700 }}>Cloud controls are in the pink + menu</span>
             <input ref={backupRef} type="file" accept=".json" style={{ display: "none" }} onChange={e => importBackup(e.target.files[0])} />
           </div>
         </div>
