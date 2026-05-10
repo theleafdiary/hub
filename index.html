@@ -2066,6 +2066,140 @@
       </div>;
     }
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       ORDERS / SALES WORKFLOW
+       Safe wrapper around existing Import Show Sales, Sold Review,
+       Packing, Buyers, Refunds, Paperwork and Commission tools.
+       No database, Supabase schema, import, or payroll logic changes.
+    ══════════════════════════════════════════════════════════ */
+    function OrdersWorkflow({ plants = [], setPlants, user, addAudit, users = [], settings = {}, setSettings, refunds = [], setRefunds, casdCerts = [], setCasdCerts, setPage }) {
+      const [tab, setTab] = useState("overview");
+      const role = user?.role || "employee";
+      const canManage = role === "owner" || role === "manager";
+      const canOwner = role === "owner";
+      const orders = groupSalesIntoOrders(safeArray(plants));
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
+      const todaySold = sold.filter(p => String(plantSaleDate(p) || "").slice(0,10) === today());
+      const sold7 = sold.filter(p => dateInLast(plantSaleDate(p), 7));
+      const sold30 = sold.filter(p => dateInLast(plantSaleDate(p), 30));
+      const buyers = new Set(sold.map(p => p.customerUsername || p.customerName).filter(Boolean));
+      const stateDocStates = ["CA","AZ","TX","LA","HI"];
+      const orderPlants = order => safeArray(plants).filter(p => safeArray(order.plants).some(x => x.id === p.id));
+      const orderStatus = order => {
+        const ps = orderPlants(order);
+        const statuses = ps.map(p => p.fulfillmentStatus || "");
+        if (ps.length && statuses.every(s => s === "Shipped" || s === "Done")) return "Done";
+        if (ps.length && statuses.every(s => ["Ready for Platform", "Shipped", "Done"].includes(s))) return "Ready";
+        if (ps.length && statuses.every(s => ["Packed", "Ready for Platform", "Shipped", "Done"].includes(s))) return "Packed";
+        return "Needs Review";
+      };
+      const statusColor = s => s === "Done" ? C.g600 : s === "Ready" ? C.blue : s === "Packed" ? C.gold : C.red;
+      const needsDoc = order => stateDocStates.includes(String(order.state || "").toUpperCase());
+      const openOrders = orders.filter(o => orderStatus(o) !== "Done");
+      const packOrders = orders.filter(o => ["Needs Review", "Packed", "Ready"].includes(orderStatus(o)));
+      const docOrders = orders.filter(needsDoc);
+      const refundCount = safeArray(refunds).filter(r => !String(r.status || "").toLowerCase().includes("closed") && !String(r.status || "").toLowerCase().includes("resolved")).length;
+      const commissionRows = safeArray(settings.showCommissions);
+      const unpaidCommissions = commissionRows.filter(c => !c.paidAt && String(c.status || "Unpaid") !== "Paid");
+      const gross30 = sold30.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
+      const fees30 = sold30.reduce((s,p)=>s+platFee(p.platform || "", +p.salePrice || +p.suggestedPrice || 0, settings),0);
+      const cogs30 = sold30.reduce((s,p)=>s+(+p.cost || 0),0);
+      const profit30 = gross30 - fees30 - cogs30;
+      const showNet7 = sold7.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0) - (+p.cost || 0) - platFee(p.platform || "", +p.salePrice || +p.suggestedPrice || 0, settings),0);
+      const defaultCommission = +settings.defaultShowCommissionPercent || 1;
+      const estimatedCommission = showNet7 * (defaultCommission / 100);
+      const unmatchedSold = sold.filter(p => p.needsReview || p.needs_review || p.importNeedsReview || p.matchStatus === "Unmatched" || p.importStatus === "Needs Review" || p.source === "show-import-unmatched" || p.historicalOnly || p.createdFromUnmatchedSale);
+      const recentOrders = [...orders].sort((a,b)=>String(b.soldDate || "").localeCompare(String(a.soldDate || ""))).slice(0,10);
+      const importantTasks = [
+        { show:true, icon:"📥", title:"Import show sales", body:"Upload the Whatnot or Palmstreet CSV first. The import screen already asks who hosted the show, commission percent, and tips.", button:"Import Sales", tab:"import", color:C.blue },
+        { show:openOrders.length>0, icon:"✅", title:"Review sold orders", body:`${openOrders.length} sold order group(s) need review, packing, or platform-ready status.`, button:"Open Review", tab:"review", color:openOrders.length>8?C.red:C.amber },
+        { show:packOrders.length>0, icon:"📦", title:"Pack orders", body:`${packOrders.length} order group(s) are not marked done yet. Print slips, check plants, heat packs, and paperwork.`, button:"Pack Orders", tab:"pack", color:C.g600 },
+        { show:docOrders.length>0, icon:"📜", title:"Check shipping paperwork", body:`${docOrders.length} order group(s) are going to CA, AZ, TX, LA, or HI and may need paperwork checked.`, button:"Paperwork", tab:"paperwork", color:C.purple },
+        { show:unpaidCommissions.length>0 && canOwner, icon:"🤝", title:"Review employee pay", body:`${unpaidCommissions.length} commission record(s) may still need to be paid or marked paid.`, button:"Employee Pay", tab:"pay", color:C.gold },
+        { show:refundCount>0 && canManage, icon:"↩️", title:"Resolve refunds", body:`${refundCount} open refund/problem record(s) need review.`, button:"Refunds", tab:"refunds", color:C.red }
+      ].filter(t => t.show);
+      const tabs = [
+        ["overview", "🏠", "Overview"],
+        ["import", "📥", "Import Sales"],
+        ["review", "✅", "Sold Review"],
+        ["pack", "📦", "Pack Orders"],
+        ["buyers", "👥", "Buyers"],
+        canOwner ? ["pay", "🤝", "Employee Pay"] : null,
+        ["refunds", "↩️", "Refunds"],
+        ["paperwork", "📜", "Paperwork"]
+      ].filter(Boolean);
+      const setAllOrderPlants = (order, patch) => {
+        const ids = new Set(safeArray(order.plants).map(p => p.id));
+        setPlants(prev => safeArray(prev).map(p => ids.has(p.id) ? { ...p, ...patch, fulfillmentUpdatedAt:new Date().toISOString() } : p));
+        addAudit?.({ action:`Updated order ${order.orderId || order.customerName || "order"}`, user:user?.name || "User", page:"Orders" });
+      };
+      const WorkCard = ({ icon, title, body, button, tab:targetTab, color = C.g600 }) => <button onClick={()=>setTab(targetTab)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderLeft:`5px solid ${color}`, borderRadius:18, padding:"14px 13px", textAlign:"left", cursor:"pointer", fontFamily:F.body, boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}>
+        <Row gap={11} center><div style={{ width:42, height:42, borderRadius:14, background:color+"1A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>{icon}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, marginTop:2, lineHeight:1.35 }}>{body}</div><div style={{ marginTop:7, color, fontWeight:900, fontSize:12 }}>{button} →</div></div></Row>
+      </button>;
+      const OrderMiniCard = ({ order }) => {
+        const status = orderStatus(order);
+        const ps = orderPlants(order);
+        const state = String(order.state || "").toUpperCase();
+        return <Card style={{ borderLeft:`5px solid ${statusColor(status)}`, padding:13, marginBottom:8 }}>
+          <Row between center wrap gap={9}>
+            <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{order.customerName || order.customerUsername || "Buyer"}</div><div style={{ fontSize:12, color:C.tx3 }}>{order.soldDate || "No date"} · {safeArray(order.plants).length} plant(s) · {$(order.totalValue)}</div></div>
+            <Row gap={6} wrap><Tag text={status} color={statusColor(status)} sm />{needsDoc(order) && <Tag text={`${state} docs`} color={C.purple} sm />}</Row>
+          </Row>
+          <div style={{ marginTop:9, background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:9 }}>{safeArray(order.plants).slice(0,5).map(p => <div key={p.id || p.plantId || p.name} style={{ fontSize:12, color:C.tx2, padding:"2px 0" }}><b>{p.plantId || ""}</b> {p.name} {p.potSize ? `· ${p.potSize}` : ""} · {$(p.salePrice)}</div>)}{safeArray(order.plants).length>5 && <div style={{ fontSize:11, color:C.tx3 }}>+ {safeArray(order.plants).length-5} more</div>}</div>
+          <Row gap={7} wrap style={{ marginTop:9 }}><Btn sz="sm" v="soft" onClick={()=>setAllOrderPlants(order,{ fulfillmentStatus:"Packed", packedAt:new Date().toISOString() })}>Mark Packed</Btn><Btn sz="sm" onClick={()=>setAllOrderPlants(order,{ fulfillmentStatus:"Ready for Platform", platformReadyAt:new Date().toISOString(), paperworkAdded:true })}>Ready</Btn><Btn sz="sm" v="ghost" onClick={()=>setTab("pack")}>Open Packing</Btn></Row>
+        </Card>;
+      };
+      const BuyerSnapshot = () => {
+        const rows = Object.values(sold.reduce((m,p)=>{ const k=p.customerUsername || p.customerName || "Unknown Buyer"; if(!m[k]) m[k]={ name:k, count:0, spend:0, profit:0, last:"" }; m[k].count++; m[k].spend += (+p.salePrice || +p.suggestedPrice || 0); m[k].profit += trueProfit(p); const d=String(plantSaleDate(p)||"").slice(0,10); if(d>m[k].last) m[k].last=d; return m; },{})).sort((a,b)=>b.spend-a.spend).slice(0,10);
+        return <div>{rows.length ? rows.map(b => <Row key={b.name} between center style={{ padding:"9px 0", borderBottom:`1px solid ${C.bdS}` }}><div><b style={{ color:C.g900 }}>{b.name}</b><div style={{ fontSize:11, color:C.tx3 }}>{b.count} plant(s) · last {b.last || "—"}</div></div><div style={{ textAlign:"right" }}><div style={{ fontWeight:900, color:C.g600 }}>{$(b.spend)}</div><div style={{ fontSize:10, color:C.tx3 }}>est profit {$(b.profit)}</div></div></Row>) : <p style={{ color:C.tx3, fontSize:13 }}>No buyer history yet.</p>}<Btn style={{ marginTop:10 }} v="soft" onClick={()=>setPage("customers")}>Open Full Buyers Tool</Btn></div>;
+      };
+
+      return <div className="ld-orders-workflow ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #68d8ff", boxShadow:"0 14px 44px rgba(0,0,0,.2)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div><div style={{ fontSize:38 }}>📦</div><div style={{ fontFamily:F.display, fontSize:29, color:"#68d8ff", fontWeight:900, marginTop:4 }}>Orders</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>After the show: import sales, review sold plants, pack orders, check paperwork, buyers, refunds, tips, and commission.</div></div>
+            <Row gap={8} wrap><button onClick={()=>setTab("import")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📥 Import Sales</button><button onClick={()=>setTab("pack")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📦 Pack Orders</button></Row>
+          </Row>
+          <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>One place for everything that happens after a Whatnot or Palmstreet show.</div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:12 }}>
+          <KPI label="Orders To Review" value={openOrders.length} sub="not marked done" color={openOrders.length?C.amber:C.g600} onClick={()=>setTab("review")} />
+          <KPI label="Sales Last 30 Days" value={$(gross30)} sub={`${sold30.length} plants sold`} color={C.blue} />
+          <KPI label="Est. Profit 30 Days" value={$(profit30)} sub="after plant cost + fees" color={profit30>=0?C.g600:C.red} />
+          <KPI label="Buyers" value={buyers.size} sub="unique names/usernames" color={C.purple} onClick={()=>setTab("buyers")} />
+        </div>
+
+        <div className="ld-orders-tabs" style={{ display:"flex", gap:8, overflowX:"auto", padding:"2px 0 12px", WebkitOverflowScrolling:"touch" }}>{tabs.map(([id,icon,label]) => <button key={id} onClick={()=>setTab(id)} style={{ flex:"0 0 auto", background:tab===id?"#000":C.card, color:tab===id?"#68d8ff":C.tx2, border:`1.5px solid ${tab===id?"#68d8ff":C.bd}`, borderRadius:999, padding:"10px 13px", fontWeight:900, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{icon} {label}</button>)}</div>
+
+        {tab === "overview" && <div>
+          <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:12, marginBottom:12 }}>
+            <Card style={{ borderTop:"4px solid #68d8ff" }}><Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>Do This After Every Show</div><div style={{ fontSize:12, color:C.tx3 }}>The app should guide the after-show flow in this order.</div></div><Tag text="Import → Review → Pack → Pay" color={C.blue} /></Row>{importantTasks.length ? <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:9 }}>{importantTasks.map(t => <WorkCard key={t.title} {...t} />)}</div> : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:18, color:C.g800, fontWeight:800 }}>All caught up. No urgent order tasks found.</div>}</Card>
+            <Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:10 }}>Show Pay Snapshot</div><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom:10 }}><KPI label="7-Day Net Base" value={$(showNet7)} color={C.gold}/><KPI label="Default Rate" value={`${defaultCommission}%`} color={C.purple}/></div><div style={{ background:C.goldBg, border:`1px solid ${C.gold}44`, borderRadius:14, padding:12, color:C.tx2, fontSize:13 }}><b>Estimated employee commission:</b> {$(estimatedCommission)} before any tips. Import Sales is the source of truth because it saves the selected employee, sales after fees, commission percent, and tips.</div><Row gap={8} wrap style={{ marginTop:10 }}>{canOwner && <Btn sz="sm" onClick={()=>setTab("pay")}>Review Employee Pay</Btn>}<Btn sz="sm" v="soft" onClick={()=>setTab("import")}>Import First</Btn></Row></Card>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card><Row between center wrap style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>Recent Sold Groups</div><div style={{ fontSize:12, color:C.tx3 }}>Newest imported buyers and sold plants.</div></div><Btn sz="sm" v="ghost" onClick={()=>setTab("review")}>Review</Btn></Row>{recentOrders.length ? recentOrders.slice(0,5).map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <p style={{ color:C.tx3 }}>No sold groups yet. Import a show to start.</p>}</Card><Card><Row between center wrap style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>Buyer Snapshot</div><div style={{ fontSize:12, color:C.tx3 }}>Top buyers from sales history.</div></div><Btn sz="sm" v="ghost" onClick={()=>setTab("buyers")}>Buyers</Btn></Row><BuyerSnapshot /></Card></div>
+        </div>}
+
+        {tab === "import" && <div><Card style={{ marginBottom:12, background:C.blueBg, border:`1px solid ${C.blue}44`, borderLeft:`5px solid ${C.blue}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900 }}>Step 1: Import Show Sales</div><div style={{ fontSize:12, color:C.tx3 }}>Upload Whatnot or Palmstreet sales here. This is where employee, commission %, and tips should be confirmed.</div></div><Tag text="Creates sold records + commission" color={C.blue}/></Row></Card><ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} /></div>}
+
+        {tab === "review" && <div><Card style={{ marginBottom:12, borderLeft:`5px solid ${C.amber}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Step 2: Sold Review</div><div style={{ fontSize:12, color:C.tx3 }}>Check what imported, what matched, what is unmatched, and what still needs packing.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={()=>setTab("pack")}>Next: Pack Orders</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("showimport")}>Open Full Import Tool</Btn></Row></Row></Card>{unmatchedSold.length>0 && <Card style={{ marginBottom:12, background:C.redBg, border:`1px solid ${C.red}44` }}><b style={{ color:C.red }}>⚠️ {unmatchedSold.length} unmatched / needs-review sold plant record(s)</b><p style={{ fontSize:12, color:C.tx2 }}>Open Import Sales or Inventory to clean these up before trusting profit reports.</p></Card>}<div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>{orders.length ? orders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <Card><div style={{ textAlign:"center", color:C.tx3, padding:30 }}>No sold orders yet. Import a show CSV first.</div></Card>}</div></div>}
+
+        {tab === "pack" && <div><Card style={{ marginBottom:12, background:C.g50, border:`1px solid ${C.g300}`, borderLeft:`5px solid ${C.g600}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Step 3: Pack Orders</div><div style={{ fontSize:12, color:C.tx3 }}>Use the existing packing tool below. It prints packing slips, marks heat packs, insulation, paperwork, and platform-ready status.</div></div><Tag text={`${packOrders.length} active`} color={packOrders.length?C.amber:C.g600}/></Row></Card><PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} /></div>}
+
+        {tab === "buyers" && <div style={{ display:"grid", gridTemplateColumns:".85fr 1.15fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>👥 Buyers At A Glance</div><p style={{ color:C.tx3, fontSize:13 }}>Use this to see who buys most, repeat customers, and who should get early access or bundle previews.</p><BuyerSnapshot /></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}><Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} /></Card></div>}
+
+        {tab === "pay" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>🤝 Employee Show Pay</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Commission records are created during Import Show Sales when you select an employee. Tips should be confirmed in that import flow.</p><div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, margin:"12px 0" }}><KPI label="Unpaid Records" value={unpaidCommissions.length} color={unpaidCommissions.length?C.red:C.g600}/><KPI label="Default %" value={`${defaultCommission}%`} color={C.purple}/><KPI label="7-Day Estimate" value={$(estimatedCommission)} color={C.gold}/></div><Row gap={8} wrap><Btn onClick={()=>setPage("commissions")}>Open Commissions</Btn><Btn v="soft" onClick={()=>setPage("payroll")}>Open Payroll</Btn><Btn v="outline" onClick={()=>setTab("import")}>Import Sales First</Btn></Row></Card><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>Recent Commission Records</div>{commissionRows.length ? commissionRows.slice(0,12).map(c => <Row key={c.id || c.createdAt || c.employeeName} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><div><b>{c.employeeName || c.userName || c.employee || "Employee"}</b><div style={{ fontSize:11, color:C.tx3 }}>{c.showDate || c.saleDate || c.createdAt || "No date"} · {c.platform || "show"}</div></div><div style={{ textAlign:"right" }}><b style={{ color:C.gold }}>{$(c.amount || c.commissionAmount)}</b><div style={{ fontSize:10, color:c.paidAt || c.status === "Paid" ? C.g600 : C.red }}>{c.paidAt || c.status === "Paid" ? "Paid" : "Unpaid"}</div></div></Row>) : <p style={{ color:C.tx3, fontSize:13 }}>No commission records yet.</p>}</Card></div>}
+
+        {tab === "refunds" && <div><Card style={{ marginBottom:12, borderLeft:`5px solid ${C.red}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Refunds And Problems</div><div style={{ fontSize:12, color:C.tx3 }}>Track damaged plants, customer issues, refunds, and replacements after the show.</div></div><Tag text={`${refundCount} open`} color={refundCount?C.red:C.g600}/></Row></Card><RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} /></div>}
+
+        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:".9fr 1.1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>📜 Shipping Paperwork</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Use this to check state paperwork for CA, AZ, TX, LA, and Hawaii. This is a reminder layer only — the original certificate generator remains below.</p><div style={{ marginTop:10 }}>{docOrders.length ? docOrders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:14, color:C.g800, fontWeight:800 }}>No current sold orders found for state paperwork review.</div>}</div></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}>{canOwner ? <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} /> : <div style={{ padding:20, color:C.tx3 }}>Paperwork generator is owner-only.</div>}</Card></div>}
+
+        <style>{`@media(max-width:760px){.ld-orders-workflow div[style*="grid-template-columns:repeat(4,1fr)"],.ld-orders-workflow div[style*="grid-template-columns: repeat(4,1fr)"],.ld-orders-workflow div[style*="grid-template-columns:1.1fr"],.ld-orders-workflow div[style*="grid-template-columns: 1fr 1fr"],.ld-orders-workflow div[style*="grid-template-columns:1fr 1fr"],.ld-orders-workflow div[style*="grid-template-columns:.85fr"],.ld-orders-workflow div[style*="grid-template-columns:.9fr"],.ld-orders-workflow div[style*="grid-template-columns:repeat(3,1fr)"],.ld-orders-workflow div[style*="grid-template-columns: repeat(3,1fr)"],.ld-orders-workflow div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important}.ld-orders-tabs{padding-left:2px}.ld-orders-workflow table{font-size:11px!important}}`}</style>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        OWNER DASHBOARD
     ══════════════════════════════════════════════════════════ */
@@ -11988,7 +12122,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "intake_ws" && <IntakeWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} setNurseries={setNurseries} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
           {page === "shows_ws" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
-          {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "orders_ws" && <OrdersWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} users={users} settings={settings} setSettings={setSettings} refunds={refunds} setRefunds={setRefunds} casdCerts={casdCerts} setCasdCerts={setCasdCerts} setPage={navigate} />}
           {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "buy_ws" && CAN.seeReports(user.role) && <WorkspaceHome type="buy_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "admin_ws" && user.role === "owner" && <WorkspaceHome type="admin_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
