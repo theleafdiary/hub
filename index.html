@@ -1184,6 +1184,7 @@
       { id:"sellthru", icon:"📊", l:"Sell-Through", group:"Plants", roles:["owner","manager"] },
       { id:"showbuilder", icon:"🎪", l:"Build Show", group:"Shows", roles:["owner","manager"] },
       { id:"showprep", icon:"🧺", l:"Show Prep Pull List", group:"Shows", roles:["owner","manager","employee"] },
+      { id:"packorders", icon:"📦", l:"Order Packing Board", group:"Orders", roles:["owner","manager","employee"] },
       { id:"liveshow", icon:"🎥", l:"Live Show", group:"Shows", roles:["owner","manager","employee"] },
       { id:"showimport", icon:"📥", l:"Import Show Sales", group:"Orders", roles:["owner","manager"] },
       { id:"bundles", icon:"🧺", l:"Bundles", group:"Shows", roles:["owner","manager"] },
@@ -1214,6 +1215,7 @@
       { id:"devtools", icon:"🧪", l:"Developer Testing", group:"Settings", roles:["owner"] },
       { id:"appcheck", icon:"✅", l:"App Checkup", group:"Settings", roles:["owner"] },
       { id:"workflowqa", icon:"🧪", l:"Workflow Test Checklist", group:"Settings", roles:["owner"] },
+      { id:"releasecenter", icon:"🚀", l:"Final Release Center", group:"Settings", roles:["owner"] },
       { id:"quickstart", icon:"🧭", l:"Quick Start Guide", group:"Settings", roles:["owner","manager","employee"] },
       { id:"workflowcoach", icon:"🧩", l:"Next Step Coach", group:"Today", roles:["owner","manager","employee"] },
       { id:"employeeboard", icon:"✅", l:"Employee Task Board", group:"Today", roles:["owner","manager","employee"] },
@@ -1229,10 +1231,10 @@
       plants_ws:"plants_ws", inv:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
       intake_ws:"intake_ws", manual:"intake_ws", upload:"intake_ws", invoicetrainer:"intake_ws", history:"intake_ws",
       shows_ws:"shows_ws", showprep:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
-      orders_ws:"orders_ws", showimport:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
+      orders_ws:"orders_ws", packorders:"orders_ws", showimport:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
       buy_ws:"buy_ws", slotprofit:"buy_ws", nursery:"buy_ws", pos:"buy_ws", intel:"buy_ws", reports:"buy_ws",
-      admin_ws:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", quickstart:"admin_ws", ollama:"admin_ws", aigateway:"admin_ws"
+      admin_ws:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", releasecenter:"admin_ws", quickstart:"admin_ws", ollama:"admin_ws", aigateway:"admin_ws"
     };
     const getPageLabel = (id) => (TOOL_CATALOG.find(t => t.id === id)?.l || WORKSPACES.find(w => w.id === id)?.l || id);
     const getPageIcon = (id) => (TOOL_CATALOG.find(t => t.id === id)?.icon || WORKSPACES.find(w => w.id === id)?.icon || "•");
@@ -1291,12 +1293,15 @@
         ["🌿", "Inventory", "Fix plant photos, labels, and missing data.", "plants_ws", C.g600],
         ["🎪", "Shows", "Build, prep, run, and import shows.", "shows_ws", "#fb6392"],
         ["🧺", "Show Prep Pull List", "Pull plants and staging tasks for the next live show.", "showprep", C.gold],
+        ["📦", "Order Packing Board", "Pack sold orders, paperwork, heat packs, and platform-ready checks.", "packorders", C.blue],
         ["📦", "Orders", "Review sold plants, buyers, and paperwork.", "orders_ws", "#68d8ff"],
         ["✅", "Employee Board", "See the simple employee daily board.", "employeeboard", "#fb6392"],
-        ["🧺", "Show Prep Pull List", "Pull plants, photos, labels, and stage the live table.", "showprep", C.gold]
+        ["🧺", "Show Prep Pull List", "Pull plants, photos, labels, and stage the live table.", "showprep", C.gold],
+        ["📦", "Order Packing Board", "Pack sold orders and check paperwork before shipping.", "packorders", C.blue]
       ] : [
         ["✅", "Employee Task Board", "Clock in, photos, labels, receipts, show prep, clock out.", "employeeboard", "#fb6392"],
         ["🧺", "Show Prep Pull List", "Pull plants, take photos, print labels, and stage the live table.", "showprep", C.gold],
+        ["📦", "Order Packing Board", "Pack sold orders and follow the checklist.", "packorders", C.blue],
         ["🧩", "Next Step Coach", "Simple instructions for what to tap next.", "workflowcoach", C.blue],
         ["📸", "Upload Invoice", "Add a purchase photo when asked.", "upload", C.g600],
         ["🌿", "Inventory", "Find plants that need photos or labels.", "plants_ws", C.g600],
@@ -1799,7 +1804,7 @@
       const open = id => canOpen(id) && setPage(id);
       const pack = {
         today:{ icon:"🏠", title:"Today", sub:"Your simple daily operating screen.", hero:"What needs attention now", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["Sold Groups",readyOrders.length,"from platforms"],["No Photos",noPhoto.length,"fix before show"],["Month Sales",$(monthSales),"sold this month"]], sections:[
-          { title:"Start Here", items:[["Role Launcher","rolelauncher","🚦","Open the correct daily board for owner, manager, or employee"],["Show Prep Pull List","showprep","🧺","Pull plants, fix photos/labels, and stage the live table"],["Owner Daily Board","ownerboard","👑","One owner screen for priorities, cash, show prep, delegation, and risk"],["Manager Daily Board","managerboard","🧑‍💼","Operations board for photos, labels, show prep, orders, receipts, and team tasks"],["Owner AI Brief","execai","🧠","CEO-style decisions and simulations"],["What Makes Money","slotprofit","📦","Rank plants by weekly slot profit"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Today Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
+          { title:"Start Here", items:[["Role Launcher","rolelauncher","🚦","Open the correct daily board for owner, manager, or employee"],["Final Release Center","releasecenter","🚀","Owner-only final checklist before uploading a new live version"],["Show Prep Pull List","showprep","🧺","Pull plants, fix photos/labels, and stage the live table"],["Order Packing Board","packorders","📦","Pack sold orders, check paperwork, and mark local packing steps"],["Owner Daily Board","ownerboard","👑","One owner screen for priorities, cash, show prep, delegation, and risk"],["Manager Daily Board","managerboard","🧑‍💼","Operations board for photos, labels, show prep, orders, receipts, and team tasks"],["Owner AI Brief","execai","🧠","CEO-style decisions and simulations"],["What Makes Money","slotprofit","📦","Rank plants by weekly slot profit"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Today Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
           { title:"Common Tasks", items:[["Add Plant","manual","✏️","Manual inventory entry"],["Scan Receipt","receipts","🧾","Save expense receipt"],["Import Show","showimport","📥","Whatnot/Palmstreet sales"],["Social Post","social","📣","Turn plant photos into posts"]] }
         ]},
         intake_ws:{ icon:"➕", title:"Add / Intake", sub:"One clean workflow for invoices, manual adds, existing inventory, and labels.", hero:"Buy plants → add plants → assign numbers → print labels", color:"#97d33e", kpis:[["Invoice Upload","📸","photo first"],["Manual Add","✏️","quick entry"],["Archive","📋","past invoices"],["Labels","🏷️","print next"]], sections:[
@@ -6272,6 +6277,157 @@
     ══════════════════════════════════════════════════════════ */
 
 
+
+    /* ══════════════════════════════════════════════════════════
+       FINAL RELEASE CENTER
+       Owner go-live dashboard. Presentation layer only.
+       No database writes, no Supabase schema changes, no import rewrites.
+    ══════════════════════════════════════════════════════════ */
+    function FinalReleaseCenter({ plants = [], expenses = [], bills = [], timecards = [], receipts = [], users = [], settings = {}, casdCerts = [], auditLog = [], cloudStatus = "", cloudMsg = "", pendingSyncCount = 0, phase2Report = {}, phase1Health = {}, user, setPage }) {
+      const isOwner = user?.role === "owner";
+      const [tab, setTab] = useState("release");
+      const todayKey = today();
+      const storageKey = `leafDiaryFinalRelease-${todayKey}`;
+      const [done, setDone] = useState(() => { try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch(e) { return {}; } });
+      const saveDone = next => { setDone(next); try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch(e) {} };
+      const toggleDone = key => saveDone({ ...done, [key]: !done[key] });
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
+      const duplicateGroups = Object.values(safeArray(plants).reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1);
+      const missingPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const missingPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const missingLabel = inStock.filter(p => !p.labelPrinted);
+      const aging60 = inStock.filter(p => dHeld(p.dateAdded) >= 60);
+      const showReady = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price) && p.labelPrinted);
+      const orders = groupSalesIntoOrders(plants);
+      const recentOrders = orders.filter(o => dateInLast(o.soldDate, 14));
+      const receiptsReview = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
+      const due7 = safeArray(bills).filter(b => b.status !== "Paid" && b.status !== "paid" && daysUntil(b.dueDate) <= 7 && daysUntil(b.dueDate) >= 0);
+      const due14 = safeArray(bills).filter(b => b.status !== "Paid" && b.status !== "paid" && daysUntil(b.dueDate) <= 14 && daysUntil(b.dueDate) >= 0);
+      const activeUsers = safeArray(users).filter(u => u.active !== false);
+      const hasEmployee = activeUsers.some(u => u.role === "employee");
+      const hasManager = activeUsers.some(u => u.role === "manager");
+      const cloudOk = ["synced","safe","local","offline"].includes(String(cloudStatus || "").toLowerCase()) || !!cloudStatus;
+      const devScore = +phase2Report?.score || +phase2Report?.overallScore || 0;
+      const appHealth = phase1Health?.ok === true || phase1Health?.status === "healthy" || String(phase1Health?.status || "").toLowerCase().includes("healthy");
+      const aiGateway = settings?.aiGateway || {};
+      const costGuardOn = !!(aiGateway.costSaverMode || aiGateway.costGuardEnabled || settings?.aiCostGuard?.enabled || aiGateway.disableAutoGatewayCalls !== false);
+      const safeSpend = (() => { try { return phase11BuildBuyingPlan({ plants, bills, receipts, timecards, users }, settings).safeSpend || 0; } catch(e) { return 0; } })();
+      const workflowKeys = ["today","inventory","intake","shows","orders","money","buysmart","settings","employee","manager","mobile","backup"];
+      const requiredDone = workflowKeys.filter(k => !!done[k]).length;
+      const releaseProgress = Math.round((requiredDone / workflowKeys.length) * 100);
+      const blockerCount = duplicateGroups.length + (devScore && devScore < 75 ? 1 : 0) + (!isOwner ? 1 : 0);
+      const warningCount = missingPhoto.length + missingPrice.length + missingLabel.length + aging60.length + receiptsReview.length + due7.length + pendingSyncCount;
+      const releaseStatus = blockerCount > 0 ? "Do not go live yet" : releaseProgress < 85 ? "Finish test checklist first" : warningCount > 0 ? "Safe with warnings" : "Ready for live upload";
+      const releaseColor = blockerCount > 0 ? C.red : releaseProgress < 85 ? C.amber : warningCount > 0 ? C.gold : C.g600;
+      const tabs = [
+        ["release","🚀","Final Check"], ["workflows","✅","Workflows"], ["data","🧹","Data Health"], ["roles","👥","Roles"], ["backup","💾","Backup"], ["notes","📋","Upload Plan"]
+      ];
+      const statusChip = (status) => status === "fail" ? ["Fix First", C.red] : status === "warn" ? ["Warning", C.amber] : ["Good", C.g600];
+      const CheckRow = ({ id, title, body, status = "pass", page, manual }) => {
+        const [txt, color] = statusChip(status);
+        return <Card style={{ padding:14, borderLeft:`5px solid ${color}`, background:done[id] ? C.g50 : C.card }}>
+          <Row between center gap={10} wrap>
+            <Row gap={11} center style={{ flex:1, minWidth:0 }}>
+              <button onClick={()=>toggleDone(id)} style={{ width:34, height:34, borderRadius:999, border:`2px solid ${done[id] ? C.g600 : C.bd}`, background:done[id] ? C.g600 : C.card, color:done[id] ? "#fff" : C.tx3, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{done[id] ? "✓" : ""}</button>
+              <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{body}</div></div>
+            </Row>
+            <Row gap={7} center wrap><Tag text={txt} color={color} sm />{page && <Btn sz="sm" v="soft" onClick={()=>setPage(page)}>Open</Btn>}{manual && <Tag text="Manual" color={C.blue} sm />}</Row>
+          </Row>
+        </Card>;
+      };
+      const workflowChecks = [
+        { id:"today", title:"Today / Role Launcher", body:"Open the app and confirm the user lands on the correct daily board instead of a confusing dashboard.", page:"rolelauncher", status:"pass" },
+        { id:"inventory", title:"Inventory Action Center", body:`Check plant cards, filters, photo queue, price queue, labels, and aging plants. Current blockers: ${missingPhoto.length} photos, ${missingPrice.length} prices, ${missingLabel.length} labels.`, page:"plants_ws", status:(missingPhoto.length + missingPrice.length + missingLabel.length) ? "warn" : "pass" },
+        { id:"intake", title:"Add / Intake Wizard", body:"Upload invoice photo, add manual plants, bulk upload existing inventory, and confirm the finish/print-label workflow.", page:"intake_ws", status:"pass" },
+        { id:"shows", title:"Shows + Pull List", body:`Build a show, open Show Prep Pull List, and confirm employees can stage plants. Show-ready plants: ${showReady.length}.`, page:"showprep", status:showReady.length ? "pass" : "warn" },
+        { id:"orders", title:"Orders + Packing Board", body:`Import sales, review sold groups, then open packing board. Sold order groups saved: ${orders.length}.`, page:"packorders", status:orders.length ? "pass" : "warn" },
+        { id:"money", title:"Money Command Center", body:`Confirm receipts, bills, payroll, tax, goals, and cash pulse. Safe buying budget estimate: ${$(safeSpend)}.`, page:"money_ws", status:due7.length ? "warn" : "pass" },
+        { id:"buysmart", title:"Buy Smart", body:"Check What To Buy, What Not To Buy, Nursery Scores, Price Guide, Buying Budget, and Inventory Risk.", page:"buy_ws", status:"pass" },
+        { id:"settings", title:"Settings", body:"Confirm owner-only Settings shows Account, Team, Data, Paperwork, AI Setup, Security, and Developer Tools.", page:"admin_ws", status:"pass" },
+        { id:"employee", title:"Employee Mode", body:"Confirm employee sees only clock-in, photos, labels, show prep, packing, receipts, and no owner money/settings.", page:"employeeboard", status:hasEmployee ? "pass" : "warn" },
+        { id:"manager", title:"Manager Mode", body:"Confirm manager sees operations tools but not cost, profit, tax, bills, repair tools, or AI setup.", page:"managerboard", status:hasManager ? "pass" : "warn" },
+        { id:"mobile", title:"Mobile Test", body:"Test on phone width: no side scrolling, big buttons, bottom nav visible, cards readable, forms usable with one thumb.", status:"warn", manual:true },
+        { id:"backup", title:"Backup Before Upload", body:"Download a backup/snapshot before replacing the live file. This is the last step before go-live.", page:"devtools", status:"warn" },
+      ];
+      const dataChecks = [
+        { id:"data-duplicates", title:"Duplicate plant numbers", body:`${duplicateGroups.length} duplicate plant-number group(s). Duplicate IDs can break matching, show export, and sales import.`, page:"cleanup", status:duplicateGroups.length ? "fail" : "pass" },
+        { id:"data-photos", title:"Photo blockers", body:`${missingPhoto.length} in-stock plant(s) need photos before they are show-ready.`, page:"inv", status:missingPhoto.length ? "warn" : "pass" },
+        { id:"data-prices", title:"Price blockers", body:`${missingPrice.length} in-stock plant(s) need prices before show/export.`, page:"inv", status:missingPrice.length ? "warn" : "pass" },
+        { id:"data-labels", title:"Label blockers", body:`${missingLabel.length} in-stock plant(s) need labels printed or reprinted.`, page:"labels", status:missingLabel.length ? "warn" : "pass" },
+        { id:"data-aging", title:"Aging inventory", body:`${aging60.length} plant(s) are 60+ days old. Review discounts, bundles, or stop-buying patterns.`, page:"discounts", status:aging60.length ? "warn" : "pass" },
+        { id:"data-receipts", title:"Receipt cleanup", body:`${receiptsReview.length} receipt(s) need category/review cleanup for tax-ready records.`, page:"receipts", status:receiptsReview.length ? "warn" : "pass" },
+        { id:"data-orders", title:"Recent sold orders", body:`${recentOrders.length} sold order group(s) from the last 14 days. Confirm they were reviewed/packed in platforms.`, page:"packorders", status:recentOrders.length ? "warn" : "pass" },
+        { id:"data-bills", title:"Bills due soon", body:`${due14.length} unpaid bill(s) due in 14 days; ${due7.length} due in 7 days. Check before buying inventory.`, page:"bills", status:due7.length ? "warn" : "pass" },
+      ];
+      const systemChecks = [
+        { id:"sys-owner", title:"Owner login", body:isOwner ? "You are logged in as owner, so release controls are visible." : "Only the owner should perform final go-live checks.", status:isOwner ? "pass" : "fail" },
+        { id:"sys-cloud", title:"Cloud status", body:`Cloud status: ${cloudStatus || "unknown"}. ${cloudMsg || "Confirm save/load works before live upload."}`, status:cloudOk ? "pass" : "warn" },
+        { id:"sys-sync", title:"Pending sync", body:`Pending sync count: ${pendingSyncCount}. Avoid replacing live file while unsaved changes are pending.`, status:pendingSyncCount ? "warn" : "pass" },
+        { id:"sys-dev", title:"Developer safety", body:`Developer safety score: ${devScore || "not tested"}. Aim for 75+ before go-live.`, page:"devtools", status:(devScore && devScore < 75) ? "fail" : devScore ? "pass" : "warn" },
+        { id:"sys-health", title:"App safety snapshot", body:appHealth ? "App safety snapshot reports healthy." : "Run App Checkup / Health Report before replacing live file.", page:"appcheck", status:appHealth ? "pass" : "warn" },
+        { id:"sys-ai", title:"AI cost control", body:`AI Cost Guard appears ${costGuardOn ? "on/manual protected" : "not clearly enabled"}. Keep cloud AI manual unless owner approves.`, page:"aigateway", status:costGuardOn ? "pass" : "warn" },
+      ];
+      const allRows = [...workflowChecks, ...dataChecks, ...systemChecks];
+      const exportReleaseCsv = () => {
+        const rows = [["Area", "Title", "Status", "Done", "Details"]];
+        workflowChecks.forEach(r => rows.push(["Workflow", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
+        dataChecks.forEach(r => rows.push(["Data", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
+        systemChecks.forEach(r => rows.push(["System", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
+        downloadCsv(`leaf-diary-final-release-check-${today()}.csv`, rows);
+      };
+      const resetChecks = () => { if (confirm("Reset today's final release checklist on this device?")) saveDone({}); };
+
+      if (!isOwner) return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:760, margin:"0 auto", fontFamily:F.body }}><Card style={{ textAlign:"center", padding:30 }}><div style={{ fontSize:44 }}>🔒</div><h1 style={{ fontFamily:F.display, color:C.g900 }}>Owner Release Center</h1><p style={{ color:C.tx3 }}>Only the owner should decide when the app is ready to replace the live file.</p><Btn onClick={()=>setPage("today")}>Back To Today</Btn></Card></div>;
+      return <div className="ld-page ld-release-center" style={{ padding:"14px 14px 112px", background:C.bg, minHeight:"100vh", maxWidth:1180, margin:"0 auto", fontFamily:F.body }}>
+        <SHdr icon="🚀" title="Final Release Center" sub="Last safe check before you replace the live Leaf Diary app file." right={<Row gap={8} wrap><Btn v="soft" onClick={()=>setPage("workflowqa")}>Workflow Checklist</Btn><Btn v="outline" onClick={()=>setPage("appcheck")}>App Checkup</Btn><Btn onClick={exportReleaseCsv}>Export CSV</Btn></Row>} />
+        <Card style={{ background:"#000", color:"#fff", border:`2px solid ${releaseColor}`, borderRadius:26, marginBottom:14 }}>
+          <Row between center wrap gap={14}>
+            <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:releaseColor, fontSize:32, fontWeight:900 }}>{releaseStatus}</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)", marginTop:4 }}>Use this screen after every update. Upload to live only after workflow checks, backup, mobile test, and role checks are done.</div></div>
+            <div style={{ width:220, maxWidth:"100%" }}><div style={{ fontSize:11, color:"rgba(255,255,255,.65)", fontWeight:900, marginBottom:6 }}>Release checklist progress</div><div style={{ height:12, borderRadius:999, background:"rgba(255,255,255,.15)", overflow:"hidden" }}><div style={{ height:"100%", width:`${releaseProgress}%`, background:releaseColor }} /></div><div style={{ marginTop:6, fontWeight:900, color:releaseColor }}>{releaseProgress}% complete</div></div>
+          </Row>
+        </Card>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <KPI label="Blockers" value={blockerCount} sub="Fix before live upload" color={blockerCount ? C.red : C.g600} />
+          <KPI label="Warnings" value={warningCount} sub="Can go live, but review" color={warningCount ? C.amber : C.g600} />
+          <KPI label="Show Ready" value={showReady.length} sub={`${inStock.length} in stock`} color={showReady.length ? C.g600 : C.amber} />
+          <KPI label="Safe Buy Budget" value={$(safeSpend)} sub="From current cash rules" color={safeSpend > 0 ? C.gold : C.amber} />
+        </div>
+        <div className="mobile-scroll-x" style={{ display:"flex", gap:8, overflowX:"auto", padding:"2px 0 12px", WebkitOverflowScrolling:"touch" }}>{tabs.map(([id,icon,label]) => <button key={id} onClick={()=>setTab(id)} style={{ flex:"0 0 auto", minWidth:138, background:tab===id?"#000":C.card, color:tab===id?"#fff":C.tx1, border:`1px solid ${tab===id?"#000":C.bd}`, borderRadius:16, padding:"12px 13px", textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><div style={{ fontSize:22 }}>{icon}</div><div style={{ fontWeight:900, fontSize:13, marginTop:3 }}>{label}</div></button>)}</div>
+        {tab === "release" && <div style={{ display:"grid", gridTemplateColumns:"1.25fr .75fr", gap:12 }}>
+          <Card><div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:900, marginBottom:10 }}>Go-live decision</div>{systemChecks.map(r => <CheckRow key={r.id} {...r} />)}</Card>
+          <Card style={{ borderLeft:`5px solid ${releaseColor}` }}><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Upload rule</div><p style={{ color:C.tx2, lineHeight:1.5, fontSize:13 }}>Do not replace the live app until blockers are zero, the checklist is mostly complete, and you have tested owner, manager, employee, and mobile views.</p><div style={{ display:"flex", flexDirection:"column", gap:8 }}><Btn onClick={()=>setPage("devtools")}>Download Backup / Snapshot</Btn><Btn v="soft" onClick={()=>setPage("workflowqa")}>Open Workflow Test</Btn><Btn v="outline" onClick={()=>setPage("quickstart")}>Open Training Guide</Btn><Btn v="ghost" onClick={resetChecks}>Reset Today's Checks</Btn></div></Card>
+        </div>}
+        {tab === "workflows" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:10 }}>{workflowChecks.map(r => <CheckRow key={r.id} {...r} />)}</div>}
+        {tab === "data" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:10 }}>{dataChecks.map(r => <CheckRow key={r.id} {...r} />)}</div>}
+        {tab === "roles" && <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
+          <Card style={{ borderTop:`5px solid ${C.gold}` }}><div style={{ fontSize:30 }}>👑</div><h3 style={{ fontFamily:F.display, color:C.g900, margin:"6px 0" }}>Owner</h3><p style={{ color:C.tx3, fontSize:13 }}>Must see profit, cash, bills, Buy Smart, Settings, App Checkup, Release Center, and owner boards.</p><Btn sz="sm" onClick={()=>setPage("ownerboard")}>Test Owner Board</Btn></Card>
+          <Card style={{ borderTop:`5px solid ${C.blue}` }}><div style={{ fontSize:30 }}>🧑‍💼</div><h3 style={{ fontFamily:F.display, color:C.g900, margin:"6px 0" }}>Manager</h3><p style={{ color:C.tx3, fontSize:13 }}>Should see operations, shows, orders, receipts, and task boards without owner financial/admin controls.</p><Btn sz="sm" v="soft" onClick={()=>setPage("managerboard")}>Test Manager Board</Btn></Card>
+          <Card style={{ borderTop:`5px solid #fb6392` }}><div style={{ fontSize:30 }}>✅</div><h3 style={{ fontFamily:F.display, color:C.g900, margin:"6px 0" }}>Employee</h3><p style={{ color:C.tx3, fontSize:13 }}>Should only see task board, timecard, photos, labels, show prep, packing, and receipts if allowed.</p><Btn sz="sm" v="soft" onClick={()=>setPage("employeeboard")}>Test Employee Board</Btn></Card>
+        </div>}
+        {tab === "backup" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <CheckRow id="backup-file" title="Keep the last working HTML" body="Before uploading this final file, keep a copy of the current working live file in case rollback is needed." status="warn" manual />
+          <CheckRow id="backup-data" title="Download app backup" body="Use Developer Testing / Backup tools before live upload so business data can be restored if something goes wrong." status="warn" page="devtools" />
+          <CheckRow id="backup-mobile" title="Test mobile before live" body="Open the test file on the actual phone screen size before replacing the live version." status="warn" manual />
+          <CheckRow id="backup-white" title="White-screen test" body="Refresh the app 3 times, sign out/in, and confirm no blank white screen before go-live." status="warn" manual />
+        </div>}
+        {tab === "notes" && <Card>
+          <div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900, marginBottom:10 }}>Final upload plan</div>
+          <ol style={{ color:C.tx2, lineHeight:1.6, paddingLeft:22 }}>
+            <li>Upload this file as a test version first, not directly over the only live copy.</li>
+            <li>Open Final Release Center and mark off Today, Inventory, Intake, Shows, Orders, Money, Buy Smart, Settings, Employee, Manager, Mobile, and Backup.</li>
+            <li>Run App Checkup and Workflow Test Checklist.</li>
+            <li>Confirm owner login opens the owner board, manager login opens manager board, and employee login opens employee board.</li>
+            <li>Test mobile: no horizontal scroll, bottom nav works, buttons are easy to tap.</li>
+            <li>Download a backup/snapshot.</li>
+            <li>Only then replace the live file.</li>
+          </ol>
+          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, color:C.g900, fontWeight:800 }}>This final update is still presentation-layer only. It does not change database tables, Supabase schema, show import, receipt scanner, payroll math, or paperwork generation.</div>
+        </Card>}
+        <style>{`@media(max-width:760px){.ld-release-center div[style*="grid-template-columns: repeat(4,1fr)"],.ld-release-center div[style*="grid-template-columns: repeat(3,1fr)"],.ld-release-center div[style*="grid-template-columns: repeat(2,1fr)"],.ld-release-center div[style*="grid-template-columns: 1.25fr .75fr"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        SETTINGS WORKFLOW — owner-friendly admin cleanup
        Presentation layer only. Keeps existing AdminPanel / Audit / AI tools.
@@ -6335,6 +6491,7 @@
               <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Owner-only controls for account, team, data, paperwork, AI, security, and developer tools.</div>
             </div>
             <Row gap={8} wrap>
+              <button onClick={()=>open("releasecenter")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🚀 Final Check</button>
               <button onClick={()=>open("quickstart")} style={{ background:"#fff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧭 Quick Guide</button>
               <button onClick={()=>open("workflowcoach")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧩 Next Step</button>
               <button onClick={()=>open("admin")} style={{ background:"#b695ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>⚙️ Business Settings</button>
@@ -6360,6 +6517,7 @@
         </div>
 
         {tab === "account" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="🚀" title="Final Release Center" body="Owner go-live checklist for testing the app before replacing the live file. Use this after every major update." page="releasecenter" button="Final Check" color="#97d33e" />
           <SettingsCard icon="🚦" title="Role Launcher" body="One safe starting screen that sends owner, manager, and employee users to the correct daily board and hides the wrong tools." page="rolelauncher" button="Open Launcher" color={C.g600} />
           <SettingsCard icon="👑" title="Owner Daily Board" body="Owner-only operating board for priorities, cash, show prep, delegation, buying decisions, and business risk." page="ownerboard" button="Open Board" color={C.gold} />
           <SettingsCard icon="🧑‍💼" title="Manager Daily Board" body="Operations-only board for a manager: photo queue, labels, show prep, order review, receipts, and employee follow-up without owner financial tools." page="managerboard" button="Open Board" color={C.blue} />
@@ -6418,6 +6576,7 @@
           <SettingsCard icon="🧭" title="Quick Start Guide" body="Training guide for the new workflow app. Use this when handing the app to an employee or testing the new layout." page="quickstart" button="Open Guide" color={C.g600} />
           <SettingsCard icon="🧩" title="Next Step Coach" body="Simple guided assistant that turns the app into a daily operating checklist for each role." page="workflowcoach" button="Open Coach" color={C.blue} />
           <SettingsCard icon="✅" title="Employee Task Board" body="Use this to test what employees see and give staff a clean daily checklist without owner financial tools." page="employeeboard" button="Open Board" color="#fb6392" />
+          <SettingsCard icon="🚀" title="Final Release Center" body="Last go-live screen before replacing the live app. It checks workflow testing, cloud status, data blockers, role boards, and backup reminders." page="releasecenter" button="Final Check" color="#97d33e" />
           <SettingsCard icon="✅" title="App Checkup" body="Plain-English owner checklist for broken navigation, data blockers, cloud state, receipt cleanup, duplicate plant numbers, and show blockers." page="appcheck" button="Open Checkup" color={C.g600} />
           <SettingsCard icon="🧪" title="Workflow Test Checklist" body="Step-by-step testing checklist for Today, Inventory, Intake, Shows, Orders, Money, Buy Smart, Settings, employee mode, and mobile safety before replacing the live file." page="workflowqa" button="Open Checklist" color={C.gold} />
           <SettingsCard icon="🧪" title="Developer Testing" body="Owner-only diagnostics, smoke tests, health checks, and rollback checkpoints." page="devtools" button="Open Testing" color={C.blue} />
@@ -7798,6 +7957,115 @@
           {dangerCard("Delete ALL Inventory", "Removes every plant/inventory row from the app, including any sold sale records rows stored with inventory. Keeps nurseries, employees, timecards, expenses, bills, and settings.", "Delete All Inventory", "inventory")}
           {dangerCard("Full Plant Data Reset", "Most aggressive reset. Deletes inventory, sales, customers, and historical imports. Keeps nurseries, employees, timecards, expenses, bills, and app settings.", "Delete Inventory + Customers + Sales", "full")}
         </div>
+      </div>;
+    }
+
+
+
+
+    /* ══════════════════════════════════════════════════════════
+       ORDER PACKING BOARD
+       Safe after-show packing layer. Local checklist only.
+       Does not change platform shipping, database schema, or import logic.
+    ══════════════════════════════════════════════════════════ */
+    function OrderPackingBoard({ plants = [], user, setPage, casdCerts = [] }) {
+      const role = user?.role || "employee";
+      const canManage = role === "owner" || role === "manager";
+      const [tab, setTab] = useState("queue");
+      const orders = groupSalesIntoOrders(plants).sort((a,b)=>String(b.soldDate || "").localeCompare(String(a.soldDate || "")));
+      const recentOrders = orders.filter(o => dateInLast(o.soldDate, 14));
+      const activeOrders = recentOrders.length ? recentOrders : orders.slice(0, 50);
+      const statesNeedDocs = ["CA","AZ","TX","LA","HI"];
+      const coldStates = ["AK","CO","CT","IA","ID","IL","IN","KS","MA","ME","MI","MN","MO","MT","ND","NE","NH","NJ","NY","OH","PA","RI","SD","UT","VT","WA","WI","WV","WY"];
+      const docOrders = activeOrders.filter(o => statesNeedDocs.includes(String(o.state || "").toUpperCase()));
+      const coldOrders = activeOrders.filter(o => coldStates.includes(String(o.state || "").toUpperCase()));
+      const packedOrders = activeOrders.filter(o => o.plants && o.plants.length && o.plants.every(p => p.packedAt || p.platformReadyAt || p.fulfillmentStatus === "Packed" || p.fulfillmentStatus === "Platform Ready"));
+      const notPacked = activeOrders.filter(o => !packedOrders.includes(o));
+      const storageKey = `leafDiaryOrderPackingDone-${today()}-${role}`;
+      const [done, setDone] = useState(() => { try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch(e) { return {}; } });
+      const saveDone = next => { setDone(next); try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch(e) {} };
+      const toggleDone = key => saveDone({ ...done, [key]: !done[key] });
+      const stepKey = (order, step) => `${order.orderId}-${step}`;
+      const orderDone = (order, step) => !!done[stepKey(order, step)];
+      const doneSteps = Object.values(done).filter(Boolean).length;
+      const totalSteps = Math.max(1, activeOrders.length * 6);
+      const progress = Math.min(100, Math.round((doneSteps / totalSteps) * 100));
+      const hasStateDocArchive = (order) => safeArray(casdCerts).some(c => String(c.consigneeName || "").toLowerCase().includes(String(order.customerName || order.customerUsername || "").toLowerCase()) || String(c.destination || "").toUpperCase() === String(order.state || "").toUpperCase());
+      const exportPackingCsv = () => {
+        const rows = [["Order", "Buyer", "Username", "State", "Sold Date", "Plant ID", "Plant Name", "Pot Size", "Sale Price", "Paperwork", "Heat/Cold Check", "Packed Local", "Platform Ready"]];
+        activeOrders.forEach((o, oi) => safeArray(o.plants).forEach(p => rows.push([
+          oi + 1,
+          o.customerName || "",
+          o.customerUsername || "",
+          o.state || "",
+          o.soldDate || "",
+          p.plantId || "",
+          p.name || "",
+          p.potSize || "",
+          p.salePrice || "",
+          statesNeedDocs.includes(String(o.state || "").toUpperCase()) ? "Check state paperwork" : "Not flagged",
+          coldStates.includes(String(o.state || "").toUpperCase()) ? "Cold-state packing check" : "Normal packing",
+          orderDone(o, "packed") ? "Yes" : "No",
+          orderDone(o, "ready") ? "Yes" : "No"
+        ])));
+        downloadCsv(`leaf-diary-packing-board-${today()}.csv`, rows);
+      };
+      const StepBox = ({ order, step, label, sub, color = C.g600 }) => {
+        const k = stepKey(order, step);
+        const checked = !!done[k];
+        return <button onClick={()=>toggleDone(k)} style={{ background:checked ? C.g50 : C.card, border:`1.5px solid ${checked ? color : C.bd}`, borderRadius:12, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}>
+          <Row gap={8} center><span style={{ width:24, height:24, borderRadius:999, background:checked ? color : C.cardAlt, color:checked ? "#fff" : C.tx3, display:"inline-flex", alignItems:"center", justifyContent:"center", fontWeight:900, flexShrink:0 }}>{checked ? "✓" : ""}</span><div><div style={{ fontSize:12, fontWeight:900, color:C.g900 }}>{label}</div>{sub && <div style={{ fontSize:10, color:C.tx3, marginTop:2 }}>{sub}</div>}</div></Row>
+        </button>;
+      };
+      const OrderCard = ({ order, i }) => {
+        const state = String(order.state || "").toUpperCase();
+        const needsDoc = statesNeedDocs.includes(state);
+        const coldCheck = coldStates.includes(state);
+        const buyer = order.customerUsername || order.customerName || "Buyer";
+        const packedLocal = orderDone(order, "packed");
+        const readyLocal = orderDone(order, "ready");
+        return <Card style={{ padding:14, borderTop:`4px solid ${readyLocal ? C.g600 : needsDoc ? C.purple : coldCheck ? C.blue : C.amber}`, marginBottom:10 }}>
+          <Row between center wrap gap={10} style={{ marginBottom:10 }}>
+            <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>#{i + 1} {buyer}</div><div style={{ fontSize:12, color:C.tx3 }}>{order.soldDate || "No date"} · {safeArray(order.plants).length} plant(s) · {$(order.totalValue || 0)}</div></div>
+            <Row gap={6} wrap>{state && <Tag text={state} color={needsDoc ? C.purple : C.blue} sm />}{needsDoc && <Tag text="Paperwork Check" color={C.purple} sm />}{coldCheck && <Tag text="Cold Pack Check" color={C.blue} sm />}{packedLocal && <Tag text="Packed Local" color={C.g600} sm />}</Row>
+          </Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom:10 }}>
+            <StepBox order={order} step="buyer" label="Confirm buyer/order" sub="Match username and sold group" color={C.blue} />
+            <StepBox order={order} step="pull" label="Pull plants" sub={safeArray(order.plants).map(p=>p.plantId).filter(Boolean).slice(0,4).join(", ") || "Check plant IDs"} color={C.gold} />
+            <StepBox order={order} step="inspect" label="Inspect plants" sub="Leaves, roots, moisture, pests" color={C.g600} />
+            <StepBox order={order} step="pack" label="Pack safely" sub="Insulation, padding, label notes" color={C.amber} />
+            <StepBox order={order} step="paperwork" label={needsDoc ? "Add paperwork" : "Paperwork not flagged"} sub={needsDoc ? (hasStateDocArchive(order) ? "Archive has matching state clue" : "Open Shipping Paperwork if needed") : "No CA/AZ/TX/LA/HI flag"} color={needsDoc ? C.purple : C.g600} />
+            <StepBox order={order} step="ready" label="Ready in platform" sub="Final shipping/label stays in Whatnot/Palmstreet" color={C.g600} />
+          </div>
+          <details style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:"9px 10px" }}>
+            <summary style={{ cursor:"pointer", fontWeight:900, color:C.g900 }}>Plant list</summary>
+            <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:6 }}>{safeArray(order.plants).map((p, idx) => <Row key={(p.id || p.plantId || p.name || idx)} between center style={{ borderBottom:`1px solid ${C.bdS}`, paddingBottom:6 }}><div><b style={{ fontSize:12 }}>{p.plantId || "No ID"} · {p.name || "Plant"}</b><div style={{ fontSize:10, color:C.tx3 }}>{p.potSize || "No size"}</div></div><span style={{ fontWeight:900, color:C.g600 }}>{$(p.salePrice || 0)}</span></Row>)}</div>
+          </details>
+        </Card>;
+      };
+      const PackingGuide = () => <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+        {[ ["1", "Confirm the order", "Match buyer username, sold group, and plant IDs before packing."], ["2", "Pull and inspect", "Pull the right plants, inspect leaves/roots, and remove bad leaves if needed."], ["3", "Paperwork check", "CA/AZ/TX/LA/HI should trigger paperwork review before shipment."], ["4", "Weather check", "Cold destination states should get insulation or heat-pack decision before label scan."], ["5", "Pack safely", "Use padding, secure pot/roots, and avoid crushing leaves."], ["6", "Finish in platform", "Actual shipping label and tracking stay inside Whatnot/Palmstreet/Shopify." ] ].map(([n,t,b]) => <Card key={n} style={{ borderLeft:`5px solid ${C.g600}` }}><div style={{ fontSize:12, color:C.tx3, fontWeight:900, textTransform:"uppercase" }}>Step {n}</div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>{t}</div><p style={{ margin:"6px 0 0", fontSize:13, color:C.tx2, lineHeight:1.45 }}>{b}</p></Card>)}
+      </div>;
+      return <div className="ld-page ld-packing-board" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", fontFamily:F.body }}>
+        <SHdr icon="📦" title="Order Packing Board" sub="After-show packing checklist. Local checkmarks only — shipping labels and tracking still stay inside the selling platforms." right={<Row gap={8} wrap><Btn v="soft" onClick={()=>setPage("orders_ws")}>Orders</Btn>{canManage && <Btn v="outline" onClick={()=>setPage("showimport")}>Import Sales</Btn>}<Btn onClick={exportPackingCsv}>Export CSV</Btn></Row>} />
+        <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:"2px solid #68d8ff", borderRadius:24 }}>
+          <Row between center wrap gap={12}><div><div style={{ fontFamily:F.display, fontSize:26, color:"#68d8ff", fontWeight:900 }}>Pack orders without guessing</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)", marginTop:4 }}>Import sales first, then use this board to pull, inspect, paperwork-check, and pack each sold group.</div></div><div style={{ minWidth:160 }}><div style={{ fontSize:11, color:"rgba(255,255,255,.62)", fontWeight:900, marginBottom:5 }}>Local Packing Progress</div><div style={{ height:10, background:"rgba(255,255,255,.14)", borderRadius:999, overflow:"hidden" }}><div style={{ height:"100%", width:`${progress}%`, background:"#68d8ff" }} /></div><div style={{ fontSize:11, color:"rgba(255,255,255,.66)", marginTop:5 }}>{progress}% checked today</div></div></Row>
+        </Card>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:12 }}>
+          <KPI label="Orders To Pack" value={notPacked.length} sub="recent/active sold groups" color={notPacked.length ? C.amber : C.g600} />
+          <KPI label="Plants Sold" value={activeOrders.reduce((s,o)=>s+safeArray(o.plants).length,0)} sub="in packing queue" color={C.blue} />
+          <KPI label="Paperwork Checks" value={docOrders.length} sub="CA/AZ/TX/LA/HI" color={docOrders.length ? C.purple : C.g600} />
+          <KPI label="Cold Pack Checks" value={coldOrders.length} sub="cold-weather states" color={coldOrders.length ? C.blue : C.g600} />
+        </div>
+        <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:8, marginBottom:12 }}>
+          {[["queue","📦","Packing Queue"],["steps","✅","Pack Steps"],["paperwork","📜","Paperwork"],["weather","🌡️","Heat/Cold"],["export","⬇️","Export"]].map(([id,icon,label]) => <button key={id} onClick={()=>setTab(id)} style={{ flex:"0 0 auto", background:tab===id?"#000":C.card, color:tab===id?"#68d8ff":C.tx2, border:`1.5px solid ${tab===id?"#68d8ff":C.bd}`, borderRadius:999, padding:"10px 13px", fontWeight:900, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{icon} {label}</button>)}
+        </div>
+        {tab === "queue" && <div>{activeOrders.length ? activeOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ textAlign:"center", padding:44 }}><div style={{ fontSize:42 }}>📦</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No sold orders found</h2><p style={{ color:C.tx3 }}>Import a Whatnot or Palmstreet show first, then come back here to pack sold groups.</p><Btn onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Card>}</div>}
+        {tab === "steps" && <PackingGuide />}
+        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>State paperwork review</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>This flags states that often need extra shipping paperwork. Use the full Shipping Paperwork tool for certificates. This board does not generate documents.</p><Row gap={8} wrap><Btn onClick={()=>setPage("casd")}>Open Shipping Paperwork</Btn><Btn v="soft" onClick={()=>setTab("queue")}>Back To Queue</Btn></Row></Card><div>{docOrders.length ? docOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ background:C.g50 }}><b>No flagged state paperwork orders in this queue.</b><p style={{ color:C.tx3, fontSize:13 }}>No CA, AZ, TX, LA, or HI sold groups found in recent active orders.</p></Card>}</div></div>}
+        {tab === "weather" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.blue}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>Heat / cold packing check</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>This is a destination-state reminder only. Check the actual weather before deciding on heat packs, insulation, hold-for-weather, or Monday shipping.</p><Tag text="Reminder layer only" color={C.blue} /></Card><div>{coldOrders.length ? coldOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ background:C.g50 }}><b>No cold-state reminder orders in this queue.</b><p style={{ color:C.tx3, fontSize:13 }}>Still check weather manually before shipping sensitive plants.</p></Card>}</div></div>}
+        {tab === "export" && <Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900, marginBottom:8 }}>Export packing list</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>Exports a CSV for packing/staging. It includes buyer, state, plant IDs, plant names, paperwork flags, cold-pack flags, and local checkmarks.</p><Row gap={8} wrap><Btn onClick={exportPackingCsv}>Export Packing CSV</Btn><Btn v="soft" onClick={()=>setPage("ship")}>Open Full Sold Review</Btn><Btn v="outline" onClick={()=>setPage("orders_ws")}>Back To Orders</Btn></Row></Card>}
+        <style>{`@media(max-width:760px){.ld-packing-board div[style*="grid-template-columns:repeat(4,1fr)"],.ld-packing-board div[style*="grid-template-columns:repeat(2,1fr)"],.ld-packing-board div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}.ld-packing-board button{min-height:44px}}`}</style>
       </div>;
     }
 
@@ -13784,6 +14052,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "intake_ws" && <IntakeWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} setNurseries={setNurseries} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
           {page === "shows_ws" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
           {page === "showprep" && <ShowPrepPullList plants={plants} user={user} setPage={navigate} />}
+          {page === "packorders" && <OrderPackingBoard plants={plants} user={user} setPage={navigate} casdCerts={casdCerts} />}
           {page === "orders_ws" && <OrdersWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} users={users} settings={settings} setSettings={setSettings} refunds={refunds} setRefunds={setRefunds} casdCerts={casdCerts} setCasdCerts={setCasdCerts} setPage={navigate} />}
           {page === "money_ws" && <MoneyCommandCenter plants={plants} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} timecards={timecards} setTimecards={setTimecards} receipts={expenseReceipts} setReceipts={setExpenseReceipts} users={users} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
@@ -13836,6 +14105,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "devtools" && user.role === "owner" && <Phase2DeveloperConsole appData={buildCurrentAppData()} context={{ cloudStatus, cloudMsg, pendingSyncCount, startupMode, page }} user={user} makePhase1Snapshot={makePhase1Snapshot} downloadPhase1Health={downloadPhase1Health} addAudit={addAudit} setPage={navigate} />}
           {page === "appcheck" && user.role === "owner" && <AppCheckup plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} auditLog={auditLog} cloudStatus={cloudStatus} cloudMsg={cloudMsg} pendingSyncCount={pendingSyncCount} phase2Report={phase2Report} phase1Health={phase1Health} setPage={navigate} makeSnapshot={makePhase1Snapshot} downloadHealth={downloadPhase1Health} />}
           {page === "workflowqa" && user.role === "owner" && <WorkflowTestChecklist plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} auditLog={auditLog} cloudStatus={cloudStatus} cloudMsg={cloudMsg} pendingSyncCount={pendingSyncCount} phase2Report={phase2Report} phase1Health={phase1Health} user={user} setPage={navigate} />}
+          {page === "releasecenter" && user.role === "owner" && <FinalReleaseCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} auditLog={auditLog} cloudStatus={cloudStatus} cloudMsg={cloudMsg} pendingSyncCount={pendingSyncCount} phase2Report={phase2Report} phase1Health={phase1Health} user={user} setPage={navigate} />}
           {page === "workflowcoach" && <WorkflowCoach plants={plants} bills={bills} receipts={expenseReceipts} timecards={timecards} users={users} settings={settings} user={user} setPage={navigate} />}
           {page === "managerboard" && (user.role === "owner" || user.role === "manager") && <ManagerOperationsBoard plants={plants} receipts={expenseReceipts} timecards={timecards} users={users} settings={settings} user={user} setPage={navigate} />}
           {page === "ownerboard" && user.role === "owner" && <OwnerCommandBoard plants={plants} expenses={expenses} bills={bills} receipts={expenseReceipts} timecards={timecards} users={users} settings={settings} user={user} setPage={navigate} />}
