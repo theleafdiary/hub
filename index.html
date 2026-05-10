@@ -5464,6 +5464,192 @@
       </div>;
     }
 
+
+    /* ══════════════════════════════════════════════════════════
+       BUY SMART WORKFLOW — profit/buying command center
+       Safe wrapper: uses existing inventory/sales/nursery data only.
+    ══════════════════════════════════════════════════════════ */
+    function BuySmartWorkflow({ plants = [], nurseries = [], expenses = [], bills = [], timecards = [], settings = {}, user, setPage }) {
+      const [tab, setTab] = useState("whatbuy");
+      const canSeeMoney = user?.role === "owner" || user?.role === "manager";
+      const ownerOnly = user?.role === "owner";
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
+      const sold30 = sold.filter(p => dateInLast(plantSaleDate(p), 30));
+      const sold90 = sold.filter(p => dateInLast(plantSaleDate(p), 90));
+      const bank = +settings.currentBankBalance || 0;
+      const plan = phase11BuildBuyingPlan({ plants, bills, timecards }, settings);
+      const safeSpend = Math.max(0, +plan.safeSpend || 0);
+      const reserve = +plan.reserve || 0;
+      const due14 = +plan.due14 || 0;
+      const inventoryCost = inStock.reduce((s,p)=>s+(+p.cost||0),0);
+      const inventoryValue = inStock.reduce((s,p)=>s+(+p.suggestedPrice||+p.listPrice||+p.price||0),0);
+      const avgDays = arr => arr.length ? Math.round(arr.reduce((s,p)=>s+phase11DaysToSell(p),0) / arr.length) : null;
+      const avg = arr => arr.length ? arr.reduce((s,n)=>s+(+n||0),0) / arr.length : 0;
+
+      const genusMap = {};
+      safeArray(plants).forEach(p => {
+        const genus = gOf(p.name);
+        const g = genusMap[genus] || (genusMap[genus] = { genus, total:0, inStock:0, sold:0, sold30:0, sold90:0, dead:0, cost:0, stockCost:0, revenue:0, profit:0, days:[], costs:[], salePrices:[], stockPlants:[], soldPlants:[] });
+        g.total++;
+        g.cost += (+p.cost || 0);
+        if (+p.cost) g.costs.push(+p.cost);
+        if (p.status === "In Stock") { g.inStock++; g.stockCost += (+p.cost || 0); g.stockPlants.push(p); }
+        if (["Dead","Damaged"].includes(p.status)) g.dead++;
+        if (p.status === "Sold") {
+          const rev = +p.salePrice || +p.suggestedPrice || +p.listPrice || +p.price || 0;
+          g.sold++; g.revenue += rev; g.profit += phase11TrueProfit(p, settings); g.soldPlants.push(p);
+          if (rev) g.salePrices.push(rev);
+          if (p.dateAdded && plantSaleDate(p)) g.days.push(phase11DaysToSell(p));
+          if (dateInLast(plantSaleDate(p), 30)) g.sold30++;
+          if (dateInLast(plantSaleDate(p), 90)) g.sold90++;
+        }
+      });
+      const genusRows = Object.values(genusMap).map(g => {
+        const sellThru = g.total ? Math.round((g.sold / g.total) * 100) : 0;
+        const deathRate = g.total ? Math.round((g.dead / g.total) * 100) : 0;
+        const avgProfit = g.sold ? g.profit / g.sold : 0;
+        const avgSale = avg(g.salePrices);
+        const avgCost = avg(g.costs);
+        const days = g.days.length ? Math.round(avg(g.days)) : null;
+        const score = Math.max(0, Math.min(100, Math.round((sellThru * .30) + (Math.max(0, avgProfit) * 1.5) + ((days ? Math.max(0, 60 - days) : 18) * .55) + (Math.max(0, 100 - deathRate) * .15))));
+        const maxBuy = avgSale ? Math.max(1, Math.floor(avgSale * .38)) : Math.max(1, Math.ceil((avgCost || 4) * 1.15));
+        const targetSell = avgCost ? sprice(avgCost, .62) : Math.max(15, Math.ceil((avgSale || 20) / 5) * 5);
+        return { ...g, sellThru, deathRate, avgProfit, avgSale, avgCost, avgDays:days, score, maxBuy, targetSell };
+      }).sort((a,b)=>b.score-a.score || b.profit-a.profit);
+
+      const buyMore = genusRows.filter(g => g.sold >= 2 && g.score >= 58 && g.deathRate <= 25).slice(0, 12);
+      const avoid = genusRows.filter(g => g.total >= 2 && (g.score < 45 || g.deathRate >= 25 || (g.avgProfit > 0 && g.avgProfit < 8) || (g.avgDays && g.avgDays >= 45))).sort((a,b)=>a.score-b.score || b.stockCost-a.stockCost).slice(0, 12);
+      const cheapOnly = genusRows.filter(g => g.score >= 45 && g.score < 62 && g.total >= 2).slice(0, 10);
+      const stockRisk = inStock.map(p => {
+        const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
+        const cost = +p.cost || 0;
+        const held = dHeld(p.dateAdded) || 0;
+        const margin = price ? Math.round(((price - cost) / price) * 100) : 0;
+        const pps = calcProjectedPPS(p, plants, settings);
+        return { plant:p, price, cost, held, margin, pps };
+      }).filter(r => r.held >= 45 || r.margin < 45 || r.pps.rating === "D").sort((a,b)=>b.held-a.held || a.margin-b.margin).slice(0, 18);
+      const priceRows = genusRows.filter(g => g.sold || g.inStock).sort((a,b)=>b.sold-b.sold || b.score-a.score).slice(0, 16);
+
+      const nurseryMap = {};
+      safeArray(plants).forEach(p => {
+        const key = p.nurseryName || p.nursery || p.supplier || p.vendorName || p.nurseryCode || "Unknown";
+        const n = nurseryMap[key] || (nurseryMap[key] = { name:key, code:p.nurseryCode || "", bought:0, inStock:0, sold:0, dead:0, cost:0, revenue:0, profit:0, days:[] });
+        n.bought++; n.cost += (+p.cost || 0);
+        if (p.status === "In Stock") n.inStock++;
+        if (["Dead","Damaged"].includes(p.status)) n.dead++;
+        if (p.status === "Sold") {
+          const rev = +p.salePrice || +p.suggestedPrice || 0;
+          n.sold++; n.revenue += rev; n.profit += phase11TrueProfit(p, settings);
+          if (p.dateAdded && plantSaleDate(p)) n.days.push(phase11DaysToSell(p));
+        }
+      });
+      safeArray(nurseries).forEach(n => {
+        const key = n.name || n.code || "Unknown";
+        nurseryMap[key] = { ...(nurseryMap[key] || { name:key, bought:0, inStock:0, sold:0, dead:0, cost:0, revenue:0, profit:0, days:[] }), ...nurseryMap[key], code: nurseryMap[key]?.code || n.code || "" };
+      });
+      const nurseryRows = Object.values(nurseryMap).map(n => {
+        const sellThru = n.bought ? Math.round((n.sold / n.bought) * 100) : 0;
+        const deathRate = n.bought ? Math.round((n.dead / n.bought) * 100) : 0;
+        const roi = n.cost ? Math.round((n.profit / n.cost) * 100) : 0;
+        const days = n.days.length ? Math.round(avg(n.days)) : null;
+        const score = Math.max(0, Math.min(100, Math.round((sellThru * .34) + (Math.max(0, roi) * .35) + (Math.max(0, 100 - deathRate) * .2) + ((days ? Math.max(0, 45 - days) : 10) * .45))));
+        return { ...n, sellThru, deathRate, roi, avgDays:days, score };
+      }).sort((a,b)=>b.score-a.score || b.profit-a.profit);
+
+      const bestRecent = genusRows.filter(g => g.sold30 > 0).sort((a,b)=>b.sold30-a.sold30 || b.avgProfit-a.avgProfit)[0];
+      const stopCount = avoid.length;
+      const showReady = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price) && p.labelPrinted).length;
+      const missingData = inStock.filter(p => !(p.photoUrl || p.photoBase64) || !(+p.suggestedPrice || +p.listPrice || +p.price) || !p.labelPrinted).length;
+
+      const TabBtn = ({ id, children }) => <button onClick={()=>setTab(id)} style={{ background:tab===id?"#000":C.card, color:tab===id?"#97d33e":C.tx2, border:`1px solid ${tab===id?"#97d33e":C.bd}`, borderRadius:999, padding:"10px 13px", fontWeight:900, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{children}</button>;
+      const Mini = ({ label, value, color=C.g700, sub }) => <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:"13px 13px", minWidth:0 }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, letterSpacing:.6, textTransform:"uppercase" }}>{label}</div><div style={{ fontFamily:F.display, color, fontSize:22, fontWeight:900, lineHeight:1.1, marginTop:5 }}>{value}</div>{sub && <div style={{ fontSize:11, color:C.tx3, marginTop:4 }}>{sub}</div>}</div>;
+      const Line = ({ label, value, color=C.g900 }) => <Row between center style={{ padding:"8px 0", borderTop:`1px solid ${C.bdS}` }}><span style={{ fontSize:12, color:C.tx2, fontWeight:800 }}>{label}</span><span style={{ fontSize:12, color, fontWeight:900 }}>{value}</span></Row>;
+      const Rating = ({ score }) => <Tag text={score >= 72 ? "A Buy" : score >= 58 ? "B Buy Carefully" : score >= 45 ? "C Only Cheap" : "D Avoid"} color={score >= 72 ? C.g600 : score >= 58 ? C.gold : score >= 45 ? C.amber : C.red} sm />;
+      const DecisionCard = ({ icon, title, body, action, page, color={C.g600} }) => <Card style={{ borderLeft:`5px solid ${color}`, padding:16 }}><Row gap={12} center><div style={{ width:42, height:42, borderRadius:14, background:color+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:23, flexShrink:0 }}>{icon}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:2 }}>{body}</div></div>{action && <Btn sz="sm" v="outline" onClick={()=>setPage(page)}>{action}</Btn>}</Row></Card>;
+      const GenusCard = ({ g, mode="buy" }) => <Card style={{ borderTop:`4px solid ${g.score >= 72 ? C.g600 : g.score >= 58 ? C.gold : g.score >= 45 ? C.amber : C.red}` }}>
+        <Row between wrap center gap={8} style={{ marginBottom:10 }}>
+          <div><Row gap={8} center wrap><h3 style={{ fontFamily:F.display, color:C.g900, margin:0, fontSize:20 }}>{g.genus}</h3><Rating score={g.score} /></Row><div style={{ fontSize:11, color:C.tx3, marginTop:3 }}>{g.total} bought · {g.inStock} in stock · {g.sold} sold{g.avgDays ? ` · avg ${g.avgDays} days` : ""}</div></div>
+          <div style={{ width:54, height:54, borderRadius:"50%", border:`3px solid ${g.score >= 72 ? C.g600 : g.score >= 58 ? C.gold : g.score >= 45 ? C.amber : C.red}`, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", flexShrink:0 }}><span style={{ fontFamily:F.display, fontSize:17, fontWeight:900, color:C.g900 }}>{g.score}</span><span style={{ fontSize:7, color:C.tx3, fontWeight:900 }}>score</span></div>
+        </Row>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:8 }}>
+          <Mini label="Avg Profit" value={canSeeMoney ? $(g.avgProfit) : "Hidden"} color={g.avgProfit >= 15 ? C.g600 : g.avgProfit >= 8 ? C.gold : C.red} />
+          <Mini label="Sell-Thru" value={`${g.sellThru}%`} color={g.sellThru >= 60 ? C.g600 : g.sellThru >= 35 ? C.gold : C.red} />
+          <Mini label="Death" value={`${g.deathRate}%`} color={g.deathRate <= 8 ? C.g600 : g.deathRate <= 20 ? C.gold : C.red} />
+          <Mini label="Max Buy" value={canSeeMoney ? $(g.maxBuy) : "Hidden"} color={C.blue} />
+        </div>
+        <div style={{ background:C.cardAlt, borderRadius:12, padding:"10px 12px", fontSize:12, color:C.tx2, lineHeight:1.45 }}>
+          {mode === "avoid" ? `Do not buy more unless the cost is low and you have a clear show plan. Review the ${g.inStock} currently in stock before buying again.` : mode === "cheap" ? `Buy only when the price is right. Target buy cost around ${canSeeMoney ? $(g.maxBuy) : "hidden"} and target sale around ${canSeeMoney ? $(g.targetSell) : "hidden"}.` : `Good buying candidate. Prioritize clean plants, strong photos, and sale price around ${canSeeMoney ? $(g.targetSell) : "hidden"}.`}
+        </div>
+      </Card>;
+
+      if (user?.role === "employee") {
+        return <div className="ld-page" style={{ padding:"16px 14px 112px", background:C.bg, minHeight:"100vh", maxWidth:760, margin:"0 auto" }}>
+          <div style={{ background:"#000", color:"#fff", borderRadius:26, padding:"20px 18px", border:"2px solid #97d33e", marginBottom:14 }}><div style={{ fontSize:36 }}>🧠</div><div style={{ fontFamily:F.display, fontSize:28, color:"#97d33e", fontWeight:900 }}>Buy Smart</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)" }}>Owner and manager buying decisions are protected.</div></div>
+          <Card><div style={{ fontWeight:900, color:C.g900, marginBottom:6 }}>Employee view</div><div style={{ color:C.tx3, fontSize:13 }}>You can help by keeping photos, labels, and show prep clean. Cost, profit, nursery scores, and buying decisions stay hidden.</div><Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={()=>setPage("inv")}>Photo Queue</Btn><Btn v="soft" onClick={()=>setPage("labels")}>Labels</Btn><Btn v="outline" onClick={()=>setPage("showbuilder")}>Build Show</Btn></Row></Card>
+        </div>;
+      }
+
+      return <div className="ld-page" style={{ padding:"16px 14px 112px", background:C.bg, minHeight:"100vh", maxWidth:1120, margin:"0 auto" }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"20px 18px", border:"2px solid #B07D10", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div><div style={{ fontSize:40 }}>🧠</div><div style={{ fontFamily:F.display, fontSize:30, color:"#f5c542", fontWeight:900, marginTop:4 }}>Buy Smart</div><div style={{ color:"rgba(255,255,255,.72)", fontSize:13, marginTop:4 }}>Know what to buy, what to avoid, who to buy from, and how much you can safely spend.</div></div>
+            <Row gap={8} wrap><button onClick={()=>setPage("pos")} style={{ background:"#f5c542", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📋 Buying List</button><button onClick={()=>setPage("nursery")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🏪 Nurseries</button><button onClick={()=>setPage("money_ws")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>💵 Cash Pulse</button></Row>
+          </Row>
+          <div style={{ marginTop:14, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.14)", borderRadius:16, padding:"12px 13px", fontWeight:900 }}>{safeSpend > 0 ? `Safe buy budget: ${canSeeMoney ? $(safeSpend) : "Hidden"}. Use it only on A/B rated plant categories.` : bank ? "Do not buy today. Cash reserve, bills, or payroll are too tight." : "Add bank balance in Money settings to unlock a safer buying budget."}</div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <Mini label="Safe Buy Budget" value={canSeeMoney ? $(safeSpend) : "Hidden"} sub={`Reserve ${canSeeMoney ? $(reserve) : "hidden"}`} color={safeSpend > 300 ? C.g600 : safeSpend > 0 ? C.gold : C.red} />
+          <Mini label="Buy More" value={buyMore.length} sub="A/B categories" color={C.g600} />
+          <Mini label="Stop Buying" value={stopCount} sub="low ROI risks" color={stopCount ? C.red : C.g600} />
+          <Mini label="Show Ready" value={showReady} sub={`${missingData} blocked`} color={showReady >= 50 ? C.g600 : C.amber} />
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+          <DecisionCard icon="✅" title="Best buying move" body={bestRecent ? `${bestRecent.genus} is leading recent demand. It sold ${bestRecent.sold30} in the last 30 days with about ${canSeeMoney ? $(bestRecent.avgProfit) : "hidden"} average profit.` : "Not enough recent sales data yet. Use conservative buying and focus on plants with photos, prices, and strong margins."} action="See Buy More" page="buy_ws" color={C.g600} />
+          <DecisionCard icon={safeSpend > 0 ? "💵" : "🛑"} title="Cash decision" body={safeSpend > 0 ? `You can buy, but keep at least ${canSeeMoney ? $(reserve) : "hidden"} reserved for bills, payroll, and safety.` : `Hold off buying. Bills due soon are ${canSeeMoney ? $(due14) : "hidden"}, and the safe spend calculation is at zero.`} action="Money" page="money_ws" color={safeSpend > 0 ? C.gold : C.red} />
+          <DecisionCard icon="🚫" title="Stop-buying watch" body={avoid.length ? `${avoid.length} plant categories are low score, slow, low profit, or higher loss risk. Review them before the next nursery run.` : "No major stop-buying category yet. Keep tracking sales and dead/damaged plants."} action="Avoid List" page="buy_ws" color={avoid.length ? C.red : C.g600} />
+          <DecisionCard icon="🎪" title="Show pressure" body={`${showReady} plants are ready for a show. ${missingData} plants are blocked by missing photos, labels, or prices.`} action="Build Show" page="showbuilder" color={showReady ? C.blue : C.amber} />
+        </div>
+
+        <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch", display:"flex", gap:8, marginBottom:14, paddingBottom:4 }}>
+          <TabBtn id="whatbuy">✅ What To Buy</TabBtn>
+          <TabBtn id="avoid">🚫 What Not To Buy</TabBtn>
+          <TabBtn id="nurseries">🏪 Nursery Scores</TabBtn>
+          <TabBtn id="prices">🏷️ Price Guide</TabBtn>
+          <TabBtn id="budget">💵 Buying Budget</TabBtn>
+          <TabBtn id="risk">⏳ Inventory Risk</TabBtn>
+          <TabBtn id="tools">⚙️ Tools</TabBtn>
+        </div>
+
+        {tab === "whatbuy" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          {buyMore.length ? buyMore.map(g => <GenusCard key={g.genus} g={g} />) : <Card style={{ gridColumn:"1/-1", textAlign:"center", padding:40 }}><div style={{ fontSize:38 }}>🌱</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>Not enough proven winners yet</h2><p style={{ color:C.tx3 }}>Import more sold show data so Buy Smart can rank what actually makes money.</p><Btn onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Card>}
+        </div>}
+
+        {tab === "avoid" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          {avoid.length ? avoid.map(g => <GenusCard key={g.genus} g={g} mode="avoid" />) : <Card style={{ gridColumn:"1/-1", textAlign:"center", padding:40 }}><div style={{ fontSize:38 }}>✅</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No big avoid list yet</h2><p style={{ color:C.tx3 }}>Keep tracking dead/damaged plants, slow sellers, and low-profit sales.</p></Card>}
+          {cheapOnly.length > 0 && <Card style={{ gridColumn:"1/-1", background:C.goldBg, border:`1px solid ${C.gold}55` }}><h2 style={{ fontFamily:F.display, color:C.g900, marginTop:0 }}>🟡 Buy Only If Cheap</h2><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{cheapOnly.map(g => <GenusCard key={g.genus+"cheap"} g={g} mode="cheap" />)}</div></Card>}
+        </div>}
+
+        {tab === "nurseries" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          {nurseryRows.length ? nurseryRows.map(n => <Card key={n.name} style={{ borderTop:`4px solid ${n.score >= 72 ? C.g600 : n.score >= 55 ? C.gold : n.score >= 40 ? C.amber : C.red}` }}><Row between center wrap gap={8}><div><h3 style={{ fontFamily:F.display, fontSize:20, color:C.g900, margin:0 }}>{n.name}</h3><div style={{ fontSize:11, color:C.tx3, marginTop:3 }}>{n.bought} bought · {n.sold} sold · {n.inStock} in stock{n.avgDays ? ` · avg ${n.avgDays} days` : ""}</div></div><Rating score={n.score} /></Row><Line label="Profit" value={canSeeMoney ? $(n.profit) : "Hidden"} color={n.profit >= 0 ? C.g600 : C.red}/><Line label="ROI" value={`${n.roi}%`} color={n.roi >= 80 ? C.g600 : n.roi >= 30 ? C.gold : C.red}/><Line label="Sell-through" value={`${n.sellThru}%`} color={n.sellThru >= 60 ? C.g600 : n.sellThru >= 30 ? C.gold : C.red}/><Line label="Dead / damaged" value={`${n.deathRate}%`} color={n.deathRate <= 8 ? C.g600 : n.deathRate <= 20 ? C.gold : C.red}/><Btn v="outline" sz="sm" style={{ marginTop:10 }} onClick={()=>setPage("nursery")}>Open Nursery Records</Btn></Card>) : <Card style={{ gridColumn:"1/-1", textAlign:"center", padding:40 }}><div style={{ fontSize:38 }}>🏪</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No nursery data yet</h2><p style={{ color:C.tx3 }}>Add nursery names to purchases so Buy Smart can score suppliers.</p></Card>}
+        </div>}
+
+        {tab === "prices" && <Card><Row between wrap center gap={8} style={{ marginBottom:12 }}><div><h2 style={{ fontFamily:F.display, color:C.g900, margin:0 }}>🏷️ Price Guide</h2><p style={{ margin:"3px 0 0", color:C.tx3, fontSize:12 }}>Uses your average cost, sale prices, target margin, and recent demand.</p></div><Btn v="soft" onClick={()=>setPage("slotprofit")}>Open What Makes Money</Btn></Row><Tbl cols={[{k:"genus",l:"Plant Type"},{k:"avgCost",l:"Avg Cost",right:true},{k:"avgSale",l:"Avg Sale",right:true},{k:"target",l:"Target Sell",right:true},{k:"max",l:"Max Buy",right:true},{k:"score",l:"Rating"}]} rows={priceRows.map(g => ({ genus:<b>{g.genus}</b>, avgCost:canSeeMoney ? $(g.avgCost) : "Hidden", avgSale:canSeeMoney ? $(g.avgSale) : "Hidden", target:canSeeMoney ? $(g.targetSell) : "Hidden", max:canSeeMoney ? $(g.maxBuy) : "Hidden", score:<Rating score={g.score}/> }))} empty="No price guide yet." /></Card>}
+
+        {tab === "budget" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${safeSpend > 0 ? C.g600 : C.red}` }}><h2 style={{ fontFamily:F.display, color:C.g900, marginTop:0 }}>💵 Safe Buying Budget</h2><Line label="Bank balance" value={canSeeMoney ? $(bank) : "Hidden"} color={C.blue}/><Line label="Bills due 14 days" value={canSeeMoney ? $(due14) : "Hidden"} color={due14 ? C.red : C.g600}/><Line label="Reserve / safety" value={canSeeMoney ? $(reserve) : "Hidden"} color={C.gold}/><Line label="Safe inventory spend" value={canSeeMoney ? $(safeSpend) : "Hidden"} color={safeSpend > 0 ? C.g600 : C.red}/><div style={{ marginTop:12, padding:"12px 13px", borderRadius:14, background:safeSpend>0?C.g50:C.redBg, color:safeSpend>0?C.g800:C.red, fontWeight:900 }}>{plan.buyDecision}</div></Card><Card style={{ borderTop:`4px solid ${C.gold}` }}><h2 style={{ fontFamily:F.display, color:C.g900, marginTop:0 }}>🌿 Inventory Money</h2><Line label="In-stock cost" value={canSeeMoney ? $(inventoryCost) : "Hidden"} color={C.gold}/><Line label="Suggested sell value" value={canSeeMoney ? $(inventoryValue) : "Hidden"} color={C.g600}/><Line label="Potential spread" value={canSeeMoney ? $(inventoryValue - inventoryCost) : "Hidden"} color={(inventoryValue-inventoryCost)>=0?C.g600:C.red}/><Line label="Weekly capacity" value={`${plan.capacity || phase11Settings(settings).weeklyCapacity} plants`} color={C.blue}/><Line label="Slots remaining" value={`${plan.slotsRemaining || 0}`} color={C.g600}/></Card></div>}
+
+        {tab === "risk" && <Card><Row between wrap center gap={8} style={{ marginBottom:12 }}><div><h2 style={{ fontFamily:F.display, color:C.g900, margin:0 }}>⏳ Inventory Risk</h2><p style={{ margin:"3px 0 0", color:C.tx3, fontSize:12 }}>Plants tying up money, sitting too long, or below target profit.</p></div><Btn v="outline" onClick={()=>setPage("discounts")}>Open Discounts</Btn></Row>{stockRisk.length ? <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{stockRisk.map(r => <Card key={r.plant.id || r.plant.plantId || r.plant.name} style={{ background:C.cardAlt, padding:13 }}><Row gap={10} center><div style={{ width:46, height:46, borderRadius:14, background:C.g100, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0 }}>{(r.plant.photoUrl || r.plant.photoBase64) ? <img src={r.plant.photoUrl || r.plant.photoBase64} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : "🌿"}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900 }}>{r.plant.name || "Plant"}</div><div style={{ fontSize:11, color:C.tx3 }}>{r.plant.plantId || r.plant.plantCode || "No ID"} · {r.held} days · {canSeeMoney ? `${$(r.cost)} cost / ${$(r.price)} price` : "financials hidden"}</div></div><Tag text={r.pps.rating} color={r.pps.color} sm /></Row><Row gap={7} wrap style={{ marginTop:10 }}><Tag text={r.margin ? `${r.margin}% margin` : "No price"} color={r.margin >= 55 ? C.g600 : r.margin >= 40 ? C.gold : C.red} sm />{r.held >= 45 && <Tag text="Aging" color={C.amber} sm />}{r.pps.rating === "D" && <Tag text="Low PPS" color={C.red} sm />}<Btn sz="sm" v="outline" onClick={()=>setPage("inv")}>Review</Btn></Row></Card>)}</div> : <div style={{ textAlign:"center", padding:36, color:C.tx3 }}>No major in-stock buying risk found.</div>}</Card>}
+
+        {tab === "tools" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          {[ ["📦","What Makes Money","Profit-per-slot, capacity, and plant ranking.","slotprofit"], ["💡","Old Buy Smart Report","Detailed genus score report.","intel"], ["🏪","Nursery Records","Supplier contacts and supplier history.","nursery"], ["📋","Buying Lists","Purchase orders and wish lists.","pos"], ["📈","Reports","Full business reporting.","reports"], ["💵","Money Command Center","Cash pulse and safe spend.","money_ws"] ].map(([icon,title,body,page]) => <button key={page} onClick={()=>setPage(page)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:18, padding:"16px 14px", textAlign:"left", fontFamily:F.body, cursor:"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}><Row gap={12} center><div style={{ width:46, height:46, borderRadius:15, background:C.goldBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:25 }}>{icon}</div><div><div style={{ fontWeight:900, color:C.g900 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{body}</div></div></Row></button>)}
+        </div>}
+
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(4,1fr)"],div[style*="grid-template-columns:1fr 1fr"],div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important;} .ld-page table{font-size:11px!important}}`}</style>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        BUY INTELLIGENCE
     ══════════════════════════════════════════════════════════ */
@@ -5488,7 +5674,7 @@
         } catch (e) { setAi("Error: " + e.message); } finally { setLoading(false); }
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="📊" title="Buy Smartligence" sub="What to buy · What to avoid · What's making money"
+        <SHdr icon="📊" title="Buy Smart Report" sub="Detailed genus report · what to buy · what to avoid"
           right={<Btn onClick={getAI} disabled={loading}>{loading ? "Analyzing…" : "🤖 Get AI Advice"}</Btn>} />
         {ai && <Card style={{ marginBottom: 20, background: C.g50, border: `1px solid ${C.g200}` }}>
           <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 10 }}>🤖 AI Buying Recommendations</div>
@@ -5811,6 +5997,152 @@
     /* ══════════════════════════════════════════════════════════
        ADMIN PANEL
     ══════════════════════════════════════════════════════════ */
+
+
+    /* ══════════════════════════════════════════════════════════
+       SETTINGS WORKFLOW — owner-friendly admin cleanup
+       Presentation layer only. Keeps existing AdminPanel / Audit / AI tools.
+    ══════════════════════════════════════════════════════════ */
+    function SettingsWorkflow({ users = [], settings = {}, plants = [], expenses = [], bills = [], timecards = [], receipts = [], casdCerts = [], auditLog = [], user, setPage, cloudStatus = "", cloudMsg = "" }) {
+      const [tab, setTab] = useState("account");
+      const isOwner = user?.role === "owner";
+      const activeUsers = safeArray(users).filter(u => u.active !== false);
+      const disabledUsers = safeArray(users).filter(u => u.active === false || u.blocked);
+      const ownerCount = safeArray(users).filter(u => u.role === "owner").length;
+      const employeeCount = safeArray(users).filter(u => u.role === "employee").length;
+      const managerCount = safeArray(users).filter(u => u.role === "manager").length;
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const duplicateGroups = Object.values(safeArray(plants).reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1);
+      const missingPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const missingPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const openBills = safeArray(bills).filter(b => b.status !== "Paid" && b.status !== "paid");
+      const receiptsReview = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
+      const auditRecent = safeArray(auditLog).slice(0, 8);
+      const aiGateway = settings?.aiGateway || {};
+      const aiDailyLimit = aiGateway.dailyLimit || aiGateway.dailyAiLimit || aiGateway.maxDailyRequests || 8;
+      const costGuardOn = !!(aiGateway.costSaverMode || aiGateway.costGuardEnabled || settings?.aiCostGuard?.enabled || aiGateway.disableAutoGatewayCalls !== false);
+      const cloudWord = cloudStatus === "synced" ? "Cloud synced" : cloudStatus === "safe" ? "Safe mode" : cloudStatus === "offline" ? "Offline/local backup" : cloudStatus || "Unknown";
+
+      const tabs = [
+        { id:"account", icon:"🏢", label:"Account", sub:"Business profile and app basics" },
+        { id:"team", icon:"👥", label:"Team", sub:"Employees, roles, permissions" },
+        { id:"data", icon:"💾", label:"Data", sub:"Backups, cleanup, import history" },
+        { id:"paperwork", icon:"📜", label:"Paperwork", sub:"Certifications and state docs" },
+        { id:"ai", icon:"🧠", label:"AI Setup", sub:"AI tools and cost control" },
+        { id:"security", icon:"🔍", label:"Security", sub:"Audit log and login history" },
+        { id:"developer", icon:"🧪", label:"Developer Tools", sub:"Testing and repair tools" },
+      ];
+      const open = id => setPage(id);
+      const SettingsCard = ({ icon, title, body, button, page, color = C.g600, locked, children }) => <Card style={{ padding:16, borderLeft:`5px solid ${color}`, opacity:locked ? .55 : 1 }}>
+        <Row between gap={10} center wrap>
+          <Row gap={12} center style={{ flex:1, minWidth:0 }}>
+            <div style={{ width:46, height:46, borderRadius:16, background:color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:25, flexShrink:0 }}>{icon}</div>
+            <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:15 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, marginTop:3, lineHeight:1.35 }}>{body}</div>{children}</div>
+          </Row>
+          {page && <Btn sz="sm" v={locked ? "ghost" : "fill"} disabled={locked} onClick={()=>open(page)}>{button || "Open"}</Btn>}
+        </Row>
+      </Card>;
+      const Stat = ({ label, value, color = C.g600, sub }) => <KPI label={label} value={value} sub={sub} color={color} />;
+
+      if (!isOwner) return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:760, margin:"0 auto", fontFamily:F.body }}>
+        <Card style={{ textAlign:"center", padding:28 }}>
+          <div style={{ fontSize:42 }}>🔒</div>
+          <h1 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0 4px" }}>Owner Settings Only</h1>
+          <p style={{ color:C.tx3, margin:0 }}>Settings, security, AI setup, data repair, and financial configuration are hidden from this role.</p>
+          <Row center gap={8} style={{ justifyContent:"center", marginTop:16 }}><Btn onClick={()=>setPage("today")}>Back To Today</Btn><Btn v="soft" onClick={()=>setPage("timecard")}>Open Timecard</Btn></Row>
+        </Card>
+      </div>;
+
+      return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #b695ff", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div>
+              <div style={{ fontSize:42, lineHeight:1 }}>⚙️</div>
+              <div style={{ fontFamily:F.display, fontSize:30, color:"#b695ff", fontWeight:900, marginTop:5 }}>Settings</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Owner-only controls for account, team, data, paperwork, AI, security, and developer tools.</div>
+            </div>
+            <Row gap={8} wrap>
+              <button onClick={()=>open("admin")} style={{ background:"#b695ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>⚙️ Business Settings</button>
+              <button onClick={()=>open("audit")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🔍 Security Log</button>
+            </Row>
+          </Row>
+          <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
+            Technical tools are still here, but they are hidden behind clear owner sections so employees and daily users are not confused.
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <Stat label="Active Users" value={activeUsers.length} sub={`${ownerCount} owner · ${managerCount} manager · ${employeeCount} employee`} color="#b695ff" />
+          <Stat label="Cloud Status" value={cloudWord} sub={cloudMsg ? String(cloudMsg).slice(0,70) : "Current app sync state"} color={cloudStatus === "synced" ? C.g600 : cloudStatus === "offline" ? C.amber : C.blue} />
+          <Stat label="Data Issues" value={duplicateGroups.length + missingPrice.length + missingPhoto.length} sub={`${duplicateGroups.length} duplicate groups · ${missingPrice.length} no price · ${missingPhoto.length} no photo`} color={(duplicateGroups.length + missingPrice.length + missingPhoto.length) ? C.amber : C.g600} />
+          <Stat label="AI Cost Guard" value={costGuardOn ? "On" : "Manual"} sub={`${aiDailyLimit}/day limit · owner controlled`} color={C.gold} />
+        </div>
+
+        <div className="mobile-scroll-x" style={{ display:"flex", gap:8, overflowX:"auto", padding:"2px 0 12px", WebkitOverflowScrolling:"touch" }}>
+          {tabs.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:"0 0 auto", minWidth:136, background:tab===t.id?"#000":C.card, color:tab===t.id?"#fff":C.tx1, border:`1px solid ${tab===t.id?"#000":C.bd}`, borderRadius:16, padding:"12px 13px", textAlign:"left", fontFamily:F.body, cursor:"pointer", boxShadow:tab===t.id?"0 8px 22px rgba(0,0,0,.16)":"none" }}>
+            <div style={{ fontSize:20 }}>{t.icon}</div><div style={{ fontWeight:900, fontSize:13, marginTop:3 }}>{t.label}</div><div style={{ color:tab===t.id?"rgba(255,255,255,.62)":C.tx3, fontSize:10, marginTop:2 }}>{t.sub}</div>
+          </button>)}
+        </div>
+
+        {tab === "account" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="🏢" title="Business Settings" body="Business name, owner settings, app preferences, footer text, default business rules, and general setup." page="admin" button="Open Settings" color="#b695ff" />
+          <SettingsCard icon="🎯" title="Goals" body="Monthly sales goals, profit goals, and targets for Leaf Diary." page="goals" button="Open Goals" color={C.gold} />
+          <SettingsCard icon="📈" title="Reports" body="Owner business reports for sales, inventory, expenses, payroll, and plant performance." page="reports" button="Open Reports" color={C.blue} />
+          <SettingsCard icon="💵" title="Money Command Center" body="Return to the owner money screen for cash pulse, payroll, bills, taxes, and safe buy budget." page="money_ws" button="Open Money" color={C.g600} />
+        </div>}
+
+        {tab === "team" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
+          <Card style={{ background:C.g50 }}>
+            <Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>Team Overview</div><div style={{ color:C.tx3, fontSize:12 }}>{activeUsers.length} active user(s), {disabledUsers.length} disabled/blocked user(s). Employees should only see daily work, timecard, photos, labels, receipts, live mode, and packing tasks.</div></div><Btn onClick={()=>open("admin")}>Manage Team</Btn></Row>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}><Stat label="Owners" value={ownerCount} color="#b695ff" /><Stat label="Managers" value={managerCount} color={C.blue} /><Stat label="Employees" value={employeeCount} color={C.g600} /></div>
+          <SettingsCard icon="👥" title="Users + Permissions" body="Add employees, set roles, hide cost/profit, turn on/off permissions, and disable access when needed." page="admin" button="Manage Users" color="#b695ff" />
+          <SettingsCard icon="🤝" title="Commission Settings" body="Set show commissions, employee show pay, and tip handling rules." page="commissions" button="Open Commissions" color={C.gold} />
+          <SettingsCard icon="⏱️" title="Timecard + Payroll" body="Review employee time, payroll, and unpaid work records." page="payroll" button="Open Payroll" color={C.blue} />
+        </div>}
+
+        {tab === "data" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="💾" title="Backup / Restore" body="Use the black + owner menu for backup and restore. This section keeps the main app cleaner." page="admin" button="Open Data Settings" color={C.blue} />
+          <SettingsCard icon="🧹" title="Owner Repair Tools" body={`${duplicateGroups.length} duplicate Plant ID group(s), ${missingPrice.length} missing prices, ${missingPhoto.length} missing photos. Fix data problems before imports and exports.`} page="cleanup" button="Open Repair Tools" color={(duplicateGroups.length || missingPrice.length || missingPhoto.length) ? C.amber : C.g600} />
+          <SettingsCard icon="📋" title="Receipt / Invoice Archive" body="View past invoices and receipts so purchases stay traceable." page="history" button="Open Archive" color={C.g600} />
+          <SettingsCard icon="🧾" title="Receipts Needing Review" body={`${receiptsReview.length} receipt(s) may need category review before tax time.`} page="receipts" button="Open Receipts" color={receiptsReview.length ? C.amber : C.g600} />
+        </div>}
+
+        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="📜" title="Shipping Paperwork" body={`${safeArray(casdCerts).length} paperwork record(s) archived. Use this for CA/TX/HI and other state document reminders.`} page="casd" button="Open Paperwork" color={C.blue} />
+          <SettingsCard icon="🧾" title="Receipt Reader Training" body={`Default pot size ${phase101TrainingStats(settings).defaultPotSize}; ${phase101TrainingStats(settings).activeRules} active intake rule(s).`} page="invoicetrainer" button="Teach Reader" color={C.gold} />
+          <SettingsCard icon="🏪" title="Nursery Records" body="Supplier names, contact info, codes, and buying history." page="nursery" button="Open Nurseries" color={C.g600} />
+          <SettingsCard icon="📋" title="Buying Lists" body="Purchase orders and future buying plans for nursery runs." page="pos" button="Open Buying Lists" color={C.purple} />
+        </div>}
+
+        {tab === "ai" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="🤖" title="Leaf Diary AI" body="Simple AI tools for daily plans, show building, buying advice, and business questions." page="aihub" button="Open AI" color="#97d33e" />
+          <SettingsCard icon="🌐" title="Advanced AI Setup" body={`Mobile gateway, cloud model, API endpoint, and cost controls. Cost guard: ${costGuardOn ? "on" : "manual"}.`} page="aigateway" button="AI Setup" color={C.blue} />
+          <SettingsCard icon="🧭" title="AI Model Routing" body="Choose which AI model handles each task. Owner-only because bad routing can create cost or reliability issues." page="airouter" button="Open Routing" color={C.purple} />
+          <SettingsCard icon="🧠" title="Local AI Setup" body="Ollama / local AI model settings. Keep this hidden from normal users." page="ollama" button="Local AI" color={C.g600} />
+          <SettingsCard icon="💵" title="AI Cost Control" body={`${aiDailyLimit}/day limit. Free/local first where possible. Cloud should stay manual unless owner approves.`} page="aigateway" button="Cost Settings" color={C.gold} />
+          <SettingsCard icon="💬" title="Ask Leaf Diary AI" body="User-friendly question screen for the business data copilot." page="dataai" button="Ask AI" color="#fb6392" />
+        </div>}
+
+        {tab === "security" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
+          <SettingsCard icon="🔍" title="Security / Audit Log" body={`${safeArray(auditLog).length} audit event(s) saved. Track logins, page views, data changes, device info, and IP data where available.`} page="audit" button="Open Audit Log" color={C.blue} />
+          <Card><div style={{ fontFamily:F.display, fontSize:18, color:C.g900, fontWeight:900, marginBottom:10 }}>Recent Activity</div>{auditRecent.length === 0 ? <p style={{ color:C.tx3, fontSize:12 }}>No audit activity found yet.</p> : auditRecent.map((a,i)=><Row key={a.id || i} between gap={10} style={{ padding:"8px 0", borderTop:i?`1px solid ${C.bdS}`:"none" }}><div><div style={{ fontWeight:800, color:C.tx1, fontSize:12 }}>{a.action || "Activity"}</div><div style={{ color:C.tx3, fontSize:11 }}>{a.user || a.userName || "Unknown"} · {a.page || "System"}</div></div><Tag text={a.severity || "info"} color={a.severity === "critical" ? C.red : a.severity === "warning" ? C.amber : C.blue} sm /></Row>)}</Card>
+          <SettingsCard icon="🚫" title="Disabled Users" body={`${disabledUsers.length} disabled or blocked user(s). Review employee access when someone leaves or changes jobs.`} page="admin" button="Review Users" color={disabledUsers.length ? C.amber : C.g600} />
+        </div>}
+
+        {tab === "developer" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="🧪" title="Developer Testing" body="Owner-only diagnostics, smoke tests, health checks, and rollback checkpoints." page="devtools" button="Open Testing" color={C.blue} />
+          <SettingsCard icon="🧹" title="Owner Repair Tools" body="Repair duplicate plant numbers, bad records, missing data, and import problems." page="cleanup" button="Open Repair" color={C.amber} />
+          <SettingsCard icon="🔍" title="Audit Log" body="Check who accessed the app and what changed." page="audit" button="Open Audit" color={C.purple} />
+          <SettingsCard icon="⚙️" title="Business Settings" body="The original full admin panel is still available here for deep configuration." page="admin" button="Open Full Admin" color="#b695ff" />
+          <SettingsCard icon="🧠" title="Local AI Setup" body="Technical model settings for local AI only." page="ollama" button="Open" color={C.g600} />
+          <SettingsCard icon="🌐" title="Advanced AI Setup" body="Technical mobile AI gateway and cost-control settings." page="aigateway" button="Open" color={C.blue} />
+        </div>}
+
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
+      </div>;
+    }
+
     function AdminPanel({ users, setUsers, settings, setSettings, plants, setPlants, addAudit, user }) {
       const [tab, setTab] = useState("users");
       const [editId, setEditId] = useState(null);
@@ -12289,8 +12621,8 @@ ${local.summary || "Fallback completed."}`;
           {page === "shows_ws" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
           {page === "orders_ws" && <OrdersWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} users={users} settings={settings} setSettings={setSettings} refunds={refunds} setRefunds={setRefunds} casdCerts={casdCerts} setCasdCerts={setCasdCerts} setPage={navigate} />}
           {page === "money_ws" && <MoneyCommandCenter plants={plants} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} timecards={timecards} setTimecards={setTimecards} receipts={expenseReceipts} setReceipts={setExpenseReceipts} users={users} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
-          {page === "buy_ws" && CAN.seeReports(user.role) && <WorkspaceHome type="buy_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
-          {page === "admin_ws" && user.role === "owner" && <WorkspaceHome type="admin_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
+          {page === "admin_ws" && user.role === "owner" && <SettingsWorkflow users={users} settings={settings} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} auditLog={auditLog} user={user} setPage={navigate} cloudStatus={cloudStatus} cloudMsg={cloudMsg} />}
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={navigate} />}
           {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "execai" && user.role === "owner" && <Phase6ExecutiveCommandCenter appData={buildCurrentAppData()} user={user} settings={settings} setSettings={setSettings} addAudit={addAudit} setPage={navigate} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
