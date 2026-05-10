@@ -6740,10 +6740,32 @@
     const ldHasNativeBarcodeScanner = () => typeof window !== "undefined" && "BarcodeDetector" in window;
     const ldHasZxingScanner = () => typeof window !== "undefined" && !!(window.ZXing && window.ZXing.BrowserMultiFormatReader);
     const ldScannerModeLabel = () => ldHasNativeBarcodeScanner() ? "Native" : ldHasZxingScanner() ? "iPhone Fallback" : "Manual";
+    const ldIsIOSDevice = () => {
+      const ua = navigator.userAgent || "";
+      return /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    };
     const ldZxingText = result => {
       try { if (result && typeof result.getText === "function") return result.getText(); } catch(e) {}
       return String(result?.text || result?.rawValue || result?.displayValue || result || "").trim();
     };
+    async function ldStartZxingLiveScanner(reader, videoEl, onText) {
+      const cb = (result, err) => { if (result) onText(ldZxingText(result)); };
+      const constraintsList = [
+        { video:{ facingMode:{ exact:"environment" }, width:{ ideal:1920 }, height:{ ideal:1080 }, advanced:[{ focusMode:"continuous" }] }, audio:false },
+        { video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1920 }, height:{ ideal:1080 } }, audio:false },
+        { video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false },
+        { video:{ facingMode:"environment" }, audio:false }
+      ];
+      if (reader && typeof reader.decodeFromConstraints === "function") {
+        let lastErr = null;
+        for (const constraints of constraintsList) {
+          try { return await reader.decodeFromConstraints(constraints, videoEl, cb); }
+          catch(e) { lastErr = e; try { reader.reset && reader.reset(); } catch(_) {} }
+        }
+        if (lastErr) console.warn("ZXing constraints failed; trying default camera", lastErr);
+      }
+      return await reader.decodeFromVideoDevice(null, videoEl, cb);
+    }
     async function ldDecodeBarcodeFromImageFile(file, detectorFormats = []) {
       if (!file) return "";
       if (ldHasNativeBarcodeScanner()) {
@@ -6760,10 +6782,15 @@
         const reader = new window.ZXing.BrowserMultiFormatReader();
         const url = URL.createObjectURL(file);
         try {
-          const img = new Image();
-          img.src = url;
-          await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error("Could not load barcode photo.")); });
-          const result = await reader.decodeFromImageElement(img);
+          let result = null;
+          if (typeof reader.decodeFromImageUrl === "function") {
+            result = await reader.decodeFromImageUrl(url);
+          } else {
+            const img = new Image();
+            img.src = url;
+            await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error("Could not load barcode photo.")); });
+            result = await reader.decodeFromImageElement(img);
+          }
           return ldZxingText(result);
         } finally {
           try { reader.reset && reader.reset(); } catch(e) {}
@@ -7205,10 +7232,9 @@
           if (!videoRef.current) throw new Error("Camera preview is not ready yet. Tap Start Sprint Scan again.");
           const reader = new window.ZXing.BrowserMultiFormatReader();
           codeReaderRef.current = reader;
-          setScanMsg("iPhone scanner fallback active. Point the camera at the Labelife barcode.");
-          await reader.decodeFromVideoDevice(null, videoRef.current, (result, err) => {
-            if (result) handleCode(ldZxingText(result), "iPhone scanner fallback");
-          });
+          setScanMsg("iPhone fallback active. Point the BACK camera at the barcode. If it does not read in 10 seconds, use iPhone Barcode Photo below.");
+          window.setTimeout(() => { if (codeReaderRef.current === reader) setScanError("iPhone live scanning can be picky. Use iPhone Barcode Photo below if the live scan does not grab the barcode."); }, 10000);
+          await ldStartZxingLiveScanner(reader, videoRef.current, text => handleCode(text, "iPhone scanner fallback"));
         } catch(e) {
           setScanStatus("error");
           setScanError("Camera could not start: " + (e?.message || String(e)));
@@ -7329,15 +7355,25 @@
           </Row>
         </Card>
 
+        <Card style={{ marginBottom:14, background:C.blueBg, border:`1px solid ${C.blue}44`, borderLeft:`6px solid ${C.blue}`, padding:"13px 14px" }}>
+          <Row gap={10} center>
+            <div style={{ width:38, height:38, borderRadius:14, background:C.card, color:C.blue, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>📱</div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>iPhone note</div>
+              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:2 }}>Your Mac may live-scan barcodes, but iPhone Safari can be picky with CODE128. Try Start Sprint Scan first. If it does not read in about 10 seconds, tap <b>iPhone Barcode Photo</b>, take a close photo of the barcode, then take the plant photo after the plant is found.</div>
+            </div>
+          </Row>
+        </Card>
+
         <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:14 }}>
           <div style={{ display:"grid", gap:14 }}>
             <Card style={{ padding:16 }}>
               <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>1. Scan The Label</div><div style={{ color:C.tx3, fontSize:12 }}>Point the camera at the Labelife CODE128 barcode. iPhone will use the fallback scanner library when native scanning is missing.</div></div>
-                <Row gap={8} wrap><label style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:C.g100, color:C.g800, border:`1px solid ${C.g300}`, borderRadius:999, padding:"11px 13px", fontWeight:900, cursor:"pointer" }}>Scan Label Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label></Row>
+                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>1. Scan The Label</div><div style={{ color:C.tx3, fontSize:12 }}>Mac/Android can live scan. On iPhone, try live scan first; if it does not read quickly, tap iPhone Barcode Photo and take a close photo of the barcode label.</div></div>
+                <Row gap={8} wrap><label style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:C.g100, color:C.g800, border:`1px solid ${C.g300}`, borderRadius:999, padding:"11px 13px", fontWeight:900, cursor:"pointer" }}>iPhone Barcode Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label></Row>
               </Row>
               <div className="ld-sprint-video-wrap">
-                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-sprint-video" playsInline muted /><div className="ld-sprint-frame" /><div className="ld-sprint-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:48 }}>▌▌</div><div>{canLiveScanner ? "Tap Start Sprint Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{canLiveScanner ? "iPhone uses the fallback scanner when native scan is missing." : "Manual lookup still works on every device."}</div></div>}
+                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-sprint-video" playsInline muted /><div className="ld-sprint-frame" /><div className="ld-sprint-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:48 }}>▌▌</div><div>{canLiveScanner ? "Tap Start Sprint Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{canLiveScanner ? "iPhone fallback is included. If it does not read fast, use iPhone Barcode Photo." : "Manual lookup still works on every device."}</div></div>}
               </div>
               {scanMsg && <div style={{ marginTop:10, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:10, color:C.g900, fontSize:12, fontWeight:800 }}>{scanMsg}</div>}
               {scanError && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}55`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>{scanError}</div>}
@@ -7536,10 +7572,9 @@
           if (!videoRef.current) throw new Error("Camera preview is not ready yet. Tap Start Camera again.");
           const reader = new window.ZXing.BrowserMultiFormatReader();
           codeReaderRef.current = reader;
-          setScanMsg("iPhone scanner fallback active. Point the camera at the Labelife barcode.");
-          await reader.decodeFromVideoDevice(null, videoRef.current, (result, err) => {
-            if (result) handleCode(ldZxingText(result), "iPhone scanner fallback");
-          });
+          setScanMsg("iPhone fallback active. Point the BACK camera at the barcode. If it does not read in 10 seconds, use iPhone Barcode Photo below.");
+          window.setTimeout(() => { if (codeReaderRef.current === reader) setScanError("iPhone live scanning can be picky. Use iPhone Barcode Photo below if the live scan does not grab the barcode."); }, 10000);
+          await ldStartZxingLiveScanner(reader, videoRef.current, text => handleCode(text, "iPhone scanner fallback"));
         } catch(e) {
           setScanStatus("error");
           setScanError("Camera could not start: " + (e?.message || String(e)));
@@ -7550,16 +7585,13 @@
         if (!file) return;
         setFoundPlant(null); setScanError(""); setScanMsg("Scanning uploaded label photo...");
         try {
-          const detector = await ensureDetector();
-          const bitmap = await createImageBitmap(file);
-          const codes = await detector.detect(bitmap);
-          try { bitmap.close && bitmap.close(); } catch(e) {}
-          if (!codes || !codes.length) {
+          const raw = await ldDecodeBarcodeFromImageFile(file, detectorFormats);
+          if (!raw) {
             setScanStatus("notfound");
             setScanError("No barcode found in that photo. Try a closer, brighter photo or use manual lookup.");
             return;
           }
-          handleCode(codes[0].rawValue || codes[0].displayValue || "", "label photo");
+          handleCode(raw, hasNativeScanner ? "label photo" : "iPhone label photo fallback");
         } catch(e) {
           setScanStatus("error");
           setScanError(e?.message || String(e));
@@ -7657,11 +7689,11 @@
           <div style={{ display:"grid", gap:14 }}>
             <Card style={{ padding:16 }}>
               <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Camera Scanner</div><div style={{ color:C.tx3, fontSize:12 }}>Use this after your Labelife barcode labels are printed. iPhone uses the scanner library fallback when native scanning is missing.</div></div>
+                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Camera Scanner</div><div style={{ color:C.tx3, fontSize:12 }}>Use this after your Labelife barcode labels are printed. Mac/Android can live scan. On iPhone, use iPhone Barcode Photo if live scan does not grab the barcode quickly.</div></div>
                 <Row gap={8} wrap>{scanStatus === "scanning" ? <Btn v="danger" onClick={stopScanner}>Stop Camera</Btn> : <Btn onClick={startScanner}>Start Camera</Btn>}</Row>
               </Row>
               <div className="ld-scan-video-wrap">
-                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-scan-video" playsInline muted /><div className="ld-scan-frame" /><div className="ld-scan-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:42 }}>▌▌</div><div>{canLiveScanner ? "Tap Start Camera Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{canLiveScanner ? "iPhone uses the fallback scanner when native scan is missing." : "Manual lookup still works on every device."}</div></div>}
+                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-scan-video" playsInline muted /><div className="ld-scan-frame" /><div className="ld-scan-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:42 }}>▌▌</div><div>{canLiveScanner ? "Tap Start Camera Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{canLiveScanner ? "iPhone fallback is included. If it does not read fast, use iPhone Barcode Photo." : "Manual lookup still works on every device."}</div></div>}
               </div>
               {scanMsg && <div style={{ marginTop:10, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:10, color:C.g900, fontSize:12, fontWeight:800 }}>{scanMsg}</div>}
               {scanError && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}55`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>{scanError}</div>}
