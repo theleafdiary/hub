@@ -2402,7 +2402,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const sources = safeArray(r.sources || r.dataSources);
       const src = String(r.source || "").toLowerCase();
       const hasMarket = (+r.marketMedianPrice > 0) && sources.length > 0;
-      const preview = String(r.gatewayAnswerPreview || r.gatewayReport?.answer || r.gatewayReport?.error || r.gatewayError || "").slice(0, 900);
+      const preview = String(r.gatewayAnswerPreview || r.marketConnectorPreview || r.gatewayReport?.answer || r.gatewayReport?.error || r.gatewayError || "").slice(0, 1200);
       const isFallback = src.includes("fallback") || r.priceStatus === "fallback" || !hasMarket;
       if (!isFallback) return { show:false };
       let title = "Live market data was not returned";
@@ -2423,9 +2423,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         body = r.priceReason || "The app used the local profit-safe preview because the Gateway endpoint/settings are not active.";
         fixes = ["Open Mobile AI Gateway / AI Settings and restore the working Gateway settings.", "Confirm endpoint is leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai and connection mode is Gateway."];
       } else if (src.includes("json_parse")) {
-        title = "Gateway answered, but did not return usable marketplace JSON";
-        body = "The model likely gave a paragraph, refused to browse, or returned no live source prices. The app requires structured JSON with dataSources and marketMedianPrice before it will trust the price.";
-        fixes = ["Your Gateway/model needs real web-search support for the pricing route.", "The Worker can also be upgraded to call a search API server-side, then pass found listings into the model.", "Do not use the fallback as a market price; use it only as your profit floor."];
+        title = "Marketplace Search Connector did not return usable sources";
+        body = "The app tried the dedicated marketplace-source request first, then tried the generic AI pricing prompt. Neither returned valid marketplace JSON with real source URLs, prices, and pot-size matches, so the app used fallback pricing safely.";
+        fixes = ["Upgrade the Cloudflare Worker pricing route to handle mode: market_pricing_sources_v93 and call a server-side search API.", "The Worker must return dataSources with platform, title, url, priceUSD, observedPotSize, and potSizeMatch.", "Do not use the fallback as a market price; use it only as your profit floor."];
         color = C.red; bg = C.redBg;
       } else if (src.includes("gateway_fallback") || src.includes("gateway_exception")) {
         title = "Gateway market lookup failed";
@@ -2434,6 +2434,130 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         color = C.red; bg = C.redBg;
       }
       return { show:true, title, body, fixes, preview, color, bg };
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 93 — MARKETPLACE SEARCH CONNECTOR REQUEST
+       Fixes the 0 sources problem from the HTML side by sending a
+       dedicated marketplace-source request to the Cloudflare Worker first.
+       The Worker still needs server-side search support, but this app now
+       asks for the right route/payload and explains if that route is missing.
+    ══════════════════════════════════════════════════════════ */
+    function phase93MarketSearchQueries(plant = {}) {
+      const name = String(plant.name || plant.botanicalName || "Unknown Plant").trim() || "Unknown Plant";
+      const pot = phase92NormalizePotSize(plant.potSize || plant.size || plant.containerSize || '4 inch').label || '4 inch';
+      const year = new Date().getFullYear();
+      const altName = /carmel marble/i.test(name) ? name.replace(/carmel/ig, "Caramel") : /caramel marble/i.test(name) ? name.replace(/caramel/ig, "Carmel") : "";
+      const names = [name, altName].filter(Boolean);
+      const base = [];
+      names.forEach(n => {
+        base.push(`${n} ${pot} Palmstreet`);
+        base.push(`${n} ${pot} Whatnot sold`);
+        base.push(`${n} ${pot} Etsy plant`);
+        base.push(`${n} ${pot} eBay sold plant`);
+        base.push(`buy ${n} ${pot} online ${year} price`);
+      });
+      return [...new Set(base)].slice(0, 10);
+    }
+    function phase93BuildMarketplaceSearchPayload(plant = {}, settings = {}, user = {}) {
+      const cfg = phase83MarketPricingSettings(settings);
+      const name = String(plant.name || plant.botanicalName || "Unknown Plant").trim() || "Unknown Plant";
+      const pot = phase92NormalizePotSize(plant.potSize || plant.size || plant.containerSize || '4 inch').label || '4 inch';
+      return {
+        app:"Leaf Diary Business Hub",
+        appVersion: typeof APP_VERSION !== "undefined" ? APP_VERSION : "single-file-html",
+        route:"pricing",
+        task:"marketplace_source_search",
+        mode:"market_pricing_sources_v93",
+        schemaVersion:"market_pricing_json_v93",
+        requireWebSearch:true,
+        returnJsonOnly:true,
+        user:{ role:user?.role || "employee", name:user?.name || "Leaf Diary User" },
+        plant:{
+          plantId:phase83SafePlantPriceId(plant),
+          name,
+          potSize:pot,
+          rawPotSize:plant.potSize || plant.size || plant.containerSize || "",
+          cost:+plant.cost || 0,
+          currentPrice:+plant.suggestedPrice || +plant.listPrice || +plant.price || 0,
+          requiredPotSize:pot
+        },
+        pricingRules:{
+          discountPctBelowMarket:cfg.discountPctBelowMarket,
+          minMarginPct:cfg.minMarginPct,
+          potSizeMustMatch:true,
+          includeMismatchForTransparency:true,
+          medianUsesOnly:"exact_or_close_pot_size_matches",
+          doNotInventPrices:true
+        },
+        searchQueries:phase93MarketSearchQueries({ ...plant, potSize:pot }),
+        requiredFields:["dataSources","marketMedianPrice","priceUSD","url","observedPotSize","potSizeMatch"],
+        instructions:"Search live marketplace/web sources server-side. Return ONLY valid JSON. Include real source title, url, priceUSD, observedPotSize, and potSizeMatch for each source. Do not estimate or invent prices. If search is unavailable, return dataSources:[] and marketNotes:'WEB_SEARCH_NOT_AVAILABLE'."
+      };
+    }
+    function phase93FindMarketJsonEnvelope(data = {}) {
+      if (!data) return null;
+      if (typeof data === "string") return phase86ExtractMarketJson(data);
+      if (Array.isArray(data)) return { dataSources:data };
+      const candidates = [data.marketPricing, data.marketData, data.pricing, data.result, data.results, data.data, data.output, data.answer, data];
+      for (const c of candidates) {
+        if (!c) continue;
+        const parsed = typeof c === "string" ? phase86ExtractMarketJson(c) : c;
+        if (!parsed) continue;
+        if (Array.isArray(parsed)) return { dataSources:parsed };
+        if (safeArray(parsed.dataSources || parsed.sources).length || +parsed.marketMedianPrice > 0 || +parsed.dataPointCount > 0) return parsed;
+      }
+      return null;
+    }
+    function phase93IsUsableMarketJson(marketJson = {}) {
+      const normalized = phase83NormalizeMarketData(marketJson || {});
+      const sources = safeArray(normalized.dataSources);
+      const trusted = sources.filter(s => s.includedInMarketMedian !== false && ["exact","close"].includes(s.potSizeMatchQuality)).length;
+      return sources.length > 0 && trusted > 0 && +normalized.marketMedianPrice > 0;
+    }
+    async function phase93CallMarketplaceSearchConnector({ endpoint = "", cfg = {}, plant = {}, settings = {}, user = {} } = {}) {
+      const url = phase61NormalizeUrl(endpoint || cfg.endpointUrl || "");
+      if (!url) return { ok:false, error:"missing_gateway_endpoint", preview:"No Cloudflare Worker endpoint configured." };
+      const payload = phase93BuildMarketplaceSearchPayload(plant, settings, user);
+      const started = Date.now();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), Math.max(10000, +cfg.timeoutMs || 30000));
+      try {
+        const res = await fetch(url, {
+          method:"POST", mode:"cors", credentials:"omit", cache:"no-store", signal:controller.signal,
+          headers:{ "Content-Type":"application/json", "Accept":"application/json", ...(cfg.secretToken ? { "Authorization":`Bearer ${cfg.secretToken}`, "X-Leaf-Diary-AI-Token":cfg.secretToken } : {}) },
+          body:JSON.stringify(payload)
+        });
+        const text = await res.text();
+        let data = null; try { data = text ? JSON.parse(text) : null; } catch(e) { data = { raw:text }; }
+        const marketJson = phase93FindMarketJsonEnvelope(data);
+        const preview = String(text || data?.raw || data?.answer || data?.output || data?.error || "").slice(0, 1200);
+        if (res.ok && marketJson && phase93IsUsableMarketJson(marketJson)) {
+          return { ok:true, marketJson, raw:data, preview, ms:Date.now()-started, connectorMode:"market_pricing_sources_v93" };
+        }
+        return { ok:false, error:data?.error || data?.message || (res.ok ? "market_source_connector_returned_no_usable_sources" : `${res.status} ${res.statusText}`), raw:data, preview, ms:Date.now()-started, connectorMode:"market_pricing_sources_v93", requestMode:payload.mode };
+      } catch(e) {
+        return { ok:false, error:e?.name === "AbortError" ? "market_source_connector_timeout" : (e?.message || String(e)), preview:e?.message || String(e), ms:Date.now()-started, connectorMode:"market_pricing_sources_v93" };
+      } finally { clearTimeout(timeout); }
+    }
+    function phase93BuildConnectorFailureMessage(connector = {}) {
+      if (!connector) return "Marketplace Search Connector did not run.";
+      const err = String(connector.error || "");
+      if (/timeout/i.test(err)) return "Marketplace Search Connector timed out. Worker may not be doing server-side marketplace search yet.";
+      if (/no_usable_sources|WEB_SEARCH_NOT_AVAILABLE|unknown|not found|unsupported|route/i.test(err + " " + connector.preview)) return "Marketplace Search Connector did not return usable source JSON. Upgrade the Worker pricing route to call a search API server-side, then return dataSources with URLs and pot-size matches.";
+      return `Marketplace Search Connector failed: ${err || "no usable source JSON returned"}.`;
+    }
+    function phase93BuildMarketConnectorSelfChecks({ settings = {} } = {}) {
+      const sample = { id:"qa-93", plantId:"QA-093", name:"Philodendron Caramel Marble", potSize:'4"', cost:35, suggestedPrice:90 };
+      const payload = phase93BuildMarketplaceSearchPayload(sample, settings, { role:"owner", name:"QA Owner" });
+      const market = phase93FindMarketJsonEnvelope({ marketPricing:{ plantName:sample.name, potSize:'4"', dataSources:[{ platform:"Palmstreet", title:"Philodendron Caramel Marble 4 inch", url:"https://example.com", priceUSD:99, observedPotSize:'4"', potSizeMatch:"exact" }], marketMedianPrice:99, confidenceScore:70 } });
+      const checks = [
+        { id:"mp93-payload", icon:"📡", title:"Dedicated Marketplace Source Payload", pass:payload.mode === "market_pricing_sources_v93" && payload.requireWebSearch === true && payload.plant.requiredPotSize === '4"', reason:"The HTML now sends a structured pricing-source request before falling back to a generic AI paragraph prompt.", page:"aihub", severity:"critical" },
+        { id:"mp93-schema", icon:"{}", title:"Source JSON Envelope Parser", pass:!!market && phase93IsUsableMarketJson(market), reason:"The app accepts Worker responses under marketPricing/marketData/result/answer as long as real sources, URLs, prices, and pot-size matches exist.", page:"phase2qa", severity:"critical" },
+        { id:"mp93-pot", icon:"🪴", title:"Pot Size Required In Request", pass:payload.pricingRules.potSizeMustMatch === true && payload.searchQueries.every(q => /4/.test(q)), reason:"Marketplace search queries and schema require the same pot size before trusting price data.", page:"phase2qa", severity:"critical" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
     }
 
 
@@ -2846,6 +2970,16 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       if (cached) return { ...cached, source:cached.source || "cached_market_research", cacheHit:true };
       if (!canAffordLookup) return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Cost guard blocked lookup. Estimated ${$(estimatedCost)} is above max ${$(marketCfg.maxCostPerLookup)}.`), source:"cost_guard_fallback", gatewayError:"per_lookup_cost_guard" };
       if (typeof phase61ShouldUseGateway === "function" && !phase61ShouldUseGateway(gatewayCfg)) return { ...phase85BuildLocalMarketPreview(normalizedPlant, settings, allPlants), source:"gateway_disabled_fallback", priceReason:"Gateway is disabled or missing endpoint. Local profit-safe preview used instead." };
+      let connectorReport = null;
+      try {
+        connectorReport = await phase93CallMarketplaceSearchConnector({ endpoint:gatewayCfg.endpointUrl, cfg:gatewayCfg, plant:normalizedPlant, settings, user });
+        if (connectorReport?.ok && connectorReport.marketJson) {
+          const priced = calcAIMarketPrice(normalizedPlant, connectorReport.marketJson, settings, allPlants);
+          return { ...priced, source:"gateway_market_source_connector", runAt:new Date().toISOString(), gatewayProvider:gatewayCfg.provider, gatewayModel:gatewayCfg.model, gatewayMs:connectorReport.ms || null, estimatedCostPerLookup:estimatedCost, cacheHit:false, connectorMode:connectorReport.connectorMode, gatewayAnswerPreview:connectorReport.preview || "" };
+        }
+      } catch(connectorError) {
+        connectorReport = { ok:false, error:connectorError?.message || String(connectorError), preview:connectorError?.message || String(connectorError) };
+      }
       const prompt = buildMarketPricePrompt(normalizedPlant, settings);
       const routeDef = { label:"Market Price Research", task:"market_price_lookup", financials:"owner_manager", requireWebSearch:true };
       try {
@@ -2860,12 +2994,20 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           cfg:gatewayCfg
         });
         if (!report?.ok) {
-          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Gateway market research failed: ${report?.error || "No online response"}. Using internal sales history.`), source:"gateway_fallback", gatewayError:report?.error || "gateway_failed", gatewayAnswerPreview:String(report?.answer || report?.output || report?.error || "").slice(0,900), gatewayReport:report };
+          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `${phase93BuildConnectorFailureMessage(connectorReport)} Generic Gateway also failed: ${report?.error || "No online response"}. Using internal sales history.`), source:"gateway_fallback", gatewayError:report?.error || connectorReport?.error || "gateway_failed", gatewayAnswerPreview:String((connectorReport?.preview ? `Marketplace connector preview:
+${connectorReport.preview}
+
+Generic AI preview:
+` : "") + (report?.answer || report?.output || report?.error || "")).slice(0,1200), marketConnectorPreview:connectorReport?.preview || "", marketConnectorError:connectorReport?.error || "", gatewayReport:report };
         }
         const answerText = report.answer || report.output || "";
         const marketJson = phase86ExtractMarketJson(answerText);
         if (!marketJson || !(+marketJson.marketMedianPrice > 0 || safeArray(marketJson.dataSources || marketJson.sources).length)) {
-          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Gateway returned non-JSON or no usable market prices. This usually means the pricing Gateway/model does not have live web search enabled. Using internal sales history."), source:"json_parse_fallback", gatewayError:"invalid_market_json_or_no_web_sources", gatewayAnswerPreview:String(answerText || report.error || "No Gateway answer text returned.").slice(0,900), gatewayReport:report };
+          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `${phase93BuildConnectorFailureMessage(connectorReport)} Generic Gateway returned non-JSON or no usable market prices. Using internal sales history.`), source:"json_parse_fallback", gatewayError:"invalid_market_json_or_no_web_sources", gatewayAnswerPreview:String((connectorReport?.preview ? `Marketplace connector preview:
+${connectorReport.preview}
+
+Generic AI preview:
+` : "") + (answerText || report.error || "No Gateway answer text returned.")).slice(0,1200), marketConnectorPreview:connectorReport?.preview || "", marketConnectorError:connectorReport?.error || "", gatewayReport:report };
         }
         const priced = calcAIMarketPrice(normalizedPlant, marketJson, settings, allPlants);
         return { ...priced, source:"gateway_market_research", runAt:new Date().toISOString(), gatewayProvider:report.provider || gatewayCfg.provider, gatewayModel:report.model || gatewayCfg.model, gatewayMs:report.ms || null, estimatedCostPerLookup:estimatedCost, cacheHit:false };
