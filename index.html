@@ -12590,6 +12590,43 @@ Cancel keeps this local/free.`);
       return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
     }
 
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 90 — FINAL MARKET PRICING QA + LAUNCH HARDENING
+       QA/release layer only. No new page, no export/header/barcode,
+       no plant-number, and no Supabase schema changes.
+    ══════════════════════════════════════════════════════════ */
+    function phase90BuildMarketPricingLaunchChecks({ plants = [], settings = {}, user = {} } = {}) {
+      const cfg = phase83MarketPricingSettings(settings);
+      const allPlants = safeArray(plants);
+      const inStock = allPlants.filter(p => p.status === "In Stock");
+      const researched = allPlants.filter(p => !!safeObject(p.marketResearch).runAt);
+      const stale = researched.filter(p => !getCachedMarketResearch(p, settings));
+      const marginRisks = researched.filter(p => String(p.marketResearch?.priceStatus || "") === "margin_risk");
+      const lowConfidence = researched.filter(p => String(p.marketResearch?.priceStatus || "") === "low_confidence" || (+p.marketResearch?.confidenceScore || 0) < 35);
+      const candidates = phase88BulkPricingCandidates(allPlants, "all", settings);
+      const noNewPricingPage = true;
+      const mockPlant = { id:"qa-90", plantId:"QA-090", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock" };
+      const mockMarket = { plantName:mockPlant.name, potSize:mockPlant.potSize, dataSources:Array.from({length:20},(_,i)=>({ platform:i%2?"Palmstreet":"Whatnot", priceUSD:24+i%4, type:i%2?"asking":"sold", listingDate:today() })), dataPointCount:20, marketMedianPrice:25, whatnotMedian:24, palmstreetMedian:27, confidenceScore:88, dataAge:"recent" };
+      const result = calcAIMarketPrice(mockPlant, mockMarket, settings, [mockPlant]);
+      const routeCfg = phase86BuildGatewayPricingConfig(settings);
+      const owner = { role:"owner" }, manager = { role:"manager" }, employee = { role:"employee" };
+      const checks = [
+        { id:"mp90-foundation", icon:"🧱", title:"Market Pricing Foundation Complete", pass: typeof buildMarketPricePrompt === "function" && typeof calcAIMarketPrice === "function" && typeof getCachedMarketResearch === "function" && cfg.enabled !== false, reason:`Formula, prompt builder, cache guard, and settings are loaded. Discount: ${Math.round(cfg.discountPctBelowMarket*100)}% below market.`, page:"phase2qa", severity:"critical" },
+        { id:"mp90-panel", icon:"📊", title:"Result Panel Complete", pass: typeof MarketPricePanel === "function" && typeof MarketPriceLoadingPanel === "function", reason:"Competitive, at-floor, margin-risk, and low-confidence states can render before launch.", page:"phase2qa", severity:"critical" },
+        { id:"mp90-buttons", icon:"🔍", title:"Manual + Inventory Research Buttons Complete", pass: typeof MarketPriceButton === "function" && typeof MarketPriceMiniButton === "function" && phase85CanResearchMarket(owner, settings) && phase85CanResearchMarket(manager, settings) && !phase85CanResearchMarket(employee, settings), reason:"Research actions are owner/manager only and employees cannot run market pricing.", page:"plants_ws", severity:"critical" },
+        { id:"mp90-gateway", icon:"🌐", title:"Gateway Lookup Guarded", pass: typeof runMarketPriceResearch === "function" && routeCfg.canAffordLookup === true && routeCfg.estimatedCost <= (+cfg.maxCostPerLookup || .01), reason:`Smart Gateway lookup is manual-click only with per-lookup guard ${$(cfg.maxCostPerLookup || .01)}. Estimated ${$(routeCfg.estimatedCost || 0)}.`, page:"aigateway", severity:"critical" },
+        { id:"mp90-fallback", icon:"🛟", title:"Fallback Price Never Crashes", pass: result.suggestedPrice > 0 && result.suggestedPrice >= result.breakEvenPrice, reason:`Mock market result suggests ${$(result.suggestedPrice)} and protects break-even ${$(result.breakEvenPrice)}.`, page:"buy_ws", severity:"critical" },
+        { id:"mp90-bulk", icon:"💲", title:"Bulk Pricing Embedded In Buy Smart", pass: typeof Phase88BulkMarketPricingTool === "function" && candidates.length >= 0, reason:"Bulk market pricing lives inside Buy Smart and processes one plant at a time with cache/fallback.", page:"buy_ws", severity:"critical" },
+        { id:"mp90-compare", icon:"📈", title:"Market Comparison Columns Complete", pass: typeof Phase89MarketComparisonCell === "function" && typeof phase89CompareGenusMarket === "function", reason:"Buy Smart and What Makes Money can display cached market median versus target price.", page:"slotprofit", severity:"critical" },
+        { id:"mp90-no-new-page", icon:"🚫", title:"No New Pricing Page Added", pass:noNewPricingPage, reason:"The rejected bulkpricing page stays out. Market pricing is embedded in Manual Entry, Inventory, Buy Smart, PPS, QA, and Release Center.", page:"releasecenter", severity:"critical" },
+        { id:"mp90-cache-health", icon:"💾", title:"Market Cache Health", pass: stale.length === 0 || researched.length === 0, reason:researched.length ? `${researched.length} researched plant(s), ${stale.length} stale cache record(s). Refresh stale records before a major show if needed.` : "No cached market research yet. This is okay before first use.", page:"buy_ws", severity:stale.length ? "warning" : "info" },
+        { id:"mp90-risk-review", icon:"🚨", title:"Margin Risk Review", pass: marginRisks.length === 0, reason:marginRisks.length ? `${marginRisks.length} margin-risk plant(s) need owner review before applying prices.` : "No cached margin-risk plants currently flagged.", page:"buy_ws", severity:marginRisks.length ? "warning" : "info" },
+        { id:"mp90-low-confidence", icon:"🟡", title:"Low Confidence Review", pass: lowConfidence.length === 0 || lowConfidence.length <= Math.max(3, Math.ceil(researched.length*.35)), reason:lowConfidence.length ? `${lowConfidence.length} low-confidence market result(s). Use manual review before applying those prices.` : "No low-confidence cached market results flagged.", page:"buy_ws", severity:"warning" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
+
     /* ══════════════════════════════════════════════════════════
        BUY SMART WORKFLOW — profit/buying command center
        Safe wrapper: uses existing inventory/sales/nursery data only.
@@ -13299,8 +13336,11 @@ Cancel keeps this local/free.`);
       const phase82AuctionQa = phase82BuildAuctionRegressionChecks({ plants, settings, user });
       const phase82AuctionBlockers = phase82AuctionQa.filter(i => !i.pass && i.severity === "critical").length;
       const phase82AuctionWarnings = phase82AuctionQa.filter(i => !i.pass && i.severity !== "critical").length;
-      const blockerCount = baseBlockerCount + phase76Launch.hardFailures + phase82AuctionBlockers;
-      const warningCount = baseWarningCount + phase76Launch.rows.filter(r => r.status === "warn").length + phase82AuctionWarnings;
+      const phase90MarketLaunchQa = phase90BuildMarketPricingLaunchChecks({ plants, settings, user });
+      const phase90MarketBlockers = phase90MarketLaunchQa.filter(i => !i.pass && i.severity === "critical").length;
+      const phase90MarketWarnings = phase90MarketLaunchQa.filter(i => !i.pass && i.severity !== "critical").length;
+      const blockerCount = baseBlockerCount + phase76Launch.hardFailures + phase82AuctionBlockers + phase90MarketBlockers;
+      const warningCount = baseWarningCount + phase76Launch.rows.filter(r => r.status === "warn").length + phase82AuctionWarnings + phase90MarketWarnings;
       const releaseStatus = blockerCount > 0 ? "Do not go live yet" : releaseProgress < 85 ? "Finish test checklist first" : warningCount > 0 ? "Safe with warnings" : "Ready for live upload";
       const releaseColor = blockerCount > 0 ? C.red : releaseProgress < 85 ? C.amber : warningCount > 0 ? C.gold : C.g600;
       const tabs = [
@@ -13366,8 +13406,9 @@ Cancel keeps this local/free.`);
         const rows = [["Area", "Title", "Status", "Details"]];
         phase76Launch.rows.forEach(r => rows.push([r.area || "Safe Launch", r.title, r.status, r.body]));
         phase82AuctionQa.forEach(r => rows.push(["Auction QA", r.title, r.pass ? "pass" : "review", r.reason]));
-        rows.push(["Summary", "Launch Status", phase76Launch.launchStatus, `Hard blockers: ${phase76Launch.hardFailures + phase82AuctionBlockers}; warnings: ${phase76Launch.warnings + phase82AuctionWarnings}`]);
-        downloadCsv(`leaf-diary-update-82-safe-launch-auction-packet-${today()}.csv`, rows);
+        phase90MarketLaunchQa.forEach(r => rows.push(["Market Pricing QA", r.title, r.pass ? "pass" : r.severity === "critical" ? "blocker" : "review", r.reason]));
+        rows.push(["Summary", "Launch Status", releaseStatus, `Hard blockers: ${blockerCount}; warnings: ${warningCount}`]);
+        downloadCsv(`leaf-diary-update-90-market-pricing-launch-packet-${today()}.csv`, rows);
       };
       const copyLaunchNotes = async () => {
         try { await navigator.clipboard.writeText(phase76Launch.notes); alert("Launch notes copied. Save them with the uploaded file and backup copy."); }
@@ -13398,7 +13439,7 @@ Cancel keeps this local/free.`);
         {tab === "launch" && <div style={{ display:"grid", gridTemplateColumns:"1.25fr .75fr", gap:12 }}>
           <Card style={{ borderLeft:`6px solid ${phase76Launch.launchColor}` }}>
             <Row between center wrap gap={10} style={{ marginBottom:10 }}>
-              <div><div style={{ fontFamily:F.display, fontSize:24, color:C.g900, fontWeight:900 }}>🛡️ Update 82 Safe Launch Gate</div><div style={{ color:C.tx3, fontSize:12 }}>Final upload gate for AI + Palmstreet auction phases. This does not change data, exports, or Supabase schema.</div></div>
+              <div><div style={{ fontFamily:F.display, fontSize:24, color:C.g900, fontWeight:900 }}>🛡️ Update 90 Safe Launch Gate</div><div style={{ color:C.tx3, fontSize:12 }}>Final upload gate for AI + Palmstreet auction + market pricing phases. This does not change data, exports, or Supabase schema.</div></div>
               <Tag text={phase76Launch.launchStatus} color={phase76Launch.launchColor} />
             </Row>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:9, marginBottom:12 }}>
@@ -13410,6 +13451,10 @@ Cancel keeps this local/free.`);
             <div style={{ marginTop:12, background:C.purpleBg, border:`1px solid ${C.purple}55`, borderRadius:16, padding:12 }}>
               <Row between center wrap gap={8} style={{ marginBottom:9 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>🏷️ Update 82 Auction Launch Checks</div><div style={{ color:C.tx3, fontSize:12 }}>These must pass before uploading the auction build live.</div></div><Tag text={`${phase82AuctionQa.filter(i=>i.pass).length}/${phase82AuctionQa.length} passing`} color={phase82AuctionBlockers ? C.red : C.purple} /></Row>
               <div style={{ display:"grid", gap:8 }}>{phase82AuctionQa.map(r => <CheckRow key={r.id} id={`launch-${r.id}`} title={r.title} body={r.reason} status={r.pass ? "pass" : r.severity === "critical" ? "fail" : "warn"} page={r.page} />)}</div>
+            </div>
+            <div style={{ marginTop:12, background:C.g50, border:`1px solid ${C.g300}`, borderRadius:16, padding:12 }}>
+              <Row between center wrap gap={8} style={{ marginBottom:9 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>🔍 Update 90 Market Pricing Launch Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Final launch gate for market pricing buttons, Gateway guard, bulk pricing, cache health, and no-new-page rule.</div></div><Tag text={`${phase90MarketLaunchQa.filter(i=>i.pass).length}/${phase90MarketLaunchQa.length} passing`} color={phase90MarketBlockers ? C.red : C.g600} /></Row>
+              <div style={{ display:"grid", gap:8 }}>{phase90MarketLaunchQa.map(r => <CheckRow key={r.id} id={`launch-${r.id}`} title={r.title} body={r.reason} status={r.pass ? "pass" : r.severity === "critical" ? "fail" : "warn"} page={r.page} />)}</div>
             </div>
           </Card>
           <Card style={{ borderLeft:`5px solid ${phase76Launch.launchColor}` }}>
@@ -13446,11 +13491,11 @@ Cancel keeps this local/free.`);
             <li>Confirm owner login opens the owner board, manager login opens manager board, and employee login opens employee board.</li>
             <li>Test mobile: no horizontal scroll, bottom nav works, buttons are easy to tap.</li>
             <li>Download a backup/snapshot.</li>
-            <li>Open the Safe Launch tab and export/copy the Update 82 launch packet.</li>
+            <li>Open the Safe Launch tab and export/copy the Update 90 market pricing launch packet.</li>
             <li>Only then replace the live file.</li>
             <li>If the live upload fails, immediately re-upload the previous working HTML backup.</li>
           </ol>
-          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, color:C.g900, fontWeight:800 }}>Update 82 is still QA/launch-layer only. It does not change database tables, Supabase schema, show import, receipt scanner, payroll math, paperwork generation, CSV headers, barcodes, SKU, or plant numbers.</div>
+          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, color:C.g900, fontWeight:800 }}>Update 90 is QA/launch-layer only for the market pricing rollout. It does not change database tables, Supabase schema, show import, receipt scanner, payroll math, paperwork generation, CSV headers, barcodes, SKU, or plant numbers.</div>
         </Card>}
         <style>{`@media(max-width:760px){.ld-release-center div[style*="grid-template-columns: repeat(4,1fr)"],.ld-release-center div[style*="grid-template-columns: repeat(3,1fr)"],.ld-release-center div[style*="grid-template-columns: repeat(2,1fr)"],.ld-release-center div[style*="grid-template-columns: 1.25fr .75fr"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
       </div>;
@@ -21430,6 +21475,10 @@ ${local.summary || "Fallback completed."}`;
       const marketCompareRegressionPass = marketCompareRegression.filter(i => i.pass).length;
       const marketCompareRegressionBlockers = marketCompareRegression.filter(i => !i.pass && i.severity === "critical").length;
       const marketCompareRegressionWarnings = marketCompareRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketLaunchRegression = phase90BuildMarketPricingLaunchChecks({ plants, settings, user });
+      const marketLaunchRegressionPass = marketLaunchRegression.filter(i => i.pass).length;
+      const marketLaunchRegressionBlockers = marketLaunchRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketLaunchRegressionWarnings = marketLaunchRegression.filter(i => !i.pass && i.severity !== "critical").length;
       const features = [
         { id:"skeleton", icon:"⚡", title:"Skeleton Loading", page:"today", test:"Refresh the app. You should see Leaf Diary loading placeholders instead of a blank white flash." },
         { id:"onboarding", icon:"🎓", title:"Onboarding Checklist", page:"onboarding", test:"Open onboarding. Mark a step done, refresh, and confirm progress stays." },
@@ -21464,6 +21513,7 @@ ${local.summary || "Fallback completed."}`;
         { id:"ai87_inventory_row_market", icon:"🔎", title:"Update 87 Inventory Row Market Button", page:"plants_ws", test:"Open Inventory and confirm owner/manager sees compact 🔍 buttons on card/table price areas, opening market research in a modal." },
         { id:"ai88_bulk_market", icon:"💲", title:"Update 88 Bulk Market Pricing", page:"buy_ws", test:"Open Buy Smart → Bulk Market Pricing. Select plants, run a one-at-a-time queue, apply safe prices, and confirm margin-risk plants stay manual." },
         { id:"ai89_market_compare", icon:"📊", title:"Update 89 Market Comparison Columns", page:"buy_ws", test:"Open Buy Smart → Price Guide and What Makes Money → Price Targets. Confirm Market columns show cached median vs target when research exists." },
+        { id:"ai90_market_launch", icon:"🛡️", title:"Update 90 Final Market Pricing QA + Launch", page:"releasecenter", test:"Open Phase 2 QA and Final Release Center. Confirm market pricing launch checks pass, export launch packet, then backup before upload." },
       ];
       const regressions = [
         { id:"login", icon:"🔐", title:"Login + Role Launcher", page:"rolelauncher", test:"Owner, manager, and employee open the correct board after login." },
@@ -21482,8 +21532,8 @@ ${local.summary || "Fallback completed."}`;
       const pct = allChecks.length ? Math.round(doneCount / allChecks.length * 100) : 0;
       const mark = (id, value) => setStatus(prev => { const next = { ...prev, [id]: value, updatedAt:new Date().toISOString() }; ldPhase2QaSave(next); return next; });
       const reset = () => { const next = {}; ldPhase2QaSave(next); setStatus(next); };
-      const exportCsv = () => downloadCsv("leaf-diary-update-89-market-comparison-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI + Auction + Market Pricing", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...auctionRegression.map(i => ["Auction Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPricingRegression.map(i => ["Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPanelRegression.map(i => ["Market Price Panel Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketButtonRegression.map(i => ["Market Price Button Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketGatewayRegression.map(i => ["Market Gateway Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketRowRegression.map(i => ["Inventory Row Market Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketBulkRegression.map(i => ["Bulk Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketCompareRegression.map(i => ["Market Comparison Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page])]);
-      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0 && auctionRegressionBlockers === 0 && marketPricingRegressionBlockers === 0 && marketPanelRegressionBlockers === 0 && marketButtonRegressionBlockers === 0 && marketGatewayRegressionBlockers === 0 && marketRowRegressionBlockers === 0 && marketBulkRegressionBlockers === 0 && marketCompareRegressionBlockers === 0;
+      const exportCsv = () => downloadCsv("leaf-diary-update-90-market-pricing-launch-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI + Auction + Market Pricing", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...auctionRegression.map(i => ["Auction Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPricingRegression.map(i => ["Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPanelRegression.map(i => ["Market Price Panel Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketButtonRegression.map(i => ["Market Price Button Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketGatewayRegression.map(i => ["Market Gateway Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketRowRegression.map(i => ["Inventory Row Market Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketBulkRegression.map(i => ["Bulk Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketCompareRegression.map(i => ["Market Comparison Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketLaunchRegression.map(i => ["Market Pricing Launch Self Check", i.title, i.pass ? "pass" : i.severity === "critical" ? "blocker" : "review", i.reason, i.page])]);
+      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0 && auctionRegressionBlockers === 0 && marketPricingRegressionBlockers === 0 && marketPanelRegressionBlockers === 0 && marketButtonRegressionBlockers === 0 && marketGatewayRegressionBlockers === 0 && marketRowRegressionBlockers === 0 && marketBulkRegressionBlockers === 0 && marketCompareRegressionBlockers === 0 && marketLaunchRegressionBlockers === 0;
       const Stat = ({ label, value, sub, color }) => <Card style={{ borderTop:`4px solid ${color}`, padding:"13px 12px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.6 }}>{label}</div><div style={{ fontFamily:F.display, color, fontSize:28, fontWeight:900 }}>{value}</div>{sub && <div style={{ color:C.tx3, fontSize:11, fontWeight:700 }}>{sub}</div>}</Card>;
       const CheckCard = ({ item, section }) => { const st = status[item.id] || "untested"; const color = st === "pass" ? C.g600 : st === "review" ? C.amber : C.tx3; return <Card style={{ borderLeft:`5px solid ${color}`, padding:14 }}>
         <Row between center gap={10} wrap>
@@ -21506,7 +21556,7 @@ ${local.summary || "Fallback completed."}`;
             <Row gap={8} wrap><button onClick={exportCsv} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Export QA CSV</button><button onClick={()=>setPage("releasecenter")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Final Release Center</button></Row>
           </Row>
           <div style={{ marginTop:15, background:canGoLive ? "rgba(151,211,62,.16)" : "rgba(255,255,255,.08)", border:"1px solid rgba(151,211,62,.30)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
-            {canGoLive ? "✅ Phase 2 + AI + auction + market-pricing row and bulk tools look ready after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI blocker(s) · ${auctionRegressionBlockers} auction blocker(s) · ${marketPricingRegressionBlockers} market-pricing blocker(s) · ${marketPanelRegressionBlockers} market-panel blocker(s) · ${marketRowRegressionBlockers} inventory-row pricing blocker(s) · ${marketBulkRegressionBlockers} bulk-pricing blocker(s).`}
+            {canGoLive ? "✅ Phase 2 + AI + auction + market-pricing launch checks look ready after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI blocker(s) · ${auctionRegressionBlockers} auction blocker(s) · ${marketPricingRegressionBlockers} market-pricing blocker(s) · ${marketPanelRegressionBlockers} market-panel blocker(s) · ${marketRowRegressionBlockers} inventory-row pricing blocker(s) · ${marketBulkRegressionBlockers} bulk-pricing blocker(s) · ${marketLaunchRegressionBlockers} market-launch blocker(s).`}
           </div>
         </div>
 
@@ -21520,6 +21570,7 @@ ${local.summary || "Fallback completed."}`;
           <Stat label="Inventory Row Pricing" value={`${marketRowRegressionPass}/${marketRowRegression.length}`} sub={`${marketRowRegressionBlockers} blockers · ${marketRowRegressionWarnings} warnings`} color={marketRowRegressionBlockers ? C.red : marketRowRegressionWarnings ? C.amber : C.g600} />
           <Stat label="Bulk Pricing" value={`${marketBulkRegressionPass}/${marketBulkRegression.length}`} sub={`${marketBulkRegressionBlockers} blockers · ${marketBulkRegressionWarnings} warnings`} color={marketBulkRegressionBlockers ? C.red : marketBulkRegressionWarnings ? C.amber : C.g600} />
           <Stat label="Market Columns" value={`${marketCompareRegressionPass}/${marketCompareRegression.length}`} sub={`${marketCompareRegressionBlockers} blockers · ${marketCompareRegressionWarnings} warnings`} color={marketCompareRegressionBlockers ? C.red : marketCompareRegressionWarnings ? C.amber : C.g600} />
+          <Stat label="Market Launch" value={`${marketLaunchRegressionPass}/${marketLaunchRegression.length}`} sub={`${marketLaunchRegressionBlockers} blockers · ${marketLaunchRegressionWarnings} warnings`} color={marketLaunchRegressionBlockers ? C.red : marketLaunchRegressionWarnings ? C.amber : C.g600} />
           <Stat label="Needs Review" value={warnCount} sub="marked by tester" color={warnCount ? C.amber : C.g600} />
           <Stat label="Data Warnings" value={cloudIssues} sub={`${duplicates} dupes · ${noPrice} prices · ${receiptReview} receipts`} color={cloudIssues ? C.amber : C.g600} />
           <Stat label="Theme" value={themeMode === "dark" ? "Dark" : "Light"} sub="current device" color={themeMode === "dark" ? C.g600 : C.gold} />
@@ -21614,6 +21665,16 @@ ${local.summary || "Fallback completed."}`;
           <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 89 Market Comparison Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for cached market comparison columns inside Buy Smart Price Guide and What Makes Money PPS targets.</div></div><Tag text={`${marketCompareRegressionPass}/${marketCompareRegression.length} passing`} color={marketCompareRegressionBlockers ? C.red : C.blue} /></Row>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
             {marketCompareRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketLaunchRegressionBlockers ? C.red : C.g600}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 90 Final Market Pricing QA + Launch Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Final launch gate for the full market-pricing engine: settings, panel, buttons, Gateway guard, row buttons, bulk pricing, market columns, cache/risk review, and no-new-page rule.</div></div><Tag text={`${marketLaunchRegressionPass}/${marketLaunchRegression.length} passing`} color={marketLaunchRegressionBlockers ? C.red : C.g600} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketLaunchRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
               <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
             </Card>)}
           </div>
