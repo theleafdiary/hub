@@ -5997,6 +5997,152 @@
     /* ══════════════════════════════════════════════════════════
        ADMIN PANEL
     ══════════════════════════════════════════════════════════ */
+
+
+    /* ══════════════════════════════════════════════════════════
+       SETTINGS WORKFLOW — owner-friendly admin cleanup
+       Presentation layer only. Keeps existing AdminPanel / Audit / AI tools.
+    ══════════════════════════════════════════════════════════ */
+    function SettingsWorkflow({ users = [], settings = {}, plants = [], expenses = [], bills = [], timecards = [], receipts = [], casdCerts = [], auditLog = [], user, setPage, cloudStatus = "", cloudMsg = "" }) {
+      const [tab, setTab] = useState("account");
+      const isOwner = user?.role === "owner";
+      const activeUsers = safeArray(users).filter(u => u.active !== false);
+      const disabledUsers = safeArray(users).filter(u => u.active === false || u.blocked);
+      const ownerCount = safeArray(users).filter(u => u.role === "owner").length;
+      const employeeCount = safeArray(users).filter(u => u.role === "employee").length;
+      const managerCount = safeArray(users).filter(u => u.role === "manager").length;
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const duplicateGroups = Object.values(safeArray(plants).reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1);
+      const missingPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const missingPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const openBills = safeArray(bills).filter(b => b.status !== "Paid" && b.status !== "paid");
+      const receiptsReview = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
+      const auditRecent = safeArray(auditLog).slice(0, 8);
+      const aiGateway = settings?.aiGateway || {};
+      const aiDailyLimit = aiGateway.dailyLimit || aiGateway.dailyAiLimit || aiGateway.maxDailyRequests || 8;
+      const costGuardOn = !!(aiGateway.costSaverMode || aiGateway.costGuardEnabled || settings?.aiCostGuard?.enabled || aiGateway.disableAutoGatewayCalls !== false);
+      const cloudWord = cloudStatus === "synced" ? "Cloud synced" : cloudStatus === "safe" ? "Safe mode" : cloudStatus === "offline" ? "Offline/local backup" : cloudStatus || "Unknown";
+
+      const tabs = [
+        { id:"account", icon:"🏢", label:"Account", sub:"Business profile and app basics" },
+        { id:"team", icon:"👥", label:"Team", sub:"Employees, roles, permissions" },
+        { id:"data", icon:"💾", label:"Data", sub:"Backups, cleanup, import history" },
+        { id:"paperwork", icon:"📜", label:"Paperwork", sub:"Certifications and state docs" },
+        { id:"ai", icon:"🧠", label:"AI Setup", sub:"AI tools and cost control" },
+        { id:"security", icon:"🔍", label:"Security", sub:"Audit log and login history" },
+        { id:"developer", icon:"🧪", label:"Developer Tools", sub:"Testing and repair tools" },
+      ];
+      const open = id => setPage(id);
+      const SettingsCard = ({ icon, title, body, button, page, color = C.g600, locked, children }) => <Card style={{ padding:16, borderLeft:`5px solid ${color}`, opacity:locked ? .55 : 1 }}>
+        <Row between gap={10} center wrap>
+          <Row gap={12} center style={{ flex:1, minWidth:0 }}>
+            <div style={{ width:46, height:46, borderRadius:16, background:color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:25, flexShrink:0 }}>{icon}</div>
+            <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:15 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, marginTop:3, lineHeight:1.35 }}>{body}</div>{children}</div>
+          </Row>
+          {page && <Btn sz="sm" v={locked ? "ghost" : "fill"} disabled={locked} onClick={()=>open(page)}>{button || "Open"}</Btn>}
+        </Row>
+      </Card>;
+      const Stat = ({ label, value, color = C.g600, sub }) => <KPI label={label} value={value} sub={sub} color={color} />;
+
+      if (!isOwner) return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:760, margin:"0 auto", fontFamily:F.body }}>
+        <Card style={{ textAlign:"center", padding:28 }}>
+          <div style={{ fontSize:42 }}>🔒</div>
+          <h1 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0 4px" }}>Owner Settings Only</h1>
+          <p style={{ color:C.tx3, margin:0 }}>Settings, security, AI setup, data repair, and financial configuration are hidden from this role.</p>
+          <Row center gap={8} style={{ justifyContent:"center", marginTop:16 }}><Btn onClick={()=>setPage("today")}>Back To Today</Btn><Btn v="soft" onClick={()=>setPage("timecard")}>Open Timecard</Btn></Row>
+        </Card>
+      </div>;
+
+      return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #b695ff", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div>
+              <div style={{ fontSize:42, lineHeight:1 }}>⚙️</div>
+              <div style={{ fontFamily:F.display, fontSize:30, color:"#b695ff", fontWeight:900, marginTop:5 }}>Settings</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Owner-only controls for account, team, data, paperwork, AI, security, and developer tools.</div>
+            </div>
+            <Row gap={8} wrap>
+              <button onClick={()=>open("admin")} style={{ background:"#b695ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>⚙️ Business Settings</button>
+              <button onClick={()=>open("audit")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🔍 Security Log</button>
+            </Row>
+          </Row>
+          <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
+            Technical tools are still here, but they are hidden behind clear owner sections so employees and daily users are not confused.
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <Stat label="Active Users" value={activeUsers.length} sub={`${ownerCount} owner · ${managerCount} manager · ${employeeCount} employee`} color="#b695ff" />
+          <Stat label="Cloud Status" value={cloudWord} sub={cloudMsg ? String(cloudMsg).slice(0,70) : "Current app sync state"} color={cloudStatus === "synced" ? C.g600 : cloudStatus === "offline" ? C.amber : C.blue} />
+          <Stat label="Data Issues" value={duplicateGroups.length + missingPrice.length + missingPhoto.length} sub={`${duplicateGroups.length} duplicate groups · ${missingPrice.length} no price · ${missingPhoto.length} no photo`} color={(duplicateGroups.length + missingPrice.length + missingPhoto.length) ? C.amber : C.g600} />
+          <Stat label="AI Cost Guard" value={costGuardOn ? "On" : "Manual"} sub={`${aiDailyLimit}/day limit · owner controlled`} color={C.gold} />
+        </div>
+
+        <div className="mobile-scroll-x" style={{ display:"flex", gap:8, overflowX:"auto", padding:"2px 0 12px", WebkitOverflowScrolling:"touch" }}>
+          {tabs.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:"0 0 auto", minWidth:136, background:tab===t.id?"#000":C.card, color:tab===t.id?"#fff":C.tx1, border:`1px solid ${tab===t.id?"#000":C.bd}`, borderRadius:16, padding:"12px 13px", textAlign:"left", fontFamily:F.body, cursor:"pointer", boxShadow:tab===t.id?"0 8px 22px rgba(0,0,0,.16)":"none" }}>
+            <div style={{ fontSize:20 }}>{t.icon}</div><div style={{ fontWeight:900, fontSize:13, marginTop:3 }}>{t.label}</div><div style={{ color:tab===t.id?"rgba(255,255,255,.62)":C.tx3, fontSize:10, marginTop:2 }}>{t.sub}</div>
+          </button>)}
+        </div>
+
+        {tab === "account" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="🏢" title="Business Settings" body="Business name, owner settings, app preferences, footer text, default business rules, and general setup." page="admin" button="Open Settings" color="#b695ff" />
+          <SettingsCard icon="🎯" title="Goals" body="Monthly sales goals, profit goals, and targets for Leaf Diary." page="goals" button="Open Goals" color={C.gold} />
+          <SettingsCard icon="📈" title="Reports" body="Owner business reports for sales, inventory, expenses, payroll, and plant performance." page="reports" button="Open Reports" color={C.blue} />
+          <SettingsCard icon="💵" title="Money Command Center" body="Return to the owner money screen for cash pulse, payroll, bills, taxes, and safe buy budget." page="money_ws" button="Open Money" color={C.g600} />
+        </div>}
+
+        {tab === "team" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
+          <Card style={{ background:C.g50 }}>
+            <Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>Team Overview</div><div style={{ color:C.tx3, fontSize:12 }}>{activeUsers.length} active user(s), {disabledUsers.length} disabled/blocked user(s). Employees should only see daily work, timecard, photos, labels, receipts, live mode, and packing tasks.</div></div><Btn onClick={()=>open("admin")}>Manage Team</Btn></Row>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}><Stat label="Owners" value={ownerCount} color="#b695ff" /><Stat label="Managers" value={managerCount} color={C.blue} /><Stat label="Employees" value={employeeCount} color={C.g600} /></div>
+          <SettingsCard icon="👥" title="Users + Permissions" body="Add employees, set roles, hide cost/profit, turn on/off permissions, and disable access when needed." page="admin" button="Manage Users" color="#b695ff" />
+          <SettingsCard icon="🤝" title="Commission Settings" body="Set show commissions, employee show pay, and tip handling rules." page="commissions" button="Open Commissions" color={C.gold} />
+          <SettingsCard icon="⏱️" title="Timecard + Payroll" body="Review employee time, payroll, and unpaid work records." page="payroll" button="Open Payroll" color={C.blue} />
+        </div>}
+
+        {tab === "data" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="💾" title="Backup / Restore" body="Use the black + owner menu for backup and restore. This section keeps the main app cleaner." page="admin" button="Open Data Settings" color={C.blue} />
+          <SettingsCard icon="🧹" title="Owner Repair Tools" body={`${duplicateGroups.length} duplicate Plant ID group(s), ${missingPrice.length} missing prices, ${missingPhoto.length} missing photos. Fix data problems before imports and exports.`} page="cleanup" button="Open Repair Tools" color={(duplicateGroups.length || missingPrice.length || missingPhoto.length) ? C.amber : C.g600} />
+          <SettingsCard icon="📋" title="Receipt / Invoice Archive" body="View past invoices and receipts so purchases stay traceable." page="history" button="Open Archive" color={C.g600} />
+          <SettingsCard icon="🧾" title="Receipts Needing Review" body={`${receiptsReview.length} receipt(s) may need category review before tax time.`} page="receipts" button="Open Receipts" color={receiptsReview.length ? C.amber : C.g600} />
+        </div>}
+
+        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="📜" title="Shipping Paperwork" body={`${safeArray(casdCerts).length} paperwork record(s) archived. Use this for CA/TX/HI and other state document reminders.`} page="casd" button="Open Paperwork" color={C.blue} />
+          <SettingsCard icon="🧾" title="Receipt Reader Training" body={`Default pot size ${phase101TrainingStats(settings).defaultPotSize}; ${phase101TrainingStats(settings).activeRules} active intake rule(s).`} page="invoicetrainer" button="Teach Reader" color={C.gold} />
+          <SettingsCard icon="🏪" title="Nursery Records" body="Supplier names, contact info, codes, and buying history." page="nursery" button="Open Nurseries" color={C.g600} />
+          <SettingsCard icon="📋" title="Buying Lists" body="Purchase orders and future buying plans for nursery runs." page="pos" button="Open Buying Lists" color={C.purple} />
+        </div>}
+
+        {tab === "ai" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="🤖" title="Leaf Diary AI" body="Simple AI tools for daily plans, show building, buying advice, and business questions." page="aihub" button="Open AI" color="#97d33e" />
+          <SettingsCard icon="🌐" title="Advanced AI Setup" body={`Mobile gateway, cloud model, API endpoint, and cost controls. Cost guard: ${costGuardOn ? "on" : "manual"}.`} page="aigateway" button="AI Setup" color={C.blue} />
+          <SettingsCard icon="🧭" title="AI Model Routing" body="Choose which AI model handles each task. Owner-only because bad routing can create cost or reliability issues." page="airouter" button="Open Routing" color={C.purple} />
+          <SettingsCard icon="🧠" title="Local AI Setup" body="Ollama / local AI model settings. Keep this hidden from normal users." page="ollama" button="Local AI" color={C.g600} />
+          <SettingsCard icon="💵" title="AI Cost Control" body={`${aiDailyLimit}/day limit. Free/local first where possible. Cloud should stay manual unless owner approves.`} page="aigateway" button="Cost Settings" color={C.gold} />
+          <SettingsCard icon="💬" title="Ask Leaf Diary AI" body="User-friendly question screen for the business data copilot." page="dataai" button="Ask AI" color="#fb6392" />
+        </div>}
+
+        {tab === "security" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
+          <SettingsCard icon="🔍" title="Security / Audit Log" body={`${safeArray(auditLog).length} audit event(s) saved. Track logins, page views, data changes, device info, and IP data where available.`} page="audit" button="Open Audit Log" color={C.blue} />
+          <Card><div style={{ fontFamily:F.display, fontSize:18, color:C.g900, fontWeight:900, marginBottom:10 }}>Recent Activity</div>{auditRecent.length === 0 ? <p style={{ color:C.tx3, fontSize:12 }}>No audit activity found yet.</p> : auditRecent.map((a,i)=><Row key={a.id || i} between gap={10} style={{ padding:"8px 0", borderTop:i?`1px solid ${C.bdS}`:"none" }}><div><div style={{ fontWeight:800, color:C.tx1, fontSize:12 }}>{a.action || "Activity"}</div><div style={{ color:C.tx3, fontSize:11 }}>{a.user || a.userName || "Unknown"} · {a.page || "System"}</div></div><Tag text={a.severity || "info"} color={a.severity === "critical" ? C.red : a.severity === "warning" ? C.amber : C.blue} sm /></Row>)}</Card>
+          <SettingsCard icon="🚫" title="Disabled Users" body={`${disabledUsers.length} disabled or blocked user(s). Review employee access when someone leaves or changes jobs.`} page="admin" button="Review Users" color={disabledUsers.length ? C.amber : C.g600} />
+        </div>}
+
+        {tab === "developer" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <SettingsCard icon="🧪" title="Developer Testing" body="Owner-only diagnostics, smoke tests, health checks, and rollback checkpoints." page="devtools" button="Open Testing" color={C.blue} />
+          <SettingsCard icon="🧹" title="Owner Repair Tools" body="Repair duplicate plant numbers, bad records, missing data, and import problems." page="cleanup" button="Open Repair" color={C.amber} />
+          <SettingsCard icon="🔍" title="Audit Log" body="Check who accessed the app and what changed." page="audit" button="Open Audit" color={C.purple} />
+          <SettingsCard icon="⚙️" title="Business Settings" body="The original full admin panel is still available here for deep configuration." page="admin" button="Open Full Admin" color="#b695ff" />
+          <SettingsCard icon="🧠" title="Local AI Setup" body="Technical model settings for local AI only." page="ollama" button="Open" color={C.g600} />
+          <SettingsCard icon="🌐" title="Advanced AI Setup" body="Technical mobile AI gateway and cost-control settings." page="aigateway" button="Open" color={C.blue} />
+        </div>}
+
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
+      </div>;
+    }
+
     function AdminPanel({ users, setUsers, settings, setSettings, plants, setPlants, addAudit, user }) {
       const [tab, setTab] = useState("users");
       const [editId, setEditId] = useState(null);
@@ -12476,7 +12622,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "orders_ws" && <OrdersWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} users={users} settings={settings} setSettings={setSettings} refunds={refunds} setRefunds={setRefunds} casdCerts={casdCerts} setCasdCerts={setCasdCerts} setPage={navigate} />}
           {page === "money_ws" && <MoneyCommandCenter plants={plants} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} timecards={timecards} setTimecards={setTimecards} receipts={expenseReceipts} setReceipts={setExpenseReceipts} users={users} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
-          {page === "admin_ws" && user.role === "owner" && <WorkspaceHome type="admin_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "admin_ws" && user.role === "owner" && <SettingsWorkflow users={users} settings={settings} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} auditLog={auditLog} user={user} setPage={navigate} cloudStatus={cloudStatus} cloudMsg={cloudMsg} />}
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={navigate} />}
           {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "execai" && user.role === "owner" && <Phase6ExecutiveCommandCenter appData={buildCurrentAppData()} user={user} settings={settings} setSettings={setSettings} addAudit={addAudit} setPage={navigate} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
