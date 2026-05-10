@@ -2500,23 +2500,29 @@ If you cannot find data for the exact pot size, use the closest size and note it
       const [loading, setLoading] = useState(false);
       const [result, setResult] = useState(null);
       const [msg, setMsg] = useState("");
-      const runLocalPreview = () => {
-        if (!canRun || disabled) return;
+      const runResearch = async ({ forceRefresh = false } = {}) => {
+        if (!canRun || disabled || loading) return;
         const normalizedPlant = { ...plant, cost:+plant.cost || 0, suggestedPrice:+plant.suggestedPrice || +plant.listPrice || +plant.price || 0 };
         if (!String(normalizedPlant.name || "").trim()) { setMsg("Add a plant name before researching market price."); return; }
         if (!(+normalizedPlant.cost > 0)) { setMsg("Add your cost first so Profit Guard can protect margin."); return; }
-        const cached = getCachedMarketResearch(normalizedPlant, settings);
-        if (cached) { setResult({ ...cached, source:cached.source || "cached" }); setMsg("Showing cached market research for this plant."); return; }
         setMsg("");
         setLoading(true);
         setResult(null);
-        window.setTimeout(() => {
+        try {
+          const researched = await runMarketPriceResearch(normalizedPlant, settings, allPlants, user, { forceRefresh });
+          setResult(researched);
+          onCacheResult && onCacheResult(researched);
+          if (researched.cacheHit) setMsg("Showing cached market research for this plant.");
+          else if (String(researched.source || "").includes("fallback")) setMsg(researched.priceReason || "Gateway unavailable — fallback price shown.");
+          else setMsg(`Smart market research complete: ${researched.dataPointCount || 0} source(s), confidence ${researched.confidenceScore || 0}/100.`);
+        } catch(e) {
           const local = phase85BuildLocalMarketPreview(normalizedPlant, settings, allPlants);
-          setResult(local);
-          setLoading(false);
-          setMsg("Local preview created. Smart Gateway live research is the next phase.");
+          setResult({ ...local, source:"button_exception_fallback", gatewayError:e?.message || String(e) });
           onCacheResult && onCacheResult(local);
-        }, 650);
+          setMsg(`Market research failed safely: ${e?.message || e}. Local preview shown.`);
+        } finally {
+          setLoading(false);
+        }
       };
       const apply = r => {
         const price = Math.round((+r.suggestedPrice || 0) * 100) / 100;
@@ -2529,13 +2535,65 @@ If you cannot find data for the exact pot size, use the closest size and note it
       if (!canRun) return null;
       return <div style={{ marginTop:compact ? 6 : 10 }}>
         <Row gap={8} wrap center>
-          <Btn sz="sm" v="soft" disabled={disabled || loading} onClick={runLocalPreview} style={{ minHeight:compact ? 40 : 46 }}>{loading ? "Researching..." : label}</Btn>
+          <Btn sz="sm" v="soft" disabled={disabled || loading} onClick={()=>runResearch({ forceRefresh:false })} style={{ minHeight:compact ? 40 : 46 }}>{loading ? "Researching..." : label}</Btn>
+          {plant?.marketResearch?.runAt && <Btn sz="sm" v="ghost" disabled={disabled || loading} onClick={()=>runResearch({ forceRefresh:true })}>Refresh</Btn>}
           {plant?.marketResearch?.runAt && <Tag text={`Cached ${phase84FormatLastChecked(plant.marketResearch.runAt)}`} color={C.blue} sm />}
         </Row>
-        {msg && <div style={{ color:msg.includes("Add ") ? C.amber : C.tx3, fontSize:11, fontWeight:800, marginTop:6 }}>{msg}</div>}
-        {loading && <MarketPriceLoadingPanel plant={plant} onCancel={()=>{ setLoading(false); setMsg("Market preview canceled."); }} />}
-        {result && <MarketPricePanel plant={plant} marketResult={result} currentPrice={plant.suggestedPrice || plant.price || plant.listPrice} onApplyPrice={apply} onKeepPrice={()=>{ setResult(null); setMsg("Kept current price."); }} onClose={()=>setResult(null)} compact={compact} title={result.source === "local_preview" ? "Market Price Preview" : "Market Research Result"} />}
+        {msg && <div style={{ color:msg.includes("Add ") || msg.includes("failed") || msg.includes("unavailable") ? C.amber : C.tx3, fontSize:11, fontWeight:800, marginTop:6 }}>{msg}</div>}
+        {loading && <MarketPriceLoadingPanel plant={plant} onCancel={()=>{ setLoading(false); setMsg("Market research canceled visually. If a Gateway request already started, the safe response may still finish in the background."); }} />}
+        {result && <MarketPricePanel plant={plant} marketResult={result} currentPrice={plant.suggestedPrice || plant.price || plant.listPrice} onApplyPrice={apply} onKeepPrice={()=>{ setResult(null); setMsg("Kept current price."); }} onClose={()=>setResult(null)} compact={compact} title={result.source === "local_preview" ? "Market Price Preview" : result.cacheHit ? "Cached Market Research" : String(result.source || "").includes("fallback") ? "Market Research Fallback" : "Market Research Result"} />}
       </div>;
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 87 — COMPACT INVENTORY ROW MARKET BUTTON
+       Adds row/card-level market research without creating a new page.
+       Opens the existing MarketPriceButton inside a modal so inventory rows
+       do not expand or break mobile layout. Owner/manager only.
+    ══════════════════════════════════════════════════════════ */
+    function MarketPriceMiniButton({ plant = {}, settings = {}, allPlants = [], user = {}, onApplyPrice, onCacheResult, disabled = false, title = "Inventory Market Price" }) {
+      const canRun = phase85CanResearchMarket(user, settings);
+      const [open, setOpen] = useState(false);
+      const cached = getCachedMarketResearch(plant, settings);
+      const isInStock = String(plant?.status || "In Stock") === "In Stock";
+      if (!canRun || !isInStock) return null;
+      const plantLabel = `${plant.plantId || plant.plantCode || plant.id || "Plant"} · ${plant.name || "Leaf Diary Plant"}`;
+      return <span onClick={e => e.stopPropagation()} style={{ display:"inline-flex", alignItems:"center", gap:5 }}>
+        <button type="button" className="ld-market-mini-btn" disabled={disabled} title={cached ? `Market checked ${phase84FormatLastChecked(cached.runAt)}` : "Research market price"} aria-label="Research market price" onClick={e => { e.stopPropagation(); setOpen(true); }} style={{ width:34, height:34, minHeight:34, borderRadius:999, border:`1.5px solid ${cached ? C.blue : C.g300}`, background:cached ? C.blueBg : C.g50, color:cached ? C.blue : C.g800, fontWeight:950, cursor:disabled ? "not-allowed" : "pointer", display:"inline-flex", alignItems:"center", justifyContent:"center", boxShadow:"0 3px 10px rgba(13,43,26,.06)", opacity:disabled ? .55 : 1 }}>{cached ? "🔎" : "🔍"}</button>
+        {open && <Modal title={`${title}: ${plantLabel}`} onClose={() => setOpen(false)} wide>
+          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`5px solid ${C.g600}`, borderRadius:16, padding:12, marginBottom:12 }}>
+            <div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:950 }}>🔍 Inventory Row Price Research</div>
+            <div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>This runs only when owner/manager clicks. It uses cached market research first, then Smart Gateway if needed, with fallback to profit-safe pricing.</div>
+            {cached && <div style={{ marginTop:7 }}><Tag text={`Cached ${phase84FormatLastChecked(cached.runAt)}`} color={C.blue} /></div>}
+          </div>
+          <MarketPriceButton
+            plant={plant}
+            settings={settings}
+            allPlants={allPlants}
+            user={user}
+            label={cached ? "Show Cached / Refresh Market" : "🔍 Research Market"}
+            compact={false}
+            disabled={disabled}
+            onApplyPrice={(price, payload) => { onApplyPrice && onApplyPrice(price, payload); }}
+            onCacheResult={(payload) => { onCacheResult && onCacheResult(payload); }}
+          />
+        </Modal>}
+      </span>;
+    }
+    function phase87BuildInventoryRowMarketSelfChecks({ settings = {}, user = {} } = {}) {
+      const owner = { role:"owner", name:"QA Owner" };
+      const manager = { role:"manager", name:"QA Manager" };
+      const employee = { role:"employee", name:"QA Employee" };
+      const sample = { id:"qa-87", plantId:"QA-087", name:"Philodendron Pink Princess", potSize:'4"', cost:12, suggestedPrice:25, status:"In Stock", marketResearch:{ runAt:new Date().toISOString(), suggestedPrice:28, priceStatus:"competitive" } };
+      const cached = getCachedMarketResearch(sample, settings);
+      const checks = [
+        { id:"mp87-mini-component", icon:"🔎", title:"Compact Inventory Row Button", pass: typeof MarketPriceMiniButton === "function", reason:"Reusable mini market button exists for Inventory cards and desktop rows without expanding the row.", page:"plants_ws", severity:"critical" },
+        { id:"mp87-owner-manager-only", icon:"🔐", title:"Role-Safe Row Research", pass: phase85CanResearchMarket(owner, settings) && phase85CanResearchMarket(manager, settings) && !phase85CanResearchMarket(employee, settings), reason:"Owner/manager can see row research; employees cannot trigger Gateway pricing from Inventory.", page:"plants_ws", severity:"critical" },
+        { id:"mp87-cache-badge", icon:"💾", title:"Row Cache Indicator", pass: !!cached, reason:"Mini button can detect cached market research and show a checked/search badge before running Gateway again.", page:"plants_ws", severity:"warning" },
+        { id:"mp87-no-new-page", icon:"🚫", title:"No Bulk Pricing Page Added", pass: true, reason:"Inventory row research opens in a modal inside the existing Inventory workflow; no page === bulkpricing route is added.", page:"plants_ws", severity:"critical" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
     }
     function phase85BuildMarketButtonSelfChecks({ settings = {}, user = {} } = {}) {
       const owner = { role:"owner", name:"QA Owner" };
@@ -2546,7 +2604,95 @@ If you cannot find data for the exact pot size, use the closest size and note it
         { id:"mp85-button-component", icon:"🔍", title:"MarketPriceButton Component", pass: typeof MarketPriceButton === "function", reason:"Reusable Research Market button exists for Manual Entry and Inventory edit modal.", page:"manual", severity:"critical" },
         { id:"mp85-owner-manager-only", icon:"🔐", title:"Owner/Manager Access", pass: phase85CanResearchMarket(owner, settings) && !phase85CanResearchMarket(employee, settings), reason:"Employees cannot run or apply market pricing research.", page:"admin", severity:"critical" },
         { id:"mp85-local-preview", icon:"🧪", title:"Local Preview Fallback", pass: !!local && +local.suggestedPrice > 0 && local.source === "local_preview", reason:`Local preview returns ${$(local.suggestedPrice)} without Gateway calls.`, page:"manual", severity:"warning" },
-        { id:"mp85-no-gateway-auto", icon:"🛡️", title:"No Automatic Gateway Call", pass: true, reason:"Update 85 does not call phase61CallGateway automatically. Live research is reserved for Update 86.", page:"aihub", severity:"warning" },
+        { id:"mp85-click-only", icon:"🛡️", title:"Click-Only Research", pass: true, reason:"Research Market buttons never run automatically; owner/manager must click the button before Update 86 Gateway lookup runs.", page:"aihub", severity:"warning" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 86 — SMART GATEWAY MARKET LOOKUP
+       Owner/manager-clicked only. Uses cache first, then Gateway JSON,
+       then falls back to PPS/sprice if Gateway or JSON parsing fails.
+       No new pages, no automatic background Gateway calls, no CSV changes.
+    ══════════════════════════════════════════════════════════ */
+    function phase86ExtractMarketJson(raw = "") {
+      if (raw && typeof raw === "object") return raw;
+      let txt = String(raw || "").trim();
+      if (!txt) return null;
+      txt = txt.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+      try { return JSON.parse(txt); } catch(e) {}
+      const first = txt.indexOf("{");
+      const last = txt.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try { return JSON.parse(txt.slice(first, last + 1)); } catch(e) {}
+      }
+      return null;
+    }
+    function phase86BuildGatewayPricingConfig(settings = {}) {
+      const marketCfg = phase83MarketPricingSettings(settings);
+      let gatewayCfg = {};
+      try { gatewayCfg = phase61ReadConfig ? phase61ReadConfig() : {}; } catch(e) { gatewayCfg = {}; }
+      const pricingEstimate = 0.008;
+      const estimatedCost = Math.min(+marketCfg.maxCostPerLookup || .01, +gatewayCfg.estimatedCostPerRequest || pricingEstimate, pricingEstimate);
+      return {
+        marketCfg,
+        gatewayCfg:{ ...gatewayCfg, estimatedCostPerRequest: estimatedCost, requireManualCloudApproval: true, disableAutoGatewayCalls: true },
+        estimatedCost,
+        canAffordLookup: estimatedCost <= (+marketCfg.maxCostPerLookup || .01)
+      };
+    }
+    async function runMarketPriceResearch(plant = {}, settings = {}, allPlants = [], user = {}, opts = {}) {
+      const normalizedPlant = { ...plant, cost:+plant.cost || 0, suggestedPrice:+plant.suggestedPrice || +plant.listPrice || +plant.price || 0 };
+      const { marketCfg, gatewayCfg, estimatedCost, canAffordLookup } = phase86BuildGatewayPricingConfig(settings);
+      const forceRefresh = opts.forceRefresh === true;
+      if (!phase85CanResearchMarket(user, settings)) return phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Market pricing is restricted to owner/manager roles.");
+      if (!String(normalizedPlant.name || "").trim()) return phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Add a plant name before running market research.");
+      if (!(+normalizedPlant.cost > 0)) return phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Add plant cost before running market research so Profit Guard can protect margin.");
+      if (marketCfg.requirePhoto && !(normalizedPlant.photoUrl || normalizedPlant.photoBase64)) return phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Market pricing requires a photo for this setting. Add a plant photo first.");
+      const cached = forceRefresh ? null : getCachedMarketResearch(normalizedPlant, settings);
+      if (cached) return { ...cached, source:cached.source || "cached_market_research", cacheHit:true };
+      if (!canAffordLookup) return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Cost guard blocked lookup. Estimated ${$(estimatedCost)} is above max ${$(marketCfg.maxCostPerLookup)}.`), source:"cost_guard_fallback", gatewayError:"per_lookup_cost_guard" };
+      if (typeof phase61ShouldUseGateway === "function" && !phase61ShouldUseGateway(gatewayCfg)) return { ...phase85BuildLocalMarketPreview(normalizedPlant, settings, allPlants), source:"gateway_disabled_fallback", priceReason:"Gateway is disabled or missing endpoint. Local profit-safe preview used instead." };
+      const prompt = buildMarketPricePrompt(normalizedPlant, settings);
+      const routeDef = { label:"Market Price Research", task:"market_price_lookup", financials:"owner_manager", requireWebSearch:true };
+      try {
+        const report = await phase61CallGateway({
+          question:prompt,
+          route:"pricing",
+          routeDef,
+          appData:{ plants:[], expenses:[], bills:[], timecards:[], expenseReceipts:[] },
+          user,
+          model:gatewayCfg.model,
+          extraPrompt:`Context: research only this plant. Cost ${$(normalizedPlant.cost)}. Minimum margin ${marketCfg.minMarginPct}%. Return JSON only.`,
+          cfg:gatewayCfg
+        });
+        if (!report?.ok) {
+          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Gateway market research failed: ${report?.error || "No online response"}. Using internal sales history.`), source:"gateway_fallback", gatewayError:report?.error || "gateway_failed", gatewayReport:report };
+        }
+        const marketJson = phase86ExtractMarketJson(report.answer || report.output || "");
+        if (!marketJson || !(+marketJson.marketMedianPrice > 0 || safeArray(marketJson.dataSources || marketJson.sources).length)) {
+          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Gateway returned non-JSON or no usable market prices. Using internal sales history."), source:"json_parse_fallback", gatewayError:"invalid_market_json", gatewayAnswerPreview:String(report.answer || "").slice(0,500), gatewayReport:report };
+        }
+        const priced = calcAIMarketPrice(normalizedPlant, marketJson, settings, allPlants);
+        return { ...priced, source:"gateway_market_research", runAt:new Date().toISOString(), gatewayProvider:report.provider || gatewayCfg.provider, gatewayModel:report.model || gatewayCfg.model, gatewayMs:report.ms || null, estimatedCostPerLookup:estimatedCost, cacheHit:false };
+      } catch(e) {
+        return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Market research error: ${e?.message || e}. Using internal sales history.`), source:"gateway_exception_fallback", gatewayError:e?.message || String(e) };
+      }
+    }
+    function phase86BuildMarketGatewaySelfChecks({ settings = {}, user = {} } = {}) {
+      const owner = { role:"owner", name:"QA Owner" };
+      const employee = { role:"employee", name:"QA Employee" };
+      const parsed = phase86ExtractMarketJson('```json\n{"marketMedianPrice":24.5,"dataSources":[{"platform":"Whatnot","priceUSD":22}]}\n```');
+      const cfg = phase86BuildGatewayPricingConfig(settings);
+      const sample = { id:"qa-86", plantId:"QA-086", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock" };
+      const fallback = phase83BuildFallbackMarketResult(sample, settings, [sample], "QA fallback test");
+      const checks = [
+        { id:"mp86-runner", icon:"🌐", title:"Gateway Research Runner", pass: typeof runMarketPriceResearch === "function", reason:"Owner/manager clicked market research can call the Mobile AI Gateway through the pricing route.", page:"aihub", severity:"critical" },
+        { id:"mp86-json-parser", icon:"{}", title:"JSON Parser Guard", pass: !!parsed && +parsed.marketMedianPrice === 24.5, reason:"Gateway answers can be parsed even when wrapped in JSON code fences.", page:"phase2qa", severity:"critical" },
+        { id:"mp86-cost-guard", icon:"🛡️", title:"Per-Lookup Cost Guard", pass: cfg.estimatedCost <= (+cfg.marketCfg.maxCostPerLookup || .01), reason:`Estimated pricing lookup cost ${$(cfg.estimatedCost)} stays under max ${$(cfg.marketCfg.maxCostPerLookup)}.`, page:"aihub", severity:"critical" },
+        { id:"mp86-role-guard", icon:"🔐", title:"Owner/Manager Only", pass: phase85CanResearchMarket(owner, settings) && !phase85CanResearchMarket(employee, settings), reason:"Employees cannot trigger live market research or apply AI prices.", page:"admin", severity:"critical" },
+        { id:"mp86-fallback", icon:"🛟", title:"Fallback Price Safety", pass: !!fallback && +fallback.suggestedPrice > 0 && ["fallback","low_confidence","at_floor","competitive","margin_risk"].includes(fallback.priceStatus), reason:"If Gateway/JSON fails, the app falls back to internal PPS/sprice logic instead of crashing.", page:"manual", severity:"critical" },
       ];
       return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
     }
@@ -6641,6 +6787,8 @@ If you cannot find data for the exact pot size, use the closest size and note it
       const tasks = phase11BuildRoleTasks(appData, settings);
       const topNurseries = nurseries.map(n => ({ nursery:n, quality:calcNurseryBuyQuality(n, plants, settings) })).sort((a,b)=>(b.quality.avgPPS||0)-(a.quality.avgPPS||0)).slice(0,8);
       const topGenusTargets = Object.values(plants.reduce((m,p)=>{ const g=gOf(p.name); m[g]=m[g]||{ genus:g, costs:[], sold:0 }; if(+p.cost) m[g].costs.push(+p.cost); if(p.status==="Sold") m[g].sold++; return m; },{})).map(g=>{ const avgCost=g.costs.length?g.costs.reduce((a,b)=>a+b,0)/g.costs.length:8; return { ...g, avgCost:Math.round(avgCost*100)/100, target:suggestPriceFromPPS(g.genus, avgCost, settings, plants) }; }).sort((a,b)=>b.sold-a.sold).slice(0,10);
+      const phase89PpsMarketRows = phase89BuildMarketComparisonRows(plants, settings);
+      const phase89PpsMarketCount = phase89PpsMarketRows.length;
       const update = patch => setSettings(prev => ({ ...prev, ...patch }));
       const updateFees = patch => setSettings(prev => ({ ...prev, platformFees:{ ...safeObject(prev.platformFees), ...patch } }));
       const setThisWeekCapacity = (capacity, note = "") => {
@@ -6715,7 +6863,10 @@ If you cannot find data for the exact pot size, use the closest size and note it
         {tab === "show" && <Card><Row between wrap center gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900 }}>AI Show Sequencer</div><div style={{ fontSize:12, color:C.tx3 }}>Order: premium anchors → fast movers → aging clearance → closer.</div></div><Row gap={8} wrap><Tag text={`Value ${$(showSeq.totalValue)}`} color={C.gold}/><Tag text={`Profit ${$(showSeq.trueProfit)}`} color={C.g600}/><Tag text={`Avg PPS $${showSeq.avgPPS}/d`} color={C.blue}/><Tag text={showSeq.health} color={showSeq.dPct>30?C.red:C.g600}/></Row></Row><Tbl cols={[{k:"pos",l:"Pos"},{k:"plant",l:"Plant"},{k:"pps",l:"PPS"},{k:"platform",l:"Platform"},{k:"presenter",l:"Presenter"}]} rows={showSeq.sequence.slice(0,60).map(r=>({ pos:r.position, plant:<div><b>{r.plant.plantId}</b> {r.plant.name}<div style={{ fontSize:10, color:C.tx3 }}>{r.price>=50?"Premium anchor":r.daysHeld>=45?"Aging clearance":"Fast mover"}</div></div>, pps:<PpsBadge score={r.pps}/>, platform:r.platform.platform||"Either", presenter:r.presenter }))} /></Card>}
         {tab === "trajectory" && <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.2fr) minmax(0,.8fr)", gap:14 }}><Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>8-Week Profit Trajectory</div><BarLine data={trajectory.map(t=>({ label:t.label, value:t.profit }))} lk="label" vk="value" fmtV={$} colorFn={(d,i)=>trajectory[i]?.utilization>=60?C.g600:C.gold}/></Card><Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>Capacity Utilization</div>{trajectory.map(t=><div key={t.label} style={{ marginBottom:10 }}><Row between><b>{t.label}</b><span>{t.sold}/{slot.capacity} · {t.utilization}% · PPS ${t.pps}/d</span></Row><div style={{ height:8, background:C.g100, borderRadius:5, overflow:"hidden" }}><div style={{ width:`${Math.min(100,t.utilization)}%`, height:"100%", background:t.utilization>=70?C.g600:t.utilization>=40?C.gold:C.amber }} /></div></div>)}</Card></div>}
         {tab === "tasks" && <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:14 }}><TaskCard title="👤 Owner Tasks" items={tasks.owner}/><TaskCard title="👷 Employee / Whatnot" items={tasks.employee}/><TaskCard title="🏠 Operations" items={tasks.operations}/></div>}
-        {tab === "targets" && <Card><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>PPS Price Targets By Genus</div><Tbl cols={[{k:"genus",l:"Genus"},{k:"avgCost",l:"Avg Cost",right:true},{k:"price",l:"Suggested Price"},{k:"margin",l:"Margin"},{k:"note",l:"Why"}]} rows={topGenusTargets.map(g=>({ genus:g.genus, avgCost:$(g.avgCost), price:<b>{$(g.target.suggestedPrice)}</b>, margin:`${g.target.margin}%`, note:<span style={{ fontSize:11, color:C.tx3 }}>{g.target.note}</span> }))} empty="Add sold history to build genus targets." /></Card>}
+        {tab === "targets" && <Card>
+          <Row between wrap center gap={8} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900 }}>PPS Price Targets By Genus</div><div style={{ color:C.tx3, fontSize:12, marginTop:2 }}>Now compares PPS floor targets against cached live-market research where available. Run Market Research first to fill the Market column.</div></div><Tag text={`${phase89PpsMarketCount} with market data`} color={phase89PpsMarketCount ? C.blue : C.tx3} /></Row>
+          <Tbl cols={[{k:"genus",l:"Genus"},{k:"avgCost",l:"Avg Cost",right:true},{k:"price",l:"Suggested Price"},{k:"market",l:"Market Comparison"},{k:"margin",l:"Margin"},{k:"note",l:"Why"}]} rows={topGenusTargets.map(g=>{ const cmp = phase89CompareGenusMarket(g.genus, plants, settings, g.target.suggestedPrice); return { genus:g.genus, avgCost:$(g.avgCost), price:<b>{$(g.target.suggestedPrice)}</b>, market:<Phase89MarketComparisonCell comparison={cmp} canSeeMoney={true} compact />, margin:`${g.target.margin}%`, note:<span style={{ fontSize:11, color:C.tx3 }}>{g.target.note}</span> }; })} empty="Add sold history to build genus targets." />
+        </Card>}
         {tab === "settings" && <div style={{ display:"grid", gap:14 }}>
           <Card>
             <div style={{ fontFamily:F.display, fontWeight:900, fontSize:19, color:C.g900, marginBottom:10 }}>Capacity & Profit Targets</div>
@@ -7909,6 +8060,18 @@ If you cannot find data for the exact pot size, use the closest size and note it
         const body = field === "suggestedPrice" ? `${plant.name || plantCode} is priced. If it has a photo and label, it can go into a show.` : `${plant.name || plantCode} was updated without opening the full edit form.`;
         ldEmitNextStep({ icon:"✏️", title:label, body, cta:"Open Inventory", page:"inv", color:C.g600 });
       };
+      const cacheMarketResearchForInventoryPlant = (plant, payload = {}) => {
+        if (!plant || !payload) return;
+        setPlants(prev => safeArray(prev).map(x => x.id === plant.id ? { ...x, marketResearch:{ ...safeObject(payload), runAt:payload.runAt || new Date().toISOString() }, updatedAt:new Date().toISOString() } : x));
+      };
+      const applyMarketResearchToInventoryPlant = (plant, price, payload = {}) => {
+        const clean = Math.max(0, Math.round((+price || 0) * 100) / 100);
+        if (!plant || !clean) return;
+        setPlants(prev => safeArray(prev).map(x => x.id === plant.id ? { ...x, suggestedPrice:clean, margin:marg(+x.cost || 0, clean), marketResearch:{ ...safeObject(payload), suggestedPrice:clean, appliedAt:payload.appliedAt || new Date().toISOString(), appliedPrice:clean, runAt:payload.runAt || new Date().toISOString() }, updatedAt:new Date().toISOString() } : x));
+        addAudit && addAudit({ action:`Applied market research price ${$(clean)} to ${plant.plantId || plant.plantCode || plant.id}`, user:user.name, page:"Inventory" });
+        ldEmitNextStep({ icon:"🔍", title:"Market price applied", body:`${plant.name || plant.plantId || "Plant"} price was updated to ${$(clean)} from Market Pricing.`, cta:"Open Inventory", page:"inv", color:C.g600 });
+      };
+
       const markPlantStagedFromSwipe = (plant) => {
         if (!plant || bulkMode) return;
         const plantCode = plant.plantId || plant.plantCode || plant.id;
@@ -7943,7 +8106,10 @@ If you cannot find data for the exact pot size, use the closest size and note it
                 {canInlineEditInventory ? <InlineEdit value={p.potSize || ""} options={["", ...POT_SIZES]} format={v => v || "No size"} onSave={v => inlineSavePlantField(p, "potSize", v)} ariaLabel="Edit pot size" /> : <span>{p.potSize || "No size"}</span>}
               </div>
               <Row gap={6} wrap center style={{ marginTop:6 }}>
-                {canInlineEditInventory ? <InlineEdit value={price || ""} type="number" format={v => (+v ? $(v) : "No price")} parse={v => Math.max(0, Math.round((+v || 0) * 100) / 100)} onSave={v => inlineSavePlantField(p, "suggestedPrice", v)} ariaLabel="Edit suggested price" /> : (price ? <Tag text={$(price)} color={C.g600} sm /> : <Tag text="No price" color={C.red} sm />)}
+                {canInlineEditInventory ? <Row gap={5} center wrap={false} style={{ display:"inline-flex" }}>
+                  <InlineEdit value={price || ""} type="number" format={v => (+v ? $(v) : "No price")} parse={v => Math.max(0, Math.round((+v || 0) * 100) / 100)} onSave={v => inlineSavePlantField(p, "suggestedPrice", v)} ariaLabel="Edit suggested price" />
+                  <MarketPriceMiniButton plant={p} settings={settings} allPlants={plants} user={user} title="Card Market Research" onApplyPrice={(price, payload)=>applyMarketResearchToInventoryPlant(p, price, payload)} onCacheResult={(payload)=>cacheMarketResearchForInventoryPlant(p, payload)} />
+                </Row> : (price ? <Tag text={$(price)} color={C.g600} sm /> : <Tag text="No price" color={C.red} sm />)}
                 <Tag text={fDays(days)} color={(days || 0) >= 60 ? C.red : (days || 0) >= 30 ? C.amber : C.tx3} sm />
                 {canInlineEditInventory ? <InlineEdit value={p.status || "In Stock"} options={STATUSES} format={v => v || "In Stock"} onSave={v => inlineSavePlantField(p, "status", v)} ariaLabel="Edit status" /> : <Tag text={meta.text} color={meta.color} sm />}
                 {(p.showStaged || p.stagedForShow) && <Tag text="Staged" color={C.g600} sm />}
@@ -8163,7 +8329,7 @@ If you cannot find data for the exact pot size, use the closest size and note it
                     {bulkMode && <td style={{ padding:"8px 10px" }}><button onClick={e => { e.stopPropagation(); togglePlantSelection(p.id); }} style={{ width:28, height:28, borderRadius:10, border:`2px solid ${selected ? C.g600 : C.bd}`, background:selected ? C.g600 : C.card, color:selected ? "#fff" : C.tx3, fontWeight:900, cursor:"pointer" }}>{selected ? "✓" : ""}</button></td>}
                     <td style={{ padding: "8px 10px", fontWeight: 600, maxWidth: 220 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toTC(p.name)} <span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500, fontWeight: 400, marginLeft: 6 }}>{p.plantId}</span></div></td>
                     <td style={{ padding: "8px 10px", color: C.tx3 }}>{canInlineEditInventory ? <InlineEdit value={p.potSize || ""} options={["", ...POT_SIZES]} format={v => v || "—"} onSave={v => inlineSavePlantField(p, "potSize", v)} ariaLabel="Edit pot size" /> : (p.potSize || "—")}</td>
-                    {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{canInlineEditInventory ? <InlineEdit value={+p.suggestedPrice || ""} type="number" format={v => (+v ? $(v) : "No price")} parse={v => Math.max(0, Math.round((+v || 0) * 100) / 100)} onSave={v => inlineSavePlantField(p, "suggestedPrice", v)} ariaLabel="Edit suggested price" /> : $(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
+                    {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{canInlineEditInventory ? <Row gap={5} center wrap={false} style={{ display:"inline-flex" }}><InlineEdit value={+p.suggestedPrice || ""} type="number" format={v => (+v ? $(v) : "No price")} parse={v => Math.max(0, Math.round((+v || 0) * 100) / 100)} onSave={v => inlineSavePlantField(p, "suggestedPrice", v)} ariaLabel="Edit suggested price" /><MarketPriceMiniButton plant={p} settings={settings} allPlants={plants} user={user} title="Row Market Research" onApplyPrice={(price, payload)=>applyMarketResearchToInventoryPlant(p, price, payload)} onCacheResult={(payload)=>cacheMarketResearchForInventoryPlant(p, payload)} /></Row> : $(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
                     <td style={{ padding: "8px 10px" }}>{canInlineEditInventory ? <InlineEdit value={p.status || "In Stock"} options={STATUSES} format={v => v || "In Stock"} onSave={v => inlineSavePlantField(p, "status", v)} ariaLabel="Edit status" /> : <SBadge s={p.status} />}{(String(p.status || "") === AUCTION_STATUS || p.auctionEndsAt) && <div style={{ fontSize:10, color:p.auctionEndsAt && auctionMsLeft({ endsAt:p.auctionEndsAt }) > 0 ? C.purple : C.amber, fontWeight:900, marginTop:3 }}>{p.auctionEndsAt && auctionMsLeft({ endsAt:p.auctionEndsAt }) > 0 ? `Ends ${auctionCountdownParts({ endsAt:p.auctionEndsAt }).h}h ${auctionCountdownParts({ endsAt:p.auctionEndsAt }).m}m` : "Needs close"}</div>}</td>
                     <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 11, color: C.tx3 }}>{p.rack || "—"}</td>
                     <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{p.nurseryName || p.nurseryCode}</td>
@@ -12137,11 +12303,298 @@ Cancel keeps this local/free.`);
       return actions.slice(0, 10);
     }
 
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 88 — BULK MARKET PRICING INSIDE BUY SMART
+       No new page. Owner/manager select in-stock plants and run market
+       research one plant at a time with cache, fallback, and cost guard.
+    ══════════════════════════════════════════════════════════ */
+    function phase88PlantKey(p = {}) {
+      return String(p.plantId || p.plantCode || p.id || p.name || "plant").trim();
+    }
+    function phase88BulkPricingCandidates(plants = [], filter = "noPrice", settings = {}) {
+      const all = safeArray(plants).filter(p => String(p.status || "In Stock") === "In Stock");
+      const hasPrice = p => (+p.suggestedPrice || +p.listPrice || +p.price || 0) > 0;
+      const marginOf = p => {
+        const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
+        const cost = +p.cost || 0;
+        return price ? Math.round(((price - cost) / price) * 100) : 0;
+      };
+      const cfg = phase83MarketPricingSettings(settings);
+      const minMargin = +cfg.minMarginPct || 55;
+      const minAge = 45;
+      const rows = all.filter(p => {
+        const cached = getCachedMarketResearch(p, settings);
+        const mr = safeObject(p.marketResearch);
+        if (filter === "noPrice") return !hasPrice(p);
+        if (filter === "lowMargin") return hasPrice(p) && marginOf(p) < minMargin;
+        if (filter === "aging") return (dHeld(p.dateAdded) || 0) >= minAge;
+        if (filter === "stale") return !!mr.runAt && !cached;
+        if (filter === "marginRisk") return mr.priceStatus === "margin_risk";
+        if (filter === "noMarket") return !mr.runAt;
+        return true;
+      });
+      return rows.sort((a,b) => {
+        const aNo = hasPrice(a) ? 0 : 1, bNo = hasPrice(b) ? 0 : 1;
+        const aMargin = marginOf(a), bMargin = marginOf(b);
+        const aHeld = dHeld(a.dateAdded) || 0, bHeld = dHeld(b.dateAdded) || 0;
+        return bNo - aNo || aMargin - bMargin || bHeld - aHeld || String(a.name||"").localeCompare(String(b.name||""));
+      });
+    }
+    function phase88BuildBulkPricingSummary(plants = [], settings = {}) {
+      const inStock = safeArray(plants).filter(p => String(p.status || "In Stock") === "In Stock");
+      const cfg = phase83MarketPricingSettings(settings);
+      const minMargin = +cfg.minMarginPct || 55;
+      const hasPrice = p => (+p.suggestedPrice || +p.listPrice || +p.price || 0) > 0;
+      const marginOf = p => { const price = +p.suggestedPrice || +p.listPrice || +p.price || 0; return price ? Math.round(((price - (+p.cost || 0)) / price) * 100) : 0; };
+      const researched = inStock.filter(p => p.marketResearch && p.marketResearch.runAt);
+      const cached = inStock.filter(p => getCachedMarketResearch(p, settings));
+      return {
+        inStock: inStock.length,
+        noPrice: inStock.filter(p => !hasPrice(p)).length,
+        lowMargin: inStock.filter(p => hasPrice(p) && marginOf(p) < minMargin).length,
+        aging45: inStock.filter(p => (dHeld(p.dateAdded) || 0) >= 45).length,
+        researched: researched.length,
+        cached: cached.length,
+        marginRisk: researched.filter(p => p.marketResearch?.priceStatus === "margin_risk").length,
+        batchLimit: Math.max(1, Math.min(25, +cfg.bulkBatchLimit || 10)),
+        delayMs: Math.max(0, +cfg.batchRateLimit || 0),
+      };
+    }
+    function phase88IsSafeBulkApply(result = {}) {
+      return ["competitive", "at_floor"].includes(String(result.priceStatus || ""));
+    }
+    function phase88BuildBulkPricingSelfChecks({ plants = [], settings = {}, user = {} } = {}) {
+      const owner = { role:"owner" }, manager = { role:"manager" }, employee = { role:"employee" };
+      const samplePlants = [
+        { id:"qa-88-a", plantId:"QA-088A", name:"Monstera Deliciosa", status:"In Stock", cost:8, suggestedPrice:0, potSize:'4"' },
+        { id:"qa-88-b", plantId:"QA-088B", name:"Golden Pothos", status:"In Stock", cost:12, suggestedPrice:16, potSize:'4"', marketResearch:{ runAt:new Date(Date.now()-36*3600000).toISOString(), priceStatus:"competitive" } },
+        { id:"qa-88-c", plantId:"QA-088C", name:"Sold Plant", status:"Sold", cost:4, suggestedPrice:20 },
+      ];
+      const rows = phase88BulkPricingCandidates(samplePlants, "all", settings);
+      const noPrice = phase88BulkPricingCandidates(samplePlants, "noPrice", settings);
+      const summary = phase88BuildBulkPricingSummary(samplePlants, settings);
+      const checks = [
+        { id:"mp88-component", icon:"💲", title:"Bulk Market Pricing Component", pass: typeof Phase88BulkMarketPricingTool === "function", reason:"Bulk market pricing lives as an embedded Buy Smart tool, not a new page.", page:"buy_ws", severity:"critical" },
+        { id:"mp88-candidates", icon:"🌿", title:"Candidate Filter", pass: rows.length === 2 && noPrice.length === 1, reason:"Bulk candidates include in-stock plants only and can focus missing-price plants first.", page:"buy_ws", severity:"critical" },
+        { id:"mp88-cache-first", icon:"💾", title:"Cache-First Batch", pass: typeof getCachedMarketResearch === "function" && summary.cached >= 0, reason:"The batch runner checks cached market research before using Gateway again.", page:"buy_ws", severity:"critical" },
+        { id:"mp88-safe-apply", icon:"🛡️", title:"Safe Apply Rule", pass: phase88IsSafeBulkApply({ priceStatus:"competitive" }) && phase88IsSafeBulkApply({ priceStatus:"at_floor" }) && !phase88IsSafeBulkApply({ priceStatus:"margin_risk" }), reason:"Apply All only applies competitive/at-floor prices. Margin-risk plants stay manual review.", page:"buy_ws", severity:"critical" },
+        { id:"mp88-role-safe", icon:"🔐", title:"Owner/Manager Only", pass: phase85CanResearchMarket(owner, settings) && phase85CanResearchMarket(manager, settings) && !phase85CanResearchMarket(employee, settings), reason:"Employees cannot trigger paid market pricing or apply bulk prices.", page:"buy_ws", severity:"critical" },
+        { id:"mp88-no-new-page", icon:"🚫", title:"No Bulk Pricing Page", pass: true, reason:"Update 88 intentionally adds a Buy Smart tab instead of page === bulkpricing.", page:"buy_ws", severity:"critical" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
+    function Phase88BulkMarketPricingTool({ plants = [], setPlants, settings = {}, user = {}, setPage, compact = false }) {
+      const canRun = phase85CanResearchMarket(user, settings);
+      const cfg = phase83MarketPricingSettings(settings);
+      const summary = phase88BuildBulkPricingSummary(plants, settings);
+      const [filter, setFilter] = useState("noPrice");
+      const [selected, setSelected] = useState({});
+      const [results, setResults] = useState({});
+      const [running, setRunning] = useState(false);
+      const [progress, setProgress] = useState({ done:0, total:0, current:"" });
+      const [msg, setMsg] = useState("");
+      const candidates = phase88BulkPricingCandidates(plants, filter, settings).slice(0, compact ? 8 : 60);
+      const batchLimit = Math.max(1, Math.min(25, +cfg.bulkBatchLimit || 10));
+      const selectedIds = Object.keys(selected).filter(k => selected[k]);
+      const selectedPlants = candidates.filter(p => selected[phase88PlantKey(p)]).slice(0, batchLimit);
+      const resultList = Object.values(results || {});
+      const safeResults = resultList.filter(r => phase88IsSafeBulkApply(r));
+      const riskResults = resultList.filter(r => String(r.priceStatus || "") === "margin_risk");
+      const cachePlantResult = (plant, result) => {
+        const key = phase88PlantKey(plant);
+        const payload = { ...safeObject(result), runAt:result.runAt || new Date().toISOString() };
+        setResults(prev => ({ ...prev, [key]: payload }));
+        if (setPlants) setPlants(prev => safeArray(prev).map(p => phase88PlantKey(p) === key ? { ...p, marketResearch:payload, updatedAt:new Date().toISOString() } : p));
+      };
+      const applyResultToPlant = (plant, result, force = false) => {
+        if (!plant || !result) return false;
+        if (!force && !phase88IsSafeBulkApply(result)) return false;
+        const key = phase88PlantKey(plant);
+        const price = Math.max(0, Math.round((+result.suggestedPrice || 0) * 100) / 100);
+        if (!price || !setPlants) return false;
+        const payload = { ...safeObject(result), suggestedPrice:price, appliedAt:new Date().toISOString(), appliedPrice:price, runAt:result.runAt || new Date().toISOString() };
+        setPlants(prev => safeArray(prev).map(p => phase88PlantKey(p) === key ? { ...p, suggestedPrice:price, margin:marg(+p.cost || 0, price), marketResearch:payload, updatedAt:new Date().toISOString() } : p));
+        setResults(prev => ({ ...prev, [key]: payload }));
+        return true;
+      };
+      const selectTop = (count = 5) => {
+        const next = {};
+        candidates.slice(0, Math.min(count, batchLimit)).forEach(p => { next[phase88PlantKey(p)] = true; });
+        setSelected(next);
+        setMsg(`Selected top ${Math.min(count, candidates.length, batchLimit)} plant(s).`);
+      };
+      const runQueue = async () => {
+        if (!canRun || running) return;
+        if (!selectedPlants.length) { setMsg("Select at least one plant first."); return; }
+        setRunning(true); setMsg("Starting market-pricing queue..."); setProgress({ done:0, total:selectedPlants.length, current:"" });
+        for (let i = 0; i < selectedPlants.length; i++) {
+          const plant = selectedPlants[i];
+          const label = `${phase88PlantKey(plant)} ${plant.name || "Plant"}`.trim();
+          setProgress({ done:i, total:selectedPlants.length, current:label });
+          try {
+            const cached = getCachedMarketResearch(plant, settings);
+            const result = cached ? { ...cached, cacheHit:true } : await runMarketPriceResearch(plant, settings, plants, user, { forceRefresh:false });
+            cachePlantResult(plant, result);
+            setMsg(`${cached ? "Used cached" : "Researched"} market price for ${label}.`);
+            const delay = Math.max(0, Math.min(5000, +cfg.batchRateLimit || 0));
+            if (!cached && delay && i < selectedPlants.length - 1) await new Promise(resolve => setTimeout(resolve, delay));
+          } catch(e) {
+            const fallback = phase83BuildFallbackMarketResult(plant, settings, plants, `Bulk market research failed for ${label}: ${e?.message || e}.`);
+            cachePlantResult(plant, fallback);
+            setMsg(`Safe fallback used for ${label}.`);
+          }
+        }
+        setProgress({ done:selectedPlants.length, total:selectedPlants.length, current:"Complete" });
+        setRunning(false);
+        setMsg(`Bulk pricing complete for ${selectedPlants.length} plant(s). Review margin-risk plants before applying.`);
+      };
+      const applySafe = () => {
+        let applied = 0;
+        candidates.forEach(p => {
+          const r = results[phase88PlantKey(p)];
+          if (r && applyResultToPlant(p, r, false)) applied++;
+        });
+        setMsg(applied ? `Applied ${applied} safe market price(s). Margin-risk plants were skipped.` : "No safe competitive/at-floor prices to apply yet.");
+      };
+      if (!canRun) return <Card style={{ borderLeft:`5px solid ${C.amber}`, background:C.goldBg }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>💲 Bulk Market Pricing</div><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:4 }}>Owner/manager tool only. Employees cannot run market research or apply bulk prices.</div></Card>;
+      return <Card style={{ border:`2px solid ${C.g300}`, borderRadius:22, padding:16, background:C.card }}>
+        <Row between center wrap gap={10} style={{ marginBottom:12 }}>
+          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Bulk Market Pricing Queue</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Research selected in-stock plants one at a time. Cache first, Gateway only when needed, safe fallback if JSON fails. No new page.</div></div>
+          <Row gap={7} wrap><Tag text={`${summary.cached} cached`} color={C.blue} /><Tag text={`${summary.noPrice} no price`} color={summary.noPrice ? C.amber : C.g600} /><Tag text={`${summary.lowMargin} low margin`} color={summary.lowMargin ? C.red : C.g600} /></Row>
+        </Row>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:12 }}>
+          {[ ["all","All"], ["noPrice","No Price"], ["lowMargin",`Low Margin <${+cfg.minMarginPct || 55}%`], ["aging","Aging 45+"], ["stale","Stale Cache"] ].map(([id,label]) => <button key={id} onClick={()=>{ setFilter(id); setSelected({}); }} style={{ borderRadius:14, border:`1px solid ${filter===id ? C.g600 : C.bd}`, background:filter===id ? C.g50 : C.card, color:filter===id ? C.g800 : C.tx2, fontWeight:900, padding:"10px 8px", cursor:"pointer", fontFamily:F.body }}>{label}</button>)}
+        </div>
+        <Row gap={8} wrap center style={{ marginBottom:12 }}>
+          <Btn sz="sm" v="soft" onClick={()=>selectTop(5)} disabled={running || !candidates.length}>Select Top 5</Btn>
+          <Btn sz="sm" v="outline" onClick={()=>selectTop(batchLimit)} disabled={running || !candidates.length}>Select Max {batchLimit}</Btn>
+          <Btn sz="sm" onClick={runQueue} disabled={running || !selectedPlants.length}>{running ? "Researching..." : `Research Selected (${selectedPlants.length})`}</Btn>
+          <Btn sz="sm" v="gold" onClick={applySafe} disabled={running || !safeResults.length}>Apply Safe Prices ({safeResults.length})</Btn>
+          <Btn sz="sm" v="ghost" onClick={()=>{ setSelected({}); setResults({}); setProgress({done:0,total:0,current:""}); setMsg("Cleared bulk pricing queue."); }} disabled={running}>Clear</Btn>
+        </Row>
+        {(running || progress.total > 0) && <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, marginBottom:12 }}>
+          <Row between center><b style={{ color:C.g900 }}>Progress</b><Tag text={`${progress.done}/${progress.total}`} color={running ? C.blue : C.g600} /></Row>
+          <div style={{ height:10, borderRadius:999, background:C.g100, overflow:"hidden", marginTop:8 }}><div style={{ width:`${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%`, height:"100%", background:running ? C.blue : C.g600 }} /></div>
+          <div style={{ color:C.tx3, fontSize:12, marginTop:7 }}>{progress.current || "Ready"}</div>
+        </div>}
+        {msg && <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:"9px 10px", color:C.tx2, fontSize:12, fontWeight:800, marginBottom:12 }}>{msg}</div>}
+        {riskResults.length > 0 && <div style={{ background:C.redBg, border:`1px solid ${C.red}44`, borderLeft:`5px solid ${C.red}`, borderRadius:14, padding:12, marginBottom:12 }}><b style={{ color:C.red }}>Margin-risk plants need manual review:</b><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:3 }}>{riskResults.length} researched plant(s) came back below your profit floor. Apply All will not change those prices.</div></div>}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+          {candidates.length ? candidates.slice(0, compact ? 8 : 24).map(p => {
+            const key = phase88PlantKey(p);
+            const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
+            const res = results[key] || getCachedMarketResearch(p, settings) || safeObject(p.marketResearch);
+            const hasRes = !!(res && (res.suggestedPrice || res.marketMedianPrice || res.runAt));
+            const status = res.priceStatus || "not_researched";
+            const color = status === "competitive" ? C.g600 : status === "at_floor" ? C.gold : status === "margin_risk" ? C.red : status === "low_confidence" || status === "fallback" ? C.amber : C.tx3;
+            return <Card key={key} style={{ padding:13, borderLeft:`5px solid ${selected[key] ? C.g600 : color}`, background:selected[key] ? C.g50 : C.card }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}>
+                <input type="checkbox" checked={!!selected[key]} disabled={running} onChange={e=>setSelected(prev => ({ ...prev, [key]:e.target.checked }))} style={{ width:18, height:18, marginTop:4, flexShrink:0 }} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:950, color:C.g900 }}>{p.name || "Plant"}</div>
+                  <div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{key} · {p.potSize || "size ?"} · {price ? `${$(price)} current` : "No price"}{p.cost ? ` · ${$(p.cost)} cost` : ""}</div>
+                  <Row gap={6} wrap style={{ marginTop:7 }}>
+                    {hasRes ? <><Tag text={status.replace(/_/g," ")} color={color} sm />{res.suggestedPrice && <Tag text={`AI ${$(res.suggestedPrice)}`} color={color} sm />}{res.dataPointCount !== undefined && <Tag text={`${res.dataPointCount} sources`} color={C.blue} sm />}</> : <Tag text="Not researched" color={C.tx3} sm />}
+                    {(dHeld(p.dateAdded) || 0) >= 45 && <Tag text={`${dHeld(p.dateAdded)}d old`} color={C.amber} sm />}
+                  </Row>
+                  {hasRes && <div style={{ color:C.tx3, fontSize:11, lineHeight:1.35, marginTop:6 }}>{res.priceReason || res.confidenceNote || "Market research saved."}</div>}
+                </div>
+                {hasRes && <Btn sz="sm" v={phase88IsSafeBulkApply(res) ? "soft" : "outline"} disabled={running || !res.suggestedPrice} onClick={()=>applyResultToPlant(p, res, String(res.priceStatus||"") === "margin_risk" ? window.confirm("This is margin-risk. Apply anyway?") : false)}>Apply</Btn>}
+              </Row>
+            </Card>;
+          }) : <div style={{ gridColumn:"1/-1", textAlign:"center", padding:34, color:C.tx3 }}>No plants match this filter. Try All or No Market Data.</div>}
+        </div>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(5,1fr)"],div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
+      </Card>;
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 89 — MARKET COMPARISON INSIDE BUY SMART + PPS
+       No new page. Uses cached marketResearch only. Adds market-vs-price
+       comparison cells to Buy Smart Price Guide and What Makes Money PPS.
+    ══════════════════════════════════════════════════════════ */
+    function phase89MarketResearchForGenus(genus = "", plants = [], settings = {}) {
+      const cleanGenus = String(genus || "Other");
+      return safeArray(plants).filter(p => gOf(p.name) === cleanGenus).map(p => {
+        const cached = getCachedMarketResearch(p, settings) || safeObject(p.marketResearch);
+        if (!cached || !cached.runAt) return null;
+        const marketMedian = phase83CleanPrice(cached.marketMedianPrice || cached.marketTarget || cached.suggestedPrice);
+        const suggested = phase83CleanPrice(cached.suggestedPrice || cached.marketTarget || cached.marketMedianPrice);
+        if (!marketMedian && !suggested) return null;
+        return {
+          plant:p,
+          runAt:cached.runAt,
+          marketMedian,
+          suggested,
+          priceStatus:cached.priceStatus || "low_confidence",
+          confidenceScore:+cached.confidenceScore || 0,
+          dataPointCount:+cached.dataPointCount || +cached.competitorCount || safeArray(cached.dataSources).length || 0,
+          whatnotMedian:phase83CleanPrice(cached.whatnotMedian),
+          palmstreetMedian:phase83CleanPrice(cached.palmstreetMedian)
+        };
+      }).filter(Boolean);
+    }
+    function phase89CompareGenusMarket(genus = "", plants = [], settings = {}, targetPrice = 0) {
+      const rows = phase89MarketResearchForGenus(genus, plants, settings);
+      if (!rows.length) return { genus, hasData:false, count:0, label:"No market cache", detail:"Run market research on plants in this genus first.", color:C.tx3 };
+      const marketMedian = phase83Median(rows.map(r => r.marketMedian || r.suggested));
+      const aiSuggestedMedian = phase83Median(rows.map(r => r.suggested || r.marketMedian));
+      const target = phase83CleanPrice(targetPrice) || aiSuggestedMedian || marketMedian;
+      const gapPct = marketMedian ? Math.round(((target - marketMedian) / marketMedian) * 100) : 0;
+      const sourceCount = rows.reduce((s,r)=>s+(+r.dataPointCount || 0),0);
+      const marginRisks = rows.filter(r => r.priceStatus === "margin_risk").length;
+      const lowConfidence = rows.filter(r => (+r.confidenceScore || 0) < 35).length;
+      let label = "Near market", color = C.g600;
+      if (marginRisks) { label = "Risk found"; color = C.red; }
+      else if (target > marketMedian * 1.10) { label = "Above market"; color = C.red; }
+      else if (target < marketMedian * .90) { label = "Below market"; color = C.blue; }
+      else if (lowConfidence >= Math.ceil(rows.length / 2)) { label = "Low confidence"; color = C.amber; }
+      const latest = rows.map(r => new Date(r.runAt).getTime()).filter(Number.isFinite).sort((a,b)=>b-a)[0] || 0;
+      const detail = `${rows.length} researched plant${rows.length === 1 ? "" : "s"} · ${sourceCount || "cached"} source${sourceCount === 1 ? "" : "s"} · ${gapPct > 0 ? "+" : ""}${gapPct}% vs market`;
+      return { genus, hasData:true, count:rows.length, marketMedian, aiSuggestedMedian, target, gapPct, sourceCount, marginRisks, lowConfidence, label, color, latestRunAt: latest ? new Date(latest).toISOString() : "", detail, rows };
+    }
+    function phase89BuildMarketComparisonRows(plants = [], settings = {}) {
+      const genera = Array.from(new Set(safeArray(plants).map(p => gOf(p.name)))).filter(Boolean).sort();
+      return genera.map(g => phase89CompareGenusMarket(g, plants, settings, 0)).filter(r => r.hasData).sort((a,b)=>b.count-a.count || Math.abs(b.gapPct)-Math.abs(a.gapPct));
+    }
+    function Phase89MarketComparisonCell({ comparison, canSeeMoney = true, compact = false }) {
+      const c = comparison || {};
+      if (!canSeeMoney) return <span style={{ color:C.tx3, fontSize:11 }}>Hidden</span>;
+      if (!c.hasData) return <div><Tag text="No market cache" color={C.tx3} sm /><div style={{ fontSize:10, color:C.tx3, marginTop:3 }}>Run research first</div></div>;
+      return <div style={{ minWidth: compact ? 130 : 160 }}>
+        <Row gap={5} wrap center><Tag text={c.label} color={c.color} sm />{c.count > 1 && <Tag text={`${c.count} plants`} color={C.blue} sm />}</Row>
+        <div style={{ marginTop:5, fontSize:11, color:C.tx2, lineHeight:1.35 }}>
+          Market <b>{$(c.marketMedian)}</b>{c.target ? <> · Target <b>{$(c.target)}</b></> : null}
+        </div>
+        <div style={{ fontSize:10, color:c.color, fontWeight:900, marginTop:2 }}>{c.gapPct > 0 ? "+" : ""}{c.gapPct}% vs market</div>
+      </div>;
+    }
+    function phase89BuildMarketComparisonSelfChecks({ plants = [], settings = {}, user = {} } = {}) {
+      const samplePlants = [
+        { id:"qa-89-a", plantId:"QA-089A", name:"Monstera Deliciosa", status:"In Stock", cost:8, suggestedPrice:23, marketResearch:{ runAt:new Date().toISOString(), marketMedianPrice:24.5, suggestedPrice:22.8, priceStatus:"competitive", confidenceScore:88, dataPointCount:22 } },
+        { id:"qa-89-b", plantId:"QA-089B", name:"Monstera Thai Constellation", status:"In Stock", cost:20, suggestedPrice:50, marketResearch:{ runAt:new Date().toISOString(), marketMedianPrice:44, suggestedPrice:41, priceStatus:"at_floor", confidenceScore:70, dataPointCount:12 } },
+        { id:"qa-89-c", plantId:"QA-089C", name:"Hoya Kerrii", status:"In Stock", cost:4, suggestedPrice:18 }
+      ];
+      const comparison = phase89CompareGenusMarket("Monstera", samplePlants, settings, 23);
+      const noData = phase89CompareGenusMarket("Hoya", samplePlants, settings, 18);
+      const rows = phase89BuildMarketComparisonRows(samplePlants, settings);
+      const checks = [
+        { id:"mp89-helper", icon:"📊", title:"Market Comparison Helper", pass: typeof phase89CompareGenusMarket === "function" && comparison.hasData && comparison.count === 2, reason:"Genus-level market comparison aggregates cached market research by plant type.", page:"buy_ws", severity:"critical" },
+        { id:"mp89-no-data", icon:"💾", title:"No-Cache State", pass: noData.hasData === false, reason:"Genus rows without cached research show a safe no-market-cache message instead of guessing.", page:"buy_ws", severity:"critical" },
+        { id:"mp89-cell", icon:"🏷️", title:"Table Cell Component", pass: typeof Phase89MarketComparisonCell === "function", reason:"Reusable market comparison cell can render inside Buy Smart and PPS target tables.", page:"slotprofit", severity:"critical" },
+        { id:"mp89-buy-smart", icon:"🧠", title:"Buy Smart Market Column", pass: rows.length >= 1, reason:"Buy Smart Price Guide can show market median vs target sell for researched genera.", page:"buy_ws", severity:"critical" },
+        { id:"mp89-no-new-page", icon:"🚫", title:"No Market Comparison Page", pass: true, reason:"Update 89 embeds comparison in existing Buy Smart / What Makes Money views only.", page:"buy_ws", severity:"critical" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
+
     /* ══════════════════════════════════════════════════════════
        BUY SMART WORKFLOW — profit/buying command center
        Safe wrapper: uses existing inventory/sales/nursery data only.
     ══════════════════════════════════════════════════════════ */
-    function BuySmartWorkflow({ plants = [], nurseries = [], expenses = [], bills = [], timecards = [], settings = {}, user, setPage }) {
+    function BuySmartWorkflow({ plants = [], setPlants, nurseries = [], expenses = [], bills = [], timecards = [], settings = {}, user, setPage }) {
       const [tab, setTab] = useState("whatbuy");
       const canSeeMoney = user?.role === "owner" || user?.role === "manager";
       const ownerOnly = user?.role === "owner";
@@ -12202,6 +12655,8 @@ Cancel keeps this local/free.`);
         return { plant:p, price, cost, held, margin, pps };
       }).filter(r => r.held >= 45 || r.margin < 45 || r.pps.rating === "D").sort((a,b)=>b.held-a.held || a.margin-b.margin).slice(0, 18);
       const priceRows = genusRows.filter(g => g.sold || g.inStock).sort((a,b)=>b.sold-b.sold || b.score-a.score).slice(0, 16);
+      const phase89BuyMarketRows = phase89BuildMarketComparisonRows(plants, settings);
+      const phase89BuyMarketCount = phase89BuyMarketRows.length;
 
       const nurseryMap = {};
       safeArray(plants).forEach(p => {
@@ -12294,7 +12749,7 @@ Cancel keeps this local/free.`);
               </div>
               <div style={{ color:C.tx3, fontSize:11, lineHeight:1.35, marginTop:6 }}>Uses sales history, inventory age, cost, sale price, dead/damaged rate, nursery source, platform history, and profit-per-slot math.</div>
             </div>
-            <Row gap={8} wrap><Btn sz="sm" onClick={()=>setTab("aiplan")}>Open AI Buy Plan</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("slotprofit")}>What Makes Money</Btn></Row>
+            <Row gap={8} wrap><Btn sz="sm" onClick={()=>setTab("aiplan")}>Open AI Buy Plan</Btn><Btn sz="sm" v="soft" onClick={()=>setTab("marketbulk")}>Bulk Price Check</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("slotprofit")}>What Makes Money</Btn></Row>
           </Row>
         </Card>
 
@@ -12314,6 +12769,7 @@ Cancel keeps this local/free.`);
 
         <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch", display:"flex", gap:8, marginBottom:14, paddingBottom:4 }}>
           <TabBtn id="aiplan">🧠 AI Buy Plan</TabBtn>
+          <TabBtn id="marketbulk">💲 Bulk Market Pricing</TabBtn>
           <TabBtn id="whatbuy">✅ What To Buy</TabBtn>
           <TabBtn id="avoid">🚫 What Not To Buy</TabBtn>
           <TabBtn id="nurseries">🏪 Nursery Scores</TabBtn>
@@ -12336,6 +12792,8 @@ Cancel keeps this local/free.`);
           </Card>
         </div>}
 
+        {tab === "marketbulk" && <Phase88BulkMarketPricingTool plants={plants} setPlants={setPlants} settings={settings} user={user} setPage={setPage} />}
+
         {tab === "whatbuy" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
           {buyMore.length ? buyMore.map(g => <GenusCard key={g.genus} g={g} />) : <Card style={{ gridColumn:"1/-1", textAlign:"center", padding:40 }}><div style={{ fontSize:38 }}>🌱</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>Not enough proven winners yet</h2><p style={{ color:C.tx3 }}>Import more sold show data so Buy Smart can rank what actually makes money.</p><Btn onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Card>}
         </div>}
@@ -12349,14 +12807,17 @@ Cancel keeps this local/free.`);
           {nurseryRows.length ? nurseryRows.map(n => <Card key={n.name} style={{ borderTop:`4px solid ${n.score >= 72 ? C.g600 : n.score >= 55 ? C.gold : n.score >= 40 ? C.amber : C.red}` }}><Row between center wrap gap={8}><div><h3 style={{ fontFamily:F.display, fontSize:20, color:C.g900, margin:0 }}>{n.name}</h3><div style={{ fontSize:11, color:C.tx3, marginTop:3 }}>{n.bought} bought · {n.sold} sold · {n.inStock} in stock{n.avgDays ? ` · avg ${n.avgDays} days` : ""}</div></div><Rating score={n.score} /></Row><Line label="Profit" value={canSeeMoney ? $(n.profit) : "Hidden"} color={n.profit >= 0 ? C.g600 : C.red}/><Line label="ROI" value={`${n.roi}%`} color={n.roi >= 80 ? C.g600 : n.roi >= 30 ? C.gold : C.red}/><Line label="Sell-through" value={`${n.sellThru}%`} color={n.sellThru >= 60 ? C.g600 : n.sellThru >= 30 ? C.gold : C.red}/><Line label="Dead / damaged" value={`${n.deathRate}%`} color={n.deathRate <= 8 ? C.g600 : n.deathRate <= 20 ? C.gold : C.red}/><Btn v="outline" sz="sm" style={{ marginTop:10 }} onClick={()=>setPage("nursery")}>Open Nursery Records</Btn></Card>) : <Card style={{ gridColumn:"1/-1", textAlign:"center", padding:40 }}><div style={{ fontSize:38 }}>🏪</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No nursery data yet</h2><p style={{ color:C.tx3 }}>Add nursery names to purchases so Buy Smart can score suppliers.</p></Card>}
         </div>}
 
-        {tab === "prices" && <Card><Row between wrap center gap={8} style={{ marginBottom:12 }}><div><h2 style={{ fontFamily:F.display, color:C.g900, margin:0 }}>🏷️ Price Guide</h2><p style={{ margin:"3px 0 0", color:C.tx3, fontSize:12 }}>Uses your average cost, sale prices, target margin, and recent demand.</p></div><Btn v="soft" onClick={()=>setPage("slotprofit")}>Open What Makes Money</Btn></Row><Tbl cols={[{k:"genus",l:"Plant Type"},{k:"avgCost",l:"Avg Cost",right:true},{k:"avgSale",l:"Avg Sale",right:true},{k:"target",l:"Target Sell",right:true},{k:"max",l:"Max Buy",right:true},{k:"score",l:"Rating"}]} rows={priceRows.map(g => ({ genus:<b>{g.genus}</b>, avgCost:canSeeMoney ? $(g.avgCost) : "Hidden", avgSale:canSeeMoney ? $(g.avgSale) : "Hidden", target:canSeeMoney ? $(g.targetSell) : "Hidden", max:canSeeMoney ? $(g.maxBuy) : "Hidden", score:<Rating score={g.score}/> }))} empty="No price guide yet." /></Card>}
+        {tab === "prices" && <Card>
+          <Row between wrap center gap={8} style={{ marginBottom:12 }}><div><h2 style={{ fontFamily:F.display, color:C.g900, margin:0 }}>🏷️ Price Guide</h2><p style={{ margin:"3px 0 0", color:C.tx3, fontSize:12 }}>Uses your average cost, sale prices, target margin, recent demand, and cached market research where available.</p></div><Row gap={8} wrap><Tag text={`${phase89BuyMarketCount} genera with market data`} color={phase89BuyMarketCount ? C.blue : C.tx3} /><Btn v="soft" onClick={()=>setTab("marketbulk")}>Refresh Market Data</Btn><Btn v="soft" onClick={()=>setPage("slotprofit")}>Open What Makes Money</Btn></Row></Row>
+          <Tbl cols={[{k:"genus",l:"Plant Type"},{k:"avgCost",l:"Avg Cost",right:true},{k:"avgSale",l:"Avg Sale",right:true},{k:"target",l:"Target Sell",right:true},{k:"market",l:"Market"},{k:"max",l:"Max Buy",right:true},{k:"score",l:"Rating"}]} rows={priceRows.map(g => { const cmp = phase89CompareGenusMarket(g.genus, plants, settings, g.targetSell); return { genus:<b>{g.genus}</b>, avgCost:canSeeMoney ? $(g.avgCost) : "Hidden", avgSale:canSeeMoney ? $(g.avgSale) : "Hidden", target:canSeeMoney ? $(g.targetSell) : "Hidden", market:<Phase89MarketComparisonCell comparison={cmp} canSeeMoney={canSeeMoney} compact />, max:canSeeMoney ? $(g.maxBuy) : "Hidden", score:<Rating score={g.score}/> }; })} empty="No price guide yet." />
+        </Card>}
 
         {tab === "budget" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${safeSpend > 0 ? C.g600 : C.red}` }}><h2 style={{ fontFamily:F.display, color:C.g900, marginTop:0 }}>💵 Safe Buying Budget</h2><Line label="Bank balance" value={canSeeMoney ? $(bank) : "Hidden"} color={C.blue}/><Line label="Bills due 14 days" value={canSeeMoney ? $(due14) : "Hidden"} color={due14 ? C.red : C.g600}/><Line label="Reserve / safety" value={canSeeMoney ? $(reserve) : "Hidden"} color={C.gold}/><Line label="Safe inventory spend" value={canSeeMoney ? $(safeSpend) : "Hidden"} color={safeSpend > 0 ? C.g600 : C.red}/><div style={{ marginTop:12, padding:"12px 13px", borderRadius:14, background:safeSpend>0?C.g50:C.redBg, color:safeSpend>0?C.g800:C.red, fontWeight:900 }}>{plan.buyDecision}</div></Card><Card style={{ borderTop:`4px solid ${C.gold}` }}><h2 style={{ fontFamily:F.display, color:C.g900, marginTop:0 }}>🌿 Inventory Money</h2><Line label="In-stock cost" value={canSeeMoney ? $(inventoryCost) : "Hidden"} color={C.gold}/><Line label="Suggested sell value" value={canSeeMoney ? $(inventoryValue) : "Hidden"} color={C.g600}/><Line label="Potential spread" value={canSeeMoney ? $(inventoryValue - inventoryCost) : "Hidden"} color={(inventoryValue-inventoryCost)>=0?C.g600:C.red}/><Line label="Weekly capacity" value={`${plan.capacity || phase11Settings(settings).weeklyCapacity} plants`} color={C.blue}/><Line label="Slots remaining" value={`${plan.slotsRemaining || 0}`} color={C.g600}/></Card></div>}
 
         {tab === "risk" && <Card><Row between wrap center gap={8} style={{ marginBottom:12 }}><div><h2 style={{ fontFamily:F.display, color:C.g900, margin:0 }}>⏳ Inventory Risk</h2><p style={{ margin:"3px 0 0", color:C.tx3, fontSize:12 }}>Plants tying up money, sitting too long, or below target profit.</p></div><Btn v="outline" onClick={()=>setPage("discounts")}>Open Discounts</Btn></Row>{stockRisk.length ? <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{stockRisk.map(r => <Card key={r.plant.id || r.plant.plantId || r.plant.name} style={{ background:C.cardAlt, padding:13 }}><Row gap={10} center><div style={{ width:46, height:46, borderRadius:14, background:C.g100, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0 }}>{(r.plant.photoUrl || r.plant.photoBase64) ? <img src={r.plant.photoUrl || r.plant.photoBase64} alt={r.plant.name || r.plant.plantId || "Plant photo"} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : "🌿"}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900 }}>{r.plant.name || "Plant"}</div><div style={{ fontSize:11, color:C.tx3 }}>{r.plant.plantId || r.plant.plantCode || "No ID"} · {r.held} days · {canSeeMoney ? `${$(r.cost)} cost / ${$(r.price)} price` : "financials hidden"}</div></div><Tag text={r.pps.rating} color={r.pps.color} sm /></Row><Row gap={7} wrap style={{ marginTop:10 }}><Tag text={r.margin ? `${r.margin}% margin` : "No price"} color={r.margin >= 55 ? C.g600 : r.margin >= 40 ? C.gold : C.red} sm />{r.held >= 45 && <Tag text="Aging" color={C.amber} sm />}{r.pps.rating === "D" && <Tag text="Low PPS" color={C.red} sm />}<Btn sz="sm" v="outline" onClick={()=>setPage("inv")}>Review</Btn></Row></Card>)}</div> : <div style={{ textAlign:"center", padding:36, color:C.tx3 }}>No major in-stock buying risk found.</div>}</Card>}
 
         {tab === "tools" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          {[ ["📦","What Makes Money","Profit-per-slot, capacity, and plant ranking.","slotprofit"], ["💡","Old Buy Smart Report","Detailed genus score report.","intel"], ["🏪","Nursery Records","Supplier contacts and supplier history.","nursery"], ["📋","Buying Lists","Purchase orders and wish lists.","pos"], ["📈","Reports","Full business reporting.","reports"], ["💵","Money Command Center","Cash pulse and safe spend.","money_ws"] ].map(([icon,title,body,page]) => <button key={page} onClick={()=>setPage(page)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:18, padding:"16px 14px", textAlign:"left", fontFamily:F.body, cursor:"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}><Row gap={12} center><div style={{ width:46, height:46, borderRadius:15, background:C.goldBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:25 }}>{icon}</div><div><div style={{ fontWeight:900, color:C.g900 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{body}</div></div></Row></button>)}
+          {[ ["💲","Bulk Market Pricing","Research and apply market prices in a safe owner/manager queue.","marketbulk"], ["📦","What Makes Money","Profit-per-slot, capacity, and plant ranking.","slotprofit"], ["💡","Old Buy Smart Report","Detailed genus score report.","intel"], ["🏪","Nursery Records","Supplier contacts and supplier history.","nursery"], ["📋","Buying Lists","Purchase orders and wish lists.","pos"], ["📈","Reports","Full business reporting.","reports"], ["💵","Money Command Center","Cash pulse and safe spend.","money_ws"] ].map(([icon,title,body,page]) => <button key={page} onClick={()=>setPage(page)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:18, padding:"16px 14px", textAlign:"left", fontFamily:F.body, cursor:"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}><Row gap={12} center><div style={{ width:46, height:46, borderRadius:15, background:C.goldBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:25 }}>{icon}</div><div><div style={{ fontWeight:900, color:C.g900 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{body}</div></div></Row></button>)}
         </div>}
 
         <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(4,1fr)"],div[style*="grid-template-columns:1fr 1fr"],div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important;} .ld-page table{font-size:11px!important}}`}</style>
@@ -15483,7 +15944,7 @@ function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, rec
       return <div className="page-scroll-safe" style={{ padding:"14px 14px 150px", background:C.bg, minHeight:"100dvh" }}>
         <SHdr icon="🤖" title="AI Center" sub="Leaf Diary Business Data Copilot — inventory, shows, money, buyers, nurseries, payroll, tasks, and cleanup." right={<Row gap={8} wrap><Btn sz="sm" onClick={()=>runTask("daily_check")} disabled={!!busy}>{busy ? "Running..." : "🚀 Daily Check"}</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("dataai")}>💬 Ask AI</Btn></Row>} />
         <div style={{ background:"#000", color:"#fff", borderRadius:18, padding:"16px 18px", border:"2px solid #97d33e", marginBottom:14 }}><Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.74)", marginTop:4 }}>Uses the CRM data already saved in this app. It does not replace your judgment, but it turns your plant data into decisions.</div></div><Btn v="gold" sz="sm" onClick={()=>selectedTask?.page && setPage(selectedTask.page)}>Open Related Page →</Btn></Row></div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:14 }}><KPI label="In Stock" value={inStock.length} color={C.g600}/><KPI label="Missing Photos" value={noPhoto.length} color={noPhoto.length?C.amber:C.g600}/><KPI label="Missing Prices" value={noPrice.length} color={noPrice.length?C.red:C.g600}/><KPI label="Aging 45+" value={aging.length} color={aging.length?C.amber:C.g600}/><KPI label="Month Sales" value={isOwner?$(monthRevenue):monthSold.length} color={C.blue}/></div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:10, marginBottom:14 }}><KPI label="In Stock" value={inStock.length} color={C.g600}/><KPI label="Missing Photos" value={noPhoto.length} color={noPhoto.length?C.amber:C.g600}/><KPI label="Missing Prices" value={noPrice.length} color={noPrice.length?C.red:C.g600}/><KPI label="Aging 45+" value={aging.length} color={aging.length?C.amber:C.g600}/><KPI label="Month Sales" value={isOwner?$(monthRevenue):monthSold.length} color={C.blue}/></div>
         <Card style={{ marginBottom:14 }}><Row gap={8} wrap>{groups.map(g=><button key={g} onClick={()=>setGroupFilter(g)} style={{ background:groupFilter===g?"#000":C.cardAlt, color:groupFilter===g?"#fff":C.tx2, border:`1px solid ${groupFilter===g?"#000":C.bd}`, borderRadius:999, padding:"9px 12px", fontWeight:900, cursor:"pointer" }}>{g}</button>)}</Row></Card>
         <div style={{ display:"grid", gridTemplateColumns:"1.05fr 1fr", gap:14 }}><Card><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:17, marginBottom:10 }}>AI Power Tools</div><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>{visibleTasks.map(t => <button key={t.id} onClick={()=>runTask(t.id)} disabled={!!busy} style={{ textAlign:"left", background:selected===t.id?C.g50:C.cardAlt, border:`1.5px solid ${selected===t.id?C.g500:C.bd}`, borderRadius:13, padding:12, cursor:busy?"wait":"pointer", fontFamily:F.body }}><div style={{ fontSize:22 }}>{t.icon}</div><div style={{ fontWeight:900, color:C.g900, fontSize:12, marginTop:3 }}>{t.title}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3 }}>{t.desc}</div></button>)}</div></Card><div><Card style={{ marginBottom:12, borderTop:`4px solid ${C.g600}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18, marginBottom:7 }}>AI Result</div><div style={{ fontSize:13, color:C.tx2, lineHeight:1.45 }}>{result?.summary || "Choose an AI tool or run the daily check. Results save here and survive refresh."}</div>{result?.generatedAt && <div style={{ color:C.tx3, fontSize:11, marginTop:8 }}>Generated {new Date(result.generatedAt).toLocaleString()}</div>}</Card>{renderItems(result?.actions,"✅ Recommended Actions",C.g600)}{renderItems(result?.warnings,"⚠️ Warnings",C.amber)}{renderItems(result?.recommendations,"💡 Opportunities",C.blue)}</div></div>
         <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(5,1fr)"],div[style*="grid-template-columns: 1.05fr 1fr"],div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}}`}</style>
@@ -20516,6 +20977,7 @@ Answer with a practical action plan for Leaf Diary.`;
         shows: { label:"Live Show Planner", modelKey:"primaryModel", task:"live_show_plan", icon:"🎥", financials:"limited", description:"Whatnot and Palmstreet show planning, plant order, hooks, bundles." },
         receipts: { label:"Receipt / OCR", modelKey:"visionModel", task:"receipt_audit", icon:"🧾", financials:"owner_manager", description:"Receipt, invoice, expense, vendor, category and document intelligence." },
         finance: { label:"Financial Intelligence", modelKey:"financeModel", task:"cash_leaks", icon:"💵", financials:"owner_only", description:"Cash flow, bills, payroll, taxes, profit leaks and margin risk." },
+        pricing: { label:"Market Price Research", modelKey:"financeModel", task:"market_price_lookup", icon:"🔍", financials:"owner_manager", requireWebSearch:true, description:"Owner/manager market research for plant pricing with web-search-capable Gateway." },
         customer: { label:"Customer Intelligence", modelKey:"fastModel", task:"customer_ai", icon:"👥", financials:"limited", description:"VIP buyers, repeat customers, retention, churn and follow-up ideas." },
         content: { label:"Content Factory", modelKey:"primaryModel", task:"live_script", icon:"✨", financials:"none", description:"Descriptions, captions, posts, scripts, platform listing copy." },
         coding: { label:"Developer / Code", modelKey:"codingModel", task:"error_scan", icon:"🧪", financials:"none", description:"Bug explanation, testing plans, developer safety and code review." },
@@ -20546,6 +21008,7 @@ Answer with a practical action plan for Leaf Diary.`;
     function phase4DetectRoute(question = "") {
       const q = String(question || "").toLowerCase();
       const tests = [
+        ["pricing", ["market price", "research market", "market pricing", "price lookup", "competitive price", "sold listings", "etsy sold", "ebay sold", "whatnot sold"]],
         ["finance", ["profit", "cash", "bill", "payroll", "tax", "margin", "expense", "owed", "forecast", "money", "loss", "fees", "bank"]],
         ["receipts", ["receipt", "invoice", "ocr", "photo", "scan", "vendor", "walmart", "gas", "category", "document"]],
         ["shows", ["whatnot", "palmstreet", "show", "live", "auction", "opening bid", "run tonight", "seller", "bundle", "clearance"]],
@@ -20951,6 +21414,22 @@ ${local.summary || "Fallback completed."}`;
       const marketButtonRegressionPass = marketButtonRegression.filter(i => i.pass).length;
       const marketButtonRegressionBlockers = marketButtonRegression.filter(i => !i.pass && i.severity === "critical").length;
       const marketButtonRegressionWarnings = marketButtonRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketGatewayRegression = phase86BuildMarketGatewaySelfChecks({ settings, user });
+      const marketGatewayRegressionPass = marketGatewayRegression.filter(i => i.pass).length;
+      const marketGatewayRegressionBlockers = marketGatewayRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketGatewayRegressionWarnings = marketGatewayRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketRowRegression = phase87BuildInventoryRowMarketSelfChecks({ settings, user });
+      const marketRowRegressionPass = marketRowRegression.filter(i => i.pass).length;
+      const marketRowRegressionBlockers = marketRowRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketRowRegressionWarnings = marketRowRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketBulkRegression = phase88BuildBulkPricingSelfChecks({ plants, settings, user });
+      const marketBulkRegressionPass = marketBulkRegression.filter(i => i.pass).length;
+      const marketBulkRegressionBlockers = marketBulkRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketBulkRegressionWarnings = marketBulkRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketCompareRegression = phase89BuildMarketComparisonSelfChecks({ plants, settings, user });
+      const marketCompareRegressionPass = marketCompareRegression.filter(i => i.pass).length;
+      const marketCompareRegressionBlockers = marketCompareRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketCompareRegressionWarnings = marketCompareRegression.filter(i => !i.pass && i.severity !== "critical").length;
       const features = [
         { id:"skeleton", icon:"⚡", title:"Skeleton Loading", page:"today", test:"Refresh the app. You should see Leaf Diary loading placeholders instead of a blank white flash." },
         { id:"onboarding", icon:"🎓", title:"Onboarding Checklist", page:"onboarding", test:"Open onboarding. Mark a step done, refresh, and confirm progress stays." },
@@ -20980,6 +21459,11 @@ ${local.summary || "Fallback completed."}`;
         { id:"ai82_auction_qa", icon:"🧪", title:"Update 82 Auction QA + Launch Gate", page:"phase2qa", test:"Run this QA screen and confirm auction self-checks pass before uploading the live file." },
         { id:"ai83_market_pricing", icon:"🔍", title:"Update 83 Market Pricing Foundation", page:"phase2qa", test:"Confirm settings, pricing formula, prompt builder, cache guard, margin-risk guard, and no-new-page rule pass before wiring live buttons." },
         { id:"ai84_market_panel", icon:"📊", title:"Update 84 Market Price Result Panel", page:"phase2qa", test:"Preview competitive, at-floor, margin-risk, and low-confidence panels. Confirm profit guard, source summary, and apply/keep buttons look good on mobile." },
+        { id:"ai85_market_buttons", icon:"🔍", title:"Update 85 Market Price Buttons", page:"plants_ws", test:"Confirm Research Market appears in Manual Entry and Inventory Edit Modal for owner/manager only." },
+        { id:"ai86_market_gateway", icon:"🌐", title:"Update 86 Smart Gateway Market Lookup", page:"aihub", test:"Click Research Market, confirm cache/fallback works, and Smart Gateway runs only by owner/manager click." },
+        { id:"ai87_inventory_row_market", icon:"🔎", title:"Update 87 Inventory Row Market Button", page:"plants_ws", test:"Open Inventory and confirm owner/manager sees compact 🔍 buttons on card/table price areas, opening market research in a modal." },
+        { id:"ai88_bulk_market", icon:"💲", title:"Update 88 Bulk Market Pricing", page:"buy_ws", test:"Open Buy Smart → Bulk Market Pricing. Select plants, run a one-at-a-time queue, apply safe prices, and confirm margin-risk plants stay manual." },
+        { id:"ai89_market_compare", icon:"📊", title:"Update 89 Market Comparison Columns", page:"buy_ws", test:"Open Buy Smart → Price Guide and What Makes Money → Price Targets. Confirm Market columns show cached median vs target when research exists." },
       ];
       const regressions = [
         { id:"login", icon:"🔐", title:"Login + Role Launcher", page:"rolelauncher", test:"Owner, manager, and employee open the correct board after login." },
@@ -20998,8 +21482,8 @@ ${local.summary || "Fallback completed."}`;
       const pct = allChecks.length ? Math.round(doneCount / allChecks.length * 100) : 0;
       const mark = (id, value) => setStatus(prev => { const next = { ...prev, [id]: value, updatedAt:new Date().toISOString() }; ldPhase2QaSave(next); return next; });
       const reset = () => { const next = {}; ldPhase2QaSave(next); setStatus(next); };
-      const exportCsv = () => downloadCsv("leaf-diary-update-85-market-buttons-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI + Auction + Market Pricing", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...auctionRegression.map(i => ["Auction Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPricingRegression.map(i => ["Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPanelRegression.map(i => ["Market Price Panel Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page])]);
-      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0 && auctionRegressionBlockers === 0 && marketPricingRegressionBlockers === 0 && marketPanelRegressionBlockers === 0;
+      const exportCsv = () => downloadCsv("leaf-diary-update-89-market-comparison-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI + Auction + Market Pricing", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...auctionRegression.map(i => ["Auction Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPricingRegression.map(i => ["Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPanelRegression.map(i => ["Market Price Panel Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketButtonRegression.map(i => ["Market Price Button Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketGatewayRegression.map(i => ["Market Gateway Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketRowRegression.map(i => ["Inventory Row Market Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketBulkRegression.map(i => ["Bulk Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketCompareRegression.map(i => ["Market Comparison Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page])]);
+      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0 && auctionRegressionBlockers === 0 && marketPricingRegressionBlockers === 0 && marketPanelRegressionBlockers === 0 && marketButtonRegressionBlockers === 0 && marketGatewayRegressionBlockers === 0 && marketRowRegressionBlockers === 0 && marketBulkRegressionBlockers === 0 && marketCompareRegressionBlockers === 0;
       const Stat = ({ label, value, sub, color }) => <Card style={{ borderTop:`4px solid ${color}`, padding:"13px 12px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.6 }}>{label}</div><div style={{ fontFamily:F.display, color, fontSize:28, fontWeight:900 }}>{value}</div>{sub && <div style={{ color:C.tx3, fontSize:11, fontWeight:700 }}>{sub}</div>}</Card>;
       const CheckCard = ({ item, section }) => { const st = status[item.id] || "untested"; const color = st === "pass" ? C.g600 : st === "review" ? C.amber : C.tx3; return <Card style={{ borderLeft:`5px solid ${color}`, padding:14 }}>
         <Row between center gap={10} wrap>
@@ -21022,7 +21506,7 @@ ${local.summary || "Fallback completed."}`;
             <Row gap={8} wrap><button onClick={exportCsv} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Export QA CSV</button><button onClick={()=>setPage("releasecenter")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Final Release Center</button></Row>
           </Row>
           <div style={{ marginTop:15, background:canGoLive ? "rgba(151,211,62,.16)" : "rgba(255,255,255,.08)", border:"1px solid rgba(151,211,62,.30)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
-            {canGoLive ? "✅ Phase 2 + AI + auction + market-pricing panel looks ready after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI blocker(s) · ${auctionRegressionBlockers} auction blocker(s) · ${marketPricingRegressionBlockers} market-pricing blocker(s) · ${marketPanelRegressionBlockers} market-panel blocker(s).`}
+            {canGoLive ? "✅ Phase 2 + AI + auction + market-pricing row and bulk tools look ready after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI blocker(s) · ${auctionRegressionBlockers} auction blocker(s) · ${marketPricingRegressionBlockers} market-pricing blocker(s) · ${marketPanelRegressionBlockers} market-panel blocker(s) · ${marketRowRegressionBlockers} inventory-row pricing blocker(s) · ${marketBulkRegressionBlockers} bulk-pricing blocker(s).`}
           </div>
         </div>
 
@@ -21032,6 +21516,10 @@ ${local.summary || "Fallback completed."}`;
           <Stat label="Auction QA" value={`${auctionRegressionPass}/${auctionRegression.length}`} sub={`${auctionRegressionBlockers} blockers · ${auctionRegressionWarnings} warnings`} color={auctionRegressionBlockers ? C.red : auctionRegressionWarnings ? C.amber : C.g600} />
           <Stat label="Market Pricing" value={`${marketPricingRegressionPass}/${marketPricingRegression.length}`} sub={`${marketPricingRegressionBlockers} blockers · ${marketPricingRegressionWarnings} warnings`} color={marketPricingRegressionBlockers ? C.red : marketPricingRegressionWarnings ? C.amber : C.g600} />
           <Stat label="Price Panel" value={`${marketPanelRegressionPass}/${marketPanelRegression.length}`} sub={`${marketPanelRegressionBlockers} blockers · ${marketPanelRegressionWarnings} warnings`} color={marketPanelRegressionBlockers ? C.red : marketPanelRegressionWarnings ? C.amber : C.g600} />
+          <Stat label="Market Gateway" value={`${marketGatewayRegressionPass}/${marketGatewayRegression.length}`} sub={`${marketGatewayRegressionBlockers} blockers · ${marketGatewayRegressionWarnings} warnings`} color={marketGatewayRegressionBlockers ? C.red : marketGatewayRegressionWarnings ? C.amber : C.g600} />
+          <Stat label="Inventory Row Pricing" value={`${marketRowRegressionPass}/${marketRowRegression.length}`} sub={`${marketRowRegressionBlockers} blockers · ${marketRowRegressionWarnings} warnings`} color={marketRowRegressionBlockers ? C.red : marketRowRegressionWarnings ? C.amber : C.g600} />
+          <Stat label="Bulk Pricing" value={`${marketBulkRegressionPass}/${marketBulkRegression.length}`} sub={`${marketBulkRegressionBlockers} blockers · ${marketBulkRegressionWarnings} warnings`} color={marketBulkRegressionBlockers ? C.red : marketBulkRegressionWarnings ? C.amber : C.g600} />
+          <Stat label="Market Columns" value={`${marketCompareRegressionPass}/${marketCompareRegression.length}`} sub={`${marketCompareRegressionBlockers} blockers · ${marketCompareRegressionWarnings} warnings`} color={marketCompareRegressionBlockers ? C.red : marketCompareRegressionWarnings ? C.amber : C.g600} />
           <Stat label="Needs Review" value={warnCount} sub="marked by tester" color={warnCount ? C.amber : C.g600} />
           <Stat label="Data Warnings" value={cloudIssues} sub={`${duplicates} dupes · ${noPrice} prices · ${receiptReview} receipts`} color={cloudIssues ? C.amber : C.g600} />
           <Stat label="Theme" value={themeMode === "dark" ? "Dark" : "Light"} sub="current device" color={themeMode === "dark" ? C.g600 : C.gold} />
@@ -21086,6 +21574,46 @@ ${local.summary || "Fallback completed."}`;
           <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 85 Market Price Button Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for Research Market buttons in Manual Entry and Inventory edit modal, owner/manager access, and no automatic Gateway calls.</div></div><Tag text={`${marketButtonRegressionPass}/${marketButtonRegression.length} passing`} color={marketButtonRegressionBlockers ? C.red : C.g600} /></Row>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
             {marketButtonRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketGatewayRegressionBlockers ? C.red : C.blue}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 86 Smart Gateway Market Lookup Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for Gateway runner, pricing route, JSON parser, cost guard, role guard, and fallback behavior.</div></div><Tag text={`${marketGatewayRegressionPass}/${marketGatewayRegression.length} passing`} color={marketGatewayRegressionBlockers ? C.red : C.blue} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketGatewayRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketRowRegressionBlockers ? C.red : C.g600}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 87 Inventory Row Market Button Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for compact Inventory card/table research buttons, modal behavior, cache indicator, role safety, and no-new-page rule.</div></div><Tag text={`${marketRowRegressionPass}/${marketRowRegression.length} passing`} color={marketRowRegressionBlockers ? C.red : C.g600} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketRowRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketBulkRegressionBlockers ? C.red : C.g600}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 88 Bulk Market Pricing Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for Buy Smart embedded bulk pricing, candidate filters, cache-first queue, role safety, safe apply, and no-new-page rule.</div></div><Tag text={`${marketBulkRegressionPass}/${marketBulkRegression.length} passing`} color={marketBulkRegressionBlockers ? C.red : C.g600} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketBulkRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketCompareRegressionBlockers ? C.red : C.blue}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 89 Market Comparison Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for cached market comparison columns inside Buy Smart Price Guide and What Makes Money PPS targets.</div></div><Tag text={`${marketCompareRegressionPass}/${marketCompareRegression.length} passing`} color={marketCompareRegressionBlockers ? C.red : C.blue} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketCompareRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
               <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
             </Card>)}
           </div>
@@ -21951,7 +22479,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "packorders" && <OrderPackingBoard plants={plants} user={user} setPage={navigate} casdCerts={casdCerts} />}
           {page === "orders_ws" && <OrdersWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} users={users} settings={settings} setSettings={setSettings} refunds={refunds} setRefunds={setRefunds} casdCerts={casdCerts} setCasdCerts={setCasdCerts} setPage={navigate} />}
           {page === "money_ws" && <MoneyCommandCenter plants={plants} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} timecards={timecards} setTimecards={setTimecards} receipts={expenseReceipts} setReceipts={setExpenseReceipts} users={users} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
-          {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
+          {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
           {page === "admin_ws" && user.role === "owner" && <SettingsWorkflow users={users} settings={settings} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} auditLog={auditLog} user={user} setPage={navigate} cloudStatus={cloudStatus} cloudMsg={cloudMsg} />}
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={navigate} />}
           {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
