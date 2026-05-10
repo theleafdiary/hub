@@ -1744,7 +1744,7 @@
     const FL_BRACKETS = [[0, 11600, .10], [11600, 47150, .12], [47150, 100525, .22], [100525, 191950, .24]];
     const PS_FEE = 0.10, WN_FEE = 0.08, SH_FEE = 0.029, SH_FLAT = 0.30;
 
-    const STATUSES = ["In Stock", "Sold", "Dead", "Damaged", "Returned", "Giveaway", "Personal", "Holding For Customer", "Needs Label", "Needs Photo"];
+    const STATUSES = ["In Stock", "Sold", "Dead", "Damaged", "Returned", "Giveaway", "Personal", "Holding For Customer", "Needs Label", "Needs Photo", "Auction", "Auction Ended — No Sale"];
     const PLATFORMS = ["Palmstreet", "Whatnot", "Shopify", "Cash", "Local Pickup", "Trade", "Other"];
     const PAY_METHS = ["Cash", "Credit Card", "Debit Card", "Check", "PayPal", "Venmo", "Zelle", "Wise", "Other"];
     const EXP_CATS = ["Plant Inventory", "Soil & Amendments", "Pots & Containers", "Packaging", "Labels & Printers", "Heat/Cold Packs", "Shipping Supplies", "Palmstreet Fees", "Whatnot Fees", "Shopify Fees", "Gas & Mileage", "Software & Website", "Advertising", "Payroll", "Rent & Utilities", "Equipment", "Bank Fees", "Taxes", "Other"];
@@ -2187,6 +2187,10 @@
       const genus = {};
       plants.forEach(p => { const g = gOf(p.name); genus[g] = genus[g] || { inStock:0, sold30:0 }; if (p.status === "In Stock") genus[g].inStock++; if (p.status === "Sold" && dateInLast(plantSaleDate(p), 30)) genus[g].sold30++; });
       Object.values(genus).forEach(g => { if (g.sold30 >= 3 && g.inStock <= 2) alerts.push({ id:`low-${gOf(g.name)}`, severity:"info", title:"Possible reorder needed", body:"A fast-selling genus is nearly out of stock.", actionLabel:"Reorder Alerts", actionPage:"cashflow" }); });
+      const auctionSummary = phase77BuildAuctionSummary({ plants, settings });
+      if (auctionSummary.overdue.length) alerts.unshift({ id:"auction-overdue", severity:"critical", title:"Palmstreet auctions need closing", body:`${auctionSummary.overdue.length} auction(s) have ended and need to be marked sold or returned: ${auctionSummary.overdue.slice(0,4).map(a=>a.plantName).join(', ')}${auctionSummary.overdue.length > 4 ? '…' : ''}.`, actionLabel:"Open Shows", actionPage:AUCTION_PAGE_TARGET });
+      if (auctionSummary.endingSoon.length) alerts.unshift({ id:"auction-ending-soon", severity:"warning", title:"Auctions ending soon", body:`${auctionSummary.endingSoon.length} Palmstreet auction(s) end in less than 3 hours. Watch Palmstreet and be ready to close them.`, actionLabel:"Open Shows", actionPage:AUCTION_PAGE_TARGET });
+      if (auctionSummary.slotsLeft > 0 && inStock.length > 0) alerts.push({ id:"auction-slots", severity:"info", title:"Palmstreet auction slots available", body:`${auctionSummary.slotsLeft} of ${AUCTION_DAILY_LIMIT} auction slot(s) are available today. Use the auction pick list before starting more.`, actionLabel:"Open Shows", actionPage:AUCTION_PAGE_TARGET });
       return alerts;
     };
     const downloadCsv = (filename, rows) => {
@@ -2203,7 +2207,7 @@
        If you deploy Supabase Edge Function leaf-ai later, this screen
        will automatically use it instead of the local fallback.
     ══════════════════════════════════════════════════════════ */
-    const buildLeafDataSnapshot = ({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [] }) => ({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts, counts: { inStock: plants.filter(p => p.status === "In Stock").length, sold: plants.filter(p => p.status === "Sold").length, noPhoto: plants.filter(p => p.status === "In Stock" && !p.photoUrl && !p.photoBase64).length, needsLabel: plants.filter(p => p.status === "In Stock" && !p.labelPrinted).length, soldGroups: groupSalesIntoOrders(plants).length, receiptsReview: receipts.filter(r => r.reviewStatus === "Needs Review" || r.review_status === "Needs Review").length, docs: casdCerts.length } });
+    const buildLeafDataSnapshot = ({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, casdCerts = [] }) => ({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts, counts: { inStock: plants.filter(p => p.status === "In Stock").length, sold: plants.filter(p => p.status === "Sold").length, noPhoto: plants.filter(p => p.status === "In Stock" && !p.photoUrl && !p.photoBase64).length, needsLabel: plants.filter(p => p.status === "In Stock" && !p.labelPrinted).length, soldGroups: groupSalesIntoOrders(plants).length, receiptsReview: receipts.filter(r => r.reviewStatus === "Needs Review" || r.review_status === "Needs Review").length, docs: casdCerts.length, activeAuctions: phase77BuildAuctionSummary({ plants, settings }).active.length, auctionEndingSoon: phase77BuildAuctionSummary({ plants, settings }).endingSoon.length, auctionOverdue: phase77BuildAuctionSummary({ plants, settings }).overdue.length, auctionSlotsLeft: phase77BuildAuctionSummary({ plants, settings }).slotsLeft } });
     const aiLine = (title, body, page = "command", severity = "info") => ({ id: uid(), title, body, page, severity });
     function localLeafAI(task, snapshot = {}) {
       const plants = snapshot.plants || [], expenses = snapshot.expenses || [], bills = snapshot.bills || [], timecards = snapshot.timecards || [], receipts = snapshot.receipts || [], settings = snapshot.settings || {}, casdCerts = snapshot.casdCerts || [], nurseries = snapshot.nurseries || [], users = snapshot.users || [];
@@ -2484,7 +2488,7 @@
     }
     function MBadge({ m }) { const c = m >= 65 ? C.g600 : m >= 45 ? C.gold : C.red; return <Tag text={`${m}%`} color={c} sm />; }
     function SBadge({ s }) {
-      const MAP = { "In Stock": C.g600, "Sold": C.gold, "Dead": C.red, "Damaged": C.red, "Returned": C.amber, "Giveaway": C.blue, "Personal": C.tx3, "Holding For Customer": C.purple, "Needs Label": C.amber, "Needs Photo": C.amber };
+      const MAP = { "In Stock": C.g600, "Sold": C.gold, "Dead": C.red, "Damaged": C.red, "Returned": C.amber, "Giveaway": C.blue, "Personal": C.tx3, "Holding For Customer": C.purple, "Needs Label": C.amber, "Needs Photo": C.amber, "Auction": C.purple, "Auction Ended — No Sale": C.amber };
       return <Tag text={s} color={MAP[s] || C.tx3} dot sm />;
     }
     function BarLine({ data, lk, vk, fmtV, colorFn }) {
@@ -6472,7 +6476,7 @@
     /* ══════════════════════════════════════════════════════════
        PLANT EDIT DETAIL — Full edit form for any plant
     ══════════════════════════════════════════════════════════ */
-    function PlantEditDetail({ plantId, plants, setPlants, user, addAudit, onBack }) {
+    function PlantEditDetail({ plantId, plants, setPlants, user, addAudit, onBack, settings = {}, setSettings }) {
       const p = plants.find(x => x.id === plantId);
       if (!p) { onBack(); return null; }
 
@@ -6629,6 +6633,7 @@
               <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>{"📍 Status & Location"}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <Sel label="Status" value={edit.status} onChange={updE("status")} options={STATUSES} />
+                {(String(edit.status || "") === AUCTION_STATUS || edit.auctionEndsAt) && <AuctionTimerPanel plant={edit} plants={plants} setPlants={setPlants} settings={settings} setSettings={setSettings} addAudit={addAudit} user={user} onLocalUpdate={patch => setEdit(prev => ({ ...prev, ...patch }))} />}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
                   <Inp label="Rack" value={edit.rack || ""} onChange={updE("rack")} placeholder="R1" />
                   <Inp label="Shelf" value={edit.shelf || ""} onChange={updE("shelf")} placeholder="S2" />
@@ -6680,7 +6685,7 @@
       </div>;
     }
 
-    function Inventory({ plants, setPlants, user, addAudit, nurseries, setPage }) {
+    function Inventory({ plants, setPlants, user, addAudit, nurseries, setPage, settings = {}, setSettings }) {
       const [search, setSearch] = useState("");
       const [actionView, setActionView] = useState("All Plants");
       const [fs, setFs] = useState("All");
@@ -7066,6 +7071,7 @@
                 {canInlineEditInventory ? <InlineEdit value={p.status || "In Stock"} options={STATUSES} format={v => v || "In Stock"} onSave={v => inlineSavePlantField(p, "status", v)} ariaLabel="Edit status" /> : <Tag text={meta.text} color={meta.color} sm />}
                 {(p.showStaged || p.stagedForShow) && <Tag text="Staged" color={C.g600} sm />}
                 {(p.hiddenFromShow || p.showHidden) && <Tag text="Hidden from show" color={C.tx2} sm />}
+                {(String(p.status || "") === AUCTION_STATUS || p.auctionEndsAt) && <Tag text={(p.auctionEndsAt && auctionMsLeft({ endsAt:p.auctionEndsAt }) > 0) ? `Auction ${auctionCountdownParts({ endsAt:p.auctionEndsAt }).h}h ${auctionCountdownParts({ endsAt:p.auctionEndsAt }).m}m` : "Auction needs close"} color={(p.auctionEndsAt && auctionMsLeft({ endsAt:p.auctionEndsAt }) > 0) ? C.purple : C.amber} sm />}
               </Row>
             </div>
           </Row>
@@ -7086,6 +7092,8 @@
           setPlants={setPlants}
           user={user}
           addAudit={addAudit}
+          settings={settings}
+          setSettings={setSettings}
           onBack={() => setDetail(null)}
         />;
       }
@@ -7101,6 +7109,19 @@
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="🌿" title="Inventory Action Center" sub={`${displayList.length} showing · ${inventoryActionSummary}`} right={<Row className="ld-mobile-action-grid" gap={8} wrap><Btn v={bulkMode ? "danger" : "soft"} sz="sm" onClick={() => bulkMode ? exitBulkMode() : setBulkMode(true)}>{bulkMode ? "Exit Bulk" : "☑️ Select"}</Btn><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="soft" sz="sm" onClick={() => setPage("photosprint")}>⚡ Photo Sprint</Btn>{canInlineEditInventory && <Btn v="soft" sz="sm" onClick={() => setPage("inlineedit")}>✏️ Edit</Btn>}{canInlineEditInventory && <><Btn v="soft" sz="sm" onClick={() => setPage("bulkactions")}>☑️ Bulk</Btn><Btn v="soft" sz="sm" onClick={() => setPage("swipegestures")}>👆 Swipe</Btn></>}<Btn v="outline" sz="sm" onClick={exportMasterInventory}>📥 Export</Btn></Row>} />
         <div className="ld-mobile-help-text">Mobile tip: the action buttons are grouped here so they stay readable. Use Photo Sprint for barcode-label photos, then plant photos.</div>
+
+        {phase77BuildAuctionSummary({ plants, settings }).active.length > 0 && <Card style={{ marginBottom:14, background:C.purpleBg, border:`1px solid ${C.purple}55`, borderLeft:`6px solid ${C.purple}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, fontSize:19, color:C.purple, fontWeight:950 }}>🏷️ Palmstreet Auction Timer</div>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{phase77BuildAuctionSummary({ plants, settings }).active.length} active · {phase77BuildAuctionSummary({ plants, settings }).endingSoon.length} ending soon · {phase77BuildAuctionSummary({ plants, settings }).overdue.length} need closing</div>
+            </div>
+            <Row gap={7} wrap>
+              <Tag text={`${phase77BuildAuctionSummary({ plants, settings }).slotsUsed}/${AUCTION_DAILY_LIMIT} used`} color={phase77BuildAuctionSummary({ plants, settings }).slotsUsed >= AUCTION_DAILY_LIMIT ? C.red : C.purple} />
+              <Btn sz="sm" v="soft" onClick={() => { setFs("Auction"); setActionView("All Plants"); }}>View Auctions</Btn>
+            </Row>
+          </Row>
+        </Card>}
 
         <Card style={{ marginBottom: 14, background: C.blueBg, border: `1px solid ${C.blue}40` }}>
           <Row between wrap center gap={10}>
@@ -7266,7 +7287,7 @@
                     <td style={{ padding: "8px 10px", fontWeight: 600, maxWidth: 220 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toTC(p.name)} <span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500, fontWeight: 400, marginLeft: 6 }}>{p.plantId}</span></div></td>
                     <td style={{ padding: "8px 10px", color: C.tx3 }}>{canInlineEditInventory ? <InlineEdit value={p.potSize || ""} options={["", ...POT_SIZES]} format={v => v || "—"} onSave={v => inlineSavePlantField(p, "potSize", v)} ariaLabel="Edit pot size" /> : (p.potSize || "—")}</td>
                     {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{canInlineEditInventory ? <InlineEdit value={+p.suggestedPrice || ""} type="number" format={v => (+v ? $(v) : "No price")} parse={v => Math.max(0, Math.round((+v || 0) * 100) / 100)} onSave={v => inlineSavePlantField(p, "suggestedPrice", v)} ariaLabel="Edit suggested price" /> : $(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
-                    <td style={{ padding: "8px 10px" }}>{canInlineEditInventory ? <InlineEdit value={p.status || "In Stock"} options={STATUSES} format={v => v || "In Stock"} onSave={v => inlineSavePlantField(p, "status", v)} ariaLabel="Edit status" /> : <SBadge s={p.status} />}</td>
+                    <td style={{ padding: "8px 10px" }}>{canInlineEditInventory ? <InlineEdit value={p.status || "In Stock"} options={STATUSES} format={v => v || "In Stock"} onSave={v => inlineSavePlantField(p, "status", v)} ariaLabel="Edit status" /> : <SBadge s={p.status} />}{(String(p.status || "") === AUCTION_STATUS || p.auctionEndsAt) && <div style={{ fontSize:10, color:p.auctionEndsAt && auctionMsLeft({ endsAt:p.auctionEndsAt }) > 0 ? C.purple : C.amber, fontWeight:900, marginTop:3 }}>{p.auctionEndsAt && auctionMsLeft({ endsAt:p.auctionEndsAt }) > 0 ? `Ends ${auctionCountdownParts({ endsAt:p.auctionEndsAt }).h}h ${auctionCountdownParts({ endsAt:p.auctionEndsAt }).m}m` : "Needs close"}</div>}</td>
                     <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 11, color: C.tx3 }}>{p.rack || "—"}</td>
                     <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{p.nurseryName || p.nurseryCode}</td>
                     <td style={{ padding: "8px 10px", color: C.tx3, fontSize: 11 }}>{p.dateAdded}</td>
@@ -7315,6 +7336,281 @@
     const SHOW_KEY = 'leafDiaryShowBuilderIds';
     const LEAF_DIARY_LOGO_IMAGE = 'https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200';
     const safePlantId = p => (p?.plantId || p?.id || '').toString().trim();
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 77 — PALMSTREET AUCTION MANAGER FOUNDATION
+       No new pages. Auction UI will be added inside existing Shows,
+       Today, Inventory, Morning Briefing, and QA surfaces.
+       This foundation only adds safe statuses, timers, active-auction
+       helpers, export-block messaging, and best-pick scoring.
+    ══════════════════════════════════════════════════════════ */
+    const AUCTION_STATUS = "Auction";
+    const AUCTION_NO_SALE_STATUS = "Auction Ended — No Sale";
+    const AUCTION_STATUSES = [AUCTION_STATUS, AUCTION_NO_SALE_STATUS];
+    const AUCTION_PLATFORM = "Palmstreet";
+    const AUCTION_DAILY_LIMIT = 15;
+    const AUCTION_PAGE_TARGET = "shows_ws"; // do not create a new page; route to existing Shows workspace
+    const auctionPlantId = p => (p?.plantId || p?.plantCode || p?.id || '').toString().trim();
+    const isAuctionStatus = status => AUCTION_STATUSES.includes(String(status || '').trim());
+    const isAuctionPlant = p => isAuctionStatus(p?.status);
+    const auctionMoney = v => +String(v ?? '').replace(/[^0-9.-]/g, '') || 0;
+    const auctionHasPhoto = p => !!(p?.photoUrl || p?.photoBase64 || p?.imageUrl || p?.photo);
+    const auctionPriceOf = p => auctionMoney(p?.suggestedPrice || p?.listPrice || p?.salePrice || p?.price || p?.marketRec || 0);
+    function auctionNormalizeDuration(hours) {
+      const h = +hours || 24;
+      return [24, 48, 72].includes(h) ? h : 24;
+    }
+    function auctionRecordFromPlant(plant, patch = {}) {
+      const p = safeObject(plant);
+      const startedAt = patch.startedAt || p.auctionStartedAt || new Date().toISOString();
+      const durationHours = auctionNormalizeDuration(patch.durationHours || p.auctionDurationHours || 24);
+      const endsAt = patch.endsAt || p.auctionEndsAt || new Date(new Date(startedAt).getTime() + durationHours * 3600000).toISOString();
+      return {
+        plantId: patch.plantId || auctionPlantId(p),
+        plantName: patch.plantName || p.name || "Leaf Diary Plant",
+        startedAt,
+        endsAt,
+        durationHours,
+        startPrice: auctionMoney(patch.startPrice ?? p.auctionStartPrice ?? p.suggestedPrice ?? p.listPrice ?? p.salePrice ?? p.price),
+        auctionNote: patch.auctionNote ?? p.auctionNote ?? "",
+        platform: AUCTION_PLATFORM
+      };
+    }
+    function getActiveAuctions(settings = {}, plants = []) {
+      const byId = {};
+      safeArray(settings.activeAuctions).forEach(a => {
+        const id = String(a?.plantId || '').trim();
+        if (!id) return;
+        byId[id.toLowerCase()] = { ...a, plantId:id, platform:a.platform || AUCTION_PLATFORM };
+      });
+      safeArray(plants).filter(p => p?.status === AUCTION_STATUS).forEach(p => {
+        const id = auctionPlantId(p);
+        if (!id) return;
+        byId[id.toLowerCase()] = { ...auctionRecordFromPlant(p), ...(byId[id.toLowerCase()] || {}) };
+      });
+      return Object.values(byId).filter(a => a.plantId);
+    }
+    function getAuctionHistory(settings = {}) { return safeArray(settings.auctionPickHistory); }
+    function auctionSlotsUsed24h(settings = {}, plants = []) {
+      const now = Date.now();
+      const recentStarted = getAuctionHistory(settings).filter(a => (a.action === "started" || !a.action) && new Date(a.startedAt || a.createdAt || 0).getTime() > now - 86400000);
+      const activeRecent = getActiveAuctions(settings, plants).filter(a => new Date(a.startedAt || 0).getTime() > now - 86400000);
+      const ids = new Set([...recentStarted, ...activeRecent].map(a => String(a.plantId || a.id || '').toLowerCase()).filter(Boolean));
+      return Math.min(AUCTION_DAILY_LIMIT, ids.size);
+    }
+    function auctionSlotsLeft(settings = {}, plants = []) { return Math.max(0, AUCTION_DAILY_LIMIT - auctionSlotsUsed24h(settings, plants)); }
+    function auctionMsLeft(a) { return new Date(a?.endsAt || 0).getTime() - Date.now(); }
+    function auctionCountdownParts(a) {
+      const ms = Math.max(0, auctionMsLeft(a));
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      const sec = Math.floor((ms % 60000) / 1000);
+      return { ms, h, m, sec, label: ms > 0 ? `${h}h ${m}m ${sec}s` : "ENDED" };
+    }
+    function auctionCountdownColor(a) {
+      const ms = auctionMsLeft(a);
+      return ms <= 0 ? C.red : ms <= 3600000 ? C.red : ms <= 6 * 3600000 ? C.amber : C.g600;
+    }
+    function showExportStatusError(p, row, id) {
+      const status = String(p?.status || '').trim();
+      const label = id || `Row ${row}`;
+      if (isAuctionStatus(status)) return `${label}: This plant is status '${status}' and cannot be in a show export. Close or return the Palmstreet auction before adding it to a Palmstreet/Whatnot show.`;
+      return `${label}: This plant is status '${status}' and cannot be in a show export. Only In Stock/show-ready plants can export.`;
+    }
+    function phase77BuildAuctionSummary({ plants = [], settings = {} } = {}) {
+      const active = getActiveAuctions(settings, plants);
+      const now = Date.now();
+      const overdue = active.filter(a => new Date(a.endsAt || 0).getTime() <= now);
+      const endingSoon = active.filter(a => { const ms = auctionMsLeft(a); return ms > 0 && ms <= 3 * 3600000; });
+      const slotsUsed = auctionSlotsUsed24h(settings, plants);
+      const slotsLeft = Math.max(0, AUCTION_DAILY_LIMIT - slotsUsed);
+      return { active, overdue, endingSoon, slotsUsed, slotsLeft, limit:AUCTION_DAILY_LIMIT, generatedAt:new Date().toISOString() };
+    }
+    function auctionPickReason(row) {
+      const reasons = [];
+      if (row.daysHeld >= 45) reasons.push(`${row.daysHeld} days old`);
+      if (row.margin >= .55) reasons.push("strong margin room");
+      if (row.price >= 20 && row.price <= 80) reasons.push("auction sweet-spot price");
+      if (row.pps < 1.5) reasons.push("low PPS — auction may unlock cash faster");
+      if (!reasons.length) reasons.push("photo-ready and priced for Palmstreet");
+      return reasons.join(" + ");
+    }
+    function buildAuctionPickList(plants = [], settings = {}, limit = AUCTION_DAILY_LIMIT) {
+      const activeIds = new Set(getActiveAuctions(settings, plants).map(a => String(a.plantId || '').toLowerCase()));
+      const minPrice = auctionMoney(settings?.auctionSettings?.minAuctionPrice || 10);
+      return safeArray(plants)
+        .filter(p => String(p?.status || 'In Stock') === 'In Stock')
+        .filter(p => !activeIds.has(auctionPlantId(p).toLowerCase()))
+        .filter(p => auctionHasPhoto(p))
+        .filter(p => auctionPriceOf(p) >= minPrice)
+        .map(p => {
+          const daysHeld = dHeld(p?.dateAdded) || 0;
+          const price = auctionPriceOf(p);
+          const cost = auctionMoney(p?.cost || 0);
+          const margin = price > 0 ? (price - cost) / price : 0;
+          const pps = calcProjectedPPS(p, plants, settings).pps || 0;
+          const ageScore = Math.min(30, daysHeld * .5);
+          const marginScore = Math.min(25, Math.max(0, margin) * 50);
+          const priceScore = price >= 20 && price <= 80 ? 20 : price >= 10 && price < 20 ? 10 : price > 80 ? 12 : 0;
+          const ppsScore = pps < 1.5 ? 15 : pps < 3 ? 8 : 0;
+          const score = Math.round((ageScore + marginScore + priceScore + ppsScore) * 10) / 10;
+          const row = { plant:p, plantId:auctionPlantId(p), score, daysHeld, price, cost, margin, pps };
+          return { ...row, reason:auctionPickReason(row) };
+        })
+        .sort((a,b) => b.score - a.score)
+        .slice(0, Math.max(1, +limit || AUCTION_DAILY_LIMIT));
+    }
+    function startAuction(plant, { durationHours = 24, startPrice, note = "" } = {}, plants = [], setPlants, settings = {}, setSettings, addAudit, user) {
+      const p = safeObject(plant);
+      const plantId = auctionPlantId(p);
+      if (!plantId) { if (typeof alert === "function") alert("This plant needs a plant number before starting an auction."); return false; }
+      const slotsUsed = auctionSlotsUsed24h(settings, plants);
+      if (slotsUsed >= AUCTION_DAILY_LIMIT) { if (typeof alert === "function") alert("Palmstreet daily limit reached: 15 auction slots are already used in the last 24 hours."); return false; }
+      const active = getActiveAuctions(settings, plants);
+      if (active.some(a => String(a.plantId || '').toLowerCase() === plantId.toLowerCase())) { if (typeof alert === "function") alert("This plant is already being tracked as an active Palmstreet auction."); return false; }
+      const startedAt = new Date().toISOString();
+      const duration = auctionNormalizeDuration(durationHours);
+      const endsAt = new Date(Date.now() + duration * 3600000).toISOString();
+      const opening = auctionMoney(startPrice || p.suggestedPrice || p.listPrice || p.price || p.salePrice || 0);
+      const record = auctionRecordFromPlant(p, { plantId, startedAt, endsAt, durationHours:duration, startPrice:opening, auctionNote:note });
+      if (typeof setPlants === "function") setPlants(prev => safeArray(prev).map(row => (row.id === p.id || auctionPlantId(row) === plantId) ? { ...row, status:AUCTION_STATUS, auctionStartedAt:startedAt, auctionDurationHours:duration, auctionEndsAt:endsAt, auctionPlatform:AUCTION_PLATFORM, auctionStartPrice:opening, auctionNote:note || "" } : row));
+      if (typeof setSettings === "function") setSettings(prev => {
+        const current = safeObject(prev);
+        const cleanActive = safeArray(current.activeAuctions).filter(a => String(a.plantId || '').toLowerCase() !== plantId.toLowerCase());
+        const history = safeArray(current.auctionPickHistory);
+        return { ...current, activeAuctions:[...cleanActive, record], auctionPickHistory:[...history, { ...record, id:uid(), action:"started", createdAt:startedAt, startedBy:user?.name || user?.email || "Leaf Diary" }].slice(-500) };
+      });
+      try { addAudit && addAudit({ page:"Auction", action:"Auction Started", user:user?.name || "Leaf Diary", details:`${p.name || plantId} started ${duration}h Palmstreet auction at ${$(opening)} — ends ${new Date(endsAt).toLocaleString()}` }); } catch(e) {}
+      return { ok:true, record, plantId, startedAt, endsAt, durationHours:duration, startPrice:opening };
+    }
+    function closeAuction(plant, outcome, { finalPrice, resultNote = "" } = {}, plants = [], setPlants, settings = {}, setSettings, addAudit, user) {
+      const p = safeObject(plant);
+      const plantId = auctionPlantId(p);
+      const sold = outcome === "sold";
+      const price = auctionMoney(finalPrice);
+      if (sold && price <= 0) { if (typeof alert === "function") alert("Enter the final winning bid before marking the auction sold."); return false; }
+      const endedAt = new Date().toISOString();
+      if (typeof setPlants === "function") setPlants(prev => safeArray(prev).map(row => (row.id === p.id || auctionPlantId(row) === plantId) ? { ...row, status:sold ? "Sold" : "In Stock", salePrice:sold ? price : row.salePrice, soldDate:sold ? today() : row.soldDate, auctionEndedAt:endedAt, auctionResultNote:resultNote || (sold ? `Sold via Palmstreet auction for ${$(price)}` : "No sale — returned to inventory") } : row));
+      if (typeof setSettings === "function") setSettings(prev => {
+        const current = safeObject(prev);
+        return { ...current, activeAuctions:safeArray(current.activeAuctions).filter(a => String(a.plantId || '').toLowerCase() !== String(plantId || '').toLowerCase()), auctionPickHistory:[...safeArray(current.auctionPickHistory), { ...auctionRecordFromPlant(p), id:uid(), action:sold ? "sold" : "no_sale", endedAt, finalPrice:sold ? price : 0, resultNote:resultNote || "" }].slice(-500) };
+      });
+      try { addAudit && addAudit({ page:"Auction", action:sold ? "Auction Sold" : "Auction No Sale", user:user?.name || "Leaf Diary", details:sold ? `${p.name || plantId} sold for ${$(price)} on Palmstreet auction.` : `${p.name || plantId} returned to inventory after no-sale auction.` }); } catch(e) {}
+      return { ok:true, plantId, outcome:sold ? "sold" : "no_sale", finalPrice:sold ? price : 0, endedAt };
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 78 — AUCTION TIMER PANEL
+       Reusable Palmstreet auction timer. No new page. No schema change.
+       Renders inside existing Inventory plant detail / edit flow.
+    ══════════════════════════════════════════════════════════ */
+    function AuctionSlotCounter({ settings = {}, plants = [] }) {
+      const used = auctionSlotsUsed24h(settings, plants);
+      const left = Math.max(0, AUCTION_DAILY_LIMIT - used);
+      const pct = Math.min(100, Math.round((used / AUCTION_DAILY_LIMIT) * 100));
+      const color = used >= AUCTION_DAILY_LIMIT ? C.red : used >= 13 ? C.amber : C.g600;
+      return <div style={{ background:C.card, border:`1px solid ${color}44`, borderRadius:14, padding:"10px 11px", marginBottom:10 }}>
+        <Row between center gap={8} wrap>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontWeight:950, color:C.g900, fontSize:13 }}>Today's Palmstreet Auctions</div>
+            <div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{left} slot{left === 1 ? "" : "s"} remaining · resets after the 24-hour window rolls off</div>
+          </div>
+          <Tag text={`${used} / ${AUCTION_DAILY_LIMIT} used`} color={color} />
+        </Row>
+        <div style={{ height:9, background:C.g100, borderRadius:999, overflow:"hidden", marginTop:8 }}><div style={{ width:`${pct}%`, height:"100%", background:color, borderRadius:999 }} /></div>
+        {used >= AUCTION_DAILY_LIMIT && <div style={{ color:C.red, fontSize:11, fontWeight:900, marginTop:7 }}>Daily limit reached — close auctions or wait until slots roll off.</div>}
+        {used >= 13 && used < AUCTION_DAILY_LIMIT && <div style={{ color:C.amber, fontSize:11, fontWeight:900, marginTop:7 }}>Almost at the daily auction limit.</div>}
+      </div>;
+    }
+
+    function AuctionTimerPanel({ plant, plants = [], setPlants, settings = {}, setSettings, addAudit, user, onLocalUpdate }) {
+      const currentPlant = safeObject(plant);
+      const [duration, setDuration] = useState(auctionNormalizeDuration(currentPlant.auctionDurationHours || 24));
+      const [startPrice, setStartPrice] = useState(auctionPriceOf(currentPlant) || currentPlant.auctionStartPrice || "");
+      const [note, setNote] = useState(currentPlant.auctionNote || "");
+      const [finalPrice, setFinalPrice] = useState(currentPlant.salePrice || "");
+      const [msg, setMsg] = useState("");
+      const [tick, setTick] = useState(0);
+      const activeAuction = getActiveAuctions(settings, plants).find(a => String(a.plantId || "").toLowerCase() === auctionPlantId(currentPlant).toLowerCase());
+      const activeEndsAt = currentPlant.auctionEndsAt || activeAuction?.endsAt || "";
+      const isAuctionSelected = String(currentPlant.status || "") === AUCTION_STATUS || !!activeEndsAt;
+      const isActive = isAuctionSelected && !!activeEndsAt;
+      const msLeft = isActive ? Math.max(0, new Date(activeEndsAt).getTime() - Date.now()) : 0;
+      const isEnded = isActive && msLeft <= 0;
+      const parts = isActive ? auctionCountdownParts({ endsAt: activeEndsAt }) : { label:"Not started", h:0, m:0, sec:0 };
+      const countdownColor = isActive ? auctionCountdownColor({ endsAt: activeEndsAt }) : C.purple;
+      const slotsUsed = auctionSlotsUsed24h(settings, plants);
+      const slotsLeft = Math.max(0, AUCTION_DAILY_LIMIT - slotsUsed);
+      const estimateEndsAt = new Date(Date.now() + auctionNormalizeDuration(duration) * 3600000);
+
+      useEffect(() => {
+        if (!isActive) return;
+        const id = setInterval(() => setTick(n => n + 1), 1000);
+        return () => clearInterval(id);
+      }, [isActive, activeEndsAt]);
+
+      const patchLocal = patch => {
+        if (typeof onLocalUpdate === "function") onLocalUpdate(patch);
+      };
+      const handleStart = () => {
+        const opening = auctionMoney(startPrice || currentPlant.suggestedPrice || currentPlant.listPrice || currentPlant.price || 0);
+        if (opening <= 0) { setMsg("Enter an opening bid before starting the auction."); return; }
+        const result = startAuction(currentPlant, { durationHours:duration, startPrice:opening, note }, plants, setPlants, settings, setSettings, addAudit, user);
+        if (!result) return;
+        const r = result.record || result;
+        patchLocal({ status:AUCTION_STATUS, auctionStartedAt:r.startedAt, auctionDurationHours:r.durationHours || duration, auctionEndsAt:r.endsAt, auctionPlatform:AUCTION_PLATFORM, auctionStartPrice:opening, auctionNote:note || "" });
+        setMsg(`Auction started — ends ${new Date(r.endsAt).toLocaleString()}.`);
+        ldEmitNextStep({ icon:"🏷️", title:"Palmstreet auction started", body:`${currentPlant.name || auctionPlantId(currentPlant)} is now blocked from show exports until the auction is closed.`, cta:"Review Inventory", page:"inv", color:C.purple });
+      };
+      const handleClose = outcome => {
+        const sold = outcome === "sold";
+        const price = auctionMoney(finalPrice);
+        if (sold && price <= 0) { setMsg("Enter the final winning bid before marking sold."); return; }
+        const result = closeAuction(currentPlant, outcome, { finalPrice:price, resultNote:sold ? "Sold via Palmstreet auction" : "No sale — returned to inventory" }, plants, setPlants, settings, setSettings, addAudit, user);
+        if (!result) return;
+        patchLocal({ status:sold ? "Sold" : "In Stock", salePrice:sold ? price : currentPlant.salePrice, soldDate:sold ? today() : currentPlant.soldDate, auctionEndedAt:result.endedAt, auctionResultNote:sold ? `Sold via Palmstreet auction for ${$(price)}` : "No sale — returned to inventory" });
+        setMsg(sold ? `Auction closed as sold for ${$(price)}.` : "Auction closed and returned to inventory.");
+        ldEmitNextStep({ icon:sold ? "✅" : "↩️", title:sold ? "Auction marked sold" : "Auction returned to inventory", body:sold ? "The plant is now sold and removed from active auctions." : "The plant is back in stock and can be reviewed for show export.", cta:"Open Inventory", page:"inv", color:sold ? C.g600 : C.amber });
+      };
+
+      if (!isAuctionSelected) return null;
+      return <div style={{ background:isEnded ? C.amberBg : C.purpleBg, border:`2px solid ${isEnded ? C.amber : C.purple}`, borderRadius:18, padding:15, marginTop:12, boxShadow:"0 10px 28px rgba(13,43,26,.08)" }}>
+        <Row between center wrap gap={10} style={{ marginBottom:10 }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:F.display, fontSize:20, color:isEnded ? C.amber : C.purple, fontWeight:950 }}>{isActive ? isEnded ? "🟡 Auction Ended — Close This" : "🟣 Auction Active" : "🟣 Auction Timer"}</div>
+            <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{currentPlant.name || "Plant"} · {auctionPlantId(currentPlant) || "No ID"} · Palmstreet only</div>
+          </div>
+          <Tag text={isActive ? (isEnded ? "Needs Close" : "Live") : `${slotsLeft} slots left`} color={isEnded ? C.amber : C.purple} />
+        </Row>
+        <AuctionSlotCounter settings={settings} plants={plants} />
+        {!isActive ? <>
+          <div style={{ fontSize:12, color:C.tx2, lineHeight:1.45, marginBottom:10 }}>Set the timer here when you manually start the plant on Palmstreet. Once started, this plant is blocked from Palmstreet/Whatnot show exports until closed.</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:8, marginBottom:10 }}>
+            {[24,48,72].map(h => <button key={h} onClick={() => setDuration(h)} style={{ minHeight:46, borderRadius:999, border:`2px solid ${duration === h ? C.g600 : C.bd}`, background:duration === h ? C.g600 : C.card, color:duration === h ? "#fff" : C.tx2, fontWeight:950, cursor:"pointer", fontFamily:F.body }}>{h}h</button>)}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:9 }}>
+            <Inp label="Opening Bid Price" type="number" value={startPrice} onChange={setStartPrice} placeholder="0.00" />
+            <Inp label="Auction Note" value={note} onChange={setNote} placeholder="optional — rare variegated, starter bid, etc." />
+          </div>
+          <div style={{ fontSize:11, color:C.tx3, marginTop:8 }}>Estimated end: <b>{estimateEndsAt.toLocaleString()}</b></div>
+          <Btn full disabled={slotsLeft <= 0} onClick={handleStart} style={{ marginTop:11, background:slotsLeft <= 0 ? C.tx3 : C.g600, borderColor:slotsLeft <= 0 ? C.tx3 : C.g600 }}>🚀 Start {duration}h Palmstreet Auction</Btn>
+          {slotsLeft <= 0 && <div style={{ color:C.red, fontSize:12, fontWeight:900, marginTop:8 }}>Daily limit reached. Close one auction or wait for a slot to roll off.</div>}
+        </> : <>
+          <div style={{ background:C.card, border:`1px solid ${isEnded ? C.amber + "55" : C.purple + "55"}`, borderRadius:16, padding:13, marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:900, color:C.tx3, textTransform:"uppercase", letterSpacing:.7 }}>{isEnded ? "Ended" : "Live Countdown"}</div>
+            <div style={{ fontFamily:F.display, fontSize:38, fontWeight:950, color:countdownColor, lineHeight:1.05, marginTop:4 }}>{parts.label}</div>
+            <div style={{ fontSize:12, color:C.tx2, marginTop:6 }}>Ends: {new Date(activeEndsAt).toLocaleString()} · Start price: {$(currentPlant.auctionStartPrice || activeAuction?.startPrice || startPrice || 0)}</div>
+          </div>
+          <Inp label="Final Sold Price" type="number" value={finalPrice} onChange={setFinalPrice} placeholder="winning bid amount" />
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:10 }}>
+            <Btn onClick={() => handleClose("sold")} style={{ background:C.g600, borderColor:C.g600, justifyContent:"center" }}>✅ Sold</Btn>
+            <Btn v="ghost" onClick={() => handleClose("no_sale")} style={{ justifyContent:"center" }}>↩️ No Sale</Btn>
+          </div>
+        </>}
+        {msg && <div style={{ marginTop:10, fontSize:12, fontWeight:850, color:msg.toLowerCase().includes("enter") ? C.red : C.g700 }}>{msg}</div>}
+        <style>{`@media(max-width:390px){div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important}}`}</style>
+      </div>;
+    }
     // UPDATE 50 — scanner/export code used for Bluetooth barcode scanners.
     // Keep existing plant numbers. The platform scanner code must match the Labelife barcode value.
     const platformScannerCode = p => String(p?.barcodeValue || p?.plantId || p?.plantCode || '').trim();
@@ -7510,7 +7806,7 @@
           seenIds[key] = seenIds[key] || [];
           seenIds[key].push(row);
         }
-        if (!validShowStatuses.includes(status)) errors.push(`${id}: plant status is ${status}. Only In Stock/show-ready plants can export.`);
+        if (!validShowStatuses.includes(status)) errors.push(isAuctionStatus(status) ? `${id}: ${status} plant is protected from platform show export. Close/return the Palmstreet auction first.` : `${id}: plant status is ${status}. Only In Stock/show-ready plants can export.`);
         if (['Sold', 'Dead', 'Damaged', 'Returned', 'Personal', 'Giveaway'].includes(status)) errors.push(`${id}: ${status} plant cannot be included in a platform show export.`);
         if (!p?.name) errors.push(`${id}: missing plant name`);
         if (!pot) errors.push(`${id}: missing pot size`);
@@ -7647,7 +7943,7 @@ ${JSON.stringify(payload, null, 2)}`;
         if (!p.name) errors.push(`${id || 'Row ' + row}: missing plant name`);
         if (!cleanPrice(p)) errors.push(`${id || 'Row ' + row}: missing suggested price / sale price`);
         if (img && !isPublicHttpsUrl(img)) errors.push(`${id || 'Row ' + row}: Palmstreet Image URL must be a public https:// URL`);
-        if (p.status && !['In Stock', 'Ready For Show', 'Needs Label', 'Needs Photo'].includes(p.status)) errors.push(`${id || 'Row ' + row}: status is ${p.status}, not available for show export`);
+        if (p.status && !['In Stock', 'Ready For Show', 'Needs Label', 'Needs Photo'].includes(p.status)) errors.push(showExportStatusError(p, row, id));
       });
       return errors;
     };
@@ -7687,7 +7983,7 @@ ${JSON.stringify(payload, null, 2)}`;
         if (!p.name) errors.push(`${id || 'Row ' + row}: missing plant name`);
         if (!price) errors.push(`${id || 'Row ' + row}: missing price. Whatnot requires a positive whole-dollar integer.`);
         if (price && !/^\d+$/.test(price)) errors.push(`${id || 'Row ' + row}: price must be whole dollars only, no $ symbol or decimals.`);
-        if (p.status && !['In Stock', 'Ready For Show', 'Needs Label', 'Needs Photo'].includes(p.status)) errors.push(`${id || 'Row ' + row}: status is ${p.status}, not available for show export`);
+        if (p.status && !['In Stock', 'Ready For Show', 'Needs Label', 'Needs Photo'].includes(p.status)) errors.push(showExportStatusError(p, row, id));
         if (!isPublicHttpsUrl(img)) errors.push(`${id || 'Row ' + row}: Image URL 1 must be a public https:// URL`);
       });
       return errors;
@@ -11697,6 +11993,7 @@ Cancel keeps this local/free.`);
         { id:"data-receipts", title:"Receipt cleanup", body:`${receiptsReview.length} receipt(s) need category/review cleanup for tax-ready records.`, page:"receipts", status:receiptsReview.length ? "warn" : "pass" },
         { id:"data-orders", title:"Recent sold orders", body:`${recentOrders.length} sold order group(s) from the last 14 days. Confirm they were reviewed/packed in platforms.`, page:"packorders", status:recentOrders.length ? "warn" : "pass" },
         { id:"data-bills", title:"Bills due soon", body:`${due14.length} unpaid bill(s) due in 14 days; ${due7.length} due in 7 days. Check before buying inventory.`, page:"bills", status:due7.length ? "warn" : "pass" },
+        { id:"data-auctions", title:"Palmstreet auction foundation", body:`${phase77BuildAuctionSummary({ plants, settings }).active.length} active auction(s), ${phase77BuildAuctionSummary({ plants, settings }).overdue.length} overdue, ${phase77BuildAuctionSummary({ plants, settings }).slotsLeft}/${AUCTION_DAILY_LIMIT} slots left. Auction plants are blocked from show exports.`, page:"shows_ws", status:phase77BuildAuctionSummary({ plants, settings }).overdue.length ? "warn" : "pass" },
       ];
       const systemChecks = [
         { id:"sys-owner", title:"Owner login", body:isOwner ? "You are logged in as owner, so release controls are visible." : "Only the owner should perform final go-live checks.", status:isOwner ? "pass" : "fail" },
@@ -17482,7 +17779,7 @@ Cancel if you want to save money.`);
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING, weeklyCapacity: 400, weeklyCapacityOverrideEnabled: false, weeklyCapacityThisWeek: 400, weeklyCapacityNote: "", weeklyCapacityUpdatedAt: "", weeklyCapacityUpdatedBy: "", targetPPS: 3.5, avgShippingCost: 8, phase11Enabled: true, platformFees: { palmstreetPercent: 12, whatnotPercent: 8, defaultPercent: 10, freeShippingThreshold: 0 }, ppsRatingThresholds: { A: 5, B: 3, C: 1.5 } };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING, weeklyCapacity: 400, weeklyCapacityOverrideEnabled: false, weeklyCapacityThisWeek: 400, weeklyCapacityNote: "", weeklyCapacityUpdatedAt: "", weeklyCapacityUpdatedBy: "", targetPPS: 3.5, avgShippingCost: 8, phase11Enabled: true, platformFees: { palmstreetPercent: 12, whatnotPercent: 8, defaultPercent: 10, freeShippingThreshold: 0 }, ppsRatingThresholds: { A: 5, B: 3, C: 1.5 }, activeAuctions: [], auctionPickHistory: [], auctionSettings: { dailyLimit: 15, defaultDurationHours: 24, minAuctionPrice: 10, noSaleAutoDiscountPercent: 0 } };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -20589,7 +20886,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "invoicetrainer" && CAN.seeReports(user.role) && <PurchaseIntakeTrainer settings={settings} setSettings={setSettings} nurseries={nurseries} addAudit={addAudit} user={user} setPage={navigate} />}
           {page === "manual" && <ManualEntry {...P} />}
           {page === "history" && <PastInvoices {...P} />}
-          {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} setPage={navigate} />}
+          {page === "inv" && <Inventory plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} nurseries={nurseries} setPage={navigate} settings={settings} setSettings={setSettings} />}
           {page === "savedfilters" && <SavedFiltersCenter plants={plants} user={user} setPage={navigate} />}
           {page === "inlineedit" && (user.role === "owner" || user.role === "manager") && <InlineEditCenter setPage={navigate} />}
           {page === "bulkactions" && (user.role === "owner" || user.role === "manager") && <BulkActionsCenter plants={plants} user={user} setPage={navigate} />}
