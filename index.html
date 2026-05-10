@@ -1118,6 +1118,41 @@
       color: #174D2F;
       border-color: #9DDEB4;
     }
+    .ld-iphone-barcode-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: #97d33e;
+      color: #000;
+      border: 2px solid #97d33e;
+      border-radius: 999px;
+      padding: 13px 16px;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-weight: 950;
+      cursor: pointer;
+      min-height: 48px;
+      box-shadow: 0 8px 24px rgba(151,211,62,.24);
+    }
+    .ld-live-scan-secondary {
+      background: rgba(255,255,255,.12);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.24);
+      border-radius: 999px;
+      padding: 12px 15px;
+      font-weight: 900;
+      cursor: pointer;
+      min-height: 46px;
+      font-family: 'DM Sans', system-ui, sans-serif;
+    }
+    .ld-iphone-two-step-card {
+      background: #EDF3FC;
+      border: 1px solid rgba(26,95,154,.25);
+      border-left: 6px solid #1A5F9A;
+      border-radius: 18px;
+      padding: 13px 14px;
+      margin-bottom: 14px;
+    }
 
 
 
@@ -7133,6 +7168,8 @@
       const hasLibraryScanner = ldHasZxingScanner();
       const canLiveScanner = hasNativeScanner || hasLibraryScanner;
       const scannerMode = ldScannerModeLabel();
+      const isIOS = ldIsIOSDevice();
+      const preferBarcodePhoto = isIOS && !hasNativeScanner;
       const detectorFormats = ["code_128", "code_39", "ean_13", "qr_code", "data_matrix"];
       const sprintCount = completed.filter(r => String(r.sessionStartedAt || "") === sessionStartedAt).length;
       const saveCompleted = row => {
@@ -7204,9 +7241,15 @@
         setScanError("");
         setSprintError("");
         setScanMsg("");
+        if (preferBarcodePhoto) {
+          setScanStatus("iphone-photo");
+          setScanError("On iPhone, use the green iPhone Barcode Photo button first. Live scan is mainly for MacBook/Android. You still do not need to type the plant number.");
+          setScanMsg("iPhone mode: take a close photo of the barcode label, then take the plant photo after the app finds the plant.");
+          return;
+        }
         if (!canLiveScanner) {
           setScanStatus("unsupported");
-          setScanError("This iPhone/browser does not have a live scanner available yet. Type the plant number manually, or make sure the app has internet so the scanner fallback library can load.");
+          setScanError("Live barcode scanning is not available in this browser. Use iPhone Barcode Photo or manual lookup. You still do not need to change plant numbers.");
           return;
         }
         if (!navigator.mediaDevices?.getUserMedia) {
@@ -7307,7 +7350,8 @@
           setScanMsg("");
           try { localStorage.setItem("ld_last_photo_sprint", JSON.stringify(row)); } catch(e) {}
           ldEmitNextStep({ icon:"⚡", title:"Sprint photo saved", body:`${savedName} · ${plantNumberNow || codeNow} was saved. Keep scanning the next plant label.`, cta:"Photo Sprint", page:"photosprint", color:C.g600 });
-          if (autoNext && canLiveScanner) setTimeout(() => startScanner(), 650);
+          if (autoNext && canLiveScanner && !preferBarcodePhoto) setTimeout(() => startScanner(), 650);
+          if (autoNext && preferBarcodePhoto) setScanMsg("Ready for the next plant. Tap iPhone Barcode Photo and take a close photo of the next label barcode.");
         } catch(e) {
           setSprintError("Could not save photo: " + (e?.message || String(e)));
         } finally {
@@ -7329,7 +7373,8 @@
           <Row between center wrap gap={12}>
             <div><div style={{ fontSize:42 }}>⚡</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900, marginTop:5 }}>Fast Photo Sprint</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Scan label → take/upload photo → save → next plant. Built for high-volume photo days.</div></div>
             <Row gap={8} wrap>
-              {scanStatus === "scanning" ? <button onClick={stopScanner} style={{ background:C.red, color:"#fff", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Stop Camera</button> : <button onClick={startScanner} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Start Sprint Scan</button>}
+              <label className="ld-iphone-barcode-primary">📱 iPhone Barcode Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
+              {scanStatus === "scanning" ? <button onClick={stopScanner} style={{ background:C.red, color:"#fff", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Stop Camera</button> : <button onClick={startScanner} className="ld-live-scan-secondary">{preferBarcodePhoto ? "Live Scan (Mac/Android)" : "Start Live Scan"}</button>}
               <button onClick={()=>setPage("scanlabel")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Regular Scanner</button>
             </Row>
           </Row>
@@ -7341,7 +7386,7 @@
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <KPI label="Need Photos" value={needPhotos.length} sub="current queue" color={needPhotos.length ? C.amber : C.g600} />
           <KPI label="Saved This Sprint" value={sprintCount} sub="this open session" color={sprintCount ? C.g600 : C.tx3} />
-          <KPI label="Scanner" value={scannerMode} sub={canLiveScanner ? "camera ready" : "manual only"} color={canLiveScanner ? C.g600 : C.amber} />
+          <KPI label="Scanner" value={preferBarcodePhoto ? "iPhone Photo" : scannerMode} sub={preferBarcodePhoto ? "photo label first" : canLiveScanner ? "camera ready" : "manual only"} color={preferBarcodePhoto ? C.blue : canLiveScanner ? C.g600 : C.amber} />
           <KPI label="Auto Next" value={autoNext ? "On" : "Off"} sub="after save" color={autoNext ? C.g600 : C.tx3} />
         </div>
 
@@ -7359,8 +7404,8 @@
           <Row gap={10} center>
             <div style={{ width:38, height:38, borderRadius:14, background:C.card, color:C.blue, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>📱</div>
             <div style={{ minWidth:0 }}>
-              <div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>iPhone note</div>
-              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:2 }}>Your Mac may live-scan barcodes, but iPhone Safari can be picky with CODE128. Try Start Sprint Scan first. If it does not read in about 10 seconds, tap <b>iPhone Barcode Photo</b>, take a close photo of the barcode, then take the plant photo after the plant is found.</div>
+              <div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>iPhone note — use this first</div>
+              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:2 }}>On iPhone, tap <b>iPhone Barcode Photo</b> first. Take a close photo of the barcode label. The app finds the plant. Then take the actual plant photo. Live Scan is mainly for MacBook/Android.</div>
             </div>
           </Row>
         </Card>
@@ -7369,11 +7414,11 @@
           <div style={{ display:"grid", gap:14 }}>
             <Card style={{ padding:16 }}>
               <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>1. Scan The Label</div><div style={{ color:C.tx3, fontSize:12 }}>Mac/Android can live scan. On iPhone, try live scan first; if it does not read quickly, tap iPhone Barcode Photo and take a close photo of the barcode label.</div></div>
-                <Row gap={8} wrap><label style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:C.g100, color:C.g800, border:`1px solid ${C.g300}`, borderRadius:999, padding:"11px 13px", fontWeight:900, cursor:"pointer" }}>iPhone Barcode Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label></Row>
+                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>{preferBarcodePhoto ? "1. iPhone: Take Barcode Photo" : "1. Scan The Label"}</div><div style={{ color:C.tx3, fontSize:12 }}>{preferBarcodePhoto ? "Take a close photo of the Labelife barcode first. The app will find the plant, then you take the plant photo." : "Mac/Android can live scan. iPhone should use Barcode Photo if live scan does not read quickly."}</div></div>
+                <Row gap={8} wrap><label className="ld-iphone-barcode-primary">📱 iPhone Barcode Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>{!preferBarcodePhoto && scanStatus !== "scanning" && <Btn v="soft" onClick={startScanner}>Live Scan</Btn>}</Row>
               </Row>
               <div className="ld-sprint-video-wrap">
-                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-sprint-video" playsInline muted /><div className="ld-sprint-frame" /><div className="ld-sprint-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:48 }}>▌▌</div><div>{canLiveScanner ? "Tap Start Sprint Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{canLiveScanner ? "iPhone fallback is included. If it does not read fast, use iPhone Barcode Photo." : "Manual lookup still works on every device."}</div></div>}
+                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-sprint-video" playsInline muted /><div className="ld-sprint-frame" /><div className="ld-sprint-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:48 }}>📱</div><div>{preferBarcodePhoto ? "iPhone: tap Barcode Photo first" : canLiveScanner ? "Tap Start Live Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{preferBarcodePhoto ? "Take a close barcode-label photo. Then take the plant photo after the plant is found." : canLiveScanner ? "Point the camera at the barcode. If it does not read, use iPhone Barcode Photo." : "Manual lookup still works on every device."}</div></div>}
               </div>
               {scanMsg && <div style={{ marginTop:10, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:10, color:C.g900, fontSize:12, fontWeight:800 }}>{scanMsg}</div>}
               {scanError && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}55`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>{scanError}</div>}
@@ -7467,6 +7512,8 @@
       const hasLibraryScanner = ldHasZxingScanner();
       const canLiveScanner = hasNativeScanner || hasLibraryScanner;
       const scannerMode = ldScannerModeLabel();
+      const isIOS = ldIsIOSDevice();
+      const preferBarcodePhoto = isIOS && !hasNativeScanner;
       const detectorFormats = ["code_128", "code_39", "ean_13", "qr_code", "data_matrix"];
       const saveHistory = row => {
         const next = [row, ...history.filter(h => h.code !== row.code)].slice(0, 8);
@@ -7544,9 +7591,15 @@
         setFoundPlant(null);
         setScanError("");
         setScanMsg("");
+        if (preferBarcodePhoto) {
+          setScanStatus("iphone-photo");
+          setScanError("On iPhone, use Take Label Photo first. Live scan is mainly for MacBook/Android. You still do not need to type the plant number.");
+          setScanMsg("iPhone mode: take a close photo of the barcode label, then take the plant photo after the app finds the plant.");
+          return;
+        }
         if (!canLiveScanner) {
           setScanStatus("unsupported");
-          setScanError("This iPhone/browser does not have a live scanner available yet. Type the plant number manually, or make sure the app has internet so the scanner fallback library can load.");
+          setScanError("Live barcode scanning is not available in this browser. Use Take Label Photo or manual lookup.");
           return;
         }
         if (!navigator.mediaDevices?.getUserMedia) {
@@ -7669,7 +7722,8 @@
               <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Scan the Labelife CODE128 barcode, confirm the plant, then take or upload a photo. No typing plant numbers.</div>
             </div>
             <Row gap={8} wrap>
-              <button onClick={startScanner} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Start Camera Scan</button>
+              <label className="ld-iphone-barcode-primary">📱 Take Label Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
+              <button onClick={startScanner} className="ld-live-scan-secondary">{preferBarcodePhoto ? "Live Scan (Mac/Android)" : "Start Live Scan"}</button>
               <button onClick={()=>setPage("barcodeqa")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Barcode QA</button>
             </Row>
           </Row>
@@ -7681,7 +7735,7 @@
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <KPI label="In Stock" value={inStock.length} sub="scan-ready inventory" color={C.g600} />
           <KPI label="Need Photos" value={noPhoto.length} sub="photo sprint queue" color={noPhoto.length ? C.amber : C.g600} />
-          <KPI label="Scanner" value={scannerMode} sub={canLiveScanner ? "camera ready" : "manual only"} color={canLiveScanner ? C.g600 : C.amber} />
+          <KPI label="Scanner" value={preferBarcodePhoto ? "iPhone Photo" : scannerMode} sub={preferBarcodePhoto ? "label photo first" : canLiveScanner ? "camera ready" : "manual only"} color={preferBarcodePhoto ? C.blue : canLiveScanner ? C.g600 : C.amber} />
           <KPI label="Last Code" value={lastCode || "—"} sub="barcode read" color={lastCode ? C.blue : C.tx3} />
         </div>
 
@@ -7689,11 +7743,11 @@
           <div style={{ display:"grid", gap:14 }}>
             <Card style={{ padding:16 }}>
               <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Camera Scanner</div><div style={{ color:C.tx3, fontSize:12 }}>Use this after your Labelife barcode labels are printed. Mac/Android can live scan. On iPhone, use iPhone Barcode Photo if live scan does not grab the barcode quickly.</div></div>
-                <Row gap={8} wrap>{scanStatus === "scanning" ? <Btn v="danger" onClick={stopScanner}>Stop Camera</Btn> : <Btn onClick={startScanner}>Start Camera</Btn>}</Row>
+                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>{preferBarcodePhoto ? "iPhone: Take Label Photo First" : "Camera Scanner"}</div><div style={{ color:C.tx3, fontSize:12 }}>{preferBarcodePhoto ? "On iPhone, take a close photo of the barcode label first. The app finds the plant, then you take the plant photo." : "Mac/Android can live scan. On iPhone, use Take Label Photo if live scan does not grab the barcode quickly."}</div></div>
+                <Row gap={8} wrap><label className="ld-iphone-barcode-primary">📱 Take Label Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>{scanStatus === "scanning" ? <Btn v="danger" onClick={stopScanner}>Stop Camera</Btn> : !preferBarcodePhoto && <Btn onClick={startScanner}>Start Live Scan</Btn>}</Row>
               </Row>
               <div className="ld-scan-video-wrap">
-                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-scan-video" playsInline muted /><div className="ld-scan-frame" /><div className="ld-scan-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:42 }}>▌▌</div><div>{canLiveScanner ? "Tap Start Camera Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{canLiveScanner ? "iPhone fallback is included. If it does not read fast, use iPhone Barcode Photo." : "Manual lookup still works on every device."}</div></div>}
+                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-scan-video" playsInline muted /><div className="ld-scan-frame" /><div className="ld-scan-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:42 }}>📱</div><div>{preferBarcodePhoto ? "iPhone: take label photo first" : canLiveScanner ? "Tap Start Live Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{preferBarcodePhoto ? "Take a close barcode-label photo. Then take the plant photo after the plant is found." : canLiveScanner ? "Point the camera at the barcode. If it does not read, use Take Label Photo." : "Manual lookup still works on every device."}</div></div>}
               </div>
               {scanMsg && <div style={{ marginTop:10, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:10, color:C.g900, fontSize:12, fontWeight:800 }}>{scanMsg}</div>}
               {scanError && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}55`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>{scanError}</div>}
