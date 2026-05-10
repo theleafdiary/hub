@@ -2914,21 +2914,28 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     async function phase97CallFastMarketWorker({ plant = {}, settings = {}, allPlants = [], user = {}, cfg = {} }) {
       const endpoint = phase61NormalizeUrl((cfg && cfg.endpointUrl) || LEAF_AI_WORKING_ENDPOINT);
       const token = String((cfg && cfg.secretToken) || LEAF_AI_WORKING_TOKEN || "").trim();
-      const payload = phase97BuildFastMarketPayload(plant, user, settings);
+      const payload = {
+        ...phase97BuildFastMarketPayload(plant, user, settings),
+        // Update 98: token is also sent inside the body so the Worker can avoid custom auth headers.
+        // This lets the browser make a simple text/plain POST and bypasses CORS preflight issues.
+        leafDiaryToken: token,
+        authToken: token,
+        transportMode: "simple_text_plain_post_v98"
+      };
       const started = Date.now();
       const timeoutMs = Math.max(45000, +cfg.timeoutMs || 90000);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const headers = { "Content-Type":"application/json", "Accept":"application/json" };
-        if (token) headers["X-Leaf-Diary-AI-Token"] = token;
-        const res = await fetch(`${endpoint}?market=v97&ts=${Date.now()}`, {
+        const res = await fetch(`${endpoint}?market=v98-simple&ts=${Date.now()}`, {
           method:"POST",
           mode:"cors",
           credentials:"omit",
           cache:"no-store",
           signal:controller.signal,
-          headers,
+          // Safelisted Content-Type only. No custom token header and no Accept header.
+          // This avoids OPTIONS/preflight failures on some browser/site setups.
+          headers:{ "Content-Type":"text/plain;charset=UTF-8" },
           body:JSON.stringify(payload)
         });
         const text = await res.text();
@@ -2944,7 +2951,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const priced = calcAIMarketPrice(plant, marketJson, settings, allPlants);
         return {
           ...priced,
-          source:"direct_fast_market_worker_v97",
+          source:"simple_post_fast_market_worker_v98",
           runAt:new Date().toISOString(),
           gatewayProvider:data.provider || data.searchProvider || "tavily-fast-market",
           gatewayModel:data.model || cfg.model || LEAF_AI_WORKING_GATEWAY_MODEL,
@@ -2957,16 +2964,17 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       } catch(e) {
         const message = e?.name === "AbortError" ? `Direct market Worker timed out after ${Math.round(timeoutMs/1000)} seconds.` : (e?.message || String(e));
         return {
-          ...phase83BuildFallbackMarketResult(plant, settings, allPlants, `Direct market Worker failed: ${message} Using internal sales history.`),
-          source:"direct_fast_market_worker_failed_v97",
+          ...phase83BuildFallbackMarketResult(plant, settings, allPlants, `Direct simple-post market Worker failed: ${message} Using internal sales history.`),
+          source:"simple_post_fast_market_worker_failed_v98",
           gatewayError:message,
-          gatewayAnswerPreview:`Endpoint: ${endpoint}\nMode: direct fast market POST v97\nError: ${message}\nIf Worker GET shows update-96-fast, this is a browser POST/CORS/token issue or the app is still using old cached settings.`,
+          gatewayAnswerPreview:`Endpoint: ${endpoint}\nMode: simple text/plain market POST v98\nError: ${message}\nWorker must be Update 98 or newer so it can read leafDiaryToken/authToken from the request body. If GET works but this fails, check that the HTML app is using Update 98 and the Worker is using Update 98.`,
           gatewayMs:Date.now() - started
         };
       } finally {
         clearTimeout(timer);
       }
     }
+
     async function runMarketPriceResearch(plant = {}, settings = {}, allPlants = [], user = {}, opts = {}) {
       const normalizedPlant = { ...plant, cost:+plant.cost || 0, suggestedPrice:+plant.suggestedPrice || +plant.listPrice || +plant.price || 0 };
       const { marketCfg, gatewayCfg, estimatedCost, canAffordLookup } = phase86BuildGatewayPricingConfig(settings);
