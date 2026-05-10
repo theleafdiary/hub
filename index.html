@@ -2101,6 +2101,23 @@
       </div>;
     }
 
+    function MacBookIphoneCameraNote({ compact = false }) {
+      return <div style={{ background:C.goldBg, border:`1px solid ${C.gold}44`, borderLeft:`6px solid ${C.gold}`, borderRadius:compact ? 14 : 18, padding:compact ? "10px 11px" : "13px 14px", margin:compact ? "8px 0" : "0 0 14px" }}>
+        <Row gap={10} center>
+          <div style={{ width:compact ? 34 : 40, height:compact ? 34 : 40, borderRadius:14, background:C.card, color:C.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:compact ? 20 : 24, flexShrink:0 }}>💻</div>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontWeight:950, color:C.g900, fontSize:compact ? 13 : 14 }}>MacBook + iPhone camera reminder</div>
+            <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:2 }}>
+              For live barcode scanning, open this app on your <b>MacBook in Chrome</b>, choose <b>Fast Photo Sprint</b>, tap <b>Live Scan</b>, then pick your <b>iPhone camera</b> when Chrome asks for a camera. Mount the iPhone facing the label/plant station. Scan barcode → plant opens → take plant photo → save → next plant.
+            </div>
+            <div style={{ color:C.tx3, fontSize:11, lineHeight:1.35, marginTop:5 }}>
+              If you are on the iPhone itself, use <b>iPhone Barcode Photo</b> instead of Live Scan.
+            </div>
+          </div>
+        </Row>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        PHASE 2 STEP 1 — SKELETON LOADING COMPONENTS
        These are presentation-only placeholders. They do not touch data.
@@ -7088,7 +7105,7 @@
             <Row gap={8} wrap>
               <button onClick={backfillAll} disabled={!canBackfill} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:canBackfill?"pointer":"not-allowed", opacity:canBackfill?1:.55 }}>Backfill Barcode Fields</button>
               <button onClick={()=>setPage("labelife")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Labelife CSV</button>
-              <button onClick={()=>setPage("scanlabel")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Scan Test</button><button onClick={()=>setPage("photosprint")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Photo Sprint</button>
+              <button onClick={()=>setPage("photosprint")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Photo Sprint</button>
               <button onClick={exportProblems} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Export Problems</button>
             </Row>
           </Row>
@@ -7146,6 +7163,7 @@
       const frameRef = useRef(null);
       const detectorRef = useRef(null);
       const codeReaderRef = useRef(null);
+      const barcodePhotoInputRef = useRef(null);
       const lastScanRef = useRef(0);
       const [manualCode, setManualCode] = useState("");
       const [scanStatus, setScanStatus] = useState("idle");
@@ -7286,20 +7304,48 @@
       };
       const manualLookup = () => handleCode(manualCode, "manual lookup");
       const scanImageFile = async file => {
-        if (!file) return;
-        setFoundPlant(null); setScanError(""); setScanMsg("Scanning uploaded barcode photo...");
+        if (!file) {
+          setScanMsg("No label photo selected. Tap Take Label Photo and choose Use Camera or Take Photo.");
+          return;
+        }
+        setFoundPlant(null);
+        setScanError("");
+        setSprintError("");
+        setScanStatus("photo-scanning");
+        setScanMsg("Label photo received. Reading the barcode now...");
         try {
           const raw = await ldDecodeBarcodeFromImageFile(file, detectorFormats);
           if (!raw) {
             setScanStatus("notfound");
-            setScanError("No barcode found in that photo. Try a closer photo or type the plant number.");
+            setScanError("No barcode found in that label photo. Retake it closer, brighter, and fill the photo with the barcode.");
             return;
           }
+          setScanMsg(`Barcode read: ${raw}. Looking up the plant...`);
           handleCode(raw, hasNativeScanner ? "label photo" : "label photo fallback");
         } catch(e) {
           setScanStatus("error");
-          setScanError(e?.message || String(e));
+          setScanError("Could not read the label photo: " + (e?.message || String(e)));
         }
+      };
+      const openBarcodePhotoPicker = () => {
+        setScanError("");
+        setSprintError("");
+        setScanMsg("Opening camera/photo picker. Take a close photo of the barcode label.");
+        try {
+          if (!barcodePhotoInputRef.current) {
+            setScanError("The label-photo picker is not ready. Refresh the page and try again.");
+            return;
+          }
+          barcodePhotoInputRef.current.value = "";
+          barcodePhotoInputRef.current.click();
+        } catch(e) {
+          setScanError("Could not open the camera/photo picker: " + (e?.message || String(e)));
+        }
+      };
+      const handleBarcodePhotoInput = e => {
+        const file = e?.target?.files && e.target.files[0];
+        scanImageFile(file);
+        try { e.target.value = ""; } catch(_) {}
       };
       const saveSprintPhoto = async file => {
         if (!file || !foundPlant) return;
@@ -7369,11 +7415,12 @@
         try { localStorage.setItem("ld_photo_sprint_history", "[]"); } catch(e) {}
       };
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
+        <input ref={barcodePhotoInputRef} type="file" accept="image/*" capture="environment" onChange={handleBarcodePhotoInput} aria-label="Take barcode label photo" style={{ position:"absolute", opacity:0, width:1, height:1, pointerEvents:"none" }} />
         <div className="ld-photo-sprint-hero">
           <Row between center wrap gap={12}>
             <div><div style={{ fontSize:42 }}>⚡</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900, marginTop:5 }}>Fast Photo Sprint</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Scan label → take/upload photo → save → next plant. Built for high-volume photo days.</div></div>
             <Row gap={8} wrap>
-              <label className="ld-iphone-barcode-primary">📱 iPhone Barcode Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
+              <button type="button" className="ld-iphone-barcode-primary" onClick={openBarcodePhotoPicker}>📱 Take Label Photo</button>
               {scanStatus === "scanning" ? <button onClick={stopScanner} style={{ background:C.red, color:"#fff", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Stop Camera</button> : <button onClick={startScanner} className="ld-live-scan-secondary">{preferBarcodePhoto ? "Live Scan (Mac/Android)" : "Start Live Scan"}</button>}
               <button onClick={()=>setPage("scanlabel")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Regular Scanner</button>
             </Row>
@@ -7410,12 +7457,14 @@
           </Row>
         </Card>
 
+        <MacBookIphoneCameraNote />
+
         <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:14 }}>
           <div style={{ display:"grid", gap:14 }}>
             <Card style={{ padding:16 }}>
               <Row between center wrap gap={10} style={{ marginBottom:12 }}>
                 <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>{preferBarcodePhoto ? "1. iPhone: Take Barcode Photo" : "1. Scan The Label"}</div><div style={{ color:C.tx3, fontSize:12 }}>{preferBarcodePhoto ? "Take a close photo of the Labelife barcode first. The app will find the plant, then you take the plant photo." : "Mac/Android can live scan. iPhone should use Barcode Photo if live scan does not read quickly."}</div></div>
-                <Row gap={8} wrap><label className="ld-iphone-barcode-primary">📱 iPhone Barcode Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>{!preferBarcodePhoto && scanStatus !== "scanning" && <Btn v="soft" onClick={startScanner}>Live Scan</Btn>}</Row>
+                <Row gap={8} wrap><button type="button" className="ld-iphone-barcode-primary" onClick={openBarcodePhotoPicker}>📱 Take Label Photo</button>{!preferBarcodePhoto && scanStatus !== "scanning" && <Btn v="soft" onClick={startScanner}>Live Scan</Btn>}</Row>
               </Row>
               <div className="ld-sprint-video-wrap">
                 {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-sprint-video" playsInline muted /><div className="ld-sprint-frame" /><div className="ld-sprint-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:48 }}>📱</div><div>{preferBarcodePhoto ? "iPhone: tap Barcode Photo first" : canLiveScanner ? "Tap Start Live Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{preferBarcodePhoto ? "Take a close barcode-label photo. Then take the plant photo after the plant is found." : canLiveScanner ? "Point the camera at the barcode. If it does not read, use iPhone Barcode Photo." : "Manual lookup still works on every device."}</div></div>}
@@ -7491,6 +7540,7 @@
       const frameRef = useRef(null);
       const detectorRef = useRef(null);
       const codeReaderRef = useRef(null);
+      const barcodePhotoInputRef = useRef(null);
       const lastScanRef = useRef(0);
       const [manualCode, setManualCode] = useState("");
       const [scanStatus, setScanStatus] = useState("idle");
@@ -7635,20 +7685,48 @@
         }
       };
       const scanImageFile = async file => {
-        if (!file) return;
-        setFoundPlant(null); setScanError(""); setScanMsg("Scanning uploaded label photo...");
+        if (!file) {
+          setScanMsg("No label photo selected. Tap Take Label Photo and choose Use Camera or Take Photo.");
+          return;
+        }
+        setFoundPlant(null);
+        setScanError("");
+        setPhotoError("");
+        setScanStatus("photo-scanning");
+        setScanMsg("Label photo received. Reading the barcode now...");
         try {
           const raw = await ldDecodeBarcodeFromImageFile(file, detectorFormats);
           if (!raw) {
             setScanStatus("notfound");
-            setScanError("No barcode found in that photo. Try a closer, brighter photo or use manual lookup.");
+            setScanError("No barcode found in that label photo. Retake it closer, brighter, and fill the photo with the barcode.");
             return;
           }
+          setScanMsg(`Barcode read: ${raw}. Looking up the plant...`);
           handleCode(raw, hasNativeScanner ? "label photo" : "iPhone label photo fallback");
         } catch(e) {
           setScanStatus("error");
-          setScanError(e?.message || String(e));
+          setScanError("Could not read the label photo: " + (e?.message || String(e)));
         }
+      };
+      const openBarcodePhotoPicker = () => {
+        setScanError("");
+        setPhotoError("");
+        setScanMsg("Opening camera/photo picker. Take a close photo of the barcode label.");
+        try {
+          if (!barcodePhotoInputRef.current) {
+            setScanError("The label-photo picker is not ready. Refresh the page and try again.");
+            return;
+          }
+          barcodePhotoInputRef.current.value = "";
+          barcodePhotoInputRef.current.click();
+        } catch(e) {
+          setScanError("Could not open the camera/photo picker: " + (e?.message || String(e)));
+        }
+      };
+      const handleBarcodePhotoInput = e => {
+        const file = e?.target?.files && e.target.files[0];
+        scanImageFile(file);
+        try { e.target.value = ""; } catch(_) {}
       };
       const savePhotoToFoundPlant = async file => {
         if (!file || !foundPlant) return;
@@ -7714,6 +7792,7 @@
       };
       const recentClick = row => { setManualCode(row.code); handleCode(row.code, "recent scan"); };
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1050, margin:"0 auto", fontFamily:F.body }}>
+        <input ref={barcodePhotoInputRef} type="file" accept="image/*" capture="environment" onChange={handleBarcodePhotoInput} aria-label="Take barcode label photo" style={{ position:"absolute", opacity:0, width:1, height:1, pointerEvents:"none" }} />
         <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #97d33e", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
           <Row between center wrap gap={12}>
             <div style={{ minWidth:0 }}>
@@ -7722,7 +7801,7 @@
               <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Scan the Labelife CODE128 barcode, confirm the plant, then take or upload a photo. No typing plant numbers.</div>
             </div>
             <Row gap={8} wrap>
-              <label className="ld-iphone-barcode-primary">📱 Take Label Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
+              <button type="button" className="ld-iphone-barcode-primary" onClick={openBarcodePhotoPicker}>📱 Take Label Photo</button>
               <button onClick={startScanner} className="ld-live-scan-secondary">{preferBarcodePhoto ? "Live Scan (Mac/Android)" : "Start Live Scan"}</button>
               <button onClick={()=>setPage("barcodeqa")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Barcode QA</button>
             </Row>
@@ -7739,12 +7818,14 @@
           <KPI label="Last Code" value={lastCode || "—"} sub="barcode read" color={lastCode ? C.blue : C.tx3} />
         </div>
 
+        <MacBookIphoneCameraNote compact />
+
         <div style={{ display:"grid", gridTemplateColumns:"1.15fr .85fr", gap:14 }}>
           <div style={{ display:"grid", gap:14 }}>
             <Card style={{ padding:16 }}>
               <Row between center wrap gap={10} style={{ marginBottom:12 }}>
                 <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>{preferBarcodePhoto ? "iPhone: Take Label Photo First" : "Camera Scanner"}</div><div style={{ color:C.tx3, fontSize:12 }}>{preferBarcodePhoto ? "On iPhone, take a close photo of the barcode label first. The app finds the plant, then you take the plant photo." : "Mac/Android can live scan. On iPhone, use Take Label Photo if live scan does not grab the barcode quickly."}</div></div>
-                <Row gap={8} wrap><label className="ld-iphone-barcode-primary">📱 Take Label Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>{scanStatus === "scanning" ? <Btn v="danger" onClick={stopScanner}>Stop Camera</Btn> : !preferBarcodePhoto && <Btn onClick={startScanner}>Start Live Scan</Btn>}</Row>
+                <Row gap={8} wrap><button type="button" className="ld-iphone-barcode-primary" onClick={openBarcodePhotoPicker}>📱 Take Label Photo</button>{scanStatus === "scanning" ? <Btn v="danger" onClick={stopScanner}>Stop Camera</Btn> : !preferBarcodePhoto && <Btn onClick={startScanner}>Start Live Scan</Btn>}</Row>
               </Row>
               <div className="ld-scan-video-wrap">
                 {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-scan-video" playsInline muted /><div className="ld-scan-frame" /><div className="ld-scan-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:42 }}>📱</div><div>{preferBarcodePhoto ? "iPhone: take label photo first" : canLiveScanner ? "Tap Start Live Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{preferBarcodePhoto ? "Take a close barcode-label photo. Then take the plant photo after the plant is found." : canLiveScanner ? "Point the camera at the barcode. If it does not read, use Take Label Photo." : "Manual lookup still works on every device."}</div></div>}
@@ -7759,7 +7840,7 @@
               <Row gap={8} wrap center>
                 <input value={manualCode} onChange={e=>setManualCode(e.target.value)} onKeyDown={e=>{ if(e.key === "Enter") manualLookup(); }} placeholder="Scan/type P-044" style={{ flex:1, minWidth:180, padding:"12px 13px", border:`1.5px solid ${C.bd}`, borderRadius:12, fontSize:16, fontFamily:F.body }} />
                 <Btn onClick={manualLookup}>Find Plant</Btn>
-                <label style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:C.g100, color:C.g800, border:`1px solid ${C.g300}`, borderRadius:8, padding:"12px 14px", fontWeight:900, cursor:"pointer" }}>Take Label Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
+                <Btn v="soft" onClick={openBarcodePhotoPicker}>Take Label Photo</Btn>
               </Row>
             </Card>
           </div>
@@ -7799,7 +7880,7 @@
 
             <Card style={{ padding:16 }}>
               <div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900, marginBottom:8 }}>Recent Scans</div>
-              {history.length ? <div style={{ display:"grid", gap:7 }}>{history.map((h,i)=><button key={i+h.code} onClick={()=>recentClick(h)} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:"9px 10px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}><div style={{ fontWeight:900, color:C.g900 }}>{h.plantId} · {h.name}</div><div style={{ color:C.tx3, fontSize:11 }}>{h.code}</div></button>)}</div> : <div style={{ color:C.tx3, fontSize:12 }}>No scans yet.</div>}
+              {history.length ? <div style={{ display:"grid", gap:7 }}>{history.map((h,i)=><button key={i+h.code} onClick={()=>recentClick(h)} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:"9px 10px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}><div style={{ fontWeight:900, color:C.g900 }}>{h.plantId} · {h.name}</div><div style={{ color:C.tx3, fontSize:11 }}>{h.code}</div></button>)}</div> : <div style={{ color:C.tx3, fontSize:12 }}>No scans yet. This fills in after a barcode label photo is successfully read and matched to a plant.</div>}
             </Card>
           </div>
         </div>
