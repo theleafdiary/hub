@@ -1641,8 +1641,8 @@
           { title:"Inventory Work", items:[["Inventory","inv","🌿","Search and edit all plants"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Receipt Reader Training","invoicetrainer","🧾","Teach invoice pot-size rules"],["Past Invoices","history","📋","Previous uploads"]] },
           { title:"Plant Tools", items:[["Labels","labels","🏷️","Print plant labels"],["Plant Care","care","🩺","Quarantine and health"],["Locations","locations","📍","Racks, trailer, rooms"],["Sell-Through","sellthru","📊","What sells fastest"]] }
         ]},
-        shows_ws:{ icon:"🎥", title:"Live Shows", sub:"All Whatnot, Palmstreet, live selling and marketing tools.", hero:"Sell faster with fewer clicks", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Commissions","1%","after fees"]], sections:[
-          { title:"Run Shows", items:[["Show Builder","showbuilder","🎪","Build the show list"],["Live Show","liveshow","🎥","On-screen live mode"],["Import Show Sales","showimport","📥","Import Whatnot/Palmstreet CSV"],["Bundles","bundles","🧺","Group plants to sell"]] },
+        shows_ws:{ icon:"🎪", title:"Show Command Center", sub:"Build, run, import, pay, and promote live shows.", hero:"Sell faster with one guided show workflow", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Commissions","1%","after fees"]], sections:[
+          { title:"Run Shows", items:[["Build Show","showbuilder","🎪","Choose plants and export the show"],["Live Show","liveshow","🎥","On-screen live mode"],["Import Show Sales","showimport","📥","Import Whatnot/Palmstreet CSV"],["Bundles","bundles","🧺","Group plants to sell"]] },
           { title:"Sell More", items:[["Discounts","discounts","🏷️","Clear slow plants"],["Social Center","social","📣","Create posts from plant photos"],["AI Content","content","✨","Captions and descriptions"],["Buy Smart","intel","💡","What to buy next"]] }
         ]},
         orders_ws:{ icon:"✅", title:"Sold Shows", sub:"Sold plants, buyer usernames, commissions and import review. Shipping stays in Palmstreet/Whatnot.", hero:"Review what sold without building shipping into the CRM", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Reminders",casdCerts.length,"archived"],["Refunds","↩️","manage"]], sections:[
@@ -1884,6 +1884,185 @@
             </button>
           </div>
         </div>
+      </div>;
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       PHASE 5 — SHOW COMMAND CENTER
+       Safe wrapper around existing Show Builder, Live Show, Import Sales,
+       Bundles, Discounts, Social Center and AI Content tools.
+       No database, Supabase schema, export, or import logic changes.
+    ══════════════════════════════════════════════════════════ */
+    function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = {}, setSettings, users = [], phase3Config, phase4Routes, setPage }) {
+      const [tab, setTab] = useState("overview");
+      const [platform, setPlatform] = useState(settings?.lastShowPlatform || "Whatnot");
+      const [showType, setShowType] = useState("Balanced Profit Show");
+      const [targetCount, setTargetCount] = useState(settings?.lastShowTargetCount || 60);
+      const role = user?.role || "employee";
+      const canManage = role === "owner" || role === "manager";
+      const canOwner = role === "owner";
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
+      const showCart = inStock.filter(p => p.showBuilder || p.inShow || p.addedToShow || p.showDraft);
+      const photoReady = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price));
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const aging45 = inStock.filter(p => (dHeld(p.dateAdded) || 0) >= 45);
+      const premium = inStock.filter(p => (+p.suggestedPrice || +p.listPrice || +p.price || 0) >= 50).sort((a,b)=>(+b.suggestedPrice||+b.listPrice||+b.price||0)-(+a.suggestedPrice||+a.listPrice||+a.price||0));
+      const sold7 = sold.filter(p => dateInLast(plantSaleDate(p), 7));
+      const sold30 = sold.filter(p => dateInLast(plantSaleDate(p), 30));
+      const readyValue = photoReady.reduce((s,p)=>s+(+p.suggestedPrice || +p.listPrice || +p.price || 0),0);
+      const showValue = showCart.reduce((s,p)=>s+(+p.suggestedPrice || +p.listPrice || +p.price || 0),0);
+      const orders = groupSalesIntoOrders(plants);
+      const recentImports = orders.filter(o => dateInLast(o.soldDate, 7));
+      const commissionRate = +settings?.defaultCommissionPercent || 1;
+      const estCommissionBase = sold7.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
+      const estCommission = estCommissionBase * (commissionRate / 100);
+      const readyShows = Math.floor(photoReady.length / Math.max(1, +targetCount || 60));
+      const showHealth = photoReady.length >= (+targetCount || 60) ? "Ready" : photoReady.length >= 20 ? "Needs more plants" : "Not enough ready plants";
+      const healthColor = showHealth === "Ready" ? C.g600 : showHealth === "Needs more plants" ? C.amber : C.red;
+      const platforms = ["Whatnot", "Palmstreet", "Shopify Live", "Local Sale"];
+      const showTypes = ["Balanced Profit Show", "Fast Auction", "Rare Plant Premium Show", "Clearance Show", "Tissue Culture Show", "Mixed Show", "Employee Hosted Show"];
+      const tabs = [
+        { id:"overview", icon:"🎪", label:"Plan" },
+        { id:"build", icon:"🧠", label:"Build Show", hidden:!canManage },
+        { id:"live", icon:"🎥", label:"Live Mode" },
+        { id:"import", icon:"📥", label:"Import Sales", hidden:!canManage },
+        { id:"prep", icon:"🧺", label:"Prep + Pull" },
+        { id:"pay", icon:"🤝", label:"Employee Pay", hidden:!canOwner },
+        { id:"content", icon:"📣", label:"Social" }
+      ].filter(t => !t.hidden);
+      const setShowField = (key, value) => {
+        if (key === "platform") setPlatform(value);
+        if (key === "targetCount") setTargetCount(value);
+        if (key === "showType") setShowType(value);
+        try {
+          if (setSettings) setSettings(prev => ({ ...safeObject(prev), lastShowPlatform: key === "platform" ? value : platform, lastShowTargetCount: key === "targetCount" ? +value || 60 : +targetCount || 60 }));
+        } catch (e) {}
+      };
+      const quickBuild = () => {
+        try {
+          const plan = phase7BuildShowPlan({ plants, platform, showType, targetCount:+targetCount || 60, targetRevenue:0, brief:"Built from Show Command Center" });
+          if (plan?.ok) {
+            const ids = new Set(plan.plantIds || []);
+            setPlants(prev => safeArray(prev).map(p => ids.has(p.id) || ids.has(p.plantId) || ids.has(p.plantCode) ? { ...p, showBuilder:true, showPlatform:platform, showType, showAddedAt:new Date().toISOString() } : p));
+            if (setSettings) setSettings(prev => ({ ...safeObject(prev), phase7LastShowPlan: plan, lastShowPlatform: platform, lastShowTargetCount:+targetCount || 60 }));
+            addAudit && addAudit({ action:`Show Command Center built ${ids.size} plant ${platform} show`, user:user?.name || "User", page:"Shows", details:`${showType} · target ${targetCount}` });
+            setTab("build");
+          } else {
+            alert("The show builder could not create a plan yet. Add photos and prices to more plants, then try again.");
+          }
+        } catch (err) {
+          alert("Show plan could not be created: " + (err?.message || err));
+        }
+      };
+      const TaskCard = ({ icon, title, body, button, onClick, color = C.g600, muted }) => <button onClick={onClick} style={{ background:muted ? C.cardAlt : C.card, border:`1px solid ${C.bd}`, borderLeft:`5px solid ${color}`, borderRadius:18, padding:"14px 13px", textAlign:"left", cursor:onClick ? "pointer" : "default", fontFamily:F.body, boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}>
+        <Row gap={12} center>
+          <div style={{ width:46, height:46, borderRadius:16, background:color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>{icon}</div>
+          <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:15, fontWeight:900, color:C.g900 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, lineHeight:1.35, marginTop:3 }}>{body}</div>{button && <div style={{ display:"inline-flex", marginTop:9, background:color, color:"#fff", borderRadius:999, padding:"7px 10px", fontSize:11, fontWeight:900 }}>{button} →</div>}</div>
+        </Row>
+      </button>;
+      const PullPlant = ({ p, idx }) => <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:"11px 12px" }}>
+        <Row gap={10} center>
+          <div style={{ width:34, height:34, borderRadius:999, background:"#000", color:"#97d33e", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, flexShrink:0 }}>{idx+1}</div>
+          <div style={{ width:44, height:44, borderRadius:14, overflow:"hidden", background:C.g100, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{(p.photoUrl || p.photoBase64) ? <img src={p.photoUrl || p.photoBase64} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <span style={{ fontSize:22 }}>🌿</span>}</div>
+          <div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{p.name || "Unnamed Plant"}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{p.plantId || p.plantCode || "No ID"} · {p.potSize || "No size"} · {$(+p.suggestedPrice || +p.listPrice || +p.price || 0)}</div></div>
+          <Tag text={(dHeld(p.dateAdded)||0) >= 45 ? "aging" : (+p.suggestedPrice||0)>=50 ? "premium" : "ready"} color={(dHeld(p.dateAdded)||0) >= 45 ? C.amber : (+p.suggestedPrice||0)>=50 ? C.gold : C.g600} sm />
+        </Row>
+      </div>;
+      const PreviewBuckets = () => {
+        const opening = premium.slice(0, 3);
+        const main = photoReady.filter(p => !opening.includes(p) && (+p.suggestedPrice || +p.price || 0) < 50).slice(0, 8);
+        const clearance = aging45.filter(p => !opening.includes(p)).slice(0, 6);
+        const closing = premium.slice(3, 6);
+        const buckets = [
+          ["Opening Hooks", "Start strong so people stay", opening, C.gold],
+          ["Main Show", "Good photo-ready plants", main, C.g600],
+          ["Clearance / Aging", "Move old inventory into cash", clearance, C.amber],
+          ["Closers", "End with strongest remaining plants", closing, C.purple]
+        ];
+        return <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>{buckets.map(([title,sub,list,color]) => <Card key={title} style={{ borderTop:`4px solid ${color}` }}>
+          <Row between center style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:16 }}>{title}</div><div style={{ fontSize:11, color:C.tx3 }}>{sub}</div></div><Tag text={`${list.length}`} color={color} sm /></Row>
+          {list.length ? list.slice(0,5).map((p,i)=><PullPlant key={(p.id||p.plantId||p.name)+i} p={p} idx={i}/>) : <div style={{ fontSize:12, color:C.tx3, background:C.cardAlt, borderRadius:12, padding:12 }}>No plants in this bucket yet.</div>}
+        </Card>)}</div>;
+      };
+
+      return <div className="ld-page ld-show-workflow" style={{ padding:"16px 14px 112px", maxWidth:1160, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #fb6392", boxShadow:"0 14px 44px rgba(0,0,0,.2)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:40, lineHeight:1 }}>🎪</div>
+              <div style={{ fontFamily:F.display, fontSize:30, color:"#fb6392", fontWeight:900, marginTop:4 }}>Show Command Center</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Build the show, run the live, import sales, review tips, and create content from one place.</div>
+            </div>
+            <Row gap={8} wrap>
+              {canManage && <button onClick={quickBuild} style={{ background:"#fb6392", color:"#fff", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧠 Auto Build Show</button>}
+              <button onClick={()=>setTab("live")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🎥 Live Mode</button>
+              {canManage && <button onClick={()=>setTab("import")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📥 Import Sales</button>}
+            </Row>
+          </Row>
+          <div style={{ marginTop:15, display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>
+            <div style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px" }}><div style={{ fontSize:10, color:"rgba(255,255,255,.55)", fontWeight:900, textTransform:"uppercase" }}>Show Status</div><div style={{ fontFamily:F.display, color:healthColor, fontSize:22, fontWeight:900 }}>{showHealth}</div><div style={{ fontSize:10, color:"rgba(255,255,255,.58)" }}>{photoReady.length} ready plants</div></div>
+            <div style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px" }}><div style={{ fontSize:10, color:"rgba(255,255,255,.55)", fontWeight:900, textTransform:"uppercase" }}>Show Cart</div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:22, fontWeight:900 }}>{showCart.length}</div><div style={{ fontSize:10, color:"rgba(255,255,255,.58)" }}>{$(showValue)} planned value</div></div>
+            <div style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px" }}><div style={{ fontSize:10, color:"rgba(255,255,255,.55)", fontWeight:900, textTransform:"uppercase" }}>Can Build</div><div style={{ fontFamily:F.display, color:"#f5c542", fontSize:22, fontWeight:900 }}>{readyShows}</div><div style={{ fontSize:10, color:"rgba(255,255,255,.58)" }}>full {targetCount}-plant show(s)</div></div>
+            <div style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px" }}><div style={{ fontSize:10, color:"rgba(255,255,255,.55)", fontWeight:900, textTransform:"uppercase" }}>Recent Sales</div><div style={{ fontFamily:F.display, color:"#68d8ff", fontSize:22, fontWeight:900 }}>{sold7.length}</div><div style={{ fontSize:10, color:"rgba(255,255,255,.58)" }}>sold in last 7 days</div></div>
+          </div>
+        </div>
+
+        <Card style={{ marginBottom:14, background:C.g50 }}>
+          <Row between center wrap gap={12}>
+            <div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18 }}>Show Setup</div><div style={{ fontSize:12, color:C.tx3 }}>Pick the platform and show type before building the show list.</div></div>
+            <Row gap={8} wrap center>
+              <Sel label="Platform" value={platform} onChange={v=>setShowField("platform", v)} options={platforms} />
+              <Sel label="Show Type" value={showType} onChange={v=>setShowField("showType", v)} options={showTypes} />
+              <Inp label="Target Plants" type="number" value={targetCount} onChange={v=>setShowField("targetCount", v)} style={{ maxWidth:150 }} />
+            </Row>
+          </Row>
+        </Card>
+
+        <div className="ld-show-tabs" style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:8, marginBottom:14, WebkitOverflowScrolling:"touch" }}>
+          {tabs.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ background:tab===t.id ? "#000" : C.card, color:tab===t.id ? "#97d33e" : C.g900, border:`1.5px solid ${tab===t.id ? "#97d33e" : C.bd}`, borderRadius:999, padding:"11px 13px", fontWeight:900, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{t.icon} {t.label}</button>)}
+        </div>
+
+        {tab === "overview" && <>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+            <KPI label="Ready For Show" value={photoReady.length} sub={$(readyValue)} color={C.g600} />
+            <KPI label="Need Photos" value={noPhoto.length} sub="blocks show export" color={noPhoto.length ? C.amber : C.g600} />
+            <KPI label="Need Prices" value={noPrice.length} sub="fix before show" color={noPrice.length ? C.red : C.g600} />
+            <KPI label="Aging 45+" value={aging45.length} sub="move into show" color={aging45.length ? C.amber : C.g600} />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+            {canManage && <TaskCard icon="🧠" title="Build tonight’s show" body={`Use ${platform}, ${showType}, and target ${targetCount} plants. The app will favor photo-ready, priced plants and mix premium with aging inventory.`} button="Auto Build" onClick={quickBuild} color="#fb6392" />}
+            <TaskCard icon="📸" title="Fix photo blockers" body={`${noPhoto.length} plant(s) need photos before they look good in a live show or export.`} button="Open Photo Queue" onClick={()=>setPage("inv")} color={C.amber} />
+            <TaskCard icon="💲" title="Fix price blockers" body={`${noPrice.length} plant(s) need prices before the show builder can use them correctly.`} button="Open Pricing Queue" onClick={()=>setPage("inv")} color={noPrice.length ? C.red : C.g600} />
+            {canManage && <TaskCard icon="📥" title="After the show" body="Import the Whatnot or Palmstreet CSV, confirm who hosted, review tips, and save sold plants." button="Import Sales" onClick={()=>setTab("import")} color="#68d8ff" />}
+          </div>
+          <PreviewBuckets />
+        </>}
+
+        {tab === "build" && canManage && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
+        {tab === "live" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} />}
+        {tab === "import" && canManage && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
+        {tab === "prep" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <Card style={{ borderTop:"4px solid #fb6392" }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>🎪 Current Show Pull List</div><div style={{ fontSize:12, color:C.tx3 }}>{showCart.length ? `${showCart.length} plants are marked for a show.` : "No plants are marked for a show yet."}</div></div><Btn sz="sm" onClick={()=>setTab(canManage ? "build" : "live")}>{canManage ? "Build Show" : "Live Mode"}</Btn></Row>{showCart.length ? showCart.slice(0,30).map((p,i)=><PullPlant key={(p.id||p.plantId||p.name)+i} p={p} idx={i}/>) : <PreviewBuckets />}</Card>
+          <Card style={{ borderTop:`4px solid ${C.amber}` }}><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:8 }}>🧺 Prep Tasks</div>{[
+            ["Photo table", `${noPhoto.length} plant(s) still need photos before the next show.`, "inv", C.amber],
+            ["Labels", `${inStock.filter(p=>!p.labelPrinted).length} plant(s) need labels printed or reprinted.`, "labels", C.blue],
+            ["Bundles", "Create bundles for lower-ticket plants and fast auction moments.", "bundles", C.purple],
+            ["Discounts", `${aging45.length} plant(s) are 45+ days old and should be reviewed for show pricing.`, "discounts", C.red]
+          ].map(([title,body,page,color]) => <TaskCard key={title} icon="✅" title={title} body={body} button="Open" onClick={()=>setPage(page)} color={color} />)}</Card>
+        </div>}
+        {tab === "pay" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>🤝 Employee Show Pay</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Use this after importing a show. Confirm who hosted, commission percent, and whether tips go 100% to the employee.</p><div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, margin:"12px 0" }}><KPI label="7-Day Sales Base" value={$(estCommissionBase)} color={C.gold}/><KPI label="Default Rate" value={`${commissionRate}%`} color={C.purple}/><KPI label="Est. Commission" value={$(estCommission)} color={C.g600}/></div><Row gap={8} wrap><Btn onClick={()=>setPage("commissions")}>Open Commissions</Btn><Btn v="soft" onClick={()=>setPage("payroll")}>Open Payroll</Btn><Btn v="outline" onClick={()=>setTab("import")}>Import Sales First</Btn></Row></Card>
+          <Card style={{ borderTop:`4px solid ${C.blue}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>📥 Recent Show Imports</div>{recentImports.length ? recentImports.slice(0,10).map(o => <Row key={o.orderId} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><div><b style={{ fontSize:13 }}>{o.customerUsername || o.customerName || "Buyer"}</b><div style={{ fontSize:11, color:C.tx3 }}>{o.soldDate} · {o.plants?.length || 0} plant(s)</div></div><span style={{ fontWeight:900, color:C.g600 }}>{$(o.totalValue)}</span></Row>) : <p style={{ color:C.tx3, fontSize:13 }}>No recent imported sold groups found yet.</p>}</Card>
+        </div>}
+        {tab === "content" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <Card style={{ borderTop:"4px solid #fb6392" }}><Row between center wrap style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>📣 Social Center</div><div style={{ fontSize:12, color:C.tx3 }}>Create posts and promotion ideas from show inventory.</div></div><Btn sz="sm" onClick={()=>setPage("social")}>Open Full Tool</Btn></Row><SocialMediaCenter plants={plants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} /></Card>
+          {canManage && <Card style={{ borderTop:`4px solid ${C.purple}` }}><Row between center wrap style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>✨ AI Content</div><div style={{ fontSize:12, color:C.tx3 }}>Captions, plant descriptions, and live talking points.</div></div><Btn sz="sm" v="soft" onClick={()=>setPage("content")}>Open Full Tool</Btn></Row><AIContentGenerator plants={plants} /></Card>}
+        </div>}
+
+        <style>{`@media(max-width:760px){.ld-show-workflow div[style*="grid-template-columns:repeat(4,1fr)"],.ld-show-workflow div[style*="grid-template-columns: 1fr 1fr"],.ld-show-workflow div[style*="grid-template-columns:repeat(2,1fr)"],.ld-show-workflow div[style*="grid-template-columns:repeat(3,1fr)"]{grid-template-columns:1fr!important}.ld-show-tabs{padding-left:2px}.ld-show-workflow .ld-full-tool{max-height:none!important}}`}</style>
       </div>;
     }
 
@@ -11808,7 +11987,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "today" && <WorkspaceHome type="today" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "intake_ws" && <IntakeWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} setNurseries={setNurseries} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
-          {page === "shows_ws" && <WorkspaceHome type="shows_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "shows_ws" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
           {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "buy_ws" && CAN.seeReports(user.role) && <WorkspaceHome type="buy_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
