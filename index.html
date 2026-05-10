@@ -6309,7 +6309,7 @@
       const bulkExportSelected = () => {
         const selected = bulkSelectedList();
         if (!selected.length) return;
-        const rows = [["Plant ID","Plant Name","Pot Size","Suggested Price","Status","Nursery","Rack","Shelf","Date Added"], ...selected.map(p => [safePlantId(p), toTC(p.name), p.potSize || "", +p.suggestedPrice || +p.listPrice || +p.price || 0, p.status || "", p.nurseryName || p.nurseryCode || "", p.rack || "", p.shelf || "", p.dateAdded || ""] )];
+        const rows = [["Plant ID","Barcode Value","Barcode Type","Plant Name","Pot Size","Suggested Price","Status","Nursery","Rack","Shelf","Date Added"], ...selected.map(p => [safePlantId(p), platformScannerCode(p), platformScannerType(p), toTC(p.name), p.potSize || "", +p.suggestedPrice || +p.listPrice || +p.price || 0, p.status || "", p.nurseryName || p.nurseryCode || "", p.rack || "", p.shelf || "", p.dateAdded || ""] )];
         downloadCsv(`leaf-diary-selected-inventory-${today()}.csv`, rows);
         addAudit && addAudit({ action:`Exported ${selected.length} selected inventory plants`, user:user.name, page:"Inventory" });
       };
@@ -6661,6 +6661,21 @@
     const SHOW_KEY = 'leafDiaryShowBuilderIds';
     const LEAF_DIARY_LOGO_IMAGE = 'https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200';
     const safePlantId = p => (p?.plantId || p?.id || '').toString().trim();
+    // UPDATE 50 — scanner/export code used for Bluetooth barcode scanners.
+    // Keep existing plant numbers. The platform scanner code must match the Labelife barcode value.
+    const platformScannerCode = p => String(p?.barcodeValue || p?.plantId || p?.plantCode || '').trim();
+    const platformScannerType = p => String(p?.barcodeType || 'CODE128').trim() || 'CODE128';
+    const platformScannerStatus = list => {
+      const rows = safeArray(list);
+      const codes = rows.map(platformScannerCode).filter(Boolean).map(c => c.toUpperCase());
+      const dupes = [...new Set(codes.filter((c, i) => codes.indexOf(c) !== i))];
+      return {
+        missing: rows.filter(p => !platformScannerCode(p)).length,
+        mismatched: rows.filter(p => platformScannerCode(p) && safePlantId(p) && platformScannerCode(p) !== safePlantId(p)).length,
+        duplicates: dupes.length,
+        duplicateCodes: dupes
+      };
+    };
     const csvCell = v => {
       const x = (v ?? '').toString();
       return /[",\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x;
@@ -6696,6 +6711,7 @@
       const lines = [
         `Plant Name: ${toTC(p.name || 'Leaf Diary Plant')}`,
         safePlantId(p) ? `Plant ID: ${safePlantId(p)}` : '',
+        platformScannerCode(p) ? `Scanner Code: ${platformScannerCode(p)}` : '',
         p.potSize ? `Pot Size: ${p.potSize}` : '',
         showName ? `Show: ${showName}` : '',
         '',
@@ -6708,8 +6724,10 @@
       const seen = new Set();
       const errors = [];
       list.forEach((p, i) => {
-        const row = i + 1, id = safePlantId(p);
+        const row = i + 1, id = safePlantId(p), scanCode = platformScannerCode(p);
         if (!id) errors.push(`Row ${row}: missing Plant ID / SKU`);
+        if (!scanCode) errors.push(`Row ${row}: missing scanner barcode value`);
+        if (id && scanCode && scanCode !== id) errors.push(`${id || 'Row ' + row}: scanner barcode must match plant number. Current scanner code: ${scanCode}`);
         if (id && seen.has(id)) errors.push(`Row ${row}: duplicate Plant ID ${id}`);
         if (id) seen.add(id);
         const img = publicPlantPhoto(p);
@@ -6728,7 +6746,7 @@
         cleanPrice(p),
         '1',
         '', '', '', '', '', '',
-        safePlantId(p),
+        platformScannerCode(p),
         opts.privateListing ? 'YES' : 'NO',
         ''
       ].map(csvCell).join(','));
@@ -6745,9 +6763,12 @@
       list.forEach((p, i) => {
         const row = i + 1;
         const id = safePlantId(p);
+        const scanCode = platformScannerCode(p);
         const price = wholeDollarPrice(p);
         const img = whatnotPlantPhoto(p);
         if (!id) errors.push(`Row ${row}: missing Plant ID / SKU`);
+        if (!scanCode) errors.push(`Row ${row}: missing scanner barcode value`);
+        if (id && scanCode && scanCode !== id) errors.push(`${id || 'Row ' + row}: scanner barcode must match plant number. Current scanner code: ${scanCode}`);
         if (id && seen.has(id)) errors.push(`Row ${row}: duplicate SKU / Plant ID ${id}`);
         if (id) seen.add(id);
         if (!p.name) errors.push(`${id || 'Row ' + row}: missing plant name`);
@@ -6773,15 +6794,15 @@
         d.hazmat,
         d.condition,
         opts.includeCost === false ? '' : wholeDollarCost(p),
-        safePlantId(p),
+        platformScannerCode(p),
         whatnotPlantPhoto(p),
         '', '', '', '', '', '', ''
       ].map(csvCell).join(','));
       return WHATNOT_HEADERS.map(csvCell).join(',') + '\n' + rows.join('\n');
     };
     const makeShowListCSV = list => {
-      const headers = ['Order', 'Plant ID', 'Plant Name', 'Pot Size', 'Suggested Price', 'Status', 'Nursery', 'Rack', 'Shelf'];
-      const rows = list.map((p, i) => [i + 1, safePlantId(p), toTC(p.name), p.potSize || '', cleanPrice(p), p.status || '', p.nurseryCode || '', p.rack || '', p.shelf || ''].map(csvCell).join(','));
+      const headers = ['Order', 'Plant ID', 'Barcode Value', 'Barcode Type', 'Plant Name', 'Pot Size', 'Suggested Price', 'Status', 'Nursery', 'Rack', 'Shelf'];
+      const rows = list.map((p, i) => [i + 1, safePlantId(p), platformScannerCode(p), platformScannerType(p), toTC(p.name), p.potSize || '', cleanPrice(p), p.status || '', p.nurseryCode || '', p.rack || '', p.shelf || ''].map(csvCell).join(','));
       return headers.map(csvCell).join(',') + '\n' + rows.join('\n');
     };
 
@@ -8151,7 +8172,7 @@
           right={sel.size > 0 && <Row gap={6}>
             <Btn onClick={exportLabelifeFromLabels}>📥 Labelife Barcode CSV {sel.size}</Btn>
             <Btn v="outline" onClick={() => downloadCSV(avail.filter(p => sel.has(p.id)))}>📄 Research CSV</Btn>
-            <Btn v="soft" onClick={exportPalmstreetFromLabels}>🌴 Palmstreet CSV</Btn>
+            <Btn v="soft" onClick={exportPalmstreetFromLabels}>🌴 Palmstreet CSV + SKU Barcode</Btn>
             <Btn v="ghost" onClick={addSelectedToShow}>🎪 Add to Show</Btn>
             <Btn v="gold" onClick={startJob} disabled={!!jobStatus && jobStatus !== "done"}>🤖 Research Prices</Btn>
           </Row>} />
@@ -13427,7 +13448,7 @@ Cancel keeps this page local/free.`);
         downloadCSVFile(`${fileSafe}-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(showPlants, { showName, privateListing }));
         setPlants(prev => prev.map(p => ids.includes(plantIdOf(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: showName } : p));
         addAudit && addAudit({ action: `Exported Show Builder to Palmstreet CSV — ${showPlants.length} plants`, user: user.name, page: 'Show Builder' });
-        setMsg(`Palmstreet CSV exported for ${showPlants.length} plants. Palmstreet prices are kept as entered with cents, so 15.88 stays 15.88. Quantity is 1, SKU equals Plant ID, and Shipping is blank.`);
+        setMsg(`Palmstreet CSV exported for ${showPlants.length} plants. Prices are kept as entered with cents, quantity is 1, and the existing SKU column now carries the Labelife barcode value / plant number for Bluetooth scanning.`);
       };
       const exportWhatnot = () => {
         if (!showPlants.length) { alert('Add plants to the show first.'); return; }
@@ -13436,7 +13457,7 @@ Cancel keeps this page local/free.`);
         downloadCSVFile(`${fileSafe}-whatnot-upload-${today()}.csv`, makeWhatnotCSV(showPlants, { showName, shippingProfile: whatnotShippingProfile, listingType: whatnotListingType, includeCost: includeWhatnotCost }));
         setPlants(prev => prev.map(p => ids.includes(plantIdOf(p)) ? { ...p, whatnotExportedAt: new Date().toISOString(), lastShowName: showName } : p));
         addAudit && addAudit({ action: `Exported Show Builder to Whatnot CSV — ${showPlants.length} plants`, user: user.name, page: 'Show Builder' });
-        setMsg(`Whatnot CSV exported for ${showPlants.length} plants. Prices were rounded up to whole dollars with no $ or decimals.`);
+        setMsg(`Whatnot CSV exported for ${showPlants.length} plants. Prices were rounded up to whole dollars with no $ or decimals. The existing SKU column carries the Labelife barcode value / plant number for Bluetooth scanning.`);
       };
       const exportShowList = () => {
         if (!showPlants.length) { alert('Add plants first.'); return; }
@@ -13600,9 +13621,18 @@ Cancel if you want to save money.`);
       };
 
       return <div style={{ padding: '14px 14px 120px', background: C.bg, minHeight: '100vh' }}>
-        <SHdr icon="🎪" title="Show Builder" sub="Smart show planner plus your existing visual picker and unchanged Palmstreet/Whatnot exports."
+        <SHdr icon="🎪" title="Show Builder" sub="Smart show planner plus scanner-ready Palmstreet/Whatnot exports. Current CSV order/price rules are preserved."
           right={<Row gap={6} wrap><Btn onClick={exportWhatnot}>🛒 Export Whatnot CSV</Btn><Btn v="soft" onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear Show</Btn></Row>} />
         {msg && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 800 }}>{msg}</div>}
+        <Card style={{ marginBottom:12, background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18 }}>▌▌ Scanner-ready platform exports</div>
+              <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4 }}>Palmstreet and Whatnot keep their current working CSV formats. The existing <b>SKU</b> field now uses the Labelife barcode value, which is the same as the plant number. Use a Bluetooth scanner to type that plant number into platform search/show tools.</div>
+            </div>
+            <Tag text="Barcode = Plant Number" color={C.g600} />
+          </Row>
+        </Card>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 330px) minmax(0, 1fr) minmax(300px, 390px)', gap: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -13720,6 +13750,7 @@ Cancel if you want to save money.`);
                 <div><div style={{ fontFamily: F.display, fontSize: 24, fontWeight: 900 }}>{missingPhotoCount}</div><div style={{ fontSize: 11, opacity: .75 }}>Missing Photos</div></div>
                 <div><div style={{ fontFamily: F.display, fontSize: 24, fontWeight: 900 }}>{missingPriceCount}</div><div style={{ fontSize: 11, opacity: .75 }}>Missing Prices</div></div>
               </div>
+              <div style={{ marginTop:10, background:'rgba(151,211,62,.14)', border:'1px solid rgba(151,211,62,.35)', borderRadius:12, padding:'9px 10px', fontSize:11, lineHeight:1.35, color:'#D8EEDD', fontWeight:800 }}>▌▌ Bluetooth scanner code = plant number in SKU. Whatnot price stays whole dollars only; Palmstreet price stays as entered.</div>
               <div style={{ display: 'grid', gap: 8, marginTop: 12 }}><Btn full onClick={exportWhatnot}>Export Whatnot</Btn><Btn full v="soft" onClick={exportPalmstreet}>Export Palmstreet</Btn></div>
             </Card>
 
@@ -13731,7 +13762,7 @@ Cancel if you want to save money.`);
 
             <Card>
               <Row between center style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 17 }}>Plants in Show</div><div style={{ fontSize: 12, color: C.tx3 }}>{filteredSelectedCount} selected from current filters</div></div><Tag text={`${showPlants.length}`} color={C.g700} /></Row>
-              {showPlants.length === 0 ? <div style={{ textAlign: 'center', padding: '44px 12px', color: C.tx3 }}><div style={{ fontSize: 42, marginBottom: 10 }}>🛒</div><div style={{ fontFamily: F.display, fontSize: 18, color: C.g900 }}>Show cart is empty</div><p>Tap plant cards to add them here.</p></div> : <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 520, overflowY: 'auto' }}>{showPlants.map((p, i) => <div key={plantIdOf(p)} className={`ld-drag-show-row ${draggingIndex === i ? 'ld-dragging' : ''} ${dragOverIndex === i && draggingIndex !== i ? 'ld-drag-over' : ''}`} data-show-index={i} draggable={true} onDragStart={e => handleShowDragStart(e, i)} onDragOver={e => handleShowDragOver(e, i)} onDrop={e => handleShowDrop(e, i)} onDragEnd={cleanupShowDrag} onTouchStart={e => handleShowTouchStart(e, i)} onTouchMove={handleShowTouchMove} onTouchEnd={handleShowTouchEnd} onTouchCancel={cleanupShowDrag} style={{ border: `1px solid ${C.bd}`, borderRadius: 12, padding: 9, background: C.cardAlt }}><Row between center gap={8}><span className="ld-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⠿</span><div style={{ minWidth: 0, flex:1 }}><div style={{ fontSize: 12, fontWeight: 900, color: C.g900 }}>{i + 1}. {toTC(p.name)}</div><div style={{ fontSize: 10, color: C.tx3, fontFamily: F.mono }}>{plantIdOf(p)} · {potOf(p) || 'No pot'} · {priceOf(p) ? `$${cleanPrice(p)}` : 'No price'}</div></div><Btn sz="sm" v="danger" onClick={() => removeId(plantIdOf(p))}>Remove</Btn></Row><Row gap={5} style={{ marginTop: 6, paddingLeft:42 }}><Btn sz="sm" v="ghost" onClick={() => move(i, -1)}>↑</Btn><Btn sz="sm" v="ghost" onClick={() => move(i, 1)}>↓</Btn>{!photoOf(p) && <Tag text="No photo" color={C.amber} sm />}{!priceOf(p) && <Tag text="No price" color={C.red} sm />}</Row></div>)}</div>}
+              {showPlants.length === 0 ? <div style={{ textAlign: 'center', padding: '44px 12px', color: C.tx3 }}><div style={{ fontSize: 42, marginBottom: 10 }}>🛒</div><div style={{ fontFamily: F.display, fontSize: 18, color: C.g900 }}>Show cart is empty</div><p>Tap plant cards to add them here.</p></div> : <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 520, overflowY: 'auto' }}>{showPlants.map((p, i) => <div key={plantIdOf(p)} className={`ld-drag-show-row ${draggingIndex === i ? 'ld-dragging' : ''} ${dragOverIndex === i && draggingIndex !== i ? 'ld-drag-over' : ''}`} data-show-index={i} draggable={true} onDragStart={e => handleShowDragStart(e, i)} onDragOver={e => handleShowDragOver(e, i)} onDrop={e => handleShowDrop(e, i)} onDragEnd={cleanupShowDrag} onTouchStart={e => handleShowTouchStart(e, i)} onTouchMove={handleShowTouchMove} onTouchEnd={handleShowTouchEnd} onTouchCancel={cleanupShowDrag} style={{ border: `1px solid ${C.bd}`, borderRadius: 12, padding: 9, background: C.cardAlt }}><Row between center gap={8}><span className="ld-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⠿</span><div style={{ minWidth: 0, flex:1 }}><div style={{ fontSize: 12, fontWeight: 900, color: C.g900 }}>{i + 1}. {toTC(p.name)}</div><div style={{ fontSize: 10, color: C.tx3, fontFamily: F.mono }}>{plantIdOf(p)} · scanner {platformScannerCode(p) || 'missing'} · {potOf(p) || 'No pot'} · {priceOf(p) ? `$${cleanPrice(p)}` : 'No price'}</div></div><Btn sz="sm" v="danger" onClick={() => removeId(plantIdOf(p))}>Remove</Btn></Row><Row gap={5} style={{ marginTop: 6, paddingLeft:42 }}><Btn sz="sm" v="ghost" onClick={() => move(i, -1)}>↑</Btn><Btn sz="sm" v="ghost" onClick={() => move(i, 1)}>↓</Btn>{!photoOf(p) && <Tag text="No photo" color={C.amber} sm />}{!priceOf(p) && <Tag text="No price" color={C.red} sm />}</Row></div>)}</div>}
             </Card>
           </div>
         </div>
