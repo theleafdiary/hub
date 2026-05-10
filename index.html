@@ -17668,7 +17668,7 @@ Answer with a practical action plan for Leaf Diary.`;
       enabled: false,
       endpointUrl: "",
       secretToken: "",
-      provider: "ollama-cloud", // Ollama Cloud API through secure gateway
+      provider: "ollama-proxy", // Leaf Diary Cloudflare Gateway / Ollama proxy
       model: "gpt-oss:20b",
       fallbackMode: "ollama_then_local", // gateway_only, ollama_then_local, local_only
       maxDailyRequests: 8,
@@ -17689,6 +17689,17 @@ Answer with a practical action plan for Leaf Diary.`;
     const phase61NormalizeUrl = url => {
       let u = String(url || "").trim();
       if (!u) return "";
+      // Users sometimes paste the whole status line, like
+      // "Endpoint: https://..." or "https://Endpoint: https://...".
+      // Extract the real URL instead of saving the label text.
+      const matches = u.match(/https?:\/\/[^\s,;]+/ig);
+      if (matches && matches.length) {
+        const real = [...matches].reverse().find(x => /\.|workers\.dev|pages\.dev|supabase/i.test(x)) || matches[matches.length - 1];
+        u = real;
+      }
+      u = u.replace(/^endpoint:\s*/i, "").trim();
+      u = u.replace(/^https?:\/\/endpoint:?$/i, "").trim();
+      if (!u) return "";
       if (!/^https?:\/\//i.test(u)) u = "https://" + u;
       return u.replace(/\/+$/, "");
     };
@@ -17696,6 +17707,8 @@ Answer with a practical action plan for Leaf Diary.`;
     const phase61SaveConfig = cfg => {
       const next = { ...PHASE61_DEFAULT_CONFIG, ...safeObject(cfg) };
       next.endpointUrl = phase61NormalizeUrl(next.endpointUrl);
+      // This Leaf Diary endpoint is a Cloudflare Gateway/proxy, not direct Ollama Cloud.
+      if (/leaf-diary-ai-gateway|workers\.dev|\/leaf-ai/i.test(next.endpointUrl)) next.provider = "ollama-proxy";
       next.enabled = !!next.enabled;
       next.useOnMobile = !!next.useOnMobile;
       next.useOnDesktop = !!next.useOnDesktop;
@@ -17772,7 +17785,10 @@ Answer with a practical action plan for Leaf Diary.`;
       logPromptsLocally: false,
       requireManualCloudApproval: true,
       disableAutoGatewayCalls: true,
-      fallbackMode: "ollama_then_local"
+      fallbackMode: "ollama_then_local",
+      provider: "ollama-proxy",
+      model: "gpt-oss:20b",
+      endpointUrl: phase61NormalizeUrl(cfg?.endpointUrl || "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai")
     });
     function phase61BuildSafeBusinessPayload({ question = "", route = "executive", routeDef = {}, appData = {}, user = {}, model = "", extraPrompt = "" }) {
       const owner = user?.role === "owner";
@@ -17853,14 +17869,27 @@ Answer with a practical action plan for Leaf Diary.`;
         setStatus && setStatus(phase61BuildStatus(report.status || (report.ok ? "online" : "offline"), { report, config:cfg }));
         setBusy(false);
       };
-      const clearUsage = () => { phase61SaveUsage({ daily:{}, monthly:{}, calls:[] }); setAnswer("Gateway usage counters cleared on this device."); };
+      const clearUsage = () => { phase61SaveUsage({ daily:{}, monthly:{}, calls:[] }); setAnswer("Gateway usage counters cleared on this device. You can test again now."); };
+      const resetTodayUsage = () => {
+        const usage = phase61ReadUsage();
+        const day = phase61Today();
+        usage.daily = usage.daily || {};
+        usage.daily[day] = { calls:0, estimatedCost:0 };
+        phase61SaveUsage(usage);
+        setAnswer("Today’s Gateway counter was reset on this device. This only clears the local app counter, not Cloudflare logs.");
+      };
+      const useLeafGatewayPreset = () => {
+        const next = phase61SaveConfig({ ...draft, enabled:true, endpointUrl:"https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai", provider:"ollama-proxy", model:"gpt-oss:20b", fallbackMode:"ollama_then_local", useOnMobile:true, preferGatewayOnMobile:true, requireManualCloudApproval:true, disableAutoGatewayCalls:true });
+        setDraft(next); setConfig && setConfig(next);
+        setAnswer("Leaf Diary Gateway preset saved: endpoint fixed, provider set to Ollama Proxy / Gateway, model set to gpt-oss:20b. Tap Reset Today Counter if you are at 8/8, then Test Gateway.");
+      };
       const activateCostSaver = () => { const next = phase61CostSaverPreset(draft); setDraft(next); const saved = phase61SaveConfig(next); setConfig && setConfig(saved); setAnswer("AI Cost Guard activated: cloud calls are manual-only, daily limit 8, monthly tracker $5, inventory payload capped at 35, owner financials redacted by default."); };
       const download = () => phase1DownloadJson(`leafdiary-phase61-ai-gateway-${today()}.json`, { appVersion:APP_VERSION, config:{ ...draft, secretToken:draft.secretToken ? "saved-token-hidden" : "" }, status, usage:phase61ReadUsage(), lastReport:testReport, generatedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", maxWidth:1080, margin:"0 auto" }}>
-        <SHdr icon="🌐" title="Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Cloud answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🌐" title="Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Gateway/Proxy answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase61StatusColor(status?.status || (draft.enabled ? "not_tested" : "disabled"))}` }}>
           <Row between center wrap gap={12}>
-            <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Ollama model: {draft.model} · Provider: {draft.provider}</div></div>
+            <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Ollama model: {draft.model} · Provider: {draft.provider === "ollama-proxy" ? "Ollama Proxy / Gateway" : "Ollama Cloud API"}</div></div>
             <Row gap={8} wrap><Tag text={phase3IsMobileDevice() ? "Mobile detected" : "Desktop detected"} color={phase3IsMobileDevice() ? C.blue : C.g600} /><Tag text={`${usage.dailyCalls}/${usage.dailyLimit} today`} color={usage.dailyCalls >= usage.dailyLimit ? C.red : C.g600} /><Tag text={`${$(usage.monthlyCost)} est. month`} color={usage.monthlyCost >= usage.monthlyLimit && usage.monthlyLimit ? C.red : C.gold} /></Row>
           </Row>
         </Card>
@@ -17880,11 +17909,14 @@ Answer with a practical action plan for Leaf Diary.`;
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.2fr) minmax(0,.8fr)", gap:14 }}>
           <Card>
             <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18, marginBottom:12 }}>Gateway Settings</div>
+            <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:12, marginBottom:12, fontSize:12, color:C.tx2, lineHeight:1.45 }}>
+              <b>Use these settings:</b> Endpoint should be only <b>https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai</b>, provider should be <b>Ollama Proxy / Gateway</b>, model should be <b>gpt-oss:20b</b>. If it says 8/8 today, tap <b>Reset Today Counter</b> before testing again.
+            </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:10 }}>
               <Inp label="Cloudflare Worker / Supabase Edge Endpoint" value={draft.endpointUrl} onChange={v=>setDraft(p=>({...p, endpointUrl:v}))} placeholder="https://leaf-diary-ai-gateway.yourname.workers.dev/leaf-ai" />
               <Inp label="Gateway Secret Token (not Ollama API key)" value={draft.secretToken} onChange={v=>setDraft(p=>({...p, secretToken:v}))} placeholder="same secret stored in Cloudflare" />
               <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
-                <Sel label="Provider" value={draft.provider} onChange={v=>setDraft(p=>({...p, provider:v}))} options={[{v:"ollama-cloud",l:"Ollama Cloud API"},{v:"ollama-proxy",l:"Local Ollama Proxy Later"}]} />
+                <Sel label="Provider" value={draft.provider} onChange={v=>setDraft(p=>({...p, provider:v}))} options={[{v:"ollama-proxy",l:"Ollama Proxy / Gateway (use this)"},{v:"ollama-cloud",l:"Direct Ollama Cloud API"}]} />
                 <Inp label="Gateway Model" value={draft.model} onChange={v=>setDraft(p=>({...p, model:v}))} placeholder="gpt-oss:20b" />
                 <Sel label="Fallback" value={draft.fallbackMode} onChange={v=>setDraft(p=>({...p, fallbackMode:v}))} options={[{v:"ollama_then_local",l:"Gateway → Ollama → local"},{v:"local_only",l:"Gateway → local fallback"},{v:"gateway_only",l:"Gateway only test"}]} />
               </div>
@@ -17896,12 +17928,14 @@ Answer with a practical action plan for Leaf Diary.`;
                 <Inp label="Timeout MS" type="number" value={draft.timeoutMs} onChange={v=>setDraft(p=>({...p, timeoutMs:v}))} />
               </div>
               <Row gap={8} wrap>
+                <Btn v="gold" onClick={useLeafGatewayPreset}>✅ Use Leaf Diary Gateway Preset</Btn>
                 <Btn v={draft.enabled ? "fill" : "outline"} onClick={()=>setDraft(p=>({...p, enabled:!p.enabled}))}>{draft.enabled ? "✅ Gateway Enabled" : "Enable Gateway"}</Btn>
                 <Btn v={draft.useOnMobile ? "soft" : "ghost"} onClick={()=>setDraft(p=>({...p, useOnMobile:!p.useOnMobile}))}>📱 {draft.useOnMobile ? "Mobile ON" : "Mobile OFF"}</Btn>
                 <Btn v={draft.useOnDesktop ? "soft" : "ghost"} onClick={()=>setDraft(p=>({...p, useOnDesktop:!p.useOnDesktop}))}>💻 {draft.useOnDesktop ? "Desktop ON" : "Desktop OFF"}</Btn>
                 <Btn v={draft.disableAutoGatewayCalls ? "soft" : "danger"} onClick={()=>setDraft(p=>({...p, disableAutoGatewayCalls:!p.disableAutoGatewayCalls}))}>💵 {draft.disableAutoGatewayCalls ? "Cloud Manual Only" : "Auto Cloud Allowed"}</Btn>
                 <Btn v={draft.allowOwnerFinancialsToGateway ? "gold" : "ghost"} onClick={()=>setDraft(p=>({...p, allowOwnerFinancialsToGateway:!p.allowOwnerFinancialsToGateway}))}>💵 {draft.allowOwnerFinancialsToGateway ? "Owner financials allowed" : "Financials redacted"}</Btn>
-                <Btn v="ghost" onClick={clearUsage}>Clear Usage</Btn>
+                <Btn v="ghost" onClick={resetTodayUsage}>Reset Today Counter</Btn>
+                <Btn v="ghost" onClick={clearUsage}>Clear All Usage</Btn>
               </Row>
             </div>
           </Card>
