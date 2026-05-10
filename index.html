@@ -17446,6 +17446,22 @@ Answer with a practical action plan for Leaf Diary.`;
       const browser = /CriOS/i.test(ua) ? "Chrome iOS" : /Chrome/i.test(ua) ? "Chrome" : /Safari/i.test(ua) ? "Safari" : /Firefox/i.test(ua) ? "Firefox" : "Browser";
       return { ua, isIphone, isIpad, isAndroid, isMobile, isMac, browser, origin: phase3BrowserOrigin(), protocol: window.location?.protocol || "" };
     }
+    function phase56GatewaySummary() {
+      let cfg = {};
+      try { cfg = safeJsonParse(localStorage.getItem("leafdiary_phase61_ai_gateway_config"), {}) || {}; } catch(e) { cfg = {}; }
+      const endpointUrl = phase61NormalizeUrl ? phase61NormalizeUrl(cfg.endpointUrl || "") : String(cfg.endpointUrl || "").trim();
+      const configured = !!(cfg.enabled && endpointUrl);
+      return {
+        configured,
+        enabled: !!cfg.enabled,
+        endpointUrl,
+        provider: cfg.provider || "ollama-proxy",
+        model: cfg.model || "gpt-oss:20b",
+        lastStatus: cfg.lastStatus || (configured ? "configured" : "not_set"),
+        preferGatewayOnMobile: cfg.preferGatewayOnMobile !== false,
+        useOnMobile: cfg.useOnMobile !== false
+      };
+    }
     function phase56LikelyProblem(cfg, results) {
       const device = phase56DeviceSummary();
       const bases = phase3CandidateBaseUrls(cfg);
@@ -17454,8 +17470,10 @@ Answer with a practical action plan for Leaf Diary.`;
       const anyVersion = results.some(r => r.versionOk);
       const anyModels = results.some(r => r.tagsOk);
       const anyReachable = results.some(r => r.versionOk || r.tagsOk);
+      const gateway = phase56GatewaySummary();
       if (!cfg.enabled) return { title:"Ollama is disabled in Leaf Diary", fix:"Turn Ollama Enabled on, save settings, then run Doctor again.", severity:"warning" };
-      if (device.isMobile && !mobileUrl && /127\.0\.0\.1|localhost/i.test(desktopUrl)) return { title:"Phone is trying to use localhost", fix:"A phone cannot reach Ollama through 127.0.0.1. Set Mobile/LAN URL to your Mac IP, for example http://192.168.1.25:11434, or use this Doctor on the MacBook.", severity:"critical" };
+      if (device.isMobile && gateway.configured && gateway.useOnMobile) return { title:"Mobile Gateway/Tunnel is configured", fix:`Phone AI should use the saved Gateway/Tunnel endpoint (${gateway.endpointUrl}). MacBook local Ollama still uses http://127.0.0.1:11434 and should be tested from the MacBook, not the phone.`, severity:"ok" };
+      if (device.isMobile && !mobileUrl && !cfg.proxyUrl && /127\.0\.0\.1|localhost/i.test(desktopUrl)) return { title:"Phone is trying to use localhost", fix:"A phone cannot reach Ollama through 127.0.0.1. Set Mobile/LAN URL to your Mac IP, set a Cloud/Tunnel Proxy URL, or use the Mobile AI Gateway. Test MacBook local Ollama from the MacBook.", severity:"critical" };
       if (anyVersion && !anyModels) return { title:"Ollama responded, but model list failed", fix:"Ollama is partly reachable. Restart Ollama, then run: ollama list. If the browser still fails, set OLLAMA_ORIGINS=* and reopen Ollama.", severity:"warning" };
       if (anyReachable && anyModels) return { title:"Ollama connection looks good", fix:"Use Local AI Setup → Test Ollama. If a model is missing, pull or select an installed model.", severity:"ok" };
       if (device.protocol === "https:" && bases.some(b => b.startsWith("http://") && !/127\.0\.0\.1|localhost/i.test(b))) return { title:"HTTPS page may block plain HTTP LAN Ollama", fix:"Use the app from the same MacBook with 127.0.0.1, or create a secure proxy/tunnel for phone use. iPhone + HTTPS pages often cannot call an HTTP LAN URL directly.", severity:"critical" };
@@ -17468,6 +17486,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const [note, setNote] = useState("");
       const [copied, setCopied] = useState("");
       const device = phase56DeviceSummary();
+      const gatewayInfo = phase56GatewaySummary();
       const setup = phase3SetupText();
       const bases = phase3CandidateBaseUrls(draft);
       const canFinancial = user?.role === "owner";
@@ -17529,9 +17548,22 @@ Answer with a practical action plan for Leaf Diary.`;
         return row;
       };
       const runDoctor = async () => {
-        setBusy(true); setNote("Testing Ollama connection..."); setResults([]);
+        setBusy(true); setNote("Testing AI connection path..."); setResults([]);
         const cfg = phase3SaveConfig(draft);
         setDraft(cfg); setConfig && setConfig(cfg);
+        const gatewayNow = phase56GatewaySummary();
+        if (device.isMobile && gatewayNow.configured && gatewayNow.useOnMobile && !cfg.mobileBaseUrl && !cfg.proxyUrl) {
+          const gatewayRow = { base:gatewayNow.endpointUrl, versionOk:true, tagsOk:true, version:"gateway/tunnel", models:[gatewayNow.model], ms:0, gateway:true };
+          const rows = [gatewayRow];
+          setResults(rows);
+          const nextStatus = phase3BuildStatus("online", { results: rows, testedBases: [gatewayNow.endpointUrl], gateway:true });
+          setStatus && setStatus(nextStatus);
+          phase3SaveReport({ type:"ollama_doctor", ok:true, gateway:true, results: rows, device, config: cfg, gatewayConfig: gatewayNow, checkedAt:new Date().toISOString() });
+          setNote("Phone is using the Mobile AI Gateway/Tunnel path. Test MacBook local Ollama from the MacBook.");
+          try { addAudit && addAudit({ action:"Ollama Doctor confirmed mobile gateway/tunnel", page:"Ollama Doctor", user:user?.name || "Owner", severity:"info" }); } catch(e) {}
+          setBusy(false);
+          return;
+        }
         const candidateBases = phase3CandidateBaseUrls(cfg);
         const rows = [];
         for (const b of candidateBases) rows.push(await testOne(b));
@@ -17540,20 +17572,22 @@ Answer with a practical action plan for Leaf Diary.`;
         const nextStatus = phase3BuildStatus(anyOk ? "online" : "offline", { results: rows, testedBases: candidateBases });
         setStatus && setStatus(nextStatus);
         phase3SaveReport({ type:"ollama_doctor", ok:anyOk, results: rows, device, config: cfg, checkedAt:new Date().toISOString() });
-        setNote(anyOk ? "Ollama is reachable. Model list loaded." : "Ollama is still not reachable. Read the exact fix below.");
+        setNote(anyOk ? "Ollama is reachable. Model list loaded." : "Ollama is still not reachable from this device. Read the exact fix below.");
         try { addAudit && addAudit({ action:`Ollama Doctor ${anyOk ? "passed" : "failed"}`, page:"Ollama Doctor", user:user?.name || "Owner", severity:anyOk ? "info" : "warning" }); } catch(e) {}
         setBusy(false);
       };
       const diagnosis = phase56LikelyProblem(draft, results);
       const modelNames = [...new Set(results.flatMap(r => r.models || []))];
-      const currentStatus = results.length ? diagnosis : { title:"Run Doctor to test Ollama", fix:"This will test /api/version and /api/tags using your saved desktop, LAN, or proxy URL.", severity:"warning" };
+      const currentStatus = results.length ? diagnosis : (device.isMobile && gatewayInfo.configured && gatewayInfo.useOnMobile
+        ? { title:"Mobile Gateway/Tunnel ready", fix:`This phone should use the Mobile AI Gateway/Tunnel endpoint (${gatewayInfo.endpointUrl}). MacBook local Ollama is separate and should be tested from the MacBook.`, severity:"ok" }
+        : { title:"Run Doctor to test Ollama", fix:"This will test /api/version and /api/tags using your saved desktop, LAN, or proxy URL.", severity:"warning" });
       const statusColor = currentStatus.severity === "ok" ? C.g600 : currentStatus.severity === "warning" ? C.amber : C.red;
       const QuickCard = ({ icon, title, body, color = C.g600 }) => <Card style={{ borderLeft:`5px solid ${color}` }}><div style={{ fontSize:28 }}>{icon}</div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, fontSize:18, marginTop:4 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:4 }}>{body}</div></Card>;
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
         <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:`2px solid ${statusColor}`, boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
           <Row between center wrap gap={12}>
             <div style={{ minWidth:0 }}><div style={{ fontSize:42 }}>🩺</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900 }}>Ollama Connection Doctor</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>One screen to find why local AI is not connected. No business data or AI routing is changed.</div></div>
-            <Row gap={8} wrap><button onClick={runDoctor} disabled={busy} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:busy?"not-allowed":"pointer", opacity:busy?.6:1 }}>{busy ? "Testing..." : "Run Doctor"}</button><button onClick={()=>setPage && setPage("ollama")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Local AI Setup</button></Row>
+            <Row gap={8} wrap><button onClick={runDoctor} disabled={busy} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:busy?"not-allowed":"pointer", opacity:busy?.6:1 }}>{busy ? "Testing..." : "Run Doctor"}</button><button onClick={()=>setPage && setPage("ollama")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Local AI Setup</button><button onClick={()=>setPage && setPage("aigateway")} style={{ background:"rgba(126,231,255,.16)", color:"#fff", border:"1px solid rgba(126,231,255,.42)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Mobile Gateway</button></Row>
           </Row>
           <div style={{ marginTop:14, background:"rgba(255,255,255,.08)", border:`1px solid ${statusColor}66`, borderRadius:16, padding:"12px 13px" }}><div style={{ color:statusColor, fontWeight:900, fontFamily:F.display, fontSize:20 }}>{currentStatus.title}</div><div style={{ color:"rgba(255,255,255,.78)", fontSize:12, lineHeight:1.45, marginTop:4 }}>{currentStatus.fix}</div>{note && <div style={{ marginTop:8, color:"#97d33e", fontWeight:800, fontSize:12 }}>{note}</div>}</div>
         </div>
@@ -17565,11 +17599,23 @@ Answer with a practical action plan for Leaf Diary.`;
           <KPI label="Models Found" value={modelNames.length} sub={modelNames[0] || "none yet"} color={modelNames.length ? C.g600 : C.amber} />
         </div>
 
+        {device.isMobile && gatewayInfo.configured && <Card style={{ marginBottom:14, background:C.blueBg, borderLeft:`5px solid ${C.blue}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900 }}>📱 Phone AI is using Gateway/Tunnel</div>
+              <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5, marginTop:4 }}>This is correct for iPhone. Do not use <b>127.0.0.1</b> on the phone. Your phone AI path is: <b>Phone → Gateway/Tunnel → AI answer</b>. MacBook local Ollama remains separate.</div>
+              <div style={{ color:C.tx3, fontSize:11, marginTop:6, overflowWrap:"anywhere" }}>Endpoint: {gatewayInfo.endpointUrl} · Model: {gatewayInfo.model} · Provider: {gatewayInfo.provider}</div>
+            </div>
+            <Btn sz="sm" v="soft" onClick={()=>setPage && setPage("aigateway")}>Open Mobile Gateway</Btn>
+          </Row>
+        </Card>}
+
         <Card style={{ marginBottom:14, background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
-          <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900 }}>Quick Settings</div><div style={{ color:C.tx3, fontSize:12 }}>Use Desktop preset on the MacBook. Use LAN preset only when a phone/tablet needs to reach Ollama running on the MacBook.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={desktopPreset}>Desktop Preset</Btn><Btn sz="sm" v="soft" onClick={lanPreset}>Phone LAN Preset</Btn><Btn sz="sm" v="ghost" onClick={resetOllama}>Reset</Btn></Row></Row>
+          <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900 }}>Quick Settings</div><div style={{ color:C.tx3, fontSize:12 }}>Use Desktop preset on the MacBook. iPhone should use Mobile Gateway/Tunnel unless you intentionally set a LAN or proxy URL.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={desktopPreset}>Desktop Preset</Btn><Btn sz="sm" v="soft" onClick={lanPreset}>Phone LAN Preset</Btn><Btn sz="sm" v="ghost" onClick={resetOllama}>Reset</Btn></Row></Row>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
             <Inp label="Desktop Ollama URL" value={draft.baseUrl} onChange={v=>setDraft(p=>({...p, baseUrl:v}))} placeholder="http://127.0.0.1:11434" />
             <Inp label="Mobile/LAN Ollama URL" value={draft.mobileBaseUrl || ""} onChange={v=>setDraft(p=>({...p, mobileBaseUrl:v}))} placeholder="http://192.168.1.25:11434" />
+            <Inp label="Cloud/Tunnel Proxy URL" value={draft.proxyUrl || ""} onChange={v=>setDraft(p=>({...p, proxyUrl:v}))} placeholder="https://your-secure-tunnel.example.com" />
             <Sel label="Connection Mode" value={draft.connectionMode || "auto"} onChange={v=>setDraft(p=>({...p, connectionMode:v}))} options={["auto","desktop","lan","proxy"]} />
             <Inp label="Primary Model" value={draft.primaryModel} onChange={v=>setDraft(p=>({...p, primaryModel:v}))} placeholder="llama3.1:8b" />
           </div>
@@ -17583,7 +17629,7 @@ Answer with a practical action plan for Leaf Diary.`;
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:14 }}>
           <QuickCard icon="💻" title="MacBook / Same Computer" color={C.g600} body="Use Desktop Preset. Leaf Diary in Chrome and Ollama must run on the same MacBook. URL should be http://127.0.0.1:11434." />
-          <QuickCard icon="📱" title="iPhone / Same Wi‑Fi" color={C.blue} body="Use Phone LAN Preset. Set OLLAMA_HOST to 0.0.0.0:11434 on the Mac, then enter the Mac IP as Mobile/LAN URL." />
+          <QuickCard icon="📱" title="iPhone / Same Wi‑Fi" color={C.blue} body="Use Mobile AI Gateway/Tunnel for iPhone. Only use Phone LAN Preset if you purposely want same-Wi‑Fi access directly to the Mac." />
           <QuickCard icon="🛡️" title="Safe Fallback" color={C.gold} body="If Ollama fails, Leaf Diary still uses local/free business rules. This Doctor does not change inventory, money, or show data." />
         </div>
 
