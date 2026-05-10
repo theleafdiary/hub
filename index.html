@@ -2123,40 +2123,121 @@
       const mid = Math.floor(nums.length / 2);
       return nums.length % 2 ? nums[mid] : Math.round(((nums[mid - 1] + nums[mid]) / 2) * 100) / 100;
     }
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 92 — SOURCE TRANSPARENCY + POT SIZE MATCH GUARD
+       Market price medians only trust exact/close pot-size matches.
+       Other listings are shown for transparency but excluded from pricing.
+    ══════════════════════════════════════════════════════════ */
+    function phase92ExtractPotSize(text = "") {
+      const raw = String(text || "").replace(/[“”]/g, '"').toLowerCase();
+      if (!raw.trim()) return "";
+      const inch = raw.match(/(?:^|)(\d+(?:\.\d+)?)\s*(?:"|in|inch|inches)/);
+      if (inch) return `${parseFloat(inch[1])}"`;
+      const gallon = raw.match(/(?:^|)(\d+(?:\.\d+)?)\s*(?:gal|gallon|gallons)/);
+      if (gallon) return `${parseFloat(gallon[1])} gal`;
+      const pot = raw.match(/(?:^|)(\d+(?:\.\d+)?)\s*(?:pot|potted|container)/);
+      if (pot) return `${parseFloat(pot[1])}"`;
+      return "";
+    }
+    function phase92NormalizePotSize(value = "") {
+      const text = String(value || "").replace(/[“”]/g, '"').trim().toLowerCase();
+      const extracted = phase92ExtractPotSize(text) || text;
+      const inch = extracted.match(/(\d+(?:\.\d+)?)\s*(?:"|in|inch|inches)?/i);
+      if (inch && /"|in|inch|pot|container|^\d+(?:\.\d+)?$/.test(extracted)) return { type:"inch", value:+inch[1], label:`${parseFloat(inch[1])}"` };
+      const gal = extracted.match(/(\d+(?:\.\d+)?)\s*(?:gal|gallon|gallons)/i);
+      if (gal) return { type:"gallon", value:+gal[1], label:`${parseFloat(gal[1])} gal` };
+      return { type:"unknown", value:null, label:String(value || "Unknown size") };
+    }
+    function phase92PotSizeMatch(requested = "", observed = "", source = {}) {
+      const req = phase92NormalizePotSize(requested);
+      const obsText = observed || source.observedPotSize || source.potSize || source.size || source.containerSize || phase92ExtractPotSize(`${source.title || ""} ${source.listingTitle || ""} ${source.description || ""}`);
+      const obs = phase92NormalizePotSize(obsText);
+      const stated = String(source.potSizeMatch || source.sizeMatch || source.matchQuality || "").toLowerCase();
+      if (/exact/.test(stated)) return { quality:"exact", label:`Exact ${req.label}`, included:true, requested:req.label, observed:obs.label || obsText || "stated exact" };
+      if (/close|similar/.test(stated)) return { quality:"close", label:`Close ${obs.label || "size"}`, included:true, requested:req.label, observed:obs.label || obsText || "stated close" };
+      if (/mismatch|different|exclude/.test(stated)) return { quality:"mismatch", label:"Size mismatch", included:false, requested:req.label, observed:obs.label || obsText || "different" };
+      if (req.type === "unknown") return { quality:"unknown", label:"Requested size unknown", included:false, requested:req.label, observed:obs.label || obsText || "unknown" };
+      if (obs.type === "unknown" || !obs.value) return { quality:"unknown", label:"Listing size not proven", included:false, requested:req.label, observed:obsText || "not shown" };
+      if (req.type === obs.type && Math.abs((+req.value || 0) - (+obs.value || 0)) < 0.01) return { quality:"exact", label:`Exact ${req.label}`, included:true, requested:req.label, observed:obs.label };
+      if (req.type === obs.type && req.type === "inch" && Math.abs((+req.value || 0) - (+obs.value || 0)) <= 1) return { quality:"close", label:`Close ${obs.label}`, included:true, requested:req.label, observed:obs.label };
+      return { quality:"mismatch", label:`Excluded ${obs.label}`, included:false, requested:req.label, observed:obs.label };
+    }
+    function phase92SourceUrlHost(url = "") {
+      try { return new URL(String(url || "")).hostname.replace(/^www\./, ""); } catch(e) { return ""; }
+    }
+    function phase92PotSizeSummary(result = {}) {
+      const sources = safeArray(result.dataSources || result.sources);
+      const exact = sources.filter(s => s.potSizeMatchQuality === "exact").length;
+      const close = sources.filter(s => s.potSizeMatchQuality === "close").length;
+      const excluded = sources.filter(s => s.includedInMarketMedian === false).length;
+      const trusted = sources.filter(s => s.includedInMarketMedian !== false && ["exact","close"].includes(s.potSizeMatchQuality)).length;
+      return { exact, close, trusted, excluded, total:sources.length, requestedPotSize: result.requestedPotSize || result.potSize || "" };
+    }
     function phase83NormalizeMarketData(raw = {}) {
-      const sources = safeArray(raw.dataSources || raw.sources).map((s, idx) => ({
-        platform: String(s.platform || s.source || "Web").slice(0, 42),
-        priceUSD: Math.round(phase83CleanPrice(s.priceUSD ?? s.price ?? s.amount) * 100) / 100,
-        type: String(s.type || s.priceType || "asking").slice(0, 24),
-        listingDate: String(s.listingDate || s.date || raw.searchDate || today()).slice(0, 32),
-        url: String(s.url || s.link || "").slice(0, 420)
-      })).filter(s => s.priceUSD > 0);
-      const whatnot = sources.filter(s => /whatnot/i.test(s.platform)).map(s=>s.priceUSD);
-      const palmstreet = sources.filter(s => /palmstreet/i.test(s.platform)).map(s=>s.priceUSD);
-      const prices = sources.map(s=>s.priceUSD);
-      const count = +raw.dataPointCount || sources.length;
+      const requestedPotSize = raw.requestedPotSize || raw.plantPotSize || raw.potSize || "";
+      const sources = safeArray(raw.dataSources || raw.sources).map((s, idx) => {
+        const title = String(s.title || s.listingTitle || s.name || "").slice(0, 180);
+        const url = String(s.url || s.link || "").slice(0, 420);
+        const observedPotSize = String(s.observedPotSize || s.sourcePotSize || s.potSize || s.size || s.containerSize || phase92ExtractPotSize(`${title} ${s.description || ""}`) || "").slice(0, 60);
+        const match = phase92PotSizeMatch(requestedPotSize, observedPotSize, s);
+        return {
+          platform: String(s.platform || s.source || "Web").slice(0, 42),
+          priceUSD: Math.round(phase83CleanPrice(s.priceUSD ?? s.price ?? s.amount) * 100) / 100,
+          type: String(s.type || s.priceType || "asking").slice(0, 24),
+          listingDate: String(s.listingDate || s.date || raw.searchDate || today()).slice(0, 32),
+          url,
+          title,
+          host: phase92SourceUrlHost(url),
+          observedPotSize,
+          requestedPotSize,
+          potSizeMatchQuality: match.quality,
+          potSizeMatchLabel: match.label,
+          potSizeMatchIncluded: !!match.included,
+          includedInMarketMedian: !!match.included,
+          matchEvidence: String(s.evidence || s.matchEvidence || "").slice(0, 220)
+        };
+      }).filter(s => s.priceUSD > 0);
+      const trustedSources = sources.filter(s => s.includedInMarketMedian !== false && ["exact","close"].includes(s.potSizeMatchQuality));
+      const whatnot = trustedSources.filter(s => /whatnot/i.test(s.platform)).map(s=>s.priceUSD);
+      const palmstreet = trustedSources.filter(s => /palmstreet/i.test(s.platform)).map(s=>s.priceUSD);
+      const prices = trustedSources.map(s=>s.priceUSD);
+      const allPrices = sources.map(s=>s.priceUSD);
+      const trustedCount = trustedSources.length;
+      const rawCount = +raw.dataPointCount || sources.length;
+      const confidenceBase = trustedCount >= 20 ? 90 : trustedCount >= 10 ? 74 : trustedCount >= 5 ? 48 : trustedCount > 0 ? 22 : 0;
+      const rawConfidence = +raw.confidenceScore || confidenceBase;
+      const adjustedConfidence = trustedCount >= 5 ? Math.min(rawConfidence, confidenceBase + 8) : Math.min(rawConfidence, confidenceBase);
       return {
         plantName: raw.plantName || "",
-        potSize: raw.potSize || "",
+        potSize: requestedPotSize,
+        requestedPotSize,
         searchDate: raw.searchDate || today(),
         dataSources: sources,
-        dataPointCount: count,
-        marketMedianPrice: Math.round((phase83CleanPrice(raw.marketMedianPrice) || phase83Median(prices)) * 100) / 100,
-        whatnotMedian: raw.whatnotMedian === null ? null : Math.round((phase83CleanPrice(raw.whatnotMedian) || phase83Median(whatnot)) * 100) / 100 || null,
-        palmstreetMedian: raw.palmstreetMedian === null ? null : Math.round((phase83CleanPrice(raw.palmstreetMedian) || phase83Median(palmstreet)) * 100) / 100 || null,
-        lowestFound: Math.round((phase83CleanPrice(raw.lowestFound) || (prices.length ? Math.min(...prices) : 0)) * 100) / 100,
-        highestFound: Math.round((phase83CleanPrice(raw.highestFound) || (prices.length ? Math.max(...prices) : 0)) * 100) / 100,
-        confidenceScore: Math.max(0, Math.min(100, +raw.confidenceScore || (count >= 20 ? 88 : count >= 10 ? 68 : count >= 5 ? 45 : count > 0 ? 25 : 0))),
-        confidenceNote: raw.confidenceNote || (count >= 20 ? `Strong market sample: ${count} listings found.` : count >= 5 ? `Limited market sample: ${count} listings found.` : `Low confidence: ${count} listing(s) found.`),
+        allSourceCount: sources.length,
+        dataPointCount: trustedCount,
+        excludedByPotSizeCount: sources.length - trustedCount,
+        marketMedianPrice: Math.round((phase83Median(prices) || 0) * 100) / 100,
+        whatnotMedian: whatnot.length ? Math.round(phase83Median(whatnot) * 100) / 100 : null,
+        palmstreetMedian: palmstreet.length ? Math.round(phase83Median(palmstreet) * 100) / 100 : null,
+        lowestFound: Math.round(((prices.length ? Math.min(...prices) : 0) || 0) * 100) / 100,
+        highestFound: Math.round(((prices.length ? Math.max(...prices) : 0) || 0) * 100) / 100,
+        allListingsLowestFound: Math.round(((allPrices.length ? Math.min(...allPrices) : 0) || 0) * 100) / 100,
+        allListingsHighestFound: Math.round(((allPrices.length ? Math.max(...allPrices) : 0) || 0) * 100) / 100,
+        confidenceScore: Math.max(0, Math.min(100, adjustedConfidence)),
+        confidenceNote: raw.confidenceNote || (trustedCount >= 20 ? `Strong pot-size-matched sample: ${trustedCount} listings found.` : trustedCount >= 5 ? `Limited pot-size-matched sample: ${trustedCount} listings found.` : `Low confidence: only ${trustedCount} pot-size-matched listing(s). ${sources.length - trustedCount} listing(s) were excluded for size mismatch/unknown size.`),
         dataAge: raw.dataAge || "mixed",
-        marketNotes: raw.marketNotes || ""
+        marketNotes: raw.marketNotes || "",
+        potSizeMatchSummary: { ...phase92PotSizeSummary({ dataSources:sources, potSize:requestedPotSize }), rawDataPointCount:rawCount }
       };
     }
     function buildMarketPricePrompt(plant = {}, settings = {}) {
       const cfg = phase83MarketPricingSettings(settings);
       const cost = +plant.cost || 0;
       const pot = plant.potSize || plant.size || plant.containerSize || '4 inch';
+      const potNorm = phase92NormalizePotSize(pot).label || pot;
       const name = plant.name || plant.botanicalName || 'Unknown Plant';
+      const altName = /carmel marble/i.test(name) ? String(name).replace(/carmel/ig, "Caramel") : /caramel marble/i.test(name) ? String(name).replace(/caramel/ig, "Carmel") : "";
       const minMargin = Math.round(cfg.minMarginPct);
       const isoDate = today();
       return `You are a rare plant market pricing analyst for Leaf Diary, a Florida-based plant reseller that sells live on Palmstreet and Whatnot.
@@ -2165,30 +2246,50 @@ TASK: Research the current retail market price for the following plant and retur
 
 PLANT TO RESEARCH:
 - Plant name: ${name}
-- Pot size: ${pot}
+${altName ? `- Alternate spelling/search: ${altName}
+` : ""}- Required pot size: ${potNorm}
 - Our cost: $${cost}
 - Our minimum margin target: ${minMargin}%
 
+STRICT POT SIZE RULES:
+- Match the SAME pot/container size whenever possible: ${potNorm}.
+- Search exact-size phrases first, for example '${name} ${potNorm}', '${name} ${potNorm} pot', and '${name} ${potNorm} plant'.
+- Do NOT mix 2 inch, 3 inch, 4 inch, 6 inch, starter plug, node cutting, bare-root, gallon, or mature specimen prices into the marketMedianPrice unless they are the same or a clearly close match.
+- Every source must include observedPotSize and potSizeMatch: exact, close, mismatch, or unknown.
+- marketMedianPrice, whatnotMedian, palmstreetMedian, lowestFound, and highestFound must be calculated from exact/close pot-size matches only.
+- Still include mismatch/unknown-size listings in dataSources for transparency, but mark them potSizeMatch: mismatch or unknown. Those are excluded from the median.
+
 RESEARCH INSTRUCTIONS:
 Search these sources in this order:
-1. Whatnot completed/sold listings for '${name} ${pot}'
-2. Palmstreet current listings for '${name} ${pot}'
-3. Etsy sold listings for '${name} ${pot} plant'
-4. eBay sold listings for '${name} ${pot} houseplant'
-5. General web search: 'buy ${name} ${pot} online ${new Date().getFullYear()} price'
+1. Whatnot completed/sold listings for '${name} ${potNorm}'
+2. Palmstreet current listings for '${name} ${potNorm}'
+3. Etsy sold/current listings for '${name} ${potNorm} plant'
+4. eBay sold/current listings for '${name} ${potNorm} houseplant'
+5. General web search: 'buy ${name} ${potNorm} online ${new Date().getFullYear()} price'
 
-Find at least 20 individual price data points across these sources. Prefer sold/completed prices over asking prices. Exclude listings older than 90 days. Exclude listings that are clearly damaged, diseased, or have no photo.
+Find at least 20 individual price data points across these sources. Prefer sold/completed prices over asking prices. Exclude listings older than 90 days from the median. Exclude damaged, diseased, no-photo, node-only, unrooted cutting, seed, corm, or tissue-culture-only listings unless the plant being priced is clearly that same format.
 
 IMPORTANT GATEWAY RULE:
-If your runtime does not have live web search/browsing tools enabled, do NOT estimate or invent prices. Return the JSON format below with dataSources: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and marketNotes: \"WEB_SEARCH_NOT_AVAILABLE — Gateway/model answered but could not browse live marketplaces.\"
+If your runtime does not have live web search/browsing tools enabled, do NOT estimate or invent prices. Return the JSON format below with dataSources: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and marketNotes: "WEB_SEARCH_NOT_AVAILABLE — Gateway/model answered but could not browse live marketplaces."
 
 RETURN FORMAT — return ONLY this JSON object, no other text:
 {
-  "plantName": "${String(name).replace(/"/g, '\\"')}",
-  "potSize": "${String(pot).replace(/"/g, '\\"')}",
+  "plantName": "${String(name).replace(/"/g, '\"')}",
+  "potSize": "${String(potNorm).replace(/"/g, '\"')}",
+  "requestedPotSize": "${String(potNorm).replace(/"/g, '\"')}",
   "searchDate": "${isoDate}",
   "dataSources": [
-    { "platform": "Whatnot", "priceUSD": 22, "type": "sold", "listingDate": "${isoDate}" }
+    {
+      "platform": "Whatnot",
+      "title": "listing title here",
+      "priceUSD": 22,
+      "type": "sold",
+      "listingDate": "${isoDate}",
+      "observedPotSize": "${String(potNorm).replace(/"/g, '\"')}",
+      "potSizeMatch": "exact",
+      "url": "https://source-url-if-available",
+      "evidence": "title or listing text showing this is the same size"
+    }
   ],
   "dataPointCount": 0,
   "marketMedianPrice": 0,
@@ -2202,7 +2303,7 @@ RETURN FORMAT — return ONLY this JSON object, no other text:
   "marketNotes": ""
 }
 
-If you cannot find data for the exact pot size, use the closest size and note it. If this plant is rare and has no market data, set confidenceScore to 0 and explain why in confidenceNote. Do not invent prices. Only report prices you actually found in search results.`;
+If you cannot find enough exact-size data, return the exact/close sources you found, mark the rest mismatch/unknown, lower confidenceScore, and explain the size limitation in confidenceNote. Do not invent prices. Only report prices you actually found in search results.`;
     }
     function calcAIMarketPrice(plant = {}, marketDataRaw = {}, settings = {}, allPlants = []) {
       const cfg = phase83MarketPricingSettings(settings);
@@ -2215,7 +2316,8 @@ If you cannot find data for the exact pot size, use the closest size and note it
       const breakEven = Math.ceil((cost + shipping) / Math.max(.5, 1 - feePct));
       const marketTarget = median ? Math.round(median * (1 - cfg.discountPctBelowMarket) * 100) / 100 : 0;
       let finalPrice = 0, priceReason = "", priceStatus = "low_confidence";
-      const lowConfidence = !median || marketData.dataPointCount < 5 || marketData.confidenceScore < 35;
+      const potSummary = phase92PotSizeSummary(marketData);
+      const lowConfidence = !median || marketData.dataPointCount < 5 || marketData.confidenceScore < 35 || potSummary.trusted < 5;
       if (lowConfidence) {
         finalPrice = Math.max(ppsPrice, breakEven);
         priceStatus = "low_confidence";
@@ -2255,7 +2357,11 @@ If you cannot find data for the exact pot size, use the closest size and note it
         appliedPrice: null,
         plantId: phase83SafePlantPriceId(plant),
         plantName: plant.name || marketData.plantName || "Plant",
-        potSize: plant.potSize || marketData.potSize || ""
+        potSize: plant.potSize || marketData.potSize || "",
+        requestedPotSize: marketData.requestedPotSize || plant.potSize || marketData.potSize || "",
+        trustedPotSizeSourceCount: potSummary.trusted,
+        excludedByPotSizeCount: marketData.excludedByPotSizeCount || potSummary.excluded,
+        potSizeMatchSummary: marketData.potSizeMatchSummary || potSummary
       };
     }
     function getCachedMarketResearch(plant = {}, settings = {}) {
@@ -2279,7 +2385,7 @@ If you cannot find data for the exact pot size, use the closest size and note it
       const fallback = {
         plantName: plant.name || "Plant",
         potSize: plant.potSize || "",
-        dataSources: [], dataPointCount: 0, marketMedianPrice: 0, whatnotMedian: null, palmstreetMedian: null,
+        dataSources: [], dataPointCount: 0, allSourceCount:0, excludedByPotSizeCount:0, marketMedianPrice: 0, whatnotMedian: null, palmstreetMedian: null,
         lowestFound: 0, highestFound: 0, confidenceScore: 0, confidenceNote: reason, dataAge: "stale"
       };
       return { ...calcAIMarketPrice(plant, fallback, settings, allPlants), suggestedPrice:+pps.suggestedPrice || 0, margin:+pps.margin || 0, priceStatus:"fallback", priceReason:reason };
@@ -2350,7 +2456,7 @@ If you cannot find data for the exact pot size, use the closest size and note it
       return `${days}d ago`;
     }
     function phase84SourceSummary(sources = []) {
-      const rows = safeArray(sources).reduce((m, s) => {
+      const rows = safeArray(sources).filter(s => s.includedInMarketMedian !== false && ["exact","close"].includes(s.potSizeMatchQuality || "exact")).reduce((m, s) => {
         const key = String(s.platform || "Web").trim() || "Web";
         if (!m[key]) m[key] = { platform:key, count:0, prices:[], sold:0, asking:0 };
         m[key].count += 1;
@@ -2412,10 +2518,12 @@ If you cannot find data for the exact pot size, use the closest size and note it
         : isLow
           ? `Limited market data. Use this as a guardrail, not an automatic decision.`
           : r.priceReason || `Suggested price based on market median ${$(median)}.`;
+      const potSummary = phase92PotSizeSummary(r);
+      const potMatchColor = potSummary.trusted >= 10 ? C.g600 : potSummary.trusted >= 5 ? C.amber : C.red;
       return <div style={{ background:meta.bg, border:`2px solid ${meta.color}`, borderRadius:20, padding:compact ? 13 : 16, marginTop:10, boxShadow:"0 10px 28px rgba(13,43,26,.07)" }}>
         <Row between center wrap gap={10} style={{ marginBottom:12 }}>
           <Row gap={10} center style={{ minWidth:0 }}><div style={{ width:48, height:48, borderRadius:17, background:C.card, color:meta.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>{meta.icon}</div><div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, fontSize:compact ? 19 : 23, color:C.g900, fontWeight:950 }}>{title}</div><div style={{ color:C.tx3, fontSize:12 }}>{r.plantName || plant.name || "Plant"} · {r.potSize || plant.potSize || "Pot size unknown"} · Last checked: {phase84FormatLastChecked(r.runAt)}</div></div></Row>
-          <Tag text={`${r.dataPointCount || r.competitorCount || sources.length || 0} sources · ${r.confidenceScore || 0}/100`} color={r.confidenceScore >= 70 ? C.g600 : r.confidenceScore >= 35 ? C.amber : C.red} />
+          <Row gap={6} wrap center><Tag text={`${potSummary.trusted || 0} size-matched · ${r.confidenceScore || 0}/100`} color={r.confidenceScore >= 70 ? C.g600 : r.confidenceScore >= 35 ? C.amber : C.red} /><Tag text={`${sources.length || 0} total sources`} color={C.blue} sm /></Row>
         </Row>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:12 }}>
@@ -2423,6 +2531,20 @@ If you cannot find data for the exact pot size, use the closest size and note it
           <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Whatnot</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>{r.whatnotMedian ? $(r.whatnotMedian) : "—"}</div></div>
           <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Palmstreet</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>{r.palmstreetMedian ? $(r.palmstreetMedian) : "—"}</div></div>
           <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Range</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:18, fontWeight:950 }}>{r.lowestFound ? `${$(r.lowestFound)} - ${$(r.highestFound)}` : "—"}</div></div>
+        </div>
+
+        <div style={{ background:C.card, border:`1px solid ${potMatchColor}66`, borderLeft:`6px solid ${potMatchColor}`, borderRadius:16, padding:12, marginBottom:12 }}>
+          <Row between center wrap gap={8} style={{ marginBottom:7 }}><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>🪴 Pot Size Match Guard</div><Tag text={`${potSummary.trusted} trusted / ${potSummary.total} total`} color={potMatchColor} sm /></Row>
+          <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, fontWeight:750 }}>
+            Pricing median uses only exact or close matches to <b>{potSummary.requestedPotSize || r.potSize || plant.potSize || "the requested pot size"}</b>. Listings with different or unknown sizes are shown below for transparency, but excluded from the market median.
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:7, marginTop:9 }}>
+            <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:11, padding:"8px 9px", fontSize:12 }}><b style={{ color:C.g600 }}>{potSummary.exact}</b><br/><span style={{ color:C.tx3 }}>exact</span></div>
+            <div style={{ background:C.amberBg, border:`1px solid ${C.amber}33`, borderRadius:11, padding:"8px 9px", fontSize:12 }}><b style={{ color:C.amber }}>{potSummary.close}</b><br/><span style={{ color:C.tx3 }}>close</span></div>
+            <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:11, padding:"8px 9px", fontSize:12 }}><b style={{ color:C.tx2 }}>{potSummary.excluded}</b><br/><span style={{ color:C.tx3 }}>excluded</span></div>
+            <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:11, padding:"8px 9px", fontSize:12 }}><b style={{ color:C.tx2 }}>{potSummary.total}</b><br/><span style={{ color:C.tx3 }}>total</span></div>
+          </div>
+          {potSummary.trusted < 5 && <div style={{ marginTop:9, color:C.red, fontSize:12, fontWeight:900 }}>⚠️ Not enough same-size sources. Treat this as a profit guard, not a trusted market price.</div>}
         </div>
 
         <div style={{ background:C.card, border:`2px solid ${meta.color}`, borderRadius:18, padding:14, marginBottom:12 }}>
@@ -2453,13 +2575,22 @@ If you cannot find data for the exact pot size, use the closest size and note it
         </div>
 
         {!!sourceRows.length && <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:12 }}>
-          <Row between center wrap gap={8} style={{ marginBottom:8 }}><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>📊 Source Summary</div><Tag text={`${sourceRows.length} platforms`} color={C.blue} sm /></Row>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:7 }}>{sourceRows.slice(0,4).map(row => <div key={row.platform} style={{ border:`1px solid ${C.bdS}`, borderRadius:11, padding:"8px 9px", color:C.tx2, fontSize:12 }}><b>{row.platform}</b> · {row.count} listing(s) · median {$(row.median)}</div>)}</div>
+          <Row between center wrap gap={8} style={{ marginBottom:8 }}><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>📊 Size-Matched Source Summary</div><Tag text={`${sourceRows.length} platforms`} color={C.blue} sm /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:7 }}>{sourceRows.slice(0,4).map(row => <div key={row.platform} style={{ border:`1px solid ${C.bdS}`, borderRadius:11, padding:"8px 9px", color:C.tx2, fontSize:12 }}><b>{row.platform}</b> · {row.count} trusted listing(s) · median {$(row.median)}</div>)}</div>
         </div>}
 
         {sources.length > 0 && <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:12 }}>
           <button onClick={()=>setShowSources(!showSources)} style={{ width:"100%", border:0, background:"transparent", color:C.g800, fontWeight:950, fontFamily:F.body, cursor:"pointer", textAlign:"left", padding:0 }}>See {showSources ? "fewer" : "all"} {sources.length} sources {showSources ? "▴" : "▾"}</button>
-          <div style={{ display:"grid", gap:6, marginTop:9 }}>{shownSources.map((s,i)=><div key={i} style={{ borderTop:i ? `1px solid ${C.bdS}` : 0, paddingTop:i ? 6 : 0, color:C.tx2, fontSize:12 }}><b>{s.platform || "Web"}</b> · {$(s.priceUSD)} · {s.type || "asking"} · {s.listingDate || "date unknown"}</div>)}</div>
+          <div style={{ display:"grid", gap:6, marginTop:9 }}>{shownSources.map((s,i)=>{
+            const q = s.potSizeMatchQuality || "unknown";
+            const mColor = q === "exact" ? C.g600 : q === "close" ? C.amber : C.red;
+            return <div key={i} style={{ borderTop:i ? `1px solid ${C.bdS}` : 0, paddingTop:i ? 8 : 0, color:C.tx2, fontSize:12 }}>
+              <Row between center gap={8} wrap><div style={{ fontWeight:950 }}><b>{s.platform || "Web"}</b> · {$(s.priceUSD)} · {s.type || "asking"}</div><Tag text={s.includedInMarketMedian === false ? `Excluded: ${s.potSizeMatchLabel || q}` : `${s.potSizeMatchLabel || q}`} color={mColor} sm /></Row>
+              <div style={{ marginTop:3, color:C.tx3 }}>{s.title || s.host || "Marketplace listing"} · {s.listingDate || "date unknown"}</div>
+              <div style={{ marginTop:3, color:C.tx3 }}>Requested: <b>{s.requestedPotSize || r.requestedPotSize || r.potSize || "—"}</b> · Listing size: <b>{s.observedPotSize || "not proven"}</b>{s.matchEvidence ? ` · ${s.matchEvidence}` : ""}</div>
+              {s.url && <a href={s.url} target="_blank" rel="noreferrer" style={{ display:"inline-block", marginTop:4, color:C.blue, fontWeight:900, textDecoration:"none" }}>Open source ↗</a>}
+            </div>;
+          })}</div>
         </div>}
 
         <Row gap={8} wrap>
@@ -2473,12 +2604,12 @@ If you cannot find data for the exact pot size, use the closest size and note it
       const [mode, setMode] = useState("competitive");
       const [applied, setApplied] = useState(null);
       const basePlant = { id:"qa-mp-panel", plantId:"QA-084", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock", dateAdded:today() };
-      const strongSources = Array.from({ length: 22 }, (_,i)=>({ platform:i % 4 === 0 ? "Whatnot" : i % 4 === 1 ? "Palmstreet" : i % 4 === 2 ? "Etsy" : "eBay", priceUSD:20 + (i % 9), type:i % 3 === 0 ? "sold" : "asking", listingDate:today() }));
+      const strongSources = Array.from({ length: 22 }, (_,i)=>({ platform:i % 4 === 0 ? "Whatnot" : i % 4 === 1 ? "Palmstreet" : i % 4 === 2 ? "Etsy" : "eBay", title:`Monstera Deliciosa 4 inch plant listing ${i+1}`, observedPotSize:'4"', potSizeMatch:"exact", url:"https://example.com/source-" + (i+1), priceUSD:20 + (i % 9), type:i % 3 === 0 ? "sold" : "asking", listingDate:today(), evidence:"Listing title includes 4 inch" }));
       const dataByMode = {
         competitive: calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources, dataPointCount:22, marketMedianPrice:26, whatnotMedian:24, palmstreetMedian:28, confidenceScore:88, dataAge:"recent" }, settings, [basePlant]),
         at_floor: calcAIMarketPrice({ ...basePlant, cost:11 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources.map(s=>({ ...s, priceUSD:30 + (s.priceUSD % 6) })), dataPointCount:20, marketMedianPrice:32, whatnotMedian:31, palmstreetMedian:34, confidenceScore:82, dataAge:"recent" }, settings, [{ ...basePlant, cost:11 }]),
         margin_risk: calcAIMarketPrice({ ...basePlant, cost:42, suggestedPrice:45 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources.map(s=>({ ...s, priceUSD:24 + (s.priceUSD % 4) })), dataPointCount:20, marketMedianPrice:26, whatnotMedian:25, palmstreetMedian:28, confidenceScore:85, dataAge:"recent" }, settings, [{ ...basePlant, cost:42 }]),
-        low_confidence: calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:[{ platform:"Web", priceUSD:19, type:"asking", listingDate:today() }, { platform:"Etsy", priceUSD:21, type:"asking", listingDate:today() }], dataPointCount:2, marketMedianPrice:20, confidenceScore:18, dataAge:"mixed" }, settings, [basePlant]),
+        low_confidence: calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:[{ platform:"Web", title:"Monstera Deliciosa 4 inch", observedPotSize:'4"', potSizeMatch:"exact", priceUSD:19, type:"asking", listingDate:today() }, { platform:"Etsy", title:"Monstera Deliciosa 6 inch", observedPotSize:'6"', potSizeMatch:"mismatch", priceUSD:21, type:"asking", listingDate:today() }], dataPointCount:2, marketMedianPrice:20, confidenceScore:18, dataAge:"mixed" }, settings, [basePlant]),
       };
       const result = dataByMode[mode] || dataByMode.competitive;
       return <Card style={{ marginBottom:14, borderLeft:`5px solid ${phase83MarketPriceStatusMeta(result.priceStatus).color}` }}>
@@ -2759,6 +2890,28 @@ If you cannot find data for the exact pot size, use the closest size and note it
       return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
     }
 
+
+    function phase92BuildSourceTransparencySelfChecks({ settings = {} } = {}) {
+      const plant = { id:"qa-92", plantId:"QA-092", name:"Philodendron Caramel Marble", potSize:'4"', cost:35, suggestedPrice:90, status:"In Stock" };
+      const raw = {
+        plantName:plant.name,
+        potSize:plant.potSize,
+        dataSources:[
+          { platform:"Palmstreet", title:"Philodendron Caramel Marble 4 inch", observedPotSize:'4"', potSizeMatch:"exact", priceUSD:99, type:"asking", listingDate:today(), url:"https://example.com/4in" },
+          { platform:"Etsy", title:"Philodendron Caramel Marble 6 inch", observedPotSize:'6"', potSizeMatch:"mismatch", priceUSD:180, type:"asking", listingDate:today(), url:"https://example.com/6in" },
+          { platform:"Whatnot", title:"Philodendron Caramel Marble 4 inch sold", observedPotSize:'4"', potSizeMatch:"exact", priceUSD:110, type:"sold", listingDate:today(), url:"https://example.com/whatnot" }
+        ], confidenceScore:80
+      };
+      const result = calcAIMarketPrice(plant, raw, settings, [plant]);
+      const pot = phase92PotSizeSummary(result);
+      const checks = [
+        { id:"mp92-pot-helper", icon:"🪴", title:"Pot Size Match Helper", pass: phase92PotSizeMatch('4"','4"').included && !phase92PotSizeMatch('4"','6"').included, reason:"The app can distinguish same-size listings from larger/smaller listings.", page:"phase2qa", severity:"critical" },
+        { id:"mp92-median-filter", icon:"📏", title:"Median Uses Same-Size Sources", pass: result.marketMedianPrice === 104.5 && pot.excluded === 1, reason:"The 6 inch source is visible but excluded; median uses only 4 inch sources.", page:"phase2qa", severity:"critical" },
+        { id:"mp92-source-fields", icon:"🔎", title:"Sources Show Proof", pass: safeArray(result.dataSources).every(s => "observedPotSize" in s && "includedInMarketMedian" in s && "url" in s), reason:"Every market source stores platform, title/url, listing size, match status, and inclusion status.", page:"phase2qa", severity:"critical" },
+        { id:"mp92-prompt", icon:"🧠", title:"Prompt Requires Source URLs + Pot Match", pass: /observedPotSize/.test(buildMarketPricePrompt(plant, settings)) && /potSizeMatch/.test(buildMarketPricePrompt(plant, settings)) && /url/.test(buildMarketPricePrompt(plant, settings)), reason:"Gateway prompt asks for visible source details and exact/close/mismatch pot-size labels.", page:"aihub", severity:"critical" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
 
     function phase11SlotMetrics(appData = {}, settings = {}) {
       const cfg = phase11Settings(settings), plants = safeArray(appData.plants);
@@ -21554,6 +21707,10 @@ ${local.summary || "Fallback completed."}`;
       const marketLaunchRegressionPass = marketLaunchRegression.filter(i => i.pass).length;
       const marketLaunchRegressionBlockers = marketLaunchRegression.filter(i => !i.pass && i.severity === "critical").length;
       const marketLaunchRegressionWarnings = marketLaunchRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketSourceRegression = phase92BuildSourceTransparencySelfChecks({ plants, settings, user });
+      const marketSourceRegressionPass = marketSourceRegression.filter(i => i.pass).length;
+      const marketSourceRegressionBlockers = marketSourceRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketSourceRegressionWarnings = marketSourceRegression.filter(i => !i.pass && i.severity !== "critical").length;
       const features = [
         { id:"skeleton", icon:"⚡", title:"Skeleton Loading", page:"today", test:"Refresh the app. You should see Leaf Diary loading placeholders instead of a blank white flash." },
         { id:"onboarding", icon:"🎓", title:"Onboarding Checklist", page:"onboarding", test:"Open onboarding. Mark a step done, refresh, and confirm progress stays." },
@@ -21589,6 +21746,7 @@ ${local.summary || "Fallback completed."}`;
         { id:"ai88_bulk_market", icon:"💲", title:"Update 88 Bulk Market Pricing", page:"buy_ws", test:"Open Buy Smart → Bulk Market Pricing. Select plants, run a one-at-a-time queue, apply safe prices, and confirm margin-risk plants stay manual." },
         { id:"ai89_market_compare", icon:"📊", title:"Update 89 Market Comparison Columns", page:"buy_ws", test:"Open Buy Smart → Price Guide and What Makes Money → Price Targets. Confirm Market columns show cached median vs target when research exists." },
         { id:"ai90_market_launch", icon:"🛡️", title:"Update 90 Final Market Pricing QA + Launch", page:"releasecenter", test:"Open Phase 2 QA and Final Release Center. Confirm market pricing launch checks pass, export launch packet, then backup before upload." },
+        { id:"ai92_source_size_match", icon:"🪴", title:"Update 92 Source Transparency + Pot Size Match", page:"phase2qa", test:"Run market research and confirm each source shows platform, title/link, observed pot size, match grade, and whether it counted in the median." },
       ];
       const regressions = [
         { id:"login", icon:"🔐", title:"Login + Role Launcher", page:"rolelauncher", test:"Owner, manager, and employee open the correct board after login." },
@@ -21607,8 +21765,8 @@ ${local.summary || "Fallback completed."}`;
       const pct = allChecks.length ? Math.round(doneCount / allChecks.length * 100) : 0;
       const mark = (id, value) => setStatus(prev => { const next = { ...prev, [id]: value, updatedAt:new Date().toISOString() }; ldPhase2QaSave(next); return next; });
       const reset = () => { const next = {}; ldPhase2QaSave(next); setStatus(next); };
-      const exportCsv = () => downloadCsv("leaf-diary-update-90-market-pricing-launch-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI + Auction + Market Pricing", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...auctionRegression.map(i => ["Auction Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPricingRegression.map(i => ["Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPanelRegression.map(i => ["Market Price Panel Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketButtonRegression.map(i => ["Market Price Button Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketGatewayRegression.map(i => ["Market Gateway Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketRowRegression.map(i => ["Inventory Row Market Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketBulkRegression.map(i => ["Bulk Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketCompareRegression.map(i => ["Market Comparison Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketLaunchRegression.map(i => ["Market Pricing Launch Self Check", i.title, i.pass ? "pass" : i.severity === "critical" ? "blocker" : "review", i.reason, i.page])]);
-      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0 && auctionRegressionBlockers === 0 && marketPricingRegressionBlockers === 0 && marketPanelRegressionBlockers === 0 && marketButtonRegressionBlockers === 0 && marketGatewayRegressionBlockers === 0 && marketRowRegressionBlockers === 0 && marketBulkRegressionBlockers === 0 && marketCompareRegressionBlockers === 0 && marketLaunchRegressionBlockers === 0;
+      const exportCsv = () => downloadCsv("leaf-diary-update-92-source-size-match-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI + Auction + Market Pricing", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...auctionRegression.map(i => ["Auction Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPricingRegression.map(i => ["Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPanelRegression.map(i => ["Market Price Panel Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketButtonRegression.map(i => ["Market Price Button Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketGatewayRegression.map(i => ["Market Gateway Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketRowRegression.map(i => ["Inventory Row Market Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketBulkRegression.map(i => ["Bulk Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketCompareRegression.map(i => ["Market Comparison Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketLaunchRegression.map(i => ["Market Pricing Launch Self Check", i.title, i.pass ? "pass" : i.severity === "critical" ? "blocker" : "review", i.reason, i.page]), ...marketSourceRegression.map(i => ["Source Transparency + Pot Size Match Self Check", i.title, i.pass ? "pass" : i.severity === "critical" ? "blocker" : "review", i.reason, i.page])]);
+      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0 && auctionRegressionBlockers === 0 && marketPricingRegressionBlockers === 0 && marketPanelRegressionBlockers === 0 && marketButtonRegressionBlockers === 0 && marketGatewayRegressionBlockers === 0 && marketRowRegressionBlockers === 0 && marketBulkRegressionBlockers === 0 && marketCompareRegressionBlockers === 0 && marketLaunchRegressionBlockers === 0 && marketSourceRegressionBlockers === 0;
       const Stat = ({ label, value, sub, color }) => <Card style={{ borderTop:`4px solid ${color}`, padding:"13px 12px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.6 }}>{label}</div><div style={{ fontFamily:F.display, color, fontSize:28, fontWeight:900 }}>{value}</div>{sub && <div style={{ color:C.tx3, fontSize:11, fontWeight:700 }}>{sub}</div>}</Card>;
       const CheckCard = ({ item, section }) => { const st = status[item.id] || "untested"; const color = st === "pass" ? C.g600 : st === "review" ? C.amber : C.tx3; return <Card style={{ borderLeft:`5px solid ${color}`, padding:14 }}>
         <Row between center gap={10} wrap>
@@ -21631,7 +21789,7 @@ ${local.summary || "Fallback completed."}`;
             <Row gap={8} wrap><button onClick={exportCsv} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Export QA CSV</button><button onClick={()=>setPage("releasecenter")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Final Release Center</button></Row>
           </Row>
           <div style={{ marginTop:15, background:canGoLive ? "rgba(151,211,62,.16)" : "rgba(255,255,255,.08)", border:"1px solid rgba(151,211,62,.30)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
-            {canGoLive ? "✅ Phase 2 + AI + auction + market-pricing launch checks look ready after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI blocker(s) · ${auctionRegressionBlockers} auction blocker(s) · ${marketPricingRegressionBlockers} market-pricing blocker(s) · ${marketPanelRegressionBlockers} market-panel blocker(s) · ${marketRowRegressionBlockers} inventory-row pricing blocker(s) · ${marketBulkRegressionBlockers} bulk-pricing blocker(s) · ${marketLaunchRegressionBlockers} market-launch blocker(s).`}
+            {canGoLive ? "✅ Phase 2 + AI + auction + market-pricing launch checks look ready after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI blocker(s) · ${auctionRegressionBlockers} auction blocker(s) · ${marketPricingRegressionBlockers} market-pricing blocker(s) · ${marketPanelRegressionBlockers} market-panel blocker(s) · ${marketRowRegressionBlockers} inventory-row pricing blocker(s) · ${marketBulkRegressionBlockers} bulk-pricing blocker(s) · ${marketLaunchRegressionBlockers} market-launch blocker(s) · ${marketSourceRegressionBlockers} source-size blocker(s).`}
           </div>
         </div>
 
@@ -21750,6 +21908,15 @@ ${local.summary || "Fallback completed."}`;
           <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 90 Final Market Pricing QA + Launch Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Final launch gate for the full market-pricing engine: settings, panel, buttons, Gateway guard, row buttons, bulk pricing, market columns, cache/risk review, and no-new-page rule.</div></div><Tag text={`${marketLaunchRegressionPass}/${marketLaunchRegression.length} passing`} color={marketLaunchRegressionBlockers ? C.red : C.g600} /></Row>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
             {marketLaunchRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketSourceRegressionBlockers ? C.red : C.g600}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 92 Source Transparency + Pot Size Match Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks that source rows show proof and the market median only uses exact/close pot-size matches.</div></div><Tag text={`${marketSourceRegressionPass}/${marketSourceRegression.length} passing`} color={marketSourceRegressionBlockers ? C.red : C.g600} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketSourceRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
               <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
             </Card>)}
           </div>
