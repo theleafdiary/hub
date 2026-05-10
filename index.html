@@ -3980,9 +3980,10 @@
         { id:"timecard", icon:"⏱️", title:"Timecard", sub:"Clock in and out" }
       ];
       const ownerSettingsItems = [
-        { id:"aigateway", icon:"🌐", title:"Mobile AI Gateway", sub:"API, token, cost guard" },
+        { id:"ollamadoctor", icon:"🩺", title:"Ollama Doctor", sub:"Fix MacBook local AI" },
+        { id:"ollama", icon:"🧠", title:"Local AI Setup", sub:"MacBook Ollama settings" },
+        { id:"aigateway", icon:"🌐", title:"Mobile AI Gateway", sub:"Phone AI bridge + cost guard" },
         { id:"airouter", icon:"🧭", title:"AI Task Routing", sub:"Route each AI task" },
-        { id:"ollama", icon:"🧠", title:"Ollama Connector", sub:"Local/cloud AI settings" },
         { id:"invoicetrainer", icon:"🧾", title:"Purchase Trainer", sub:"Invoice pot-size rules" },
         { id:"devtools", icon:"🧪", title:"Developer Testing", sub:"Diagnostics" },
         { id:"cleanup", icon:"🧹", title:"Owner Repair Tools", sub:"Fix duplicate or bad data" }
@@ -4001,17 +4002,29 @@
       const menuGroups = ["Today","Plants","Add / Intake","Shows","Orders","Money","Buy Smart","Marketing","Business","Settings"]
         .map(g => ({ group:g, items:tools.filter(t => t.group === g && (!menuSearch || (t.l + " " + t.group).toLowerCase().includes(menuSearch.toLowerCase()))) }))
         .filter(g => g.items.length);
+      const headerSearchAliases = {
+        ollamadoctor: "ollama doctor ollama connection doctor local ai doctor local ai setup macbook ai macbook ollama cors origin blocked test ollama run doctor desktop preset llama model models",
+        ollama: "ollama local ai setup local ai connector macbook ollama desktop ollama llama3 llama3.1 model test ollama",
+        aigateway: "mobile ai gateway phone ai cloud ai worker cloudflare gateway cost guard iphone ai",
+        airouter: "ai router ai model routing ai task routing model routes",
+        aihub: "leaf diary ai ai center ai tools business ai",
+        dataai: "ask ai ask business ai chat ai copilot",
+      };
       const headerSearchItems = (() => {
-        const allowedWorkspaces = WORKSPACES.filter(w => !w.roles || w.roles.includes(role)).map(w => ({ id:w.id, icon:w.icon, title:w.l, sub:w.sub || "Workspace", group:"Workspace" }));
-        const toolItems = tools.map(t => ({ id:t.id, icon:t.icon, title:t.l, sub:t.group || "Tool", group:t.group || "Tool" }));
+        const allowedWorkspaces = WORKSPACES.filter(w => !w.roles || w.roles.includes(role)).map(w => ({ id:w.id, icon:w.icon, title:w.l, sub:w.sub || "Workspace", group:"Workspace", keywords:"" }));
+        const toolItems = tools.map(t => ({ id:t.id, icon:t.icon, title:t.l, sub:t.group || "Tool", group:t.group || "Tool", keywords: headerSearchAliases[t.id] || "" }));
         const seen = new Set();
         return [...allowedWorkspaces, ...toolItems].filter(item => { if (!item?.id || seen.has(item.id)) return false; seen.add(item.id); return true; });
       })();
       const headerSearchResults = (() => {
         const q = headerSearch.trim().toLowerCase();
-        if (!q) return headerSearchItems.slice(0, 8);
+        if (!q) return [];
+        const terms = q.split(/\s+/).filter(Boolean);
         return headerSearchItems
-          .filter(item => `${item.title} ${item.sub} ${item.group} ${item.id}`.toLowerCase().includes(q))
+          .filter(item => {
+            const hay = `${item.title} ${item.sub} ${item.group} ${item.id} ${item.keywords || ""}`.toLowerCase();
+            return terms.every(term => hay.includes(term));
+          })
           .slice(0, 10);
       })();
       const openHeaderSearchResult = id => {
@@ -11089,6 +11102,7 @@
           <SettingsCard icon="🤖" title="Leaf Diary AI" body="Simple AI tools for daily plans, show building, buying advice, and business questions." page="aihub" button="Open AI" color="#97d33e" />
           <SettingsCard icon="🌐" title="Advanced AI Setup" body={`Mobile gateway, cloud model, API endpoint, and cost controls. Cost guard: ${costGuardOn ? "on" : "manual"}.`} page="aigateway" button="AI Setup" color={C.blue} />
           <SettingsCard icon="🧭" title="AI Model Routing" body="Choose which AI model handles each task. Owner-only because bad routing can create cost or reliability issues." page="airouter" button="Open Routing" color={C.purple} />
+          <SettingsCard icon="🩺" title="Ollama Doctor" body="One-click MacBook local AI test and fix screen. Use this if local Ollama says CORS, offline, or 0 models." page="ollamadoctor" button="Open Doctor" color="#97d33e" />
           <SettingsCard icon="🧠" title="Local AI Setup" body="Ollama / local AI model settings. Keep this hidden from normal users." page="ollama" button="Local AI" color={C.g600} />
           <SettingsCard icon="💵" title="AI Cost Control" body={`${aiDailyLimit}/day limit. Free/local first where possible. Cloud should stay manual unless owner approves.`} page="aigateway" button="Cost Settings" color={C.gold} />
           <SettingsCard icon="💬" title="Ask Leaf Diary AI" body="User-friendly question screen for the business data copilot." page="dataai" button="Ask AI" color="#fb6392" />
@@ -11124,6 +11138,7 @@
           <SettingsCard icon="🧹" title="Owner Repair Tools" body="Repair duplicate plant numbers, bad records, missing data, and import problems." page="cleanup" button="Open Repair" color={C.amber} />
           <SettingsCard icon="🔍" title="Audit Log" body="Check who accessed the app and what changed." page="audit" button="Open Audit" color={C.purple} />
           <SettingsCard icon="⚙️" title="Business Settings" body="The original full admin panel is still available here for deep configuration." page="admin" button="Open Full Admin" color="#b695ff" />
+          <SettingsCard icon="🩺" title="Ollama Doctor" body="Direct MacBook local AI connection test. Use this if search cannot find the doctor screen." page="ollamadoctor" button="Open Doctor" color="#97d33e" />
           <SettingsCard icon="🧠" title="Local AI Setup" body="Technical model settings for local AI only." page="ollama" button="Open" color={C.g600} />
           <SettingsCard icon="🌐" title="Advanced AI Setup" body="Technical mobile AI gateway and cost-control settings." page="aigateway" button="Open" color={C.blue} />
         </div>}
