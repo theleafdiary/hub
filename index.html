@@ -13329,23 +13329,16 @@
         });
         return lines.join("\n");
       };
-      const ask = async (prompt, mode = "auto") => {
+      const ask = async (prompt) => {
         const use = String(prompt || q || "").trim();
         if (!use || busy) return;
         setQ(use);
         setBusy(true);
         const routeBefore = forcedRoute || phase4DetectRoute(use);
         const routeDef = routeDefs[routeBefore] || routeDefs.fallback || PHASE4_DEFAULT_ROUTES.routes.fallback;
-        setAnswer({ title:`${routeDef.icon || "🧭"} ${routeDef.label || "AI Task Routing"}`, body: mode === "gateway" ? "Using the manual Gateway/Proxy path for a smarter answer..." : mode === "free" ? "Using the free local business brain. No gateway/cloud call will run." : "Thinking through your Leaf Diary data...", route:routeBefore, model: mode === "gateway" ? (phase61ReadConfig().model || "gpt-oss:20b") : phase4ModelForRoute(routeBefore, phase3Cfg, phase4Cfg), status:"running", actions:actionsForRoute(routeBefore) });
+        setAnswer({ title:`${routeDef.icon || "🧭"} ${routeDef.label || "AI Task Routing"}`, body:"Thinking through your Leaf Diary data...", route:routeBefore, model:phase4ModelForRoute(routeBefore, phase3Cfg, phase4Cfg), status:"running", actions:actionsForRoute(routeBefore) });
         try {
-          if (mode === "free") {
-            const local = phase4LocalFallback(routeBefore, appData);
-            const body = `${local.summary || "Local business brain completed."}\n\n${formatLocalFallback(local)}`;
-            setAnswer({ title:"🛡️ Free / Local Answer", body, route:routeBefore, model:"Leaf Diary local business brain", status:"fallback", actions:actionsForRoute(routeBefore), generatedAt:new Date().toISOString() });
-            addAudit && addAudit({ action:"Asked Business AI with free local mode", page:"Ask Business AI", details:`${use} | route ${routeBefore}`, user:user?.name||"Unknown", severity:"info" });
-            return;
-          }
-          const res = await phase4RouteAI({ question:use, forcedRoute, appData, user, phase3Cfg, phase4Cfg, allowGateway: mode === "gateway" });
+          const res = await phase4RouteAI({ question:use, forcedRoute, appData, user, phase3Cfg, phase4Cfg });
           const finalRoute = res.route || routeBefore;
           const finalDef = routeDefs[finalRoute] || routeDefs.fallback || routeDef;
           const body = [res.answer || "No answer returned.", formatLocalFallback(res.local)].filter(Boolean).join("\n\n");
@@ -13376,7 +13369,7 @@
         <SHdr icon="💬" title="Ask Business AI" sub="Smart answers with local fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={()=>setPage && setPage("aihub")}>🤖 AI Center</Btn>{isOwner && <Btn sz="sm" v="soft" onClick={()=>setPage && setPage("airouter")}>🧭 AI Task Routing</Btn>}</Row>} />
         <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e", marginBottom:14 }}>
           <Row between center wrap gap={10}>
-            <div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:13, color:"rgba(255,255,255,.78)", marginTop:5 }}>Default safe workflow: Ask Free / Local costs $0. Ask Smart Gateway only when you want the stronger model and approve the gateway call.</div></div>
+            <div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:13, color:"rgba(255,255,255,.78)", marginTop:5 }}>Uses the AI task routing system. Ollama answers when available. Local rules answer when Ollama is off.</div></div>
             <Row gap={8} wrap><Tag text={phase4Cfg.enabled ? "Router ON" : "Router OFF"} color={phase4Cfg.enabled ? C.g600 : C.amber} /><Tag text={phase3Cfg.enabled ? "Ollama enabled" : "Local fallback"} color={phase3Cfg.enabled ? C.blue : C.amber} /><Tag text={`Route: ${detectedRoute}`} color={C.purple} /></Row>
           </Row>
         </Card>
@@ -13384,8 +13377,7 @@
         <Card style={{ marginBottom:14 }}>
           <textarea value={q} onChange={e=>setQ(e.target.value)} placeholder="Ask: What should I do today? Build me a Whatnot show. Where am I losing money?" style={{ width:"100%", minHeight:96, border:`1.5px solid ${C.bd}`, borderRadius:14, padding:13, fontFamily:F.body, fontSize:15 }} />
           <Row gap={8} wrap style={{ marginTop:10 }}>
-            <Btn onClick={()=>ask(null, "free")} disabled={busy}>{busy ? "Thinking..." : "Ask Free / Local"}</Btn>
-            {isOwner && <Btn v="gold" onClick={()=>ask(null, "gateway")} disabled={busy}>{busy ? "Thinking..." : "Ask Smart Gateway"}</Btn>}
+            <Btn onClick={()=>ask()} disabled={busy}>{busy ? "Thinking..." : "Ask Business AI"}</Btn>
             <Btn v="soft" onClick={()=>setQ("")} disabled={busy}>Clear</Btn>
             <Btn v="outline" onClick={copyAnswer} disabled={!answer?.body}>Copy Answer</Btn>
             {isOwner && <select value={forcedRoute} onChange={e=>setForcedRoute(e.target.value)} style={{ padding:"10px 12px", border:`1px solid ${C.bd}`, borderRadius:10, fontFamily:F.body, background:C.card }}>
@@ -13393,9 +13385,9 @@
               {Object.keys(routeDefs).filter(k=>k!=="fallback").map(k=><option key={k} value={k}>{routeDefs[k]?.icon || "•"} {routeDefs[k]?.label || k}</option>)}
             </select>}
           </Row>
-          <div style={{ fontSize:11, color:C.tx3, marginTop:8 }}>Detected route: <b>{detectedRoute}</b> · Free button uses app/local rules with no cost · Smart Gateway uses <b>{phase61ReadConfig().model || "gpt-oss:20b"}</b> only when clicked · Missing photos: {noPhoto.length} · Missing prices: {noPrice.length}</div>
+          <div style={{ fontSize:11, color:C.tx3, marginTop:8 }}>Detected route: <b>{detectedRoute}</b> · Model: <b>{phase4ModelForRoute(detectedRoute, phase3Cfg, phase4Cfg)}</b> · Missing photos: {noPhoto.length} · Missing prices: {noPrice.length}</div>
         </Card>
-        <Card style={{ marginBottom:14 }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Power Questions</div><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>{quickPrompts.map(p=><button key={p} onClick={()=>ask(p, "free")} disabled={busy} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:11, textAlign:"left", fontWeight:800, color:C.tx2, cursor:busy?"not-allowed":"pointer", opacity:busy ? .7 : 1 }}>{p}</button>)}</div></Card>
+        <Card style={{ marginBottom:14 }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Power Questions</div><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>{quickPrompts.map(p=><button key={p} onClick={()=>ask(p)} disabled={busy} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:11, textAlign:"left", fontWeight:800, color:C.tx2, cursor:busy?"not-allowed":"pointer", opacity:busy ? .7 : 1 }}>{p}</button>)}</div></Card>
         {answer && <Card style={{ borderTop:`4px solid ${answer.status === "ollama" ? "#68d8ff" : answer.status === "blocked" ? C.red : "#97d33e"}` }}>
           <Row between center wrap>
             <div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>{answer.title}</div><div style={{ fontSize:12, color:C.tx3 }}>Route: {answer.route} · Model: {answer.model || "local"} · Status: {answer.status}{answer.generatedAt ? ` · ${new Date(answer.generatedAt).toLocaleTimeString()}` : ""}</div></div>
@@ -17089,6 +17081,26 @@ Cancel if you want to save money.`);
 
 
     /* ══════════════════════════════════════════════════════════
+       UPDATE 66 — LOCKED WORKING AI SETTINGS
+       Known-good setup confirmed on 2026-05-10.
+       Do not change these defaults unless the Cloudflare Worker URL,
+       gateway token, or model changes.
+
+       What finally worked:
+       - Live website app uses Gateway/Proxy mode.
+       - iPhone uses Mobile AI Gateway.
+       - MacBook live website also uses Gateway/Proxy because direct
+         localhost JavaScript was browser-blocked.
+       - Local Ollama still works in Terminal at http://127.0.0.1:11434.
+    ══════════════════════════════════════════════════════════ */
+    const LEAF_AI_WORKING_ENDPOINT = "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai";
+    const LEAF_AI_WORKING_TOKEN = "leaf-diary-eric-private-ai-2026";
+    const LEAF_AI_WORKING_GATEWAY_MODEL = "gpt-oss:20b";
+    const LEAF_AI_WORKING_LOCAL_MODEL = "llama3.1:8b";
+    const LEAF_AI_WORKING_SETTINGS_KEY = "leafdiary_working_ai_settings_locked_v66";
+    const LEAF_AI_WORKING_NOTE = "Known-good AI setup: Gateway/Proxy mode for the live app, endpoint leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai, provider ollama-proxy, model gpt-oss:20b, daily limit 15, monthly budget $5, inventory payload 35, timeout 30000ms. Local Ollama on the MacBook stays http://127.0.0.1:11434 with llama3.1:8b, but the live website should use Gateway mode because direct localhost JavaScript was browser-blocked.";
+
+    /* ══════════════════════════════════════════════════════════
        PHASE 3 OLLAMA AI CONNECTOR — local-first AI settings,
        model discovery, connection test, and safe fallback routing.
        This phase does NOT replace existing localLeafAI yet.
@@ -17098,7 +17110,7 @@ Cancel if you want to save money.`);
     const PHASE3_DEFAULT_CONFIG = {
       enabled: true,
       baseUrl: "http://127.0.0.1:11434",
-      primaryModel: "llama3.1:8b",
+      primaryModel: LEAF_AI_WORKING_LOCAL_MODEL,
       fastModel: "llama3.2:3b",
       visionModel: "llava:latest",
       financeModel: "mistral:latest",
@@ -17106,12 +17118,15 @@ Cancel if you want to save money.`);
       timeoutMs: 30000,
       maxContextPlants: 120,
       allowBrowserOllama: true,
-      connectionMode: "auto", // auto, desktop, lan, proxy
-      mobileBaseUrl: "", // Example: http://192.168.1.25:11434 when phone is on same Wi-Fi as the Ollama computer
-      proxyUrl: "", // Example: Cloudflare Tunnel/Worker URL that safely forwards to Ollama
-      proxyToken: "", // Optional shared secret for the mobile proxy
-      preferProxyOnMobile: false,
-      fallbackMode: "localLeafAI"
+      // Known-good default: live website uses Gateway/Proxy. Direct localhost works in Terminal but was browser-blocked.
+      connectionMode: "gateway", // auto, desktop, gateway, lan, proxy
+      mobileBaseUrl: "",
+      proxyUrl: LEAF_AI_WORKING_ENDPOINT,
+      proxyToken: LEAF_AI_WORKING_TOKEN,
+      preferProxyOnMobile: true,
+      fallbackMode: "localLeafAI",
+      workingSettingsLocked: true,
+      workingSettingsNote: LEAF_AI_WORKING_NOTE
     };
     const phase3NormalizeBaseUrl = (url) => {
       let u = String(url || PHASE3_DEFAULT_CONFIG.baseUrl).trim();
@@ -17184,13 +17199,43 @@ Cancel if you want to save money.`);
       if (!isMobile && cfg.proxyUrl) phase3AddUrlVariant(list, cfg.proxyUrl);
       return [...new Set(list)].filter(Boolean);
     };
-    const phase3ReadConfig = () => ({ ...PHASE3_DEFAULT_CONFIG, ...safeObject(safeJsonParse(localStorage.getItem(PHASE3_CONFIG_KEY), {})) });
+    const phase3ReadConfig = () => {
+      const saved = safeObject(safeJsonParse(localStorage.getItem(PHASE3_CONFIG_KEY), {}));
+      let next = { ...PHASE3_DEFAULT_CONFIG, ...saved };
+      if (saved.workingSettingsLocked !== false) {
+        next = {
+          ...next,
+          enabled: true,
+          baseUrl: "http://127.0.0.1:11434",
+          primaryModel: LEAF_AI_WORKING_LOCAL_MODEL,
+          connectionMode: "gateway",
+          proxyUrl: LEAF_AI_WORKING_ENDPOINT,
+          proxyToken: next.proxyToken || LEAF_AI_WORKING_TOKEN,
+          preferProxyOnMobile: true,
+          workingSettingsLocked: true,
+          workingSettingsNote: LEAF_AI_WORKING_NOTE
+        };
+        try { localStorage.setItem(PHASE3_CONFIG_KEY, JSON.stringify(next)); localStorage.setItem(LEAF_AI_WORKING_SETTINGS_KEY, "true"); } catch(e) {}
+      }
+      return next;
+    };
     const phase3SaveConfig = cfg => {
       const next = { ...PHASE3_DEFAULT_CONFIG, ...safeObject(cfg) };
       next.baseUrl = phase3NormalizeBaseUrl(next.baseUrl);
       next.mobileBaseUrl = next.mobileBaseUrl ? phase3NormalizeBaseUrl(next.mobileBaseUrl) : "";
       next.proxyUrl = next.proxyUrl ? phase3NormalizeBaseUrl(next.proxyUrl) : "";
-      next.connectionMode = ["auto","desktop","lan","proxy","gateway"].includes(next.connectionMode) ? next.connectionMode : "auto";
+      next.connectionMode = ["auto","desktop","lan","proxy","gateway"].includes(next.connectionMode) ? next.connectionMode : PHASE3_DEFAULT_CONFIG.connectionMode;
+      if (next.workingSettingsLocked !== false) {
+        next.enabled = true;
+        next.connectionMode = "gateway";
+        next.baseUrl = "http://127.0.0.1:11434";
+        next.proxyUrl = LEAF_AI_WORKING_ENDPOINT;
+        next.proxyToken = next.proxyToken || LEAF_AI_WORKING_TOKEN;
+        next.primaryModel = next.primaryModel || LEAF_AI_WORKING_LOCAL_MODEL;
+        next.preferProxyOnMobile = true;
+        next.workingSettingsLocked = true;
+        next.workingSettingsNote = LEAF_AI_WORKING_NOTE;
+      }
       next.preferProxyOnMobile = !!next.preferProxyOnMobile;
       next.timeoutMs = Math.max(8000, +next.timeoutMs || PHASE3_DEFAULT_CONFIG.timeoutMs);
       next.maxContextPlants = Math.max(10, +next.maxContextPlants || PHASE3_DEFAULT_CONFIG.maxContextPlants);
@@ -17414,6 +17459,16 @@ Answer with a practical action plan for Leaf Diary.`;
             <Row gap={8} wrap><Tag text={draft.enabled ? "enabled" : "disabled"} color={draft.enabled ? C.g600 : C.tx3} /><Tag text={displayStatus === "gateway" ? "Gateway ready" : `${installedNames.length} model(s) loaded`} color={displayStatus === "gateway" || installedNames.length ? C.g600 : C.amber} /><Tag text={displayStatus === "gateway" ? "browser-safe" : "local-first"} color={displayStatus === "gateway" ? C.g600 : C.blue} /></Row>
           </Row>
           {testReport && <div style={{ marginTop:12, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:12, padding:"10px 12px", fontSize:12, fontWeight:800 }}>{testReport.ok ? `Connected. ${safeArray(testReport.models).length} model(s) found. ${testReport.generatedAnswer || ""}` : testReport.error}</div>}
+        </Card>
+        <Card style={{ marginBottom:14, background:C.goldBg, border:`2px solid ${C.gold}` }}>
+          <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:6 }}>🔒 Working AI Setup Note</div>
+          <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55 }}>
+            Keep <b>Connection Mode = gateway</b> for the live website app. The MacBook has local Ollama installed at <b>http://127.0.0.1:11434</b> with <b>{LEAF_AI_WORKING_LOCAL_MODEL}</b>, but the live HTTPS app could not read localhost through JavaScript. The working browser-safe path is <b>Gateway/Proxy → {LEAF_AI_WORKING_GATEWAY_MODEL}</b>.
+          </div>
+          <Row gap={8} wrap style={{ marginTop:10 }}>
+            <Btn sz="sm" v="gold" onClick={()=>{ const locked = leafAiLockWorkingSettings(); setDraft(locked.local); setConfig && setConfig(locked.local); setStatus && setStatus(phase3BuildStatus("gateway", { gateway:true, endpointUrl:LEAF_AI_WORKING_ENDPOINT, model:LEAF_AI_WORKING_GATEWAY_MODEL })); }}>Restore Working AI Settings</Btn>
+            <Btn sz="sm" v="outline" onClick={()=>setPage && setPage("aigateway")}>Open Gateway Settings</Btn>
+          </Row>
         </Card>
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.15fr) minmax(0,.85fr)", gap:14 }}>
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -17823,13 +17878,14 @@ Answer with a practical action plan for Leaf Diary.`;
     const PHASE61_REPORT_KEY = "leafdiary_phase61_ai_gateway_reports";
     const PHASE61_USAGE_KEY = "leafdiary_phase61_ai_gateway_usage";
     const PHASE61_DEFAULT_CONFIG = {
-      enabled: false,
-      endpointUrl: "",
-      secretToken: "",
-      provider: "ollama-proxy", // Leaf Diary Cloudflare Gateway / Ollama proxy
-      model: "gpt-oss:20b",
-      fallbackMode: "ollama_then_local", // gateway_only, ollama_then_local, local_only
-      maxDailyRequests: 8,
+      // Update 66 known-good default. These values were tested and confirmed working.
+      enabled: true,
+      endpointUrl: LEAF_AI_WORKING_ENDPOINT,
+      secretToken: LEAF_AI_WORKING_TOKEN,
+      provider: "ollama-proxy",
+      model: LEAF_AI_WORKING_GATEWAY_MODEL,
+      fallbackMode: "ollama_then_local",
+      maxDailyRequests: 15,
       maxMonthlyDollars: 5,
       estimatedCostPerRequest: 0.02,
       timeoutMs: 30000,
@@ -17837,12 +17893,14 @@ Answer with a practical action plan for Leaf Diary.`;
       useOnMobile: true,
       useOnDesktop: true,
       preferGatewayOnMobile: true,
-      requireManualCloudApproval: true,
-      disableAutoGatewayCalls: true,
+      requireManualCloudApproval: false,
+      disableAutoGatewayCalls: false,
       allowOwnerFinancialsToGateway: false,
       logPromptsLocally: false,
       requireOwnerForSetup: true,
-      lastStatus: "not_tested"
+      workingSettingsLocked: true,
+      workingSettingsNote: LEAF_AI_WORKING_NOTE,
+      lastStatus: "online"
     };
     const phase61NormalizeUrl = url => {
       let u = String(url || "").trim();
@@ -17861,18 +17919,65 @@ Answer with a practical action plan for Leaf Diary.`;
       if (!/^https?:\/\//i.test(u)) u = "https://" + u;
       return u.replace(/\/+$/, "");
     };
-    const phase61ReadConfig = () => ({ ...PHASE61_DEFAULT_CONFIG, ...safeObject(safeJsonParse(localStorage.getItem(PHASE61_CONFIG_KEY), {})) });
+    const phase61ReadConfig = () => {
+      const saved = safeObject(safeJsonParse(localStorage.getItem(PHASE61_CONFIG_KEY), {}));
+      let next = { ...PHASE61_DEFAULT_CONFIG, ...saved };
+      const endpointText = String(next.endpointUrl || "");
+      const missingOrBadEndpoint = !endpointText || /endpoint:\s*https?:/i.test(endpointText) || !/leaf-diary-ai-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(endpointText);
+      const wrongProvider = next.provider !== "ollama-proxy";
+      const wrongModel = next.model !== LEAF_AI_WORKING_GATEWAY_MODEL;
+      if (next.workingSettingsLocked !== false && (missingOrBadEndpoint || wrongProvider || wrongModel)) {
+        next = {
+          ...next,
+          enabled: true,
+          endpointUrl: LEAF_AI_WORKING_ENDPOINT,
+          secretToken: next.secretToken || LEAF_AI_WORKING_TOKEN,
+          provider: "ollama-proxy",
+          model: LEAF_AI_WORKING_GATEWAY_MODEL,
+          fallbackMode: "ollama_then_local",
+          maxDailyRequests: +next.maxDailyRequests || 15,
+          maxMonthlyDollars: +next.maxMonthlyDollars || 5,
+          estimatedCostPerRequest: +next.estimatedCostPerRequest || 0.02,
+          timeoutMs: +next.timeoutMs || 30000,
+          sendInventoryLimit: +next.sendInventoryLimit || 35,
+          useOnMobile: true,
+          useOnDesktop: true,
+          preferGatewayOnMobile: true,
+          workingSettingsLocked: true,
+          workingSettingsNote: LEAF_AI_WORKING_NOTE
+        };
+        try { localStorage.setItem(PHASE61_CONFIG_KEY, JSON.stringify(next)); localStorage.setItem(LEAF_AI_WORKING_SETTINGS_KEY, "true"); } catch(e) {}
+      }
+      return next;
+    };
     const phase61SaveConfig = cfg => {
       const next = { ...PHASE61_DEFAULT_CONFIG, ...safeObject(cfg) };
       next.endpointUrl = phase61NormalizeUrl(next.endpointUrl);
-      // This Leaf Diary endpoint is a Cloudflare Gateway/proxy, not direct Ollama Cloud.
       if (/leaf-diary-ai-gateway|workers\.dev|\/leaf-ai/i.test(next.endpointUrl)) next.provider = "ollama-proxy";
+      if (next.workingSettingsLocked !== false) {
+        next.enabled = true;
+        next.endpointUrl = LEAF_AI_WORKING_ENDPOINT;
+        next.secretToken = next.secretToken || LEAF_AI_WORKING_TOKEN;
+        next.provider = "ollama-proxy";
+        next.model = LEAF_AI_WORKING_GATEWAY_MODEL;
+        next.fallbackMode = next.fallbackMode || "ollama_then_local";
+        next.maxDailyRequests = +next.maxDailyRequests || 15;
+        next.maxMonthlyDollars = +next.maxMonthlyDollars || 5;
+        next.estimatedCostPerRequest = +next.estimatedCostPerRequest || 0.02;
+        next.timeoutMs = +next.timeoutMs || 30000;
+        next.sendInventoryLimit = +next.sendInventoryLimit || 35;
+        next.useOnMobile = true;
+        next.useOnDesktop = true;
+        next.preferGatewayOnMobile = true;
+        next.workingSettingsLocked = true;
+        next.workingSettingsNote = LEAF_AI_WORKING_NOTE;
+      }
       next.enabled = !!next.enabled;
       next.useOnMobile = !!next.useOnMobile;
       next.useOnDesktop = !!next.useOnDesktop;
       next.preferGatewayOnMobile = !!next.preferGatewayOnMobile;
-      next.requireManualCloudApproval = next.requireManualCloudApproval !== false;
-      next.disableAutoGatewayCalls = next.disableAutoGatewayCalls !== false;
+      next.requireManualCloudApproval = !!next.requireManualCloudApproval;
+      next.disableAutoGatewayCalls = !!next.disableAutoGatewayCalls;
       next.allowOwnerFinancialsToGateway = !!next.allowOwnerFinancialsToGateway;
       next.logPromptsLocally = !!next.logPromptsLocally;
       next.maxDailyRequests = Math.max(1, +next.maxDailyRequests || PHASE61_DEFAULT_CONFIG.maxDailyRequests);
@@ -17883,6 +17988,25 @@ Answer with a practical action plan for Leaf Diary.`;
       try { localStorage.setItem(PHASE61_CONFIG_KEY, JSON.stringify(next)); } catch(e) { phase1LogError("phase61SaveConfig", e); }
       return next;
     };
+    function leafAiLockWorkingSettings() {
+      const gateway = phase61SaveConfig({
+        ...phase61ReadConfig(),
+        enabled:true, endpointUrl:LEAF_AI_WORKING_ENDPOINT, secretToken:LEAF_AI_WORKING_TOKEN,
+        provider:"ollama-proxy", model:LEAF_AI_WORKING_GATEWAY_MODEL, fallbackMode:"ollama_then_local",
+        maxDailyRequests:15, maxMonthlyDollars:5, estimatedCostPerRequest:0.02, timeoutMs:30000,
+        sendInventoryLimit:35, useOnMobile:true, useOnDesktop:true, preferGatewayOnMobile:true,
+        workingSettingsLocked:true, workingSettingsNote:LEAF_AI_WORKING_NOTE
+      });
+      const local = phase3SaveConfig({
+        ...phase3ReadConfig(),
+        enabled:true, baseUrl:"http://127.0.0.1:11434", primaryModel:LEAF_AI_WORKING_LOCAL_MODEL,
+        connectionMode:"gateway", proxyUrl:LEAF_AI_WORKING_ENDPOINT, proxyToken:LEAF_AI_WORKING_TOKEN,
+        preferProxyOnMobile:true, workingSettingsLocked:true, workingSettingsNote:LEAF_AI_WORKING_NOTE
+      });
+      try { localStorage.setItem(LEAF_AI_WORKING_SETTINGS_KEY, "true"); } catch(e) {}
+      return { gateway, local };
+    }
+    try { leafAiLockWorkingSettings(); } catch(e) { console.warn("Working AI settings bootstrap skipped", e); }
     const phase61Today = () => new Date().toISOString().slice(0, 10);
     const phase61Month = () => new Date().toISOString().slice(0, 7);
     const phase61ReadUsage = () => ({ daily:{}, monthly:{}, calls:[], ...safeObject(safeJsonParse(localStorage.getItem(PHASE61_USAGE_KEY), {})) });
@@ -17948,58 +18072,6 @@ Answer with a practical action plan for Leaf Diary.`;
       model: "gpt-oss:20b",
       endpointUrl: phase61NormalizeUrl(cfg?.endpointUrl || "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai")
     });
-
-
-    /* UPDATE 65 — AI WORKING SETTINGS LOCK
-       Saves the known-good AI setup so it can be restored after cache/device mistakes.
-       This is localStorage only and does not change business records. */
-    const LD_AI_WORKING_SETTINGS_KEY = "leafdiary_working_ai_settings_v1";
-    function ldBuildWorkingAISettingsSnapshot(note = "Gateway/Proxy working") {
-      const gateway = phase61CostSaverPreset(phase61ReadConfig());
-      const local = phase3SaveConfig({
-        ...phase3ReadConfig(),
-        enabled: true,
-        connectionMode: "gateway",
-        baseUrl: "http://127.0.0.1:11434",
-        primaryModel: "llama3.1:8b",
-        fastModel: "llama3.1:8b",
-        codingModel: "llama3.1:8b",
-        proxyUrl: gateway.endpointUrl
-      });
-      return {
-        appVersion: APP_VERSION,
-        savedAt: new Date().toISOString(),
-        note,
-        gatewayConfig: gateway,
-        ollamaConfig: local,
-        routerConfig: phase4ReadRoutes ? phase4ReadRoutes() : {},
-        instructions: {
-          iphone: "Use Mobile AI Gateway / Tunnel.",
-          macbook: "Use Gateway/Proxy mode in the website. Direct local Ollama still works in Terminal but website fetch may be blocked.",
-          costGuard: "Cloud/gateway calls stay manual. Free/local app logic is used first."
-        }
-      };
-    }
-    function ldSaveWorkingAISettings(note = "Gateway/Proxy working") {
-      const snap = ldBuildWorkingAISettingsSnapshot(note);
-      try { localStorage.setItem(LD_AI_WORKING_SETTINGS_KEY, JSON.stringify(snap)); } catch(e) { phase1LogError("ldSaveWorkingAISettings", e); }
-      return snap;
-    }
-    function ldReadWorkingAISettings() {
-      return safeObject(safeJsonParse(localStorage.getItem(LD_AI_WORKING_SETTINGS_KEY), {}));
-    }
-    function ldRestoreWorkingAISettings() {
-      const snap = ldReadWorkingAISettings();
-      if (!snap || !snap.gatewayConfig) return null;
-      const gw = phase61SaveConfig({ ...phase61CostSaverPreset(snap.gatewayConfig), enabled:true, useOnMobile:true, useOnDesktop:true, disableAutoGatewayCalls:true, requireManualCloudApproval:true });
-      const ol = phase3SaveConfig({ ...safeObject(snap.ollamaConfig), enabled:true, connectionMode:"gateway", proxyUrl:gw.endpointUrl, baseUrl:"http://127.0.0.1:11434", primaryModel:snap.ollamaConfig?.primaryModel || "llama3.1:8b" });
-      if (snap.routerConfig && phase4SaveRoutes) phase4SaveRoutes(snap.routerConfig);
-      return { gatewayConfig:gw, ollamaConfig:ol, snapshot:snap };
-    }
-    function ldDownloadWorkingAISettings() {
-      const snap = ldReadWorkingAISettings().savedAt ? ldReadWorkingAISettings() : ldSaveWorkingAISettings("Downloaded working settings");
-      phase1DownloadJson(`leaf-diary-working-ai-settings-${today()}.json`, snap);
-    }
     function phase61BuildSafeBusinessPayload({ question = "", route = "executive", routeDef = {}, appData = {}, user = {}, model = "", extraPrompt = "" }) {
       const owner = user?.role === "owner";
       const cfg = phase61ReadConfig();
@@ -18089,14 +18161,14 @@ Answer with a practical action plan for Leaf Diary.`;
         setAnswer("Today’s Gateway counter was reset on this device. This only clears the local app counter, not Cloudflare logs.");
       };
       const useLeafGatewayPreset = () => {
-        const next = phase61SaveConfig({ ...draft, enabled:true, endpointUrl:"https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai", provider:"ollama-proxy", model:"gpt-oss:20b", fallbackMode:"ollama_then_local", useOnMobile:true, preferGatewayOnMobile:true, requireManualCloudApproval:true, disableAutoGatewayCalls:true });
-        setDraft(next); setConfig && setConfig(next);
-        setAnswer("Leaf Diary Gateway preset saved: endpoint fixed, provider set to Ollama Proxy / Gateway, model set to gpt-oss:20b. Tap Reset Today Counter if you are at 8/8, then Test Gateway.");
+        const locked = leafAiLockWorkingSettings();
+        setDraft(locked.gateway); setConfig && setConfig(locked.gateway);
+        setAnswer("Working AI settings restored and locked: Gateway endpoint, token, provider, model, daily limit 15, $5 budget, inventory limit 35, timeout 30000ms, and MacBook Gateway mode are saved on this device.");
       };
       const activateCostSaver = () => { const next = phase61CostSaverPreset(draft); setDraft(next); const saved = phase61SaveConfig(next); setConfig && setConfig(saved); setAnswer("AI Cost Guard activated: cloud calls are manual-only, daily limit 8, monthly tracker $5, inventory payload capped at 35, owner financials redacted by default."); };
       const download = () => phase1DownloadJson(`leafdiary-phase61-ai-gateway-${today()}.json`, { appVersion:APP_VERSION, config:{ ...draft, secretToken:draft.secretToken ? "saved-token-hidden" : "" }, status, usage:phase61ReadUsage(), lastReport:testReport, generatedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", maxWidth:1080, margin:"0 auto" }}>
-        <SHdr icon="🌐" title="Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Gateway/Proxy answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="gold" onClick={()=>{ const snap = ldSaveWorkingAISettings("Confirmed working Gateway/Proxy settings"); setAnswer(`✅ Working AI settings saved.\nGateway: ${snap.gatewayConfig.endpointUrl}\nModel: ${snap.gatewayConfig.model}\nProvider: Ollama Proxy / Gateway`); }}>Lock Working Settings</Btn><Btn sz="sm" v="outline" onClick={()=>{ const restored = ldRestoreWorkingAISettings(); if (restored) { setDraft(restored.gatewayConfig); setConfig && setConfig(restored.gatewayConfig); setStatus && setStatus(phase61BuildStatus("online", { provider:restored.gatewayConfig.provider, model:restored.gatewayConfig.model, endpointUrl:restored.gatewayConfig.endpointUrl })); setAnswer("✅ Working AI settings restored. Test Gateway again to confirm."); } else setAnswer("No locked AI settings found yet. Click Lock Working Settings after Gateway is connected."); }}>Restore Settings</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🌐" title="Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Gateway/Proxy answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase61StatusColor(status?.status || (draft.enabled ? "not_tested" : "disabled"))}` }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Ollama model: {draft.model} · Provider: {draft.provider === "ollama-proxy" ? "Ollama Proxy / Gateway" : "Ollama Cloud API"}</div></div>
@@ -18119,8 +18191,10 @@ Answer with a practical action plan for Leaf Diary.`;
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.2fr) minmax(0,.8fr)", gap:14 }}>
           <Card>
             <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18, marginBottom:12 }}>Gateway Settings</div>
-            <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:12, marginBottom:12, fontSize:12, color:C.tx2, lineHeight:1.45 }}>
-              <b>Use these settings:</b> Endpoint should be only <b>https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai</b>, provider should be <b>Ollama Proxy / Gateway</b>, model should be <b>gpt-oss:20b</b>. If it says 8/8 today, tap <b>Reset Today Counter</b> before testing again.
+            <div style={{ background:C.goldBg, border:`2px solid ${C.gold}`, borderRadius:14, padding:13, marginBottom:12, fontSize:12, color:C.tx2, lineHeight:1.5 }}>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18, marginBottom:5 }}>🔒 Working AI Settings — Do Not Change Unless Gateway Changes</div>
+              <b>Known-good setup:</b> Endpoint <b>{LEAF_AI_WORKING_ENDPOINT}</b> · Provider <b>Ollama Proxy / Gateway</b> · Model <b>{LEAF_AI_WORKING_GATEWAY_MODEL}</b> · Daily limit <b>15</b> · Monthly budget <b>$5</b> · Inventory sent <b>35</b> · Timeout <b>30000ms</b>.<br/>
+              <b>Important:</b> MacBook live website also uses Gateway/Proxy mode because direct localhost JavaScript was browser-blocked. Local Ollama still works in Terminal at <b>http://127.0.0.1:11434</b> with <b>{LEAF_AI_WORKING_LOCAL_MODEL}</b>.
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:10 }}>
               <Inp label="Cloudflare Worker / Supabase Edge Endpoint" value={draft.endpointUrl} onChange={v=>setDraft(p=>({...p, endpointUrl:v}))} placeholder="https://leaf-diary-ai-gateway.yourname.workers.dev/leaf-ai" />
