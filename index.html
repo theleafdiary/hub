@@ -13387,7 +13387,7 @@
           </Row>
           <div style={{ fontSize:11, color:C.tx3, marginTop:8 }}>Detected route: <b>{detectedRoute}</b> · Model: <b>{phase4ModelForRoute(detectedRoute, phase3Cfg, phase4Cfg)}</b> · Missing photos: {noPhoto.length} · Missing prices: {noPrice.length}</div>
         </Card>
-        <Card style={{ marginBottom:14 }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Power Questions</div><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>{quickPrompts.map(p=><button key={p} onClick={()=>ask(p)} disabled={busy} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:11, textAlign:"left", fontWeight:800, color:C.tx2, cursor:busy?"not-allowed":"pointer", opacity:busy?.7:1 }}>{p}</button>)}</div></Card>
+        <Card style={{ marginBottom:14 }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Power Questions</div><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>{quickPrompts.map(p=><button key={p} onClick={()=>ask(p)} disabled={busy} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:11, textAlign:"left", fontWeight:800, color:C.tx2, cursor:busy?"not-allowed":"pointer", opacity:busy ? .7 : 1 }}>{p}</button>)}</div></Card>
         {answer && <Card style={{ borderTop:`4px solid ${answer.status === "ollama" ? "#68d8ff" : answer.status === "blocked" ? C.red : "#97d33e"}` }}>
           <Row between center wrap>
             <div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>{answer.title}</div><div style={{ fontSize:12, color:C.tx3 }}>Route: {answer.route} · Model: {answer.model || "local"} · Status: {answer.status}{answer.generatedAt ? ` · ${new Date(answer.generatedAt).toLocaleTimeString()}` : ""}</div></div>
@@ -17115,8 +17115,27 @@ Cancel if you want to save money.`);
       try { return window.location && window.location.origin && window.location.origin !== "null" ? window.location.origin : "file://local"; }
       catch(e) { return "unknown-origin"; }
     };
+    const PHASE3_DEVICE_OVERRIDE_KEY = "leafdiary_phase3_device_override";
+    function phase3DeviceOverride() {
+      try {
+        const v = localStorage.getItem(PHASE3_DEVICE_OVERRIDE_KEY);
+        return v === "desktop" || v === "mobile" ? v : "";
+      } catch(e) { return ""; }
+    }
     const phase3IsMobileDevice = () => {
-      try { return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "") || Math.min(window.innerWidth || 9999, window.innerHeight || 9999) <= 820; }
+      try {
+        const override = phase3DeviceOverride();
+        if (override === "desktop") return false;
+        if (override === "mobile") return true;
+        const ua = navigator.userAgent || "";
+        const explicitPhone = /iPhone|iPod|Windows Phone|BlackBerry|IEMobile|Opera Mini|Android.*Mobile/i.test(ua);
+        const explicitTablet = /iPad|Android(?!.*Mobile)/i.test(ua);
+        const touchPoints = navigator.maxTouchPoints || 0;
+        const coarsePointer = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+        const iPadDesktopUa = /Macintosh/i.test(ua) && touchPoints > 1 && coarsePointer;
+        const smallTouchScreen = coarsePointer && touchPoints > 0 && Math.min(window.innerWidth || 9999, window.innerHeight || 9999) <= 760;
+        return !!(explicitPhone || explicitTablet || iPadDesktopUa || smallTouchScreen);
+      }
       catch(e) { return false; }
     };
     const phase3AddUrlVariant = (list, url) => {
@@ -17465,8 +17484,9 @@ Answer with a practical action plan for Leaf Diary.`;
       const isAndroid = /Android/i.test(ua);
       const isMobile = phase3IsMobileDevice();
       const isMac = /Macintosh|Mac OS X/i.test(ua) && !isIphone && !isIpad;
+      const override = phase3DeviceOverride();
       const browser = /CriOS/i.test(ua) ? "Chrome iOS" : /Chrome/i.test(ua) ? "Chrome" : /Safari/i.test(ua) ? "Safari" : /Firefox/i.test(ua) ? "Firefox" : "Browser";
-      return { ua, isIphone, isIpad, isAndroid, isMobile, isMac, browser, origin: phase3BrowserOrigin(), protocol: window.location?.protocol || "" };
+      return { ua, isIphone, isIpad, isAndroid, isMobile, isMac, override, width: window.innerWidth || 0, height: window.innerHeight || 0, touchPoints: navigator.maxTouchPoints || 0, browser, origin: phase3BrowserOrigin(), protocol: window.location?.protocol || "" };
     }
     function phase56GatewaySummary() {
       let cfg = {};
@@ -17540,6 +17560,16 @@ Answer with a practical action plan for Leaf Diary.`;
         const clean = ip.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
         const next = phase3SaveConfig({ ...draft, enabled:true, connectionMode:"lan", mobileBaseUrl:`http://${clean.replace(/:11434$/, "")}:11434`, preferProxyOnMobile:false });
         setDraft(next); setConfig && setConfig(next); setNote(`LAN preset saved: ${next.mobileBaseUrl}`);
+      };
+      const forceDesktopDevice = () => {
+        try { localStorage.setItem(PHASE3_DEVICE_OVERRIDE_KEY, "desktop"); } catch(e) {}
+        setNote("Device override saved: MacBook/Desktop. Run Doctor again to test local Ollama.");
+        setResults([]);
+      };
+      const clearDeviceOverride = () => {
+        try { localStorage.removeItem(PHASE3_DEVICE_OVERRIDE_KEY); } catch(e) {}
+        setNote("Device override cleared. The app will auto-detect phone vs desktop again.");
+        setResults([]);
       };
       const testOne = async (base) => {
         const row = { base, versionOk:false, tagsOk:false, generateOk:false, version:null, models:[], answer:"", error:"", ms:0 };
@@ -17626,7 +17656,7 @@ Answer with a practical action plan for Leaf Diary.`;
         <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:`2px solid ${statusColor}`, boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
           <Row between center wrap gap={12}>
             <div style={{ minWidth:0 }}><div style={{ fontSize:42 }}>🩺</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900 }}>Ollama Connection Doctor</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>One screen to find why local AI is not connected. No business data or AI routing is changed.</div></div>
-            <Row gap={8} wrap><button onClick={runDoctor} disabled={busy} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:busy?"not-allowed":"pointer", opacity:busy?.6:1 }}>{busy ? "Testing..." : "Run Doctor"}</button><button onClick={()=>setPage && setPage("ollama")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Local AI Setup</button><button onClick={()=>setPage && setPage("aigateway")} style={{ background:"rgba(126,231,255,.16)", color:"#fff", border:"1px solid rgba(126,231,255,.42)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Mobile Gateway</button></Row>
+            <Row gap={8} wrap><button onClick={runDoctor} disabled={busy} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:busy?"not-allowed":"pointer", opacity:busy ? .6 : 1 }}>{busy ? "Testing..." : "Run Doctor"}</button><button onClick={()=>setPage && setPage("ollama")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Local AI Setup</button><button onClick={()=>setPage && setPage("aigateway")} style={{ background:"rgba(126,231,255,.16)", color:"#fff", border:"1px solid rgba(126,231,255,.42)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Mobile Gateway</button><button onClick={forceDesktopDevice} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Force MacBook</button></Row>
           </Row>
           <div style={{ marginTop:14, background:"rgba(255,255,255,.08)", border:`1px solid ${statusColor}66`, borderRadius:16, padding:"12px 13px" }}><div style={{ color:statusColor, fontWeight:900, fontFamily:F.display, fontSize:20 }}>{currentStatus.title}</div><div style={{ color:"rgba(255,255,255,.78)", fontSize:12, lineHeight:1.45, marginTop:4 }}>{currentStatus.fix}</div>{note && <div style={{ marginTop:8, color:"#97d33e", fontWeight:800, fontSize:12 }}>{note}</div>}</div>
         </div>
@@ -17637,6 +17667,21 @@ Answer with a practical action plan for Leaf Diary.`;
           <KPI label="Tested URLs" value={results.length || bases.length} sub={results.length ? "tested" : "configured"} color={C.gold} />
           <KPI label="Models Found" value={modelNames.length} sub={modelNames[0] || "none yet"} color={modelNames.length ? C.g600 : C.amber} />
         </div>
+
+        {device.override && <Card style={{ marginBottom:14, background:C.goldBg, borderLeft:`5px solid ${C.gold}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>🧭 Device override is ON: {device.override === "desktop" ? "MacBook/Desktop" : "Mobile"}</div>
+              <div style={{ color:C.tx2, fontSize:12, marginTop:4 }}>Screen {device.width}×{device.height} · touch points {device.touchPoints}. Use this only if the app guesses wrong.</div>
+            </div>
+            <Btn sz="sm" v="ghost" onClick={clearDeviceOverride}>Clear Override</Btn>
+          </Row>
+        </Card>}
+
+        {!device.isMobile && gatewayInfo.configured && <Card style={{ marginBottom:14, background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
+          <div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>💻 MacBook/Desktop detected</div>
+          <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5, marginTop:4 }}>This device will test local Ollama at <b>{draft.baseUrl || "http://127.0.0.1:11434"}</b>. The Mobile Gateway is still saved for iPhone, but it will not replace this desktop local test.</div>
+        </Card>}
 
         {device.isMobile && gatewayInfo.configured && <Card style={{ marginBottom:14, background:C.blueBg, borderLeft:`5px solid ${C.blue}` }}>
           <Row between center wrap gap={10}>
