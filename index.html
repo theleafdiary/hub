@@ -1674,6 +1674,158 @@
     }
 
     /* ══════════════════════════════════════════════════════════
+       PHASE 4 — ADD / INTAKE WIZARD
+       Safe wrapper around existing upload, manual, bulk, archive and label tools.
+       No database or Supabase schema changes.
+    ══════════════════════════════════════════════════════════ */
+    function IntakeWorkflow({ plants = [], setPlants, nurseries = [], setNurseries, user, addAudit, settings = {}, setSettings, setPage }) {
+      const [mode, setMode] = useState("start");
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock" || !p.status);
+      const addedToday = safeArray(plants).filter(p => String(p.dateAdded || p.createdAt || "").slice(0,10) === today());
+      const needsLabel = inStock.filter(p => !p.labelPrinted);
+      const needsPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const missingPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const ids = safeArray(plants).map(p => String(p.plantId || p.plantCode || "").trim().toUpperCase()).filter(Boolean);
+      const duplicateCount = ids.length - new Set(ids).size;
+      const canTrain = user?.role === "owner" || user?.role === "manager";
+      const canOwner = user?.role === "owner";
+      const stepColor = m => mode === m ? "#97d33e" : C.bd;
+      const stepBg = m => mode === m ? "#000" : C.card;
+      const stepText = m => mode === m ? "#fff" : C.g900;
+      const steps = [
+        { id:"start", icon:"🧭", label:"Start" },
+        { id:"invoice", icon:"📸", label:"Invoice Photo" },
+        { id:"manual", icon:"✏️", label:"Manual Add" },
+        { id:"bulk", icon:"📥", label:"Existing Inventory" },
+        { id:"finish", icon:"🏷️", label:"Labels" }
+      ];
+      const chooseCards = [
+        { id:"invoice", icon:"📸", title:"Upload Invoice Photo", body:"Best for nursery invoices and new plant purchases. The existing invoice reader stays underneath this workflow.", primary:"Start Invoice Upload", color:C.g600 },
+        { id:"manual", icon:"✏️", title:"Add Plants Manually", body:"Best for quick buys, single plants, or when you already know plant name, cost, pot size, and price.", primary:"Add Manually", color:C.blue },
+        { id:"bulk", icon:"📥", title:"Bulk Upload Existing Inventory", body:"Best when the plants already have numbers. Keeps your original plant IDs and updates matching current inventory.", primary:"Bulk Import", color:C.purple },
+        { id:"finish", icon:"🏷️", title:"Print Labels / Finish Intake", body:"After plants are saved, print labels, check missing photos, and get plants ready for the next show.", primary:"Finish Intake", color:C.gold }
+      ];
+      const FlowStep = ({ s, idx }) => <button onClick={()=>setMode(s.id)} style={{ background:stepBg(s.id), color:stepText(s.id), border:`2px solid ${stepColor(s.id)}`, borderRadius:16, padding:"11px 10px", textAlign:"left", cursor:"pointer", fontFamily:F.body, minHeight:64, boxShadow:mode===s.id ? "0 8px 24px rgba(0,0,0,.22)" : "0 5px 16px rgba(13,43,26,.06)" }}>
+        <div style={{ fontSize:20, lineHeight:1 }}>{s.icon}</div>
+        <div style={{ fontSize:10, color:mode===s.id ? "#97d33e" : C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.5, marginTop:4 }}>Step {idx+1}</div>
+        <div style={{ fontSize:13, fontWeight:900, lineHeight:1.1 }}>{s.label}</div>
+      </button>;
+      const ChooseCard = ({ c }) => <button onClick={()=>setMode(c.id)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderTop:`4px solid ${c.color}`, borderRadius:20, padding:"16px 15px", textAlign:"left", cursor:"pointer", fontFamily:F.body, boxShadow:"0 8px 24px rgba(13,43,26,.07)" }}>
+        <Row gap={12} center>
+          <div style={{ width:50, height:50, borderRadius:17, background:c.color+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>{c.icon}</div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:17, fontWeight:900, color:C.g900 }}>{c.title}</div>
+            <div style={{ fontSize:12, color:C.tx3, lineHeight:1.35, marginTop:4 }}>{c.body}</div>
+            <div style={{ display:"inline-flex", marginTop:10, background:c.color, color:"#fff", borderRadius:999, padding:"8px 11px", fontSize:11, fontWeight:900 }}>{c.primary} →</div>
+          </div>
+        </Row>
+      </button>;
+      const MiniQueue = ({ icon, title, value, sub, color, page }) => <button onClick={()=> page ? setPage(page) : null} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:"13px 12px", textAlign:"left", cursor:page ? "pointer" : "default", fontFamily:F.body }}>
+        <Row gap={10} center><div style={{ width:38, height:38, borderRadius:14, background:color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{icon}</div><div><div style={{ fontSize:11, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.5 }}>{title}</div><div style={{ fontFamily:F.display, color, fontSize:23, fontWeight:900, lineHeight:1 }}>{value}</div>{sub && <div style={{ fontSize:11, color:C.tx3, marginTop:3 }}>{sub}</div>}</div></Row>
+      </button>;
+      const RecentPlantCard = ({ p }) => <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:"12px 12px" }}>
+        <Row gap={10} center>
+          <div style={{ width:42, height:42, borderRadius:14, overflow:"hidden", background:C.g100, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{(p.photoUrl || p.photoBase64) ? <img src={p.photoUrl || p.photoBase64} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <span style={{ fontSize:22 }}>🌿</span>}</div>
+          <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:14, fontWeight:900, color:C.g900 }}>{p.name || "Unnamed Plant"}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{p.plantId || p.plantCode || "No ID"} · {p.potSize || "No size"} · {$(+p.cost || 0)} cost</div></div>
+          <Tag text={p.labelPrinted ? "labeled" : "needs label"} color={p.labelPrinted ? C.g600 : C.amber} sm />
+        </Row>
+      </div>;
+
+      return <div className="ld-page ld-intake-workflow" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #97d33e", boxShadow:"0 14px 44px rgba(0,0,0,.2)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:38, lineHeight:1 }}>➕</div>
+              <div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900, marginTop:4 }}>Add / Intake Wizard</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>One clean flow: buy plants → add plants → assign numbers → print labels → prep for show.</div>
+            </div>
+            <Row gap={8} wrap>
+              <button onClick={()=>setMode("invoice")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📸 Upload Invoice</button>
+              <button onClick={()=>setMode("manual")} style={{ background:"#fb6392", color:"#fff", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>✏️ Add Plant</button>
+              <button onClick={()=>setPage("inv")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🌿 Inventory</button>
+            </Row>
+          </Row>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:14 }}>
+          {steps.map((s,i)=><FlowStep key={s.id} s={s} idx={i} />)}
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <MiniQueue icon="🌱" title="Added Today" value={addedToday.length} sub="new records" color={C.g600} page="inv" />
+          <MiniQueue icon="🏷️" title="Need Labels" value={needsLabel.length} sub="print before staging" color={needsLabel.length ? C.amber : C.g600} page="labels" />
+          <MiniQueue icon="📸" title="Need Photos" value={needsPhoto.length} sub="blocks show-ready" color={needsPhoto.length ? C.blue : C.g600} page="inv" />
+          <MiniQueue icon="⚠️" title="Duplicate IDs" value={duplicateCount} sub={duplicateCount ? "repair before export" : "clean"} color={duplicateCount ? C.red : C.g600} page={duplicateCount ? "cleanup" : "inv"} />
+        </div>
+
+        {mode === "start" && <>
+          <Card style={{ marginBottom:14, background:C.g50, border:`1px solid ${C.g200}` }}>
+            <Row between center wrap gap={12}>
+              <div>
+                <div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900 }}>What are you adding?</div>
+                <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Choose the way the plants came into the business. This keeps intake simple on mobile and prevents missed labels, missing photos, and duplicate plant numbers.</div>
+              </div>
+              <Tag text="Safe wrapper · old tools still work" color={C.g600} />
+            </Row>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12, marginBottom:14 }}>{chooseCards.map(c => <ChooseCard key={c.id} c={c} />)}</div>
+          <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.2fr) minmax(0,.8fr)", gap:14 }}>
+            <Card>
+              <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900, marginBottom:10 }}>Recent Intake</div>
+              {addedToday.length ? <div style={{ display:"flex", flexDirection:"column", gap:8 }}>{addedToday.slice(-6).reverse().map(p => <RecentPlantCard key={p.id || p.plantId} p={p} />)}</div> : <div style={{ background:C.cardAlt, border:`1px dashed ${C.bd}`, borderRadius:16, padding:18, color:C.tx3, fontSize:13 }}>No plants added today yet. Start with invoice photo, manual add, or bulk existing inventory.</div>}
+            </Card>
+            <Card style={{ background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.4)" }}>
+              <div style={{ fontFamily:F.display, color:"#97d33e", fontSize:20, fontWeight:900 }}>Finish Checklist</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:10, marginTop:12 }}>
+                {[`Assign plant numbers`, `Check duplicate IDs`, `Print ${needsLabel.length} label(s)`, `Add photos to ${needsPhoto.length} plant(s)`, `Set prices on ${missingPrice.length} plant(s)`].map((x,i)=><div key={x} style={{ display:"flex", gap:9, alignItems:"center", fontSize:13, color:"rgba(255,255,255,.78)" }}><span style={{ width:22, height:22, borderRadius:"50%", background:i<2?"rgba(151,211,62,.2)":"rgba(255,255,255,.1)", color:i<2?"#97d33e":"#fff", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:900 }}>{i+1}</span>{x}</div>)}
+              </div>
+              <button onClick={()=>setMode("finish")} style={{ marginTop:14, width:"100%", background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 14px", fontWeight:900, cursor:"pointer" }}>Go To Finish Step →</button>
+            </Card>
+          </div>
+        </>}
+
+        {mode === "invoice" && <div>
+          <Card style={{ marginBottom:14, borderLeft:`5px solid ${C.g600}` }}>
+            <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900 }}>Step 1: Upload Invoice Photo</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Use this for nursery invoices and plant purchases. After saving plants, come back to the finish step to print labels and photo-check the new inventory.</div></div><Row gap={8} wrap>{canTrain && <Btn sz="sm" v="soft" onClick={()=>setPage("invoicetrainer")}>🧾 Teach Reader</Btn>}<Btn sz="sm" v="ghost" onClick={()=>setMode("finish")}>Skip To Labels</Btn></Row></Row>
+          </Card>
+          <InvoiceUpload plants={plants} setPlants={setPlants} nurseries={nurseries} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} />
+        </div>}
+
+        {mode === "manual" && <div>
+          <Card style={{ marginBottom:14, borderLeft:`5px solid ${C.blue}` }}>
+            <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900 }}>Step 2: Add Plants Manually</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Use this for small buys or one-off plants. It assigns plant numbers and can save a plant photo at the same time.</div></div><Btn sz="sm" v="ghost" onClick={()=>setMode("finish")}>Next: Print Labels</Btn></Row>
+          </Card>
+          <ManualEntry plants={plants} setPlants={setPlants} nurseries={nurseries} addAudit={addAudit} user={user} />
+        </div>}
+
+        {mode === "bulk" && <div>
+          <Card style={{ marginBottom:14, borderLeft:`5px solid ${C.purple}` }}>
+            <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900 }}>Step 3: Bulk Upload Existing Inventory</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Use the blue bulk upload box below. This keeps existing plant numbers and updates matching current records instead of creating new numbers.</div></div><Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setMode("manual")}>Open Import Tool Below</Btn><Btn sz="sm" v="ghost" onClick={()=>setMode("finish")}>Next: Labels</Btn></Row></Row>
+          </Card>
+          <ManualEntry plants={plants} setPlants={setPlants} nurseries={nurseries} addAudit={addAudit} user={user} />
+        </div>}
+
+        {mode === "finish" && <div>
+          <Card style={{ marginBottom:14, background:C.goldBg, border:`1px solid ${C.gold}44`, borderLeft:`5px solid ${C.gold}` }}>
+            <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Final Step: Print Labels And Prep Plants</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>This is the end of intake. Print labels, add missing photos, set missing prices, then move plants into show-ready inventory.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={()=>setPage("labels")}>🏷️ Print Labels</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("inv")}>🌿 Open Inventory</Btn></Row></Row>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:14 }}>
+            <Card><div style={{ fontSize:28 }}>🏷️</div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:needsLabel.length?C.amber:C.g600 }}>{needsLabel.length}</div><div style={{ fontWeight:900, color:C.g900 }}>Labels Needed</div><p style={{ fontSize:12, color:C.tx3 }}>Print these before staging plants for shows.</p><Btn full onClick={()=>setPage("labels")}>Print Labels</Btn></Card>
+            <Card><div style={{ fontSize:28 }}>📸</div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:needsPhoto.length?C.blue:C.g600 }}>{needsPhoto.length}</div><div style={{ fontWeight:900, color:C.g900 }}>Photos Needed</div><p style={{ fontSize:12, color:C.tx3 }}>Plants without photos are harder to add to shows and listings.</p><Btn full v="soft" onClick={()=>setPage("inv")}>Photo Queue</Btn></Card>
+            <Card><div style={{ fontSize:28 }}>💲</div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:missingPrice.length?C.red:C.g600 }}>{missingPrice.length}</div><div style={{ fontWeight:900, color:C.g900 }}>Prices Needed</div><p style={{ fontSize:12, color:C.tx3 }}>Set prices now so the Show Builder can use the plants.</p><Btn full v="soft" onClick={()=>setPage("inv")}>Price Queue</Btn></Card>
+          </div>
+          <Card>
+            <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>New Plants Added Today</div><div style={{ fontSize:12, color:C.tx3 }}>Check the newest records before you leave intake.</div></div><Row gap={8} wrap><Btn sz="sm" v="ghost" onClick={()=>setMode("invoice")}>Add More</Btn>{canOwner && <Btn sz="sm" v="soft" onClick={()=>setPage("cleanup")}>Check Duplicates</Btn>}</Row></Row>
+            {addedToday.length ? <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>{addedToday.slice(-10).reverse().map(p => <RecentPlantCard key={p.id || p.plantId} p={p} />)}</div> : <div style={{ background:C.cardAlt, border:`1px dashed ${C.bd}`, borderRadius:16, padding:18, color:C.tx3, fontSize:13 }}>No plants added today yet.</div>}
+          </Card>
+        </div>}
+
+        <style>{`@media(max-width:760px){.ld-intake-workflow div[style*="grid-template-columns: repeat(5,1fr)"]{grid-template-columns:repeat(2,1fr)!important}.ld-intake-workflow div[style*="grid-template-columns: repeat(4,1fr)"],.ld-intake-workflow div[style*="grid-template-columns: repeat(3,1fr)"],.ld-intake-workflow div[style*="grid-template-columns: repeat(2,1fr)"],.ld-intake-workflow div[style*="grid-template-columns: minmax(0,1.2fr)"]{grid-template-columns:1fr!important}}`}</style>
+      </div>;
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
        LOGIN
     ══════════════════════════════════════════════════════════ */
     function AuthScreen() {
@@ -11655,7 +11807,7 @@ ${local.summary || "Fallback completed."}`;
         <div key={page} className={`ld-page-shell ${navDir === "back" ? "ld-slide-back" : "ld-slide-forward"}`}>
           {page === "today" && <WorkspaceHome type="today" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
-          {page === "intake_ws" && <WorkspaceHome type="intake_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "intake_ws" && <IntakeWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} setNurseries={setNurseries} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
           {page === "shows_ws" && <WorkspaceHome type="shows_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
