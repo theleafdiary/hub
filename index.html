@@ -4451,6 +4451,8 @@
       const taskColor = sev => sev === "critical" ? C.red : sev === "warning" ? C.amber : sev === "money" ? C.gold : sev === "good" ? C.g600 : C.blue;
       const tasks = [];
       const addTask = (icon, title, body, page, button, sev="info") => tasks.push({ icon, title, body, page, button, sev });
+      const auctionDaily = phase80BuildAuctionDailyTasks({ plants:allPlants, settings, role });
+      if (isOwner || role === "manager") auctionDaily.tasks.forEach(t => addTask(t.icon, t.title, t.body, t.page, t.button, t.sev || t.level || "info"));
       if (due7.length && isOwner) addTask("📅", "Pay or review bills due this week", `${due7.length} bill(s) due in 7 days totaling ${$(due7Total)}.`, "bills", "Open Bills", "critical");
       if (readyOrders.length) addTask("📦", "Review sold orders from shows", `${readyOrders.length} sold order group(s) need review after platform import.`, "ship", "Open Orders", readyOrders.length > 5 ? "critical" : "warning");
       if (noPhoto.length) addTask("⚡", "Run Fast Photo Sprint", `${noPhoto.length} plant(s) are blocked from show-ready status because they need photos.`, "photosprint", "Photo Sprint", "warning");
@@ -4499,6 +4501,9 @@
           <PulseCard icon="⚡" label="Plant Actions" value={actionCount} sub="photos, labels, prices, aging" color={actionCount ? C.amber : C.g600} page="plants_ws" />
         </div>
 
+        {(isOwner || role === "manager") && <Phase80AuctionDailyCard plants={allPlants} settings={settings} role={role} setPage={setPage} compact />}
+        {(isOwner || role === "manager") && <Phase81AuctionPicksPanel plants={allPlants} settings={settings} setPage={setPage} compact title="Today's Best Palmstreet Auction Picks" />}
+
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.25fr) minmax(0,.85fr)", gap:14 }}>
           <Card style={{ padding:16 }}>
             <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900 }}>✅ Do This First Today</div><div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>The app picked the highest-impact work from your inventory, shows, orders, receipts, bills, and payroll.</div></div><Tag text={`${topTasks.length} priority actions`} color="#97d33e" /></Row>
@@ -4520,7 +4525,7 @@
               <div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:10 }}>⚡ Fast Buttons</div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                 {[
-                  ["⚡ Photo Sprint", "photosprint"], ["🏷️ Labels", "labels"], ["🎪 Show", "showbuilder"], ["📥 Import Sales", "showimport"], ["🧾 Receipts", "receipts"], ["🧠 Buy Smart", "buy_ws"]
+                  ["🏷️ Auctions", AUCTION_PAGE_TARGET], ["⚡ Photo Sprint", "photosprint"], ["🏷️ Labels", "labels"], ["🎪 Show", "showbuilder"], ["📥 Import Sales", "showimport"], ["🧾 Receipts", "receipts"], ["🧠 Buy Smart", "buy_ws"]
                 ].map(([label,page])=><button key={label} onClick={()=>setPage(page)} style={{ background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.35)", borderRadius:14, padding:"12px 9px", fontWeight:900, fontFamily:F.body, cursor:"pointer", fontSize:12 }}>{label}</button>)}
               </div>
             </Card>
@@ -4809,6 +4814,376 @@
 
 
     /* ══════════════════════════════════════════════════════════
+       UPDATE 79 — AUCTION MANAGER INSIDE SHOWS
+       No new page. This lives as a tab inside the existing Show Command Center.
+       Shows active auctions, needs-close queue, slot counter, and today's picks.
+    ══════════════════════════════════════════════════════════ */
+    function Phase79AuctionManagerPanel({ plants = [], setPlants, settings = {}, setSettings, user, addAudit, setPage }) {
+      const [tab, setTab] = useState("active");
+      const [finalPrices, setFinalPrices] = useState({});
+      const [tick, setTick] = useState(0);
+      useEffect(() => {
+        const id = setInterval(() => setTick(n => n + 1), 1000);
+        return () => clearInterval(id);
+      }, []);
+      const allPlants = safeArray(plants);
+      const summary = phase77BuildAuctionSummary({ plants: allPlants, settings });
+      const slotsLeft = Math.max(0, summary.slotsLeft || 0);
+      const slotsUsed = Math.max(0, summary.slotsUsed || 0);
+      const slotPct = Math.min(100, Math.round((slotsUsed / AUCTION_DAILY_LIMIT) * 100));
+      const slotColor = slotsUsed >= AUCTION_DAILY_LIMIT ? C.red : slotsUsed >= 13 ? C.amber : C.g600;
+      const plantForAuction = record => {
+        const id = String(record?.plantId || "").toLowerCase();
+        const realPlant = allPlants.find(p => auctionPlantId(p).toLowerCase() === id);
+        return realPlant || {
+          id: record?.plantId || uid(), plantId: record?.plantId || "", plantCode: record?.plantId || "",
+          name: record?.plantName || "Auction Plant", status: AUCTION_STATUS,
+          auctionStartedAt: record?.startedAt, auctionEndsAt: record?.endsAt,
+          auctionDurationHours: record?.durationHours || 24, auctionStartPrice: record?.startPrice || 0,
+          auctionNote: record?.auctionNote || "", suggestedPrice: record?.startPrice || 0, platform: AUCTION_PLATFORM
+        };
+      };
+      const activeRows = getActiveAuctions(settings, allPlants).map(record => {
+        const basePlant = plantForAuction(record);
+        const plant = { ...basePlant, auctionStartedAt: basePlant.auctionStartedAt || record.startedAt, auctionEndsAt: basePlant.auctionEndsAt || record.endsAt, auctionDurationHours: basePlant.auctionDurationHours || record.durationHours || 24, auctionStartPrice: basePlant.auctionStartPrice || record.startPrice || auctionPriceOf(basePlant), auctionNote: basePlant.auctionNote || record.auctionNote || "" };
+        const msLeft = new Date(plant.auctionEndsAt || record.endsAt || 0).getTime() - Date.now();
+        return { record, plant, plantId: auctionPlantId(plant) || record.plantId, msLeft };
+      }).sort((a,b) => a.msLeft - b.msLeft);
+      const needsClose = activeRows.filter(r => r.msLeft <= 0);
+      const liveRows = activeRows.filter(r => r.msLeft > 0);
+      const picks = buildAuctionPickList(allPlants, settings, AUCTION_DAILY_LIMIT).slice(0, AUCTION_DAILY_LIMIT);
+      const visiblePicks = picks.slice(0, Math.max(1, slotsLeft || 0));
+      const money = v => $(auctionMoney(v));
+      const setFinal = (id, value) => setFinalPrices(prev => ({ ...prev, [id]: value }));
+      const closeRow = (row, outcome) => {
+        const id = row.plantId;
+        const finalPrice = auctionMoney(finalPrices[id]);
+        const result = closeAuction(row.plant, outcome, { finalPrice, resultNote: outcome === "sold" ? "Sold via Palmstreet auction from Auction Manager" : "No sale — returned to inventory from Auction Manager" }, allPlants, setPlants, settings, setSettings, addAudit, user);
+        if (result) {
+          setFinalPrices(prev => { const next = { ...prev }; delete next[id]; return next; });
+          ldEmitNextStep({ icon: outcome === "sold" ? "✅" : "↩️", title: outcome === "sold" ? "Auction closed as sold" : "Auction returned to inventory", body: `${row.plant.name || id} was removed from active Palmstreet auctions.`, cta: "Review Auctions", page: AUCTION_PAGE_TARGET, color: outcome === "sold" ? C.g600 : C.amber });
+        }
+      };
+      const startPick = (pick, durationHours = 24) => {
+        const result = startAuction(pick.plant, { durationHours, startPrice: pick.price || auctionPriceOf(pick.plant), note: `Started from Auction Manager picks — score ${pick.score}` }, allPlants, setPlants, settings, setSettings, addAudit, user);
+        if (result) setTab("active");
+      };
+      const startAllVisible = () => {
+        const count = Math.min(slotsLeft, visiblePicks.length);
+        if (!count) return;
+        if (typeof confirm === "function" && !confirm(`Start ${count} Palmstreet auction(s) at 24 hours? You will still list them manually on Palmstreet.`)) return;
+        visiblePicks.slice(0, count).forEach(pick => startAuction(pick.plant, { durationHours:24, startPrice:pick.price || auctionPriceOf(pick.plant), note:`Bulk-started from Auction Manager picks — score ${pick.score}` }, allPlants, setPlants, settings, setSettings, addAudit, user));
+        setTab("active");
+      };
+      const AuctionMiniCard = ({ row }) => {
+        const id = row.plantId;
+        const a = { endsAt: row.plant.auctionEndsAt || row.record.endsAt };
+        const parts = auctionCountdownParts(a);
+        const ended = row.msLeft <= 0;
+        const color = ended ? C.red : auctionCountdownColor(a);
+        const photo = row.plant.photoUrl || row.plant.photoBase64 || row.plant.imageUrl;
+        return <Card style={{ borderLeft:`6px solid ${ended ? C.red : C.purple}`, background:ended ? C.redBg : C.card }}>
+          <Row gap={12} center style={{ alignItems:"flex-start" }}>
+            <div style={{ width:58, height:58, borderRadius:18, overflow:"hidden", background:C.g100, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{photo ? <img src={photo} alt={row.plant.name || id} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <span style={{ fontSize:28 }}>🌿</span>}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <Row between center wrap gap={8}>
+                <div style={{ minWidth:0 }}><div style={{ fontWeight:950, color:C.g900, fontSize:15 }}>{row.plant.name || "Auction Plant"}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{id || "No ID"} · {row.plant.potSize || "No size"} · Start {money(row.plant.auctionStartPrice || row.record.startPrice)}</div></div>
+                <Tag text={ended ? "Needs Close" : "Live"} color={ended ? C.red : C.purple} />
+              </Row>
+              <div style={{ marginTop:10, background:C.cardAlt, border:`1px solid ${color}44`, borderRadius:14, padding:"10px 11px" }}>
+                <div style={{ fontSize:11, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.6 }}>{ended ? "Ended — waiting for close" : "Time Remaining"}</div>
+                <div style={{ fontFamily:F.display, color, fontWeight:950, fontSize:26, lineHeight:1.05, marginTop:3 }}>{parts.label}</div>
+                <div style={{ color:C.tx3, fontSize:11, marginTop:4 }}>Ends {new Date(row.plant.auctionEndsAt || row.record.endsAt).toLocaleString()}</div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) auto auto", gap:8, alignItems:"end", marginTop:10 }}>
+                <Inp label="Final Price" type="number" value={finalPrices[id] || ""} onChange={v => setFinal(id, v)} placeholder="winning bid" />
+                <Btn sz="sm" onClick={() => closeRow(row, "sold")} style={{ minHeight:46, background:C.g600, borderColor:C.g600 }}>✅ Sold</Btn>
+                <Btn sz="sm" v="ghost" onClick={() => closeRow(row, "no_sale")} style={{ minHeight:46 }}>↩️ No Sale</Btn>
+              </div>
+            </div>
+          </Row>
+        </Card>;
+      };
+      const PickCard = ({ pick, idx }) => {
+        const p = pick.plant;
+        const photo = p.photoUrl || p.photoBase64 || p.imageUrl;
+        return <Card style={{ borderLeft:`5px solid ${idx < slotsLeft ? C.g600 : C.tx4}` }}>
+          <Row gap={12} center style={{ alignItems:"flex-start" }}>
+            <div style={{ width:42, height:42, borderRadius:999, background:"#000", color:"#97d33e", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, flexShrink:0 }}>{idx+1}</div>
+            <div style={{ width:54, height:54, borderRadius:16, background:C.g100, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{photo ? <img src={photo} alt={p.name || pick.plantId} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <span style={{ fontSize:25 }}>🌿</span>}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <Row between center wrap gap={8}>
+                <div><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>{p.name || "Leaf Diary Plant"}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{pick.plantId} · {p.potSize || "No size"} · {money(pick.price)} · {pick.daysHeld} days</div></div>
+                <Tag text={`Score ${pick.score}`} color={pick.score >= 55 ? C.g600 : pick.score >= 35 ? C.gold : C.amber} />
+              </Row>
+              <div style={{ fontSize:12, color:C.tx2, lineHeight:1.4, marginTop:7 }}><b>Reason:</b> {pick.reason}</div>
+              <Row gap={7} wrap style={{ marginTop:10 }}>
+                <Btn sz="sm" disabled={idx >= slotsLeft} onClick={() => startPick(pick, 24)}>Start 24h Auction</Btn>
+                <Btn sz="sm" v="soft" disabled={idx >= slotsLeft} onClick={() => startPick(pick, 48)}>48h</Btn>
+                <Btn sz="sm" v="ghost" disabled={idx >= slotsLeft} onClick={() => startPick(pick, 72)}>72h</Btn>
+              </Row>
+            </div>
+          </Row>
+        </Card>;
+      };
+      const tabs = [
+        { id:"active", label:`Active ${liveRows.length}`, icon:"🟣" },
+        { id:"close", label:`Needs Close ${needsClose.length}`, icon:"⚠️" },
+        { id:"picks", label:`Today's Picks`, icon:"🏆" }
+      ];
+      return <div>
+        <Card style={{ background:"#000", color:"#fff", border:`2px solid ${C.purple}`, borderRadius:26, marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:38 }}>🏷️</div>
+              <div style={{ fontFamily:F.display, fontSize:28, color:"#97d33e", fontWeight:950 }}>Palmstreet Auction Manager</div>
+              <div style={{ color:"rgba(255,255,255,.72)", fontSize:13, marginTop:4 }}>No new page. Track active auctions, close ended auctions, and pick the best 15 plants from inside Shows.</div>
+            </div>
+            <Row gap={8} wrap>
+              <button onClick={() => setTab("picks")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:950, cursor:"pointer" }}>🏆 Today's Picks</button>
+              <button onClick={() => setPage && setPage("inv")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:950, cursor:"pointer" }}>🌿 Inventory</button>
+            </Row>
+          </Row>
+        </Card>
+        <Card style={{ marginBottom:14, borderLeft:`6px solid ${slotColor}` }}>
+          <Row between center wrap gap={12}>
+            <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:950 }}>Today's Auction Slots</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{slotsLeft} remaining · {slotsUsed}/{AUCTION_DAILY_LIMIT} used in the rolling 24-hour window</div></div>
+            <Tag text={slotsUsed >= AUCTION_DAILY_LIMIT ? "Daily limit reached" : slotsUsed >= 13 ? "Almost full" : "Slots open"} color={slotColor} />
+          </Row>
+          <div style={{ height:11, background:C.g100, borderRadius:999, overflow:"hidden", marginTop:10 }}><div style={{ height:"100%", width:`${slotPct}%`, borderRadius:999, background:slotColor }} /></div>
+        </Card>
+        <div className="ld-show-tabs" style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:8, marginBottom:14 }}>
+          {tabs.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={{ background:tab === t.id ? "#000" : C.card, color:tab === t.id ? "#97d33e" : C.g900, border:`1.5px solid ${tab === t.id ? "#97d33e" : C.bd}`, borderRadius:999, padding:"11px 13px", fontWeight:950, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{t.icon} {t.label}</button>)}
+        </div>
+        {summary.overdue.length > 0 && <Card style={{ background:C.redBg, border:`1px solid ${C.red}55`, borderLeft:`6px solid ${C.red}`, marginBottom:14 }}><b style={{ color:C.red }}>Urgent:</b> {summary.overdue.length} auction(s) have ended and need to be closed.</Card>}
+        {tab === "active" && <div style={{ display:"grid", gap:10 }}>
+          {liveRows.length ? liveRows.map(row => <AuctionMiniCard key={row.plantId} row={row} />) : <Card style={{ textAlign:"center", padding:34 }}><div style={{ fontSize:34 }}>🟣</div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:950, fontSize:21 }}>No active live auctions</div><div style={{ color:C.tx3, fontSize:13, marginTop:4 }}>Open Today's Picks to start Palmstreet auction timers from photo-ready plants.</div><Btn onClick={() => setTab("picks")} style={{ marginTop:12 }}>View Today's Picks</Btn></Card>}
+        </div>}
+        {tab === "close" && <div style={{ display:"grid", gap:10 }}>
+          {needsClose.length ? needsClose.map(row => <AuctionMiniCard key={row.plantId} row={row} />) : <Card style={{ textAlign:"center", padding:34 }}><div style={{ fontSize:34 }}>✅</div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:950, fontSize:21 }}>No auctions need closing</div><div style={{ color:C.tx3, fontSize:13, marginTop:4 }}>Ended auctions will appear here until you mark them sold or return them to inventory.</div></Card>}
+        </div>}
+        {tab === "picks" && <div style={{ display:"grid", gap:10 }}>
+          <Card style={{ background:C.g50, borderLeft:`6px solid ${C.g600}` }}>
+            <Row between center wrap gap={10}>
+              <div><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:950 }}>🏆 Today's Best Auction Picks</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Only in-stock plants with photos and prices appear here. Active auction plants are excluded.</div></div>
+              <Row gap={8} wrap><Tag text={`${picks.length} ranked`} color={C.g600} /><Btn sz="sm" disabled={!visiblePicks.length || slotsLeft <= 0} onClick={startAllVisible}>Start All Open Slots</Btn></Row>
+            </Row>
+          </Card>
+          {picks.length ? picks.map((pick, idx) => <PickCard key={pick.plantId || idx} pick={pick} idx={idx} />) : <Card style={{ textAlign:"center", padding:34 }}><div style={{ fontSize:34 }}>📸</div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:950, fontSize:21 }}>No auction-ready picks yet</div><div style={{ color:C.tx3, fontSize:13, marginTop:4 }}>Add photos and prices to in-stock plants first. Palmstreet auction picks require both.</div><Btn onClick={() => setPage && setPage("photosprint")} style={{ marginTop:12 }}>Open Photo Sprint</Btn></Card>}
+        </div>}
+        <style>{`@media(max-width:760px){.ld-show-workflow div[style*="grid-template-columns:minmax(0,1fr) auto auto"]{grid-template-columns:1fr!important}.ld-show-workflow div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}}`}</style>
+      </div>;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 80 — TODAY + OWNER/MANAGER AUCTION TASKS
+       No new page. Adds Palmstreet auction reminders to Today,
+       Owner Daily Board, Manager Daily Board, Workflow Coach,
+       and Morning Briefing through one shared local helper.
+    ══════════════════════════════════════════════════════════ */
+    function phase80BuildAuctionDailyTasks({ plants = [], settings = {}, role = "owner" } = {}) {
+      const allPlants = safeArray(plants);
+      const summary = phase77BuildAuctionSummary({ plants: allPlants, settings });
+      const picks = buildAuctionPickList(allPlants, settings, AUCTION_DAILY_LIMIT);
+      const active = safeArray(summary.active);
+      const overdue = safeArray(summary.overdue);
+      const endingSoon = safeArray(summary.endingSoon);
+      const slotsLeft = Math.max(0, +summary.slotsLeft || 0);
+      const slotsUsed = Math.max(0, +summary.slotsUsed || 0);
+      const names = arr => safeArray(arr).slice(0, 4).map(a => a.plantName || a.name || a.plantId || "Auction plant").join(", ") + (safeArray(arr).length > 4 ? "…" : "");
+      const firstPick = picks[0];
+      const managerSafe = role === "manager" || role === "owner";
+      const tasks = [];
+      if (!managerSafe) return { tasks, summary, picks, firstPick:null, generatedAt:new Date().toISOString() };
+      if (overdue.length) tasks.push({
+        id:"auction-overdue", icon:"🚨", title:"Close ended Palmstreet auctions",
+        body:`${overdue.length} auction(s) have ended and need to be marked sold or returned: ${names(overdue)}.`,
+        page:AUCTION_PAGE_TARGET, button:"Close Auctions", level:"critical", sev:"critical", value:overdue.length
+      });
+      if (endingSoon.length) tasks.push({
+        id:"auction-ending-soon", icon:"⏳", title:"Watch auctions ending soon",
+        body:`${endingSoon.length} auction(s) end in less than 3 hours. Check Palmstreet and be ready to close them: ${names(endingSoon)}.`,
+        page:AUCTION_PAGE_TARGET, button:"Watch Auctions", level:"high", sev:"warning", value:endingSoon.length
+      });
+      if (slotsLeft > 0 && picks.length) tasks.push({
+        id:"auction-slots-open", icon:"🏷️", title:`Run Palmstreet auctions today (${slotsLeft} slots open)`,
+        body:firstPick ? `Best pick: ${firstPick.plantId} ${firstPick.plant?.name || "Plant"}. ${firstPick.reason || "Photo-ready and priced for auction."}` : `You have ${slotsLeft} auction slots open today.`,
+        page:AUCTION_PAGE_TARGET, button:"Open Picks", level:"normal", sev:"info", value:slotsLeft
+      });
+      if (active.length && !overdue.length && !endingSoon.length) tasks.push({
+        id:"auction-active-check", icon:"🟣", title:"Check active Palmstreet auctions",
+        body:`${active.length} active auction(s) are running. ${slotsUsed}/${AUCTION_DAILY_LIMIT} daily slots used.`,
+        page:AUCTION_PAGE_TARGET, button:"Review", level:"normal", sev:"info", value:active.length
+      });
+      return { tasks, summary, picks, firstPick, generatedAt:new Date().toISOString() };
+    }
+    function Phase80AuctionDailyCard({ plants = [], settings = {}, role = "owner", setPage, compact = false }) {
+      if (!(role === "owner" || role === "manager")) return null;
+      const data = phase80BuildAuctionDailyTasks({ plants, settings, role });
+      const summary = data.summary || {};
+      const topTask = data.tasks[0];
+      const active = safeArray(summary.active);
+      const overdue = safeArray(summary.overdue);
+      const endingSoon = safeArray(summary.endingSoon);
+      const slotsUsed = Math.max(0, +summary.slotsUsed || 0);
+      const slotsLeft = Math.max(0, +summary.slotsLeft || 0);
+      const picks = safeArray(data.picks);
+      const pct = Math.min(100, Math.round((slotsUsed / AUCTION_DAILY_LIMIT) * 100));
+      const color = overdue.length ? C.red : endingSoon.length ? C.amber : active.length ? C.purple : C.g600;
+      const title = overdue.length ? "Palmstreet auctions need closing" : endingSoon.length ? "Auctions ending soon" : active.length ? "Palmstreet auctions are running" : picks.length ? "Auction slots open today" : "Auction manager is clean";
+      const body = topTask?.body || (picks.length ? `${slotsLeft} slots open today. Best next move: open Shows and use Today's Picks.` : "No active auction issue found. Add photos and prices to unlock auction picks.");
+      return <Card style={{ padding:compact ? 14 : 18, marginBottom:14, borderLeft:`6px solid ${color}`, background:overdue.length ? C.redBg : endingSoon.length ? C.amberBg : active.length ? C.purpleBg : C.g50 }}>
+        <Row between center wrap gap={10}>
+          <Row gap={12} center style={{ minWidth:0 }}>
+            <div style={{ width:compact ? 44 : 54, height:compact ? 44 : 54, borderRadius:18, background:color+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:compact ? 26 : 32, flexShrink:0 }}>🏷️</div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, fontSize:compact ? 19 : 23, color:C.g900, fontWeight:950 }}>{title}</div>
+              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.4, marginTop:3 }}>{body}</div>
+            </div>
+          </Row>
+          <Row gap={7} wrap>
+            <Tag text={`${active.length} active`} color={active.length ? C.purple : C.tx3} />
+            <Tag text={`${slotsUsed}/${AUCTION_DAILY_LIMIT} used`} color={slotsUsed >= AUCTION_DAILY_LIMIT ? C.red : slotsUsed >= 13 ? C.amber : C.g600} />
+            <Tag text={`${picks.length} picks`} color={picks.length ? C.gold : C.tx3} />
+          </Row>
+        </Row>
+        <div style={{ height:10, background:C.card, border:`1px solid ${C.bdS}`, borderRadius:999, overflow:"hidden", marginTop:12 }}><div style={{ width:`${pct}%`, height:"100%", background:slotsUsed >= AUCTION_DAILY_LIMIT ? C.red : slotsUsed >= 13 ? C.amber : C.g600 }} /></div>
+        {!compact && picks.length > 0 && <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginTop:12 }}>
+          {picks.slice(0,3).map((pick, idx) => <div key={pick.plantId || idx} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:14, padding:"10px 11px" }}>
+            <div style={{ fontSize:11, color:C.tx3, fontWeight:900 }}>Pick #{idx+1}</div>
+            <div style={{ color:C.g900, fontWeight:950, fontSize:13, marginTop:2 }}>{pick.plantId} · {pick.plant?.name || "Plant"}</div>
+            <div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{$(pick.price || 0)} · {pick.daysHeld || 0}d · score {Math.round(pick.score || 0)}</div>
+          </div>)}
+        </div>}
+        <Row gap={8} wrap style={{ marginTop:12 }}>
+          <Btn sz="sm" onClick={() => setPage && setPage(AUCTION_PAGE_TARGET)}>Open Auction Manager</Btn>
+          {picks.length > 0 && <Btn sz="sm" v="soft" onClick={() => setPage && setPage("shows_ws")}>View Today's Picks</Btn>}
+          {(!picks.length && !active.length) && <Btn sz="sm" v="soft" onClick={() => setPage && setPage("photosprint")}>Add Photos First</Btn>}
+        </Row>
+      </Card>;
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 81 — TODAY'S BEST 15 AUCTION PICKS
+       No new page. Strengthens existing Today + Shows auction guidance.
+       Uses the Update 77 picker, but adds owner-friendly reasons, blockers,
+       and a clean mobile card list before the user starts timers.
+    ══════════════════════════════════════════════════════════ */
+    function phase81BuildAuctionPickBoard(plants = [], settings = {}) {
+      const allPlants = safeArray(plants);
+      const active = getActiveAuctions(settings, allPlants);
+      const activeIds = new Set(active.map(a => String(a.plantId || "").toLowerCase()));
+      const inStock = allPlants.filter(p => String(p?.status || "In Stock") === "In Stock");
+      const minPrice = auctionMoney(settings?.auctionSettings?.minAuctionPrice || 10);
+      const missingPhoto = inStock.filter(p => !auctionHasPhoto(p));
+      const missingPrice = inStock.filter(p => auctionPriceOf(p) <= 0);
+      const belowMin = inStock.filter(p => auctionPriceOf(p) > 0 && auctionPriceOf(p) < minPrice);
+      const alreadyAuction = inStock.filter(p => activeIds.has(auctionPlantId(p).toLowerCase()));
+      const candidates = inStock.filter(p => !activeIds.has(auctionPlantId(p).toLowerCase()) && auctionHasPhoto(p) && auctionPriceOf(p) >= minPrice);
+      const picks = buildAuctionPickList(allPlants, settings, AUCTION_DAILY_LIMIT);
+      const slotsUsed = auctionSlotsUsed24h(settings, allPlants);
+      const slotsLeft = Math.max(0, AUCTION_DAILY_LIMIT - slotsUsed);
+      const usablePicks = picks.slice(0, Math.max(0, slotsLeft));
+      const topValue = picks.reduce((sum, pick) => sum + auctionPriceOf(pick.plant), 0);
+      const topAging = picks.filter(pick => (+pick.daysHeld || 0) >= 45).length;
+      const topPremium = picks.filter(pick => auctionPriceOf(pick.plant) >= 50).length;
+      const topLowPps = picks.filter(pick => (+pick.pps || 0) > 0 && (+pick.pps || 0) < 1.5).length;
+      const dayKey = today();
+      return {
+        dayKey,
+        picks,
+        usablePicks,
+        candidates,
+        active,
+        slotsUsed,
+        slotsLeft,
+        minPrice,
+        blockers: {
+          missingPhoto: missingPhoto.length,
+          missingPrice: missingPrice.length,
+          belowMin: belowMin.length,
+          alreadyAuction: alreadyAuction.length
+        },
+        totals: {
+          inStock: inStock.length,
+          candidates: candidates.length,
+          pickCount: picks.length,
+          topValue,
+          topAging,
+          topPremium,
+          topLowPps
+        },
+        summary: picks.length
+          ? `${picks.length} ranked Palmstreet auction pick(s). ${usablePicks.length} can be started with today’s open slots.`
+          : `No auction picks yet. Fix photos and prices first; minimum auction price is ${$(minPrice)}.`
+      };
+    }
+    function Phase81AuctionPicksPanel({ plants = [], settings = {}, setPage, compact = false, title = "Today's Best 15 Auction Picks", onOpenAuctions }) {
+      const board = phase81BuildAuctionPickBoard(plants, settings);
+      const picks = safeArray(board.picks);
+      const shown = picks.slice(0, compact ? 5 : AUCTION_DAILY_LIMIT);
+      const color = board.slotsLeft <= 0 ? C.red : picks.length ? C.gold : C.amber;
+      const openAuctions = () => {
+        if (typeof onOpenAuctions === "function") onOpenAuctions();
+        else if (setPage) setPage(AUCTION_PAGE_TARGET);
+      };
+      const PickRow = ({ pick, idx }) => {
+        const p = pick.plant || {};
+        const photo = p.photoUrl || p.photoBase64 || p.imageUrl;
+        const price = auctionPriceOf(p);
+        const disabled = idx >= board.slotsLeft;
+        const scoreColor = (+pick.score || 0) >= 55 ? C.g600 : (+pick.score || 0) >= 35 ? C.gold : C.amber;
+        return <div style={{ background:C.card, border:`1px solid ${disabled ? C.bdS : scoreColor + "55"}`, borderLeft:`5px solid ${disabled ? C.tx4 : scoreColor}`, borderRadius:16, padding:"11px 12px", opacity:disabled ? .72 : 1 }}>
+          <Row gap={10} center style={{ alignItems:"flex-start" }}>
+            <div style={{ width:34, height:34, borderRadius:999, background:disabled ? C.cardAlt : "#000", color:disabled ? C.tx3 : "#97d33e", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, flexShrink:0 }}>{idx + 1}</div>
+            <div style={{ width:46, height:46, borderRadius:14, background:C.g100, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{photo ? <img src={photo} alt={p.name || pick.plantId || "Auction pick"} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <span style={{ fontSize:23 }}>🌿</span>}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <Row between center wrap gap={7}>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontWeight:950, color:C.g900, fontSize:13 }}>{pick.plantId || auctionPlantId(p)} · {p.name || "Leaf Diary Plant"}</div>
+                  <div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{p.potSize || "No size"} · {$(price)} · {pick.daysHeld || 0} days held</div>
+                </div>
+                <Row gap={5} wrap><Tag text={`Score ${Math.round(+pick.score || 0)}`} color={scoreColor} sm />{disabled && <Tag text="no slot" color={C.tx3} sm />}</Row>
+              </Row>
+              <div style={{ fontSize:11, color:C.tx2, lineHeight:1.35, marginTop:6 }}><b>Why:</b> {pick.reason || "Photo-ready, priced, and ranked for auction."}</div>
+            </div>
+          </Row>
+        </div>;
+      };
+      return <Card style={{ padding:compact ? 14 : 18, marginBottom:14, borderLeft:`6px solid ${color}`, background:picks.length ? C.goldBg : C.amberBg }}>
+        <Row between center wrap gap={10} style={{ marginBottom:12 }}>
+          <Row gap={12} center style={{ minWidth:0 }}>
+            <div style={{ width:compact ? 44 : 54, height:compact ? 44 : 54, borderRadius:18, background:color + "22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:compact ? 26 : 32, flexShrink:0 }}>🏆</div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, fontSize:compact ? 19 : 24, color:C.g900, fontWeight:950 }}>{title}</div>
+              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.4, marginTop:3 }}>{board.summary}</div>
+            </div>
+          </Row>
+          <Row gap={7} wrap>
+            <Tag text={`${board.slotsLeft} slots open`} color={board.slotsLeft ? C.g600 : C.red} />
+            <Tag text={`${picks.length}/15 picks`} color={picks.length ? C.gold : C.tx3} />
+            <Tag text={`${board.totals.candidates} candidates`} color={board.totals.candidates ? C.purple : C.tx3} />
+          </Row>
+        </Row>
+        <div style={{ display:"grid", gridTemplateColumns:compact ? "repeat(2,1fr)" : "repeat(4,1fr)", gap:8, marginBottom:12 }}>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:14, padding:"9px 10px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase" }}>Pick value</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:950 }}>{$(board.totals.topValue)}</div></div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:14, padding:"9px 10px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase" }}>Aging picks</div><div style={{ fontFamily:F.display, color:C.amber, fontSize:20, fontWeight:950 }}>{board.totals.topAging}</div></div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:14, padding:"9px 10px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase" }}>Premium</div><div style={{ fontFamily:F.display, color:C.gold, fontSize:20, fontWeight:950 }}>{board.totals.topPremium}</div></div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:14, padding:"9px 10px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase" }}>Blocked</div><div style={{ fontFamily:F.display, color:(board.blockers.missingPhoto + board.blockers.missingPrice) ? C.red : C.g600, fontSize:20, fontWeight:950 }}>{board.blockers.missingPhoto + board.blockers.missingPrice}</div></div>
+        </div>
+        {shown.length ? <div style={{ display:"grid", gap:8 }}>{shown.map((pick, idx) => <PickRow key={(pick.plantId || idx) + "-phase81"} pick={pick} idx={idx} />)}</div>
+          : <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:16, textAlign:"center" }}><div style={{ fontSize:30 }}>📸</div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:950, fontSize:19 }}>No auction-ready picks yet</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:4 }}>Palmstreet picks require In Stock status, a photo, and a price at or above {$(board.minPrice)}.</div></div>}
+        <Row gap={8} wrap style={{ marginTop:12 }}>
+          <Btn sz="sm" onClick={openAuctions}>Open Auction Manager</Btn>
+          {board.blockers.missingPhoto > 0 && <Btn sz="sm" v="soft" onClick={() => setPage && setPage("photosprint")}>Fix Photos ({board.blockers.missingPhoto})</Btn>}
+          {board.blockers.missingPrice > 0 && <Btn sz="sm" v="ghost" onClick={() => setPage && setPage("inv")}>Fix Prices ({board.blockers.missingPrice})</Btn>}
+        </Row>
+        <style>{`@media(max-width:760px){.ld-today-command div[style*="grid-template-columns: repeat(4,1fr)"],.ld-show-workflow div[style*="grid-template-columns:repeat(4,1fr)"]{grid-template-columns:1fr!important}.ld-today-command div[style*="grid-template-columns: repeat(2,1fr)"],.ld-show-workflow div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important}}`}</style>
+      </Card>;
+    }
+
+    /* ══════════════════════════════════════════════════════════
        PHASE 5 — SHOW COMMAND CENTER
        Safe wrapper around existing Show Builder, Live Show, Import Sales,
        Bundles, Discounts, Social Center and AI Content tools.
@@ -4842,10 +5217,12 @@
       const readyShows = Math.floor(photoReady.length / Math.max(1, +targetCount || 60));
       const showHealth = photoReady.length >= (+targetCount || 60) ? "Ready" : photoReady.length >= 20 ? "Needs more plants" : "Not enough ready plants";
       const healthColor = showHealth === "Ready" ? C.g600 : showHealth === "Needs more plants" ? C.amber : C.red;
+      const auctionSummary = phase77BuildAuctionSummary({ plants, settings });
       const platforms = ["Whatnot", "Palmstreet", "Shopify Live", "Local Sale"];
       const showTypes = ["Balanced Profit Show", "Fast Auction", "Rare Plant Premium Show", "Clearance Show", "Tissue Culture Show", "Mixed Show", "Employee Hosted Show"];
       const tabs = [
         { id:"overview", icon:"🎪", label:"Plan" },
+        { id:"auction", icon:"🏷️", label:"Auctions", hidden:!canManage },
         { id:"build", icon:"🧠", label:"Build Show", hidden:!canManage },
         { id:"live", icon:"🎥", label:"Live Mode" },
         { id:"import", icon:"📥", label:"Import Sales", hidden:!canManage },
@@ -4955,13 +5332,16 @@
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
             {canManage && <TaskCard icon="🧠" title="Build tonight’s show" body={`Use ${platform}, ${showType}, and target ${targetCount} plants. The app will favor photo-ready, priced plants and mix premium with aging inventory.`} button="Auto Build" onClick={quickBuild} color="#fb6392" />}
+            {canManage && <TaskCard icon="🏷️" title="Palmstreet Auction Manager" body={`${auctionSummary.active.length} active · ${auctionSummary.overdue.length} need close · ${auctionSummary.slotsLeft}/${AUCTION_DAILY_LIMIT} slots left today.`} button="Manage Auctions" onClick={()=>setTab("auction")} color={auctionSummary.overdue.length ? C.red : auctionSummary.endingSoon.length ? C.amber : C.purple} />}
             <TaskCard icon="📸" title="Fix photo blockers" body={`${noPhoto.length} plant(s) need photos before they look good in a live show or export.`} button="Open Photo Sprint" onClick={()=>setPage("photosprint")} color={C.amber} />
             <TaskCard icon="💲" title="Fix price blockers" body={`${noPrice.length} plant(s) need prices before the show builder can use them correctly.`} button="Open Pricing Queue" onClick={()=>setPage("inv")} color={noPrice.length ? C.red : C.g600} />
             {canManage && <TaskCard icon="📥" title="After the show" body="Import the Whatnot or Palmstreet CSV, confirm who hosted, review tips, and save sold plants." button="Import Sales" onClick={()=>setTab("import")} color="#68d8ff" />}
           </div>
+          {canManage && <Phase81AuctionPicksPanel plants={plants} settings={settings} setPage={setPage} compact={false} title="Best 15 Palmstreet Auction Picks" onOpenAuctions={() => setTab("auction")} />}
           <PreviewBuckets />
         </>}
 
+        {tab === "auction" && canManage && <Phase79AuctionManagerPanel plants={plants} setPlants={setPlants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={setPage} />}
         {tab === "build" && canManage && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
         {tab === "live" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} />}
         {tab === "import" && canManage && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
@@ -12553,6 +12933,8 @@ Cancel keeps this local/free.`);
       const toggleDone = id => { const next = { ...done, [doneKey + id]: !done[doneKey + id] }; setDone(next); try { localStorage.setItem("leafDiaryManagerBoardDoneV16", JSON.stringify(next)); } catch(e) {} };
       const mkTask = (id, icon, title, body, page, button, level="normal") => ({ id, icon, title, body, page, button, level });
       const tasks = [];
+      const managerAuctionDaily = phase80BuildAuctionDailyTasks({ plants:allPlants, settings, role:"manager" });
+      managerAuctionDaily.tasks.forEach(t => tasks.push(mkTask(t.id, t.icon, t.title, t.body, t.page, t.button, t.level || "normal")));
       if (activeClockIns.length) tasks.push(mkTask("clocked", "⏱️", "Team is clocked in", `${activeClockIns.length} team timecard(s) are active today. Check timecards before the day ends.`, "timecard", "Timecards", "info"));
       if (noPhoto.length) tasks.push(mkTask("photos", "⚡", "Assign Fast Photo Sprint", `${noPhoto.length} in-stock plant(s) need photos. Have staff scan labels and take photos without typing.`, "photosprint", "Photo Sprint", "high"));
       if (noLabel.length) tasks.push(mkTask("labels", "🏷️", "Print labels", `${noLabel.length} plant(s) still need labels. Print these before staging a show.`, "labels", "Labels", "high"));
@@ -12596,6 +12978,8 @@ Cancel keeps this local/free.`);
           <KPI label="Show Ready" value={showReady.length} sub="photo + label + price" color={showReady.length >= 40 ? C.g600 : C.gold} onClick={()=>setPage("showbuilder")} />
           <KPI label="Orders Review" value={orders.length} sub={`${recentSold.length} sold in 7 days`} color={orders.length ? C.blue : C.g600} onClick={()=>setPage("orders_ws")} />
         </div>
+
+        <Phase80AuctionDailyCard plants={allPlants} settings={settings} role="manager" setPage={setPage} compact />
 
         <Phase73EmployeeAITasks plants={plants} receipts={receipts} timecards={timecards} users={users} user={user} setPage={setPage} mode="manager" />
 
@@ -12693,6 +13077,8 @@ Cancel keeps this local/free.`);
       const toggleDone = id => { const next = { ...done, [doneKey + id]: !done[doneKey + id] }; setDone(next); try { localStorage.setItem("leafDiaryOwnerBoardDoneV15", JSON.stringify(next)); } catch(e) {} };
       const Priority = (id, icon, title, body, page, button, level="normal") => ({ id, icon, title, body, page, button, level });
       const priorities = [];
+      const ownerAuctionDaily = phase80BuildAuctionDailyTasks({ plants:allPlants, settings, role:"owner" });
+      ownerAuctionDaily.tasks.forEach(t => priorities.push(Priority(t.id, t.icon, t.title, t.body, t.page, t.button, t.level || "normal")));
       if (openBills7.length) priorities.push(Priority("bills", "📅", "Review bills due this week", `${openBills7.length} bill(s) due in 7 days totaling ${$(bills7Total)}. Do this before buying plants.`, "bills", "Open Bills", "critical"));
       if (orders.length) priorities.push(Priority("orders", "📦", "Review sold orders", `${orders.length} sold order group(s) are saved from shows. Confirm sold plants, buyer usernames, paperwork, and employee pay if needed.`, "orders_ws", "Open Orders", orders.length > 8 ? "critical" : "high"));
       if (noPhoto.length) priorities.push(Priority("photos", "📸", "Assign photo queue", `${noPhoto.length} plant(s) need photos. Give this to an employee before building the next show.`, "employeeboard", "Delegate", "high"));
@@ -12738,6 +13124,8 @@ Cancel keeps this local/free.`);
           <KPI label="Show Ready" value={showReady.length} sub={`about ${showCountEstimate} full shows`} color={showReady.length >= 60 ? C.g600 : C.amber} onClick={()=>setPage("showbuilder")} />
           <KPI label="Owner Risk" value={duplicateGroups.length + noPrice.length + aging60.length + receiptsReview.length} sub="duplicates, prices, aging, receipts" color={(duplicateGroups.length + noPrice.length + aging60.length + receiptsReview.length) ? C.amber : C.g600} onClick={()=>setPage("appcheck")} />
         </div>
+
+        <Phase80AuctionDailyCard plants={allPlants} settings={settings} role="owner" setPage={setPage} />
 
         <Phase73EmployeeAITasks plants={plants} receipts={receipts} timecards={timecards} users={users} user={user} setPage={setPage} mode="owner" />
 
@@ -12838,7 +13226,9 @@ Cancel keeps this local/free.`);
       };
       const isDone = id => !!done[doneKeyPrefix + id];
       const task = (id, icon, title, body, page, priority = "normal", roleNote = "") => ({ id, icon, title, body, page, priority, roleNote });
+      const auctionCoachDaily = phase80BuildAuctionDailyTasks({ plants, settings, role });
       const ownerTasks = [];
+      if (isOwner) auctionCoachDaily.tasks.forEach(t => ownerTasks.push(task(t.id, t.icon, t.title, t.body, t.page, t.level === "critical" ? "urgent" : t.level === "high" ? "high" : "normal")));
       if (openBills7.length) ownerTasks.push(task("bills", "📅", "Check bills due this week", `${openBills7.length} bill(s) are due within 7 days. Check cash before buying plants.`, "money_ws", "urgent"));
       if (orders.length) ownerTasks.push(task("orders", "📦", "Review sold orders", `${orders.length} sold order group(s) need review, packing status, paperwork check, or buyer cleanup.`, "orders_ws", "urgent"));
       if (noPhoto.length) ownerTasks.push(task("photos", "⚡", "Run Fast Photo Sprint", `${noPhoto.length} in-stock plant(s) need photos before they are show-ready.`, "photosprint", "high"));
@@ -12855,6 +13245,7 @@ Cancel keeps this local/free.`);
         orders.length ? task("orders", "📦", "Review sold plants", `${orders.length} sold order group(s) need review.`, "orders_ws", "normal") : null,
         receiptsReview.length ? task("receipts", "🧾", "Scan or review receipts", `${receiptsReview.length} receipt(s) need cleanup.`, "receipts", "normal") : null,
       ].filter(Boolean);
+      if (isManager) auctionCoachDaily.tasks.slice().reverse().forEach(t => managerTasks.unshift(task(t.id, t.icon, t.title, t.body, t.page, t.level === "critical" ? "urgent" : t.level === "high" ? "high" : "normal")));
       const employeeTasks = [
         task("clock", "⏱️", clockedIn ? "You are clocked in" : "Clock in first", clockedIn ? "You can start photo, label, receipt, or show prep tasks." : "Start your shift before doing plant work.", "timecard", clockedIn ? "normal" : "urgent"),
         noPhoto.length ? task("photos", "⚡", "Take photos with barcode scanner", `${noPhoto.length} plant(s) need photos. Open Fast Photo Sprint and scan each label.`, "photosprint", "high") : null,
@@ -17404,6 +17795,13 @@ Cancel if you want to save money.`);
       const warnings = [];
       const opportunities = [];
       const employeeTasks = [];
+      const auctionDaily = phase80BuildAuctionDailyTasks({ plants, settings, role:"owner" });
+      auctionDaily.tasks.forEach(t => {
+        const row = { title:t.title, body:t.body, page:t.page, severity:t.level === "critical" ? "critical" : t.level === "high" ? "warning" : "info", value:t.value || auctionDaily.summary?.active?.length || 0 };
+        if (t.level === "critical") warnings.unshift(row);
+        else if (t.id === "auction-slots-open") opportunities.unshift(row);
+        else tasks.unshift(row);
+      });
       if (noPhoto.length) { tasks.push({ title:"Photo sprint", body:`Take photos for ${Math.min(25,noPhoto.length)} plants first. ${noPhoto.length} plants still need photos.`, page:"photosprint", severity:"warning", value:noPhoto.length }); employeeTasks.push({ title:"Take plant photos", body:`Photograph the first ${Math.min(25,noPhoto.length)} no-photo plants before show building.`, page:"photosprint", severity:"warning", value:noPhoto.length }); }
       if (aging60.length) { tasks.push({ title:"Move 60+ day plants", body:`Pull the oldest ${Math.min(12,aging60.length)} plants into clearance or next live show.`, page:"discounts", severity:"warning", value:aging60.length }); employeeTasks.push({ title:"Stage old show candidates", body:`Pull ${Math.min(12,aging60.length)} aging plants for owner review.`, page:"discounts", severity:"warning", value:aging60.length }); }
       if (noPrice.length) warnings.push({ title:"Missing prices before show", body:`${noPrice.length} in-stock plants are missing price data. Fix before exporting.`, page:"inv", severity:"warning", value:noPrice.length });
@@ -17428,7 +17826,7 @@ Cancel if you want to save money.`);
         showType,
         safeSpend,
         projected30,
-        metrics:{ inStock:inStock.length, noPhoto:noPhoto.length, noPrice:noPrice.length, needsLabel:needsLabel.length, aging45:aging45.length, aging60:aging60.length, revenue7, revenue30, profit30, expense14, due14, due30, payroll14, bank, reserve, inventoryValue, agingCost, receipts:receipts.length },
+        metrics:{ inStock:inStock.length, noPhoto:noPhoto.length, noPrice:noPrice.length, needsLabel:needsLabel.length, aging45:aging45.length, aging60:aging60.length, revenue7, revenue30, profit30, expense14, due14, due30, payroll14, bank, reserve, inventoryValue, agingCost, receipts:receipts.length, activeAuctions:auctionDaily.summary.active.length, auctionEndingSoon:auctionDaily.summary.endingSoon.length, auctionOverdue:auctionDaily.summary.overdue.length, auctionSlotsLeft:auctionDaily.summary.slotsLeft, auctionPickCount:auctionDaily.picks.length },
         tasks,
         warnings,
         opportunities,
