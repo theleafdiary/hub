@@ -17130,10 +17130,27 @@ Cancel if you want to save money.`);
       const list = [];
       const isMobile = phase3IsMobileDevice();
       const mode = cfg.connectionMode || "auto";
-      if ((mode === "proxy" || (isMobile && cfg.preferProxyOnMobile)) && cfg.proxyUrl) phase3AddUrlVariant(list, cfg.proxyUrl);
-      if ((mode === "lan" || mode === "auto" || isMobile) && cfg.mobileBaseUrl) phase3AddUrlVariant(list, cfg.mobileBaseUrl);
-      if (mode !== "proxy") phase3AddUrlVariant(list, cfg.baseUrl || PHASE3_DEFAULT_CONFIG.baseUrl);
-      if (cfg.proxyUrl && !list.includes(phase3NormalizeBaseUrl(cfg.proxyUrl))) phase3AddUrlVariant(list, cfg.proxyUrl);
+      // Keep local MacBook testing clean. Desktop mode must never test phone/gateway URLs.
+      if (mode === "desktop") {
+        phase3AddUrlVariant(list, cfg.baseUrl || PHASE3_DEFAULT_CONFIG.baseUrl);
+        return [...new Set(list)].filter(Boolean);
+      }
+      // Proxy mode is for a tunnel/proxy only.
+      if (mode === "proxy") {
+        if (cfg.proxyUrl) phase3AddUrlVariant(list, cfg.proxyUrl);
+        return [...new Set(list)].filter(Boolean);
+      }
+      // LAN mode is for phone-to-computer same-Wi-Fi testing, with desktop as a fallback on the computer.
+      if (mode === "lan") {
+        if (cfg.mobileBaseUrl) phase3AddUrlVariant(list, cfg.mobileBaseUrl);
+        phase3AddUrlVariant(list, cfg.baseUrl || PHASE3_DEFAULT_CONFIG.baseUrl);
+        return [...new Set(list)].filter(Boolean);
+      }
+      // Auto mode: phone may prefer proxy/LAN, desktop starts with local Ollama.
+      if (isMobile && cfg.preferProxyOnMobile && cfg.proxyUrl) phase3AddUrlVariant(list, cfg.proxyUrl);
+      if (isMobile && cfg.mobileBaseUrl) phase3AddUrlVariant(list, cfg.mobileBaseUrl);
+      phase3AddUrlVariant(list, cfg.baseUrl || PHASE3_DEFAULT_CONFIG.baseUrl);
+      if (!isMobile && cfg.proxyUrl) phase3AddUrlVariant(list, cfg.proxyUrl);
       return [...new Set(list)].filter(Boolean);
     };
     const phase3ReadConfig = () => ({ ...PHASE3_DEFAULT_CONFIG, ...safeObject(safeJsonParse(localStorage.getItem(PHASE3_CONFIG_KEY), {})) });
@@ -17287,18 +17304,23 @@ Answer with a practical action plan for Leaf Diary.`;
     }
     async function phase3TestOllamaConnection(cfg = phase3ReadConfig()) {
       const startedAt = Date.now();
-      const cleanCfg = phase3SaveConfig({ ...cfg, enabled: !!cfg.enabled });
+      let cleanCfg = phase3SaveConfig({ ...cfg, enabled: !!cfg.enabled });
       try {
         const version = await phase3GetOllamaVersion(cleanCfg);
         const models = await phase3ListOllamaModels(cleanCfg);
         const modelNames = models.map(m => m.name);
         let preferred = cleanCfg.primaryModel || modelNames[0] || PHASE3_DEFAULT_CONFIG.primaryModel;
         if (!modelNames.includes(preferred) && modelNames.length) preferred = modelNames[0];
+        if (!modelNames.length) {
+          const report = phase3SaveReport({ ok:false, status:"model_missing", error:"Ollama is reachable, but no models are installed. Run: ollama pull llama3.1:8b", baseUrl:cleanCfg.baseUrl, mobileBaseUrl:cleanCfg.mobileBaseUrl || "", proxyUrl:cleanCfg.proxyUrl || "", connectionMode:cleanCfg.connectionMode || "auto", isMobile:phase3IsMobileDevice(), triedBaseUrls:phase3CandidateBaseUrls(cleanCfg), origin:phase3BrowserOrigin(), version, models:[], preferredModel:preferred, setup:phase3SetupText(), ms:Date.now()-startedAt, checkedAt:new Date().toISOString(), appVersion:APP_VERSION });
+          return report;
+        }
+        cleanCfg = phase3SaveConfig({ ...cleanCfg, primaryModel: preferred });
         let generate = null;
         if (preferred) {
           generate = await phase3GenerateOllama({ cfg:cleanCfg, model: preferred, prompt:"Reply with one short sentence confirming Leaf Diary local AI is connected.", system:"You are a connection test." });
         }
-        const report = phase3SaveReport({ ok:true, status:"online", baseUrl:phase3ReadConfig().baseUrl, mobileBaseUrl:cleanCfg.mobileBaseUrl || "", proxyUrl:cleanCfg.proxyUrl || "", connectionMode:cleanCfg.connectionMode || "auto", isMobile:phase3IsMobileDevice(), triedBaseUrls:phase3CandidateBaseUrls(cleanCfg), origin:phase3BrowserOrigin(), version, models:modelNames, preferredModel:preferred, generatedAnswer:generate?.answer || "Model list loaded. Generation test skipped because no model is installed.", modelFallback:generate?.modelFallback || false, warning:generate?.warning || "", setup:phase3SetupText(), ms:Date.now()-startedAt, checkedAt:new Date().toISOString(), appVersion:APP_VERSION });
+        const report = phase3SaveReport({ ok:true, status:"online", baseUrl:phase3ReadConfig().baseUrl, mobileBaseUrl:cleanCfg.mobileBaseUrl || "", proxyUrl:cleanCfg.proxyUrl || "", connectionMode:cleanCfg.connectionMode || "auto", isMobile:phase3IsMobileDevice(), triedBaseUrls:phase3CandidateBaseUrls(cleanCfg), origin:phase3BrowserOrigin(), version, models:modelNames, preferredModel:preferred, generatedAnswer:generate?.answer || "Local model list loaded.", modelFallback:generate?.modelFallback || false, warning:generate?.warning || "", setup:phase3SetupText(), ms:Date.now()-startedAt, checkedAt:new Date().toISOString(), appVersion:APP_VERSION });
         return report;
       } catch(e) {
         const friendly = phase3FriendlyError(e);
@@ -17509,8 +17531,8 @@ Answer with a practical action plan for Leaf Diary.`;
         setNote("Ollama settings reset to desktop default: http://127.0.0.1:11434");
       };
       const desktopPreset = () => {
-        const next = phase3SaveConfig({ ...draft, enabled:true, connectionMode:"desktop", baseUrl:"http://127.0.0.1:11434", mobileBaseUrl:"", preferProxyOnMobile:false });
-        setDraft(next); setConfig && setConfig(next); setNote("Desktop preset saved. Use this when Leaf Diary and Ollama are both on the same MacBook.");
+        const next = phase3SaveConfig({ ...draft, enabled:true, connectionMode:"desktop", baseUrl:"http://127.0.0.1:11434", mobileBaseUrl:"", proxyUrl:"", preferProxyOnMobile:false, primaryModel:"llama3.1:8b", timeoutMs:30000 });
+        setDraft(next); setConfig && setConfig(next); setNote("MacBook local preset saved. Now click Run Doctor. It will test http://127.0.0.1:11434 and the llama3.1:8b model only.");
       };
       const lanPreset = () => {
         const ip = (prompt("Enter the MacBook IP address running Ollama, for example 192.168.1.25") || "").trim();
@@ -17520,13 +17542,13 @@ Answer with a practical action plan for Leaf Diary.`;
         setDraft(next); setConfig && setConfig(next); setNote(`LAN preset saved: ${next.mobileBaseUrl}`);
       };
       const testOne = async (base) => {
-        const row = { base, versionOk:false, tagsOk:false, version:null, models:[], error:"", ms:0 };
+        const row = { base, versionOk:false, tagsOk:false, generateOk:false, version:null, models:[], answer:"", error:"", ms:0 };
         const started = Date.now();
-        const fetchJson = async (path) => {
+        const fetchJson = async (path, opts = {}) => {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), Math.max(6000, Math.min(+draft.timeoutMs || 12000, 16000)));
+          const timeout = setTimeout(() => controller.abort(), Math.max(8000, Math.min(+draft.timeoutMs || 30000, 45000)));
           try {
-            const res = await fetch(base + path, { method:"GET", mode:"cors", credentials:"omit", cache:"no-store", signal:controller.signal, headers:{ "Accept":"application/json" } });
+            const res = await fetch(base + path, { method:opts.method || "GET", body:opts.body, mode:"cors", credentials:"omit", cache:"no-store", signal:controller.signal, headers:{ "Accept":"application/json", ...(opts.body ? { "Content-Type":"application/json" } : {}) } });
             const text = await res.text();
             let json = null;
             try { json = text ? JSON.parse(text) : null; } catch(e) { json = { raw:text }; }
@@ -17544,6 +17566,15 @@ Answer with a practical action plan for Leaf Diary.`;
           row.tagsOk = true;
           row.models = safeArray(t?.models).map(m => m.name || m.model).filter(Boolean);
         } catch(e) { row.error = row.error || phase3FriendlyError(e); }
+        if (row.versionOk && row.tagsOk && row.models.length) {
+          const selected = row.models.includes(draft.primaryModel) ? draft.primaryModel : row.models[0];
+          try {
+            const g = await fetchJson("/api/generate", { method:"POST", body:JSON.stringify({ model:selected, stream:false, system:"You are a connection test.", prompt:"Reply exactly: Leaf Diary local AI connected." }) });
+            row.generateOk = true;
+            row.answer = g?.response || "Generated successfully.";
+            row.selectedModel = selected;
+          } catch(e) { row.error = row.error || phase3FriendlyError(e); }
+        }
         row.ms = Date.now() - started;
         return row;
       };
@@ -17568,12 +17599,20 @@ Answer with a practical action plan for Leaf Diary.`;
         const rows = [];
         for (const b of candidateBases) rows.push(await testOne(b));
         setResults(rows);
-        const anyOk = rows.some(r => r.versionOk && r.tagsOk);
-        const nextStatus = phase3BuildStatus(anyOk ? "online" : "offline", { results: rows, testedBases: candidateBases });
+        const anyReachable = rows.some(r => r.versionOk && r.tagsOk);
+        const anyGenerated = rows.some(r => r.generateOk);
+        const anyModel = rows.some(r => safeArray(r.models).length);
+        const best = rows.find(r => r.generateOk) || rows.find(r => safeArray(r.models).length) || rows.find(r => r.versionOk && r.tagsOk);
+        if (best?.selectedModel || best?.models?.[0]) {
+          const updated = phase3SaveConfig({ ...cfg, baseUrl: best.base || cfg.baseUrl, primaryModel: best.selectedModel || best.models[0] });
+          setDraft(updated); setConfig && setConfig(updated);
+        }
+        const finalStatus = anyGenerated ? "online" : anyReachable && !anyModel ? "model_missing" : anyReachable ? "model_missing" : "offline";
+        const nextStatus = phase3BuildStatus(finalStatus, { results: rows, testedBases: candidateBases });
         setStatus && setStatus(nextStatus);
-        phase3SaveReport({ type:"ollama_doctor", ok:anyOk, results: rows, device, config: cfg, checkedAt:new Date().toISOString() });
-        setNote(anyOk ? "Ollama is reachable. Model list loaded." : "Ollama is still not reachable from this device. Read the exact fix below.");
-        try { addAudit && addAudit({ action:`Ollama Doctor ${anyOk ? "passed" : "failed"}`, page:"Ollama Doctor", user:user?.name || "Owner", severity:anyOk ? "info" : "warning" }); } catch(e) {}
+        phase3SaveReport({ type:"ollama_doctor", ok:anyGenerated, reachable:anyReachable, generated:anyGenerated, results: rows, device, config: cfg, checkedAt:new Date().toISOString() });
+        setNote(anyGenerated ? "Local Ollama is working. Version, model list, and generation test passed." : anyReachable ? "Ollama is reachable, but the model generation test did not pass. Check installed model and model name." : "Ollama is still not reachable from this device. Read the exact fix below.");
+        try { addAudit && addAudit({ action:`Ollama Doctor ${anyGenerated ? "passed" : "failed"}`, page:"Ollama Doctor", user:user?.name || "Owner", severity:anyGenerated ? "info" : "warning" }); } catch(e) {}
         setBusy(false);
       };
       const diagnosis = phase56LikelyProblem(draft, results);
@@ -17611,7 +17650,7 @@ Answer with a practical action plan for Leaf Diary.`;
         </Card>}
 
         <Card style={{ marginBottom:14, background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
-          <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900 }}>Quick Settings</div><div style={{ color:C.tx3, fontSize:12 }}>Use Desktop preset on the MacBook. iPhone should use Mobile Gateway/Tunnel unless you intentionally set a LAN or proxy URL.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={desktopPreset}>Desktop Preset</Btn><Btn sz="sm" v="soft" onClick={lanPreset}>Phone LAN Preset</Btn><Btn sz="sm" v="ghost" onClick={resetOllama}>Reset</Btn></Row></Row>
+          <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900 }}>Quick Settings</div><div style={{ color:C.tx3, fontSize:12 }}>Use Desktop preset on the MacBook. iPhone should use Mobile Gateway/Tunnel unless you intentionally set a LAN or proxy URL.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={desktopPreset}>MacBook Local Preset</Btn><Btn sz="sm" v="soft" onClick={lanPreset}>Phone LAN Preset</Btn><Btn sz="sm" v="ghost" onClick={resetOllama}>Reset</Btn></Row></Row>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
             <Inp label="Desktop Ollama URL" value={draft.baseUrl} onChange={v=>setDraft(p=>({...p, baseUrl:v}))} placeholder="http://127.0.0.1:11434" />
             <Inp label="Mobile/LAN Ollama URL" value={draft.mobileBaseUrl || ""} onChange={v=>setDraft(p=>({...p, mobileBaseUrl:v}))} placeholder="http://192.168.1.25:11434" />
@@ -17623,7 +17662,7 @@ Answer with a practical action plan for Leaf Diary.`;
         </Card>
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
-          <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Connection Results</div>{results.length ? <div style={{ display:"grid", gap:8 }}>{results.map((r,i)=><div key={i} style={{ background:C.cardAlt, border:`1px solid ${r.versionOk && r.tagsOk ? C.g300 : C.red + "55"}`, borderRadius:14, padding:12 }}><Row between center gap={8}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{r.base}</div><Tag text={r.versionOk && r.tagsOk ? "Connected" : r.versionOk ? "Partial" : "Failed"} color={r.versionOk && r.tagsOk ? C.g600 : r.versionOk ? C.amber : C.red} sm /></Row><div style={{ color:C.tx3, fontSize:12, marginTop:6, lineHeight:1.45 }}>Version: {r.version || "not reached"} · Models: {r.models?.length || 0} · {r.ms}ms</div>{r.error && <div style={{ color:C.red, fontSize:12, marginTop:6, lineHeight:1.35 }}>{r.error}</div>}</div>)}</div> : <div style={{ color:C.tx3, fontSize:13 }}>Click Run Doctor to test every configured Ollama URL.</div>}</Card>
+          <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Connection Results</div>{results.length ? <div style={{ display:"grid", gap:8 }}>{results.map((r,i)=><div key={i} style={{ background:C.cardAlt, border:`1px solid ${r.versionOk && r.tagsOk ? C.g300 : C.red + "55"}`, borderRadius:14, padding:12 }}><Row between center gap={8}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{r.base}</div><Tag text={r.versionOk && r.tagsOk ? "Connected" : r.versionOk ? "Partial" : "Failed"} color={r.versionOk && r.tagsOk ? C.g600 : r.versionOk ? C.amber : C.red} sm /></Row><div style={{ color:C.tx3, fontSize:12, marginTop:6, lineHeight:1.45 }}>Version: {r.version || "not reached"} · Models: {r.models?.length || 0} · Generate: {r.generateOk ? "passed" : r.models?.length ? "failed" : "not tested"} · {r.ms}ms</div>{r.answer && <div style={{ color:C.g700, fontSize:12, marginTop:6, lineHeight:1.35, fontWeight:800 }}>{r.answer}</div>}{r.error && <div style={{ color:C.red, fontSize:12, marginTop:6, lineHeight:1.35 }}>{r.error}</div>}</div>)}</div> : <div style={{ color:C.tx3, fontSize:13 }}>Click Run Doctor to test every configured Ollama URL.</div>}</Card>
           <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Installed Models</div>{modelNames.length ? modelNames.map(name=><Row key={name} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><span style={{ fontWeight:900, fontSize:12, color:C.tx1 }}>{name}</span><button onClick={()=>setDraft(p=>({...p, primaryModel:name}))} style={{ background:C.g100, border:`1px solid ${C.g300}`, color:C.g800, borderRadius:999, padding:"7px 10px", fontWeight:900, cursor:"pointer" }}>Use</button></Row>) : <div style={{ color:C.tx3, fontSize:13 }}>No models found yet. On the MacBook, run <b>ollama list</b> or <b>ollama pull llama3.1:8b</b>.</div>}</Card>
         </div>
 
