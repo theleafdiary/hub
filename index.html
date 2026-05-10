@@ -2073,6 +2073,485 @@
       const margin = suggestedPrice > 0 ? Math.round(((suggestedPrice - (+cost || 0)) / suggestedPrice) * 100) : 0;
       return { suggestedPrice, margin, avgDays, requiredProfit:Math.round(requiredProfit*100)/100, genus, hasHistory:soldSame.length>=2, note:soldSame.length>=2 ? `Based on ${soldSame.length} past ${genus} sales, avg ${avgDays} days to sell.` : `No strong ${genus} sales history — using 14-day default.` };
     }
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 83 — AI MARKET PRICING FOUNDATION
+       No-new-page version of the AI Market Pricing Engine plan.
+       This phase adds safe settings, math, cache, prompt builder, and QA.
+       Live Gateway buttons/UI are intentionally added in later phases.
+
+       IMPORTANT BUSINESS RULES:
+       - Existing sprice(cost) instant auto-fill stays unchanged.
+       - Market research is owner/manager clicked only; never auto-runs on every plant.
+       - No new Bulk Pricing page. Future batch pricing belongs inside Buy Smart / Inventory.
+       - No Supabase schema change. marketResearch is an optional plant object field.
+    ══════════════════════════════════════════════════════════ */
+    function phase83MarketPricingSettings(settings = {}) {
+      const saved = safeObject(settings.marketPricing);
+      const discountRaw = saved.discountPctBelowMarket ?? 7;
+      const discountPctBelowMarket = discountRaw > 1 ? discountRaw / 100 : discountRaw;
+      const minMarginRaw = saved.minMarginPct ?? 55;
+      const minMarginPct = minMarginRaw > 1 ? minMarginRaw : minMarginRaw * 100;
+      return {
+        enabled: saved.enabled !== false,
+        discountPctBelowMarket: Math.min(.10, Math.max(.05, +discountPctBelowMarket || .07)),
+        minMarginPct: Math.min(95, Math.max(1, +minMarginPct || 55)),
+        maxCostPerLookup: +saved.maxCostPerLookup || .01,
+        cacheHours: +saved.cacheHours || 24,
+        requirePhoto: saved.requirePhoto === true,
+        showSourceList: saved.showSourceList !== false,
+        batchRateLimit: +saved.batchRateLimit || 5000,
+        ownerApprovalRequired: saved.ownerApprovalRequired !== false,
+        allowManagerResearch: saved.allowManagerResearch !== false,
+        noNewPricingPage: true
+      };
+    }
+    function phase83SafePlantPriceId(plant = {}) {
+      return String(plant.plantId || plant.plantCode || plant.sku || plant.id || plant.name || "plant").trim() || "plant";
+    }
+    function phase83CleanPrice(value) {
+      if (value === null || value === undefined) return 0;
+      const txt = String(value).replace(/\$/g, "").trim();
+      const range = txt.match(/([0-9]+(?:\.[0-9]+)?)\s*[-–]\s*([0-9]+(?:\.[0-9]+)?)/);
+      if (range) return ((+range[1] || 0) + (+range[2] || 0)) / 2;
+      return +txt.replace(/[^0-9.\-]/g, "") || 0;
+    }
+    function phase83Median(values = []) {
+      const nums = safeArray(values).map(phase83CleanPrice).filter(n => Number.isFinite(n) && n > 0).sort((a,b)=>a-b);
+      if (!nums.length) return 0;
+      const mid = Math.floor(nums.length / 2);
+      return nums.length % 2 ? nums[mid] : Math.round(((nums[mid - 1] + nums[mid]) / 2) * 100) / 100;
+    }
+    function phase83NormalizeMarketData(raw = {}) {
+      const sources = safeArray(raw.dataSources || raw.sources).map((s, idx) => ({
+        platform: String(s.platform || s.source || "Web").slice(0, 42),
+        priceUSD: Math.round(phase83CleanPrice(s.priceUSD ?? s.price ?? s.amount) * 100) / 100,
+        type: String(s.type || s.priceType || "asking").slice(0, 24),
+        listingDate: String(s.listingDate || s.date || raw.searchDate || today()).slice(0, 32),
+        url: String(s.url || s.link || "").slice(0, 420)
+      })).filter(s => s.priceUSD > 0);
+      const whatnot = sources.filter(s => /whatnot/i.test(s.platform)).map(s=>s.priceUSD);
+      const palmstreet = sources.filter(s => /palmstreet/i.test(s.platform)).map(s=>s.priceUSD);
+      const prices = sources.map(s=>s.priceUSD);
+      const count = +raw.dataPointCount || sources.length;
+      return {
+        plantName: raw.plantName || "",
+        potSize: raw.potSize || "",
+        searchDate: raw.searchDate || today(),
+        dataSources: sources,
+        dataPointCount: count,
+        marketMedianPrice: Math.round((phase83CleanPrice(raw.marketMedianPrice) || phase83Median(prices)) * 100) / 100,
+        whatnotMedian: raw.whatnotMedian === null ? null : Math.round((phase83CleanPrice(raw.whatnotMedian) || phase83Median(whatnot)) * 100) / 100 || null,
+        palmstreetMedian: raw.palmstreetMedian === null ? null : Math.round((phase83CleanPrice(raw.palmstreetMedian) || phase83Median(palmstreet)) * 100) / 100 || null,
+        lowestFound: Math.round((phase83CleanPrice(raw.lowestFound) || (prices.length ? Math.min(...prices) : 0)) * 100) / 100,
+        highestFound: Math.round((phase83CleanPrice(raw.highestFound) || (prices.length ? Math.max(...prices) : 0)) * 100) / 100,
+        confidenceScore: Math.max(0, Math.min(100, +raw.confidenceScore || (count >= 20 ? 88 : count >= 10 ? 68 : count >= 5 ? 45 : count > 0 ? 25 : 0))),
+        confidenceNote: raw.confidenceNote || (count >= 20 ? `Strong market sample: ${count} listings found.` : count >= 5 ? `Limited market sample: ${count} listings found.` : `Low confidence: ${count} listing(s) found.`),
+        dataAge: raw.dataAge || "mixed",
+        marketNotes: raw.marketNotes || ""
+      };
+    }
+    function buildMarketPricePrompt(plant = {}, settings = {}) {
+      const cfg = phase83MarketPricingSettings(settings);
+      const cost = +plant.cost || 0;
+      const pot = plant.potSize || plant.size || plant.containerSize || '4 inch';
+      const name = plant.name || plant.botanicalName || 'Unknown Plant';
+      const minMargin = Math.round(cfg.minMarginPct);
+      const isoDate = today();
+      return `You are a rare plant market pricing analyst for Leaf Diary, a Florida-based plant reseller that sells live on Palmstreet and Whatnot.
+
+TASK: Research the current retail market price for the following plant and return a structured JSON object with 20 or more real market data points.
+
+PLANT TO RESEARCH:
+- Plant name: ${name}
+- Pot size: ${pot}
+- Our cost: $${cost}
+- Our minimum margin target: ${minMargin}%
+
+RESEARCH INSTRUCTIONS:
+Search these sources in this order:
+1. Whatnot completed/sold listings for '${name} ${pot}'
+2. Palmstreet current listings for '${name} ${pot}'
+3. Etsy sold listings for '${name} ${pot} plant'
+4. eBay sold listings for '${name} ${pot} houseplant'
+5. General web search: 'buy ${name} ${pot} online ${new Date().getFullYear()} price'
+
+Find at least 20 individual price data points across these sources. Prefer sold/completed prices over asking prices. Exclude listings older than 90 days. Exclude listings that are clearly damaged, diseased, or have no photo.
+
+RETURN FORMAT — return ONLY this JSON object, no other text:
+{
+  "plantName": "${String(name).replace(/"/g, '\\"')}",
+  "potSize": "${String(pot).replace(/"/g, '\\"')}",
+  "searchDate": "${isoDate}",
+  "dataSources": [
+    { "platform": "Whatnot", "priceUSD": 22, "type": "sold", "listingDate": "${isoDate}" }
+  ],
+  "dataPointCount": 0,
+  "marketMedianPrice": 0,
+  "whatnotMedian": null,
+  "palmstreetMedian": null,
+  "lowestFound": 0,
+  "highestFound": 0,
+  "confidenceScore": 0,
+  "confidenceNote": "",
+  "dataAge": "recent",
+  "marketNotes": ""
+}
+
+If you cannot find data for the exact pot size, use the closest size and note it. If this plant is rare and has no market data, set confidenceScore to 0 and explain why in confidenceNote. Do not invent prices. Only report prices you actually found in search results.`;
+    }
+    function calcAIMarketPrice(plant = {}, marketDataRaw = {}, settings = {}, allPlants = []) {
+      const cfg = phase83MarketPricingSettings(settings);
+      const marketData = phase83NormalizeMarketData(marketDataRaw);
+      const cost = +plant.cost || 0;
+      const median = +marketData.marketMedianPrice || 0;
+      const ppsPrice = +suggestPriceFromPPS(plant.name, cost, settings, allPlants).suggestedPrice || sprice(cost, (cfg.minMarginPct / 100));
+      const feePct = ((+phase11Settings(settings).platformFees?.defaultPercent || 10) / 100);
+      const shipping = +phase11Settings(settings).avgShippingCost || 8;
+      const breakEven = Math.ceil((cost + shipping) / Math.max(.5, 1 - feePct));
+      const marketTarget = median ? Math.round(median * (1 - cfg.discountPctBelowMarket) * 100) / 100 : 0;
+      let finalPrice = 0, priceReason = "", priceStatus = "low_confidence";
+      const lowConfidence = !median || marketData.dataPointCount < 5 || marketData.confidenceScore < 35;
+      if (lowConfidence) {
+        finalPrice = Math.max(ppsPrice, breakEven);
+        priceStatus = "low_confidence";
+        priceReason = `Limited market data (${marketData.dataPointCount || 0} listings, confidence ${marketData.confidenceScore || 0}/100) — using internal PPS/history floor.`;
+      } else if (marketTarget >= ppsPrice) {
+        finalPrice = marketTarget;
+        priceStatus = "competitive";
+        priceReason = `Market median ${$(median)} — priced ${Math.round(cfg.discountPctBelowMarket * 100)}% below at ${$(finalPrice)}.`;
+      } else if (ppsPrice > marketTarget && ppsPrice <= median) {
+        finalPrice = ppsPrice;
+        priceStatus = "at_floor";
+        priceReason = `Market median is ${$(median)} but PPS floor is ${$(ppsPrice)} — pricing at profit floor while staying at market.`;
+      } else {
+        finalPrice = breakEven;
+        priceStatus = "margin_risk";
+        priceReason = `MARGIN RISK: market median is ${$(median)}, but your PPS floor is ${$(ppsPrice)}. Do not price below break-even ${$(breakEven)}.`;
+      }
+      finalPrice = Math.round((+finalPrice || 0) * 100) / 100;
+      const finalMargin = finalPrice > 0 ? Math.round(((finalPrice - cost) / finalPrice) * 100) : 0;
+      return {
+        ...marketData,
+        suggestedPrice: finalPrice,
+        margin: finalMargin,
+        priceStatus,
+        priceReason,
+        marketMedianPrice: median,
+        competitorCount: marketData.dataPointCount,
+        confidenceScore: marketData.confidenceScore,
+        breakEvenPrice: breakEven,
+        ppsFloorPrice: ppsPrice,
+        marketTarget,
+        discountPctBelowMarket: cfg.discountPctBelowMarket,
+        minMarginPct: cfg.minMarginPct,
+        source: "market_pricing_engine_v83",
+        runAt: new Date().toISOString(),
+        appliedAt: null,
+        appliedPrice: null,
+        plantId: phase83SafePlantPriceId(plant),
+        plantName: plant.name || marketData.plantName || "Plant",
+        potSize: plant.potSize || marketData.potSize || ""
+      };
+    }
+    function getCachedMarketResearch(plant = {}, settings = {}) {
+      const research = safeObject(plant.marketResearch);
+      if (!research || !research.runAt) return null;
+      const cfg = phase83MarketPricingSettings(settings);
+      const ageHours = (Date.now() - new Date(research.runAt).getTime()) / 3600000;
+      if (!Number.isFinite(ageHours) || ageHours > cfg.cacheHours) return null;
+      return research;
+    }
+    function phase83MarketPriceStatusMeta(status = "") {
+      const s = String(status || "").toLowerCase();
+      if (s === "competitive") return { label:"Competitive", icon:"✅", color:C.g600, bg:C.g50 };
+      if (s === "at_floor") return { label:"At Profit Floor", icon:"⚠️", color:C.amber, bg:C.amberBg };
+      if (s === "margin_risk") return { label:"Margin Risk", icon:"🚨", color:C.red, bg:C.redBg };
+      if (s === "fallback") return { label:"Fallback", icon:"🧮", color:C.tx3, bg:C.cardAlt };
+      return { label:"Low Confidence", icon:"🟡", color:C.tx3, bg:C.cardAlt };
+    }
+    function phase83BuildFallbackMarketResult(plant = {}, settings = {}, allPlants = [], reason = "Market research unavailable — using internal sales history.") {
+      const pps = suggestPriceFromPPS(plant.name, +plant.cost || 0, settings, allPlants);
+      const fallback = {
+        plantName: plant.name || "Plant",
+        potSize: plant.potSize || "",
+        dataSources: [], dataPointCount: 0, marketMedianPrice: 0, whatnotMedian: null, palmstreetMedian: null,
+        lowestFound: 0, highestFound: 0, confidenceScore: 0, confidenceNote: reason, dataAge: "stale"
+      };
+      return { ...calcAIMarketPrice(plant, fallback, settings, allPlants), suggestedPrice:+pps.suggestedPrice || 0, margin:+pps.margin || 0, priceStatus:"fallback", priceReason:reason };
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 84 — MARKET PRICE RESULT PANEL
+       UI-only phase. Shows the four pricing states created in Update 83:
+       competitive, at_floor, margin_risk, and low_confidence/fallback.
+       No Gateway call, no automatic price changes, no new page.
+    ══════════════════════════════════════════════════════════ */
+    function phase84FormatLastChecked(runAt) {
+      if (!runAt) return "Not checked yet";
+      const ms = Date.now() - new Date(runAt).getTime();
+      if (!Number.isFinite(ms) || ms < 0) return "just now";
+      const mins = Math.floor(ms / 60000);
+      if (mins < 1) return "just now";
+      if (mins < 60) return `${mins}m ago`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return `${hrs}h ago`;
+      const days = Math.floor(hrs / 24);
+      return `${days}d ago`;
+    }
+    function phase84SourceSummary(sources = []) {
+      const rows = safeArray(sources).reduce((m, s) => {
+        const key = String(s.platform || "Web").trim() || "Web";
+        if (!m[key]) m[key] = { platform:key, count:0, prices:[], sold:0, asking:0 };
+        m[key].count += 1;
+        m[key].prices.push(+s.priceUSD || 0);
+        if (/sold|completed/i.test(String(s.type || ""))) m[key].sold += 1;
+        else m[key].asking += 1;
+        return m;
+      }, {});
+      return Object.values(rows).map(r => ({ ...r, median:phase83Median(r.prices) })).sort((a,b)=>b.count-a.count);
+    }
+    function phase84ProfitGuardChecks(result = {}) {
+      const suggested = +result.suggestedPrice || 0;
+      const margin = +result.margin || 0;
+      const minMargin = +result.minMarginPct || 55;
+      const breakEven = +result.breakEvenPrice || 0;
+      const pps = +result.ppsFloorPrice || 0;
+      return [
+        { label:`Margin ${margin}%`, pass: margin >= minMargin, detail:`minimum ${Math.round(minMargin)}%` },
+        { label:`Above break-even ${$(breakEven)}`, pass: suggested >= breakEven && breakEven > 0, detail:suggested >= breakEven ? "protected" : "below break-even" },
+        { label:`PPS floor ${$(pps)}`, pass: suggested >= pps || result.priceStatus === "margin_risk", detail:suggested >= pps ? "target protected" : "market is below target" },
+      ];
+    }
+    function MarketPriceLoadingPanel({ plant = {}, onCancel }) {
+      const [step, setStep] = useState(0);
+      const steps = ["Searching Whatnot sold listings", "Checking Palmstreet listings", "Looking up Etsy, eBay, and web prices", "Analyzing market median + profit guard"];
+      useEffect(() => {
+        const timers = [1000, 3000, 5000, 7000].map((ms, idx) => setTimeout(() => setStep(idx), ms));
+        return () => timers.forEach(clearTimeout);
+      }, []);
+      return <div style={{ background:C.blueBg, border:`1px solid ${C.blue}44`, borderLeft:`6px solid ${C.blue}`, borderRadius:18, padding:15, marginTop:10 }}>
+        <Row gap={10} center style={{ marginBottom:10 }}><div style={{ width:42, height:42, borderRadius:15, background:C.card, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🔍</div><div><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900 }}>Researching market prices...</div><div style={{ color:C.tx3, fontSize:12 }}>{plant.name || "Plant"} · {plant.potSize || "pot size unknown"}</div></div></Row>
+        <div style={{ display:"grid", gap:8 }}>
+          {steps.map((s,i) => <div key={s} style={{ background:C.card, border:`1px solid ${i <= step ? C.blue : C.bd}`, borderRadius:12, padding:"9px 10px" }}>
+            <Row between center gap={8}><span style={{ color:C.tx2, fontWeight:900, fontSize:12 }}>{i <= step ? "✅" : "▫️"} {s}</span><span style={{ color:i <= step ? C.blue : C.tx4, fontWeight:900, fontSize:11 }}>{i <= step ? "working" : "queued"}</span></Row>
+            <div style={{ height:7, background:C.g100, borderRadius:99, overflow:"hidden", marginTop:7 }}><div style={{ width:`${i < step ? 100 : i === step ? 62 : 8}%`, height:"100%", background:i <= step ? C.blue : C.bd, borderRadius:99, transition:"width .4s ease" }} /></div>
+          </div>)}
+        </div>
+        <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:10 }}>This is the visual loading state for the future Gateway lookup. Update 84 does not call the Gateway yet.</div>
+        {onCancel && <Row style={{ marginTop:10 }}><Btn sz="sm" v="ghost" onClick={onCancel}>Cancel</Btn></Row>}
+      </div>;
+    }
+    function MarketPricePanel({ plant = {}, marketResult = {}, currentPrice, onApplyPrice, onKeepPrice, onClose, compact = false, title = "Market Research Result" }) {
+      const r = safeObject(marketResult);
+      const meta = phase83MarketPriceStatusMeta(r.priceStatus);
+      const sources = safeArray(r.sources || r.dataSources);
+      const sourceRows = phase84SourceSummary(sources);
+      const checks = phase84ProfitGuardChecks(r);
+      const [showSources, setShowSources] = useState(false);
+      const suggested = +r.suggestedPrice || 0;
+      const median = +r.marketMedianPrice || 0;
+      const shownSources = showSources ? sources : sources.slice(0, 5);
+      const existingPrice = +currentPrice || +plant.suggestedPrice || +plant.listPrice || +plant.price || 0;
+      const status = String(r.priceStatus || "low_confidence");
+      const isRisk = status === "margin_risk";
+      const isLow = status === "low_confidence" || status === "fallback";
+      const mainMessage = isRisk
+        ? `Market only supports about ${$(median)}. Protect break-even at ${$(r.breakEvenPrice)} before listing.`
+        : isLow
+          ? `Limited market data. Use this as a guardrail, not an automatic decision.`
+          : r.priceReason || `Suggested price based on market median ${$(median)}.`;
+      return <div style={{ background:meta.bg, border:`2px solid ${meta.color}`, borderRadius:20, padding:compact ? 13 : 16, marginTop:10, boxShadow:"0 10px 28px rgba(13,43,26,.07)" }}>
+        <Row between center wrap gap={10} style={{ marginBottom:12 }}>
+          <Row gap={10} center style={{ minWidth:0 }}><div style={{ width:48, height:48, borderRadius:17, background:C.card, color:meta.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>{meta.icon}</div><div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, fontSize:compact ? 19 : 23, color:C.g900, fontWeight:950 }}>{title}</div><div style={{ color:C.tx3, fontSize:12 }}>{r.plantName || plant.name || "Plant"} · {r.potSize || plant.potSize || "Pot size unknown"} · Last checked: {phase84FormatLastChecked(r.runAt)}</div></div></Row>
+          <Tag text={`${r.dataPointCount || r.competitorCount || sources.length || 0} sources · ${r.confidenceScore || 0}/100`} color={r.confidenceScore >= 70 ? C.g600 : r.confidenceScore >= 35 ? C.amber : C.red} />
+        </Row>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:12 }}>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Market Median</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:28, fontWeight:950 }}>{median ? $(median) : "—"}</div></div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Whatnot</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>{r.whatnotMedian ? $(r.whatnotMedian) : "—"}</div></div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Palmstreet</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>{r.palmstreetMedian ? $(r.palmstreetMedian) : "—"}</div></div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Range</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:18, fontWeight:950 }}>{r.lowestFound ? `${$(r.lowestFound)} - ${$(r.highestFound)}` : "—"}</div></div>
+        </div>
+
+        <div style={{ background:C.card, border:`2px solid ${meta.color}`, borderRadius:18, padding:14, marginBottom:12 }}>
+          <Row between center wrap gap={10}>
+            <div><div style={{ fontSize:10, fontWeight:950, color:C.tx3, letterSpacing:.6, textTransform:"uppercase" }}>{isRisk ? "Protected Price" : "Our Suggested Price"}</div><div style={{ fontFamily:F.display, fontSize:40, lineHeight:1, color:meta.color, fontWeight:950 }}>{suggested ? $(suggested) : "No Price"}</div><div style={{ color:C.tx3, fontSize:12, marginTop:5 }}>Margin: {+r.margin || 0}% · Break-even: {$(r.breakEvenPrice)} · PPS floor: {$(r.ppsFloorPrice)}</div></div>
+            <Tag text={meta.label} color={meta.color} />
+          </Row>
+          <div style={{ color:C.tx2, fontSize:13, lineHeight:1.45, marginTop:10, fontWeight:750 }}>{mainMessage}</div>
+        </div>
+
+        <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:12 }}>
+          <div style={{ fontWeight:950, color:C.g900, fontSize:14, marginBottom:8 }}>🛡️ Profit Guard</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+            {checks.map((c,i)=><div key={i} style={{ background:c.pass ? C.g50 : C.redBg, border:`1px solid ${c.pass ? C.g200 : C.red}44`, borderRadius:12, padding:"9px 10px" }}><div style={{ color:c.pass ? C.g600 : C.red, fontWeight:950, fontSize:12 }}>{c.pass ? "✅" : "⚠️"} {c.label}</div><div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{c.detail}</div></div>)}
+          </div>
+        </div>
+
+        {!!sourceRows.length && <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:12 }}>
+          <Row between center wrap gap={8} style={{ marginBottom:8 }}><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>📊 Source Summary</div><Tag text={`${sourceRows.length} platforms`} color={C.blue} sm /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:7 }}>{sourceRows.slice(0,4).map(row => <div key={row.platform} style={{ border:`1px solid ${C.bdS}`, borderRadius:11, padding:"8px 9px", color:C.tx2, fontSize:12 }}><b>{row.platform}</b> · {row.count} listing(s) · median {$(row.median)}</div>)}</div>
+        </div>}
+
+        {sources.length > 0 && <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:12 }}>
+          <button onClick={()=>setShowSources(!showSources)} style={{ width:"100%", border:0, background:"transparent", color:C.g800, fontWeight:950, fontFamily:F.body, cursor:"pointer", textAlign:"left", padding:0 }}>See {showSources ? "fewer" : "all"} {sources.length} sources {showSources ? "▴" : "▾"}</button>
+          <div style={{ display:"grid", gap:6, marginTop:9 }}>{shownSources.map((s,i)=><div key={i} style={{ borderTop:i ? `1px solid ${C.bdS}` : 0, paddingTop:i ? 6 : 0, color:C.tx2, fontSize:12 }}><b>{s.platform || "Web"}</b> · {$(s.priceUSD)} · {s.type || "asking"} · {s.listingDate || "date unknown"}</div>)}</div>
+        </div>}
+
+        <Row gap={8} wrap>
+          {onApplyPrice && <Btn full={!compact} onClick={()=>onApplyPrice({ ...r, suggestedPrice:suggested })} disabled={!suggested}>{isRisk ? `Use Protected Price — ${$(suggested)}` : `Use This Price — ${$(suggested)}`}</Btn>}
+          {onKeepPrice && <Btn v="ghost" onClick={()=>onKeepPrice(r)}>Keep My Price {existingPrice ? `— ${$(existingPrice)}` : ""}</Btn>}
+          {onClose && <Btn v="outline" onClick={onClose}>Close</Btn>}
+        </Row>
+      </div>;
+    }
+    function Phase84MarketPricePanelPreview({ settings = {}, plants = [] }) {
+      const [mode, setMode] = useState("competitive");
+      const [applied, setApplied] = useState(null);
+      const basePlant = { id:"qa-mp-panel", plantId:"QA-084", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock", dateAdded:today() };
+      const strongSources = Array.from({ length: 22 }, (_,i)=>({ platform:i % 4 === 0 ? "Whatnot" : i % 4 === 1 ? "Palmstreet" : i % 4 === 2 ? "Etsy" : "eBay", priceUSD:20 + (i % 9), type:i % 3 === 0 ? "sold" : "asking", listingDate:today() }));
+      const dataByMode = {
+        competitive: calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources, dataPointCount:22, marketMedianPrice:26, whatnotMedian:24, palmstreetMedian:28, confidenceScore:88, dataAge:"recent" }, settings, [basePlant]),
+        at_floor: calcAIMarketPrice({ ...basePlant, cost:11 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources.map(s=>({ ...s, priceUSD:30 + (s.priceUSD % 6) })), dataPointCount:20, marketMedianPrice:32, whatnotMedian:31, palmstreetMedian:34, confidenceScore:82, dataAge:"recent" }, settings, [{ ...basePlant, cost:11 }]),
+        margin_risk: calcAIMarketPrice({ ...basePlant, cost:42, suggestedPrice:45 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources.map(s=>({ ...s, priceUSD:24 + (s.priceUSD % 4) })), dataPointCount:20, marketMedianPrice:26, whatnotMedian:25, palmstreetMedian:28, confidenceScore:85, dataAge:"recent" }, settings, [{ ...basePlant, cost:42 }]),
+        low_confidence: calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:[{ platform:"Web", priceUSD:19, type:"asking", listingDate:today() }, { platform:"Etsy", priceUSD:21, type:"asking", listingDate:today() }], dataPointCount:2, marketMedianPrice:20, confidenceScore:18, dataAge:"mixed" }, settings, [basePlant]),
+      };
+      const result = dataByMode[mode] || dataByMode.competitive;
+      return <Card style={{ marginBottom:14, borderLeft:`5px solid ${phase83MarketPriceStatusMeta(result.priceStatus).color}` }}>
+        <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 84 Market Price Result Panel Preview</div><div style={{ color:C.tx3, fontSize:12 }}>UI preview only. Gateway buttons are added later. Use this to test all four pricing states before wiring live research.</div></div><Tag text="no Gateway call" color={C.blue} /></Row>
+        <Row gap={7} wrap style={{ marginBottom:10 }}>{["competitive","at_floor","margin_risk","low_confidence"].map(k => <Btn key={k} sz="sm" v={mode === k ? "fill" : "soft"} onClick={()=>{ setMode(k); setApplied(null); }}>{phase83MarketPriceStatusMeta(k).label}</Btn>)}</Row>
+        <MarketPricePanel plant={basePlant} marketResult={result} currentPrice={basePlant.suggestedPrice} onApplyPrice={(r)=>setApplied(r.suggestedPrice)} onKeepPrice={()=>setApplied("kept")} />
+        {applied && <div style={{ marginTop:10, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:"10px 11px", color:C.g800, fontWeight:900 }}>Demo action captured: {applied === "kept" ? "kept current price" : `would apply ${$(applied)}`}. No real plant data changed in this preview.</div>}
+      </Card>;
+    }
+    function phase84BuildMarketPanelSelfChecks({ settings = {} } = {}) {
+      const basePlant = { id:"qa-mp84", plantId:"QA-084", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock", dateAdded:today() };
+      const sources = Array.from({ length: 20 }, (_,i)=>({ platform:i % 2 ? "Palmstreet" : "Whatnot", priceUSD:22 + (i % 8), type:i % 3 ? "asking" : "sold", listingDate:today() }));
+      const competitive = calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:sources, dataPointCount:20, marketMedianPrice:26, confidenceScore:88 }, settings, [basePlant]);
+      const risk = calcAIMarketPrice({ ...basePlant, cost:42 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:sources, dataPointCount:20, marketMedianPrice:25, confidenceScore:88 }, settings, [{ ...basePlant, cost:42 }]);
+      const low = calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:sources.slice(0,2), dataPointCount:2, marketMedianPrice:20, confidenceScore:18 }, settings, [basePlant]);
+      const checks = [
+        { id:"mp84-panel-component", icon:"🧩", title:"MarketPricePanel Component", pass: typeof MarketPricePanel === "function", reason:"Reusable result panel component exists for Manual Entry, Inventory edit, inline price research, and future bulk pricing cards.", page:"phase2qa", severity:"critical" },
+        { id:"mp84-loading-component", icon:"⏳", title:"Pricing Loading State", pass: typeof MarketPriceLoadingPanel === "function", reason:"Animated research/loading panel exists so future Gateway lookup does not look frozen.", page:"phase2qa", severity:"warning" },
+        { id:"mp84-status-metadata", icon:"🎨", title:"Four Status Styles", pass:["competitive","at_floor","margin_risk","low_confidence"].every(s => !!phase83MarketPriceStatusMeta(s).label), reason:"Competitive, at-floor, margin-risk, and low-confidence states have labels, colors, icons, and backgrounds.", page:"phase2qa", severity:"critical" },
+        { id:"mp84-profit-guard", icon:"🛡️", title:"Profit Guard Display Data", pass: phase84ProfitGuardChecks(competitive).length === 3 && phase84ProfitGuardChecks(risk).some(c => !c.pass || /market|target|below/i.test(c.detail)), reason:"Panel can display margin, break-even, and PPS floor checks for good and risky prices.", page:"phase2qa", severity:"critical" },
+        { id:"mp84-source-summary", icon:"📊", title:"Source Summary + Collapsible List", pass: phase84SourceSummary(competitive.dataSources).length >= 2 && safeArray(low.dataSources).length === 2, reason:"Panel can summarize market sources by platform and show limited source lists without overwhelming mobile.", page:"phase2qa", severity:"warning" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
+
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 85 — MARKET PRICE BUTTONS
+       Wires the research trigger into Manual Entry and Inventory edit modal.
+       This phase is intentionally local/cache/fallback only — no Gateway call yet.
+       Update 86 will replace the local preview runner with Smart Gateway JSON research.
+       No new pages, no CSV changes, no barcode/SKU changes.
+    ══════════════════════════════════════════════════════════ */
+    function phase85CanResearchMarket(user = {}, settings = {}) {
+      const role = user?.role || "employee";
+      const cfg = phase83MarketPricingSettings(settings);
+      if (!cfg.enabled) return false;
+      if (role === "owner") return true;
+      if (role === "manager" && cfg.allowManagerResearch !== false) return true;
+      return false;
+    }
+    function phase85BuildLocalMarketPreview(plant = {}, settings = {}, allPlants = []) {
+      const cost = +plant.cost || 0;
+      const existing = +plant.suggestedPrice || +plant.listPrice || +plant.price || 0;
+      const pps = suggestPriceFromPPS(plant.name || "Unknown Plant", cost, settings, allPlants);
+      const breakEvenFloor = Math.max(+pps.suggestedPrice || 0, existing || 0, sprice(cost || 1));
+      const localMedian = Math.max(1, Math.round((breakEvenFloor * 1.08) * 100) / 100);
+      const marketData = {
+        plantName: plant.name || "Unknown Plant",
+        potSize: plant.potSize || '4"',
+        searchDate: today(),
+        dataSources: [],
+        dataPointCount: 0,
+        marketMedianPrice: localMedian,
+        whatnotMedian: null,
+        palmstreetMedian: null,
+        lowestFound: 0,
+        highestFound: 0,
+        confidenceScore: 0,
+        confidenceNote: "Update 85 local preview only — Smart Gateway live market research is added in the next phase.",
+        dataAge: "stale",
+        marketNotes: "This preview uses the existing PPS/sprice profit guard so you can test the button and Apply workflow without paid AI calls."
+      };
+      const result = calcAIMarketPrice(plant, marketData, settings, allPlants);
+      return {
+        ...result,
+        priceStatus: result.priceStatus === "margin_risk" ? "margin_risk" : "low_confidence",
+        priceReason: "Local preview only — no live market sources were searched yet. Update 86 will run the Gateway lookup.",
+        confidenceScore: 0,
+        confidenceNote: marketData.confidenceNote,
+        source: "local_preview",
+        runAt: new Date().toISOString(),
+        sources: [],
+        dataSources: []
+      };
+    }
+    function MarketPriceButton({ plant = {}, settings = {}, allPlants = [], user = {}, label = "🔍 Research Market", compact = false, onApplyPrice, onCacheResult, disabled = false }) {
+      const canRun = phase85CanResearchMarket(user, settings);
+      const [loading, setLoading] = useState(false);
+      const [result, setResult] = useState(null);
+      const [msg, setMsg] = useState("");
+      const runLocalPreview = () => {
+        if (!canRun || disabled) return;
+        const normalizedPlant = { ...plant, cost:+plant.cost || 0, suggestedPrice:+plant.suggestedPrice || +plant.listPrice || +plant.price || 0 };
+        if (!String(normalizedPlant.name || "").trim()) { setMsg("Add a plant name before researching market price."); return; }
+        if (!(+normalizedPlant.cost > 0)) { setMsg("Add your cost first so Profit Guard can protect margin."); return; }
+        const cached = getCachedMarketResearch(normalizedPlant, settings);
+        if (cached) { setResult({ ...cached, source:cached.source || "cached" }); setMsg("Showing cached market research for this plant."); return; }
+        setMsg("");
+        setLoading(true);
+        setResult(null);
+        window.setTimeout(() => {
+          const local = phase85BuildLocalMarketPreview(normalizedPlant, settings, allPlants);
+          setResult(local);
+          setLoading(false);
+          setMsg("Local preview created. Smart Gateway live research is the next phase.");
+          onCacheResult && onCacheResult(local);
+        }, 650);
+      };
+      const apply = r => {
+        const price = Math.round((+r.suggestedPrice || 0) * 100) / 100;
+        if (!price) return;
+        const payload = { ...r, appliedAt:new Date().toISOString(), appliedPrice:price };
+        onApplyPrice && onApplyPrice(price, payload);
+        setResult(payload);
+        setMsg(`Applied ${$(price)} from Market Price panel.`);
+      };
+      if (!canRun) return null;
+      return <div style={{ marginTop:compact ? 6 : 10 }}>
+        <Row gap={8} wrap center>
+          <Btn sz="sm" v="soft" disabled={disabled || loading} onClick={runLocalPreview} style={{ minHeight:compact ? 40 : 46 }}>{loading ? "Researching..." : label}</Btn>
+          {plant?.marketResearch?.runAt && <Tag text={`Cached ${phase84FormatLastChecked(plant.marketResearch.runAt)}`} color={C.blue} sm />}
+        </Row>
+        {msg && <div style={{ color:msg.includes("Add ") ? C.amber : C.tx3, fontSize:11, fontWeight:800, marginTop:6 }}>{msg}</div>}
+        {loading && <MarketPriceLoadingPanel plant={plant} onCancel={()=>{ setLoading(false); setMsg("Market preview canceled."); }} />}
+        {result && <MarketPricePanel plant={plant} marketResult={result} currentPrice={plant.suggestedPrice || plant.price || plant.listPrice} onApplyPrice={apply} onKeepPrice={()=>{ setResult(null); setMsg("Kept current price."); }} onClose={()=>setResult(null)} compact={compact} title={result.source === "local_preview" ? "Market Price Preview" : "Market Research Result"} />}
+      </div>;
+    }
+    function phase85BuildMarketButtonSelfChecks({ settings = {}, user = {} } = {}) {
+      const owner = { role:"owner", name:"QA Owner" };
+      const employee = { role:"employee", name:"QA Employee" };
+      const sample = { id:"qa-85", plantId:"QA-085", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock" };
+      const local = phase85BuildLocalMarketPreview(sample, settings, [sample]);
+      const checks = [
+        { id:"mp85-button-component", icon:"🔍", title:"MarketPriceButton Component", pass: typeof MarketPriceButton === "function", reason:"Reusable Research Market button exists for Manual Entry and Inventory edit modal.", page:"manual", severity:"critical" },
+        { id:"mp85-owner-manager-only", icon:"🔐", title:"Owner/Manager Access", pass: phase85CanResearchMarket(owner, settings) && !phase85CanResearchMarket(employee, settings), reason:"Employees cannot run or apply market pricing research.", page:"admin", severity:"critical" },
+        { id:"mp85-local-preview", icon:"🧪", title:"Local Preview Fallback", pass: !!local && +local.suggestedPrice > 0 && local.source === "local_preview", reason:`Local preview returns ${$(local.suggestedPrice)} without Gateway calls.`, page:"manual", severity:"warning" },
+        { id:"mp85-no-gateway-auto", icon:"🛡️", title:"No Automatic Gateway Call", pass: true, reason:"Update 85 does not call phase61CallGateway automatically. Live research is reserved for Update 86.", page:"aihub", severity:"warning" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
+
+
     function phase11SlotMetrics(appData = {}, settings = {}) {
       const cfg = phase11Settings(settings), plants = safeArray(appData.plants);
       const inStock = plants.filter(p => p.status === "In Stock"), sold = plants.filter(p => p.status === "Sold");
@@ -3304,7 +3783,7 @@
             {[["🏠 Today","today"],["🌿 Inventory","plants_ws"],["🎪 Shows","shows_ws"],["⚙️ Settings","admin_ws"]].map(([label,pageId]) => <button key={pageId} onClick={()=>setPage(pageId)} style={{ background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.35)", borderRadius:14, padding:"12px 9px", fontWeight:900, fontFamily:F.body, cursor:"pointer" }}>{label}</button>)}
           </div>
         </Card>
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(5,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(5,1fr)"],div[style*="grid-template-columns: repeat(6,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
@@ -4672,7 +5151,7 @@
           </Row>
         </div>
 
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:8, marginBottom:14 }}>
           {steps.map((s,i)=><FlowStep key={s.id} s={s} idx={i} />)}
         </div>
 
@@ -4720,14 +5199,14 @@
           <Card style={{ marginBottom:14, borderLeft:`5px solid ${C.blue}` }}>
             <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900 }}>Step 2: Add Plants Manually</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Use this for small buys or one-off plants. It assigns plant numbers and can save a plant photo at the same time.</div></div><Btn sz="sm" v="ghost" onClick={()=>setMode("finish")}>Next: Print Labels</Btn></Row>
           </Card>
-          <ManualEntry plants={plants} setPlants={setPlants} nurseries={nurseries} addAudit={addAudit} user={user} />
+          <ManualEntry plants={plants} setPlants={setPlants} nurseries={nurseries} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} />
         </div>}
 
         {mode === "bulk" && <div>
           <Card style={{ marginBottom:14, borderLeft:`5px solid ${C.purple}` }}>
             <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900 }}>Step 3: Bulk Upload Existing Inventory</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Use the blue bulk upload box below. This keeps existing plant numbers and updates matching current records instead of creating new numbers.</div></div><Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setMode("manual")}>Open Import Tool Below</Btn><Btn sz="sm" v="ghost" onClick={()=>setMode("finish")}>Next: Labels</Btn></Row></Row>
           </Card>
-          <ManualEntry plants={plants} setPlants={setPlants} nurseries={nurseries} addAudit={addAudit} user={user} />
+          <ManualEntry plants={plants} setPlants={setPlants} nurseries={nurseries} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} />
         </div>}
 
         {mode === "finish" && <div>
@@ -6475,7 +6954,7 @@
     /* ══════════════════════════════════════════════════════════
        MANUAL PLANT ENTRY
     ══════════════════════════════════════════════════════════ */
-    function ManualEntry({ plants, setPlants, nurseries, addAudit, user }) {
+    function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = {}, setSettings }) {
       const blank = { name: "", botanicalName: "", potSize: "", cost: "", suggestedPrice: "", salePrice: "", shippingCost: "", status: "In Stock", nurseryCode: nurseries[0]?.code || "", platform: "", rack: "", shelf: "", dateAdded: today(), invoiceNumber: "", notes: "" };
       const [form, setForm] = useState(blank);
       const [qty, setQty] = useState(1);
@@ -6749,6 +7228,15 @@
                 </div>
                 <Inp label="Actual Sale Price (if sold)" type="number" value={form.salePrice} onChange={upd("salePrice")} placeholder="0.00" />
               </div>
+              <MarketPriceButton
+                plant={{ ...form, id:"manual-draft", plantId:"Draft", plantCode:"Draft" }}
+                settings={settings}
+                allPlants={plants}
+                user={user}
+                label="🔍 Research Market"
+                onCacheResult={r => setForm(prev => ({ ...prev, marketResearch:{ ...r, runAt:r.runAt || new Date().toISOString() } }))}
+                onApplyPrice={(price, r) => setForm(prev => ({ ...prev, suggestedPrice:price, margin:marg(+prev.cost || 0, price), marketResearch:{ ...r, runAt:r.runAt || new Date().toISOString(), appliedAt:new Date().toISOString(), appliedPrice:price } }))}
+              />
               {form.margin > 0 && <div style={{ marginTop: 8, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={{ fontSize: 12, color: C.tx3 }}>Margin:</span><span style={{ fontWeight: 700, color: mc, fontSize: 14 }}>{form.margin}%</span>
                 {fee > 0 && form.platform && <span style={{ fontSize: 11, color: C.tx3 }}>{form.platform} fee: {$(fee)}</span>}
@@ -6979,6 +7467,15 @@
                 </div>
                 <Inp label="Actual Sale Price" type="number" value={edit.salePrice || ""} onChange={updE("salePrice")} placeholder="0.00" />
               </div>
+              <MarketPriceButton
+                plant={edit}
+                settings={settings}
+                allPlants={plants}
+                user={user}
+                label="🔍 Check Market Price"
+                onCacheResult={r => setEdit(prev => ({ ...prev, marketResearch:{ ...r, runAt:r.runAt || new Date().toISOString() } }))}
+                onApplyPrice={(price, r) => setEdit(prev => ({ ...prev, suggestedPrice:price, margin:marg(+prev.cost || 0, price), marketResearch:{ ...r, runAt:r.runAt || new Date().toISOString(), appliedAt:new Date().toISOString(), appliedPrice:price } }))}
+              />
               {+edit.cost > 0 && +edit.suggestedPrice > 0 && <div style={{ background: C.card, border: `1px solid ${mc}33`, borderRadius: 9, padding: "10px 14px", marginBottom: 10 }}>
                 <Row between style={{ marginBottom: 6 }}>
                   <span style={{ fontSize: 12, color: C.tx3 }}>Margin</span>
@@ -12248,6 +12745,12 @@ Cancel keeps this local/free.`);
         { id:"u76-employee-ai", area:"Runtime", title:"Employee AI Tasks loaded", body:"Employee task cards are local/free and should avoid cost, profit, cash, tax, and payroll totals.", status:fnLoaded("phase73BuildEmployeeAITasks") ? "pass" : "warn", page:"employeeboard" },
         { id:"u76-receipt-ai", area:"Runtime", title:"Receipt AI Copilot loaded", body:"Receipt review should classify category/vendor/payment issues locally before any manual Smart Review.", status:fnLoaded("phase74AnalyzeReceipt") ? "pass" : "warn", page:"receipts" },
         { id:"u76-ai-qa", area:"Runtime", title:"AI regression QA loaded", body:"Update 75 self-checks are available in Phase 2 Final QA.", status:fnLoaded("phase75BuildAiRegressionChecks") ? "pass" : "warn", page:"phase2qa" },
+        { id:"u76-auction-foundation", area:"Auction", title:"Auction foundation loaded", body:"Update 77 auction statuses, helper functions, export blocking, and pick engine are present.", status:fnLoaded("phase77BuildAuctionSummary") && fnLoaded("startAuction") && fnLoaded("closeAuction") && fnLoaded("buildAuctionPickList") ? "pass" : "fail", page:"shows_ws" },
+        { id:"u76-auction-timer", area:"Auction", title:"Auction timer panel loaded", body:"Update 78 24/48/72h timer panel and slot counter are available inside existing Inventory/auction workflows.", status:fnLoaded("AuctionTimerPanel") && fnLoaded("AuctionSlotCounter") ? "pass" : "fail", page:"plants_ws" },
+        { id:"u76-auction-manager", area:"Auction", title:"Auction manager stays in Shows", body:"Update 79 Auction Manager panel should live inside the existing Show Command Center, not a new page.", status:fnLoaded("Phase79AuctionManagerPanel") ? "pass" : "fail", page:"shows_ws" },
+        { id:"u76-auction-daily", area:"Auction", title:"Auction daily tasks loaded", body:"Update 80 daily auction task cards are available for Today, Owner Board, Manager Board, and Morning Briefing.", status:fnLoaded("phase80BuildAuctionDailyTasks") && fnLoaded("Phase80AuctionDailyCard") ? "pass" : "warn", page:"today" },
+        { id:"u76-auction-picks", area:"Auction", title:"Auction pick board loaded", body:"Update 81 ranked best-15 Palmstreet auction picks are available inside existing Today and Shows areas.", status:fnLoaded("phase81BuildAuctionPickBoard") && fnLoaded("Phase81AuctionPicksPanel") ? "pass" : "warn", page:"shows_ws" },
+        { id:"u76-auction-qa", area:"Auction", title:"Auction regression QA loaded", body:"Update 82 auction-specific self-checks are available inside Phase 2 Final QA.", status:fnLoaded("phase82BuildAuctionRegressionChecks") ? "pass" : "warn", page:"phase2qa" },
         { id:"u76-ai-settings", area:"AI", title:"Working Gateway settings protected", body:gatewayLooksRight ? `Gateway/proxy mode appears configured. Cost Guard: ${costGuard ? "ON" : "CHECK"}.` : "Gateway endpoint/provider is not clearly set to the working proxy setup.", status:gatewayLooksRight && costGuard && modelLooksRight ? "pass" : "warn", page:"aigateway" },
         { id:"u76-sync", area:"Data", title:"Pending sync is clear", body:`Pending sync count: ${pendingSyncCount}. Do not replace the live file while changes are waiting to sync.`, status:pendingSyncCount ? "fail" : "pass", page:"appcheck" },
         { id:"u76-duplicates", area:"Data", title:"No duplicate plant numbers", body:`Duplicate plant number groups found: ${duplicateGroups.length}.`, status:duplicateGroups.length ? "fail" : "pass", page:"cleanup" },
@@ -12267,7 +12770,7 @@ Cancel keeps this local/free.`);
       if (pendingSyncCount) topRisks.push(`${pendingSyncCount} pending sync item(s)`);
       if (duplicateGroups.length) topRisks.push(`${duplicateGroups.length} duplicate plant-number group(s)`);
       const notes = [
-        "LEAF DIARY UPDATE 76 SAFE LAUNCH NOTES",
+        "LEAF DIARY UPDATE 82 SAFE LAUNCH + AUCTION QA NOTES",
         `Status: ${launchStatus}`,
         `Release checklist: ${releaseProgress}%`,
         `Hard launch blockers: ${hardFailures}`,
@@ -12281,7 +12784,9 @@ Cancel keeps this local/free.`);
         "4. Test iPhone/mobile layout.",
         "5. Build a small test show and run Export Guard.",
         "6. Export Palmstreet and Whatnot test CSVs and confirm SKU/barcode still equals plant number.",
-        "7. If live upload fails, roll back to the previous working HTML immediately.",
+        "7. Open Shows and test the Auction Manager tab/cards, timer panel, and best-15 picks.",
+        "8. Confirm Auction-status plants are blocked from show exports.",
+        "9. If live upload fails, roll back to the previous working HTML immediately.",
         "",
         "Top risks:",
         ...(topRisks.length ? topRisks.map(x => `- ${x}`) : ["- No major data risks detected."])
@@ -12330,8 +12835,11 @@ Cancel keeps this local/free.`);
       const baseBlockerCount = duplicateGroups.length + (devScore && devScore < 75 ? 1 : 0) + (!isOwner ? 1 : 0);
       const baseWarningCount = missingPhoto.length + missingPrice.length + missingLabel.length + aging60.length + receiptsReview.length + due7.length + pendingSyncCount;
       const phase76Launch = phase76BuildLaunchReadiness({ plants, receipts, bills, settings, done, releaseProgress, blockerCount:baseBlockerCount, warningCount:baseWarningCount, pendingSyncCount, cloudStatus, cloudMsg, isOwner });
-      const blockerCount = baseBlockerCount + phase76Launch.hardFailures;
-      const warningCount = baseWarningCount + phase76Launch.rows.filter(r => r.status === "warn").length;
+      const phase82AuctionQa = phase82BuildAuctionRegressionChecks({ plants, settings, user });
+      const phase82AuctionBlockers = phase82AuctionQa.filter(i => !i.pass && i.severity === "critical").length;
+      const phase82AuctionWarnings = phase82AuctionQa.filter(i => !i.pass && i.severity !== "critical").length;
+      const blockerCount = baseBlockerCount + phase76Launch.hardFailures + phase82AuctionBlockers;
+      const warningCount = baseWarningCount + phase76Launch.rows.filter(r => r.status === "warn").length + phase82AuctionWarnings;
       const releaseStatus = blockerCount > 0 ? "Do not go live yet" : releaseProgress < 85 ? "Finish test checklist first" : warningCount > 0 ? "Safe with warnings" : "Ready for live upload";
       const releaseColor = blockerCount > 0 ? C.red : releaseProgress < 85 ? C.amber : warningCount > 0 ? C.gold : C.g600;
       const tabs = [
@@ -12389,14 +12897,16 @@ Cancel keeps this local/free.`);
         workflowChecks.forEach(r => rows.push(["Workflow", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
         dataChecks.forEach(r => rows.push(["Data", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
         systemChecks.forEach(r => rows.push(["System", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
-        phase76Launch.rows.forEach(r => rows.push([`Update 76 - ${r.area || "Safe Launch"}`, r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
+        phase76Launch.rows.forEach(r => rows.push([`Update 76/82 - ${r.area || "Safe Launch"}`, r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
+        phase82AuctionQa.forEach(r => rows.push(["Update 82 Auction QA", r.title, r.pass ? "pass" : "review", "Auto", r.reason]));
         downloadCsv(`leaf-diary-final-release-check-${today()}.csv`, rows);
       };
       const exportLaunchPacket = () => {
         const rows = [["Area", "Title", "Status", "Details"]];
         phase76Launch.rows.forEach(r => rows.push([r.area || "Safe Launch", r.title, r.status, r.body]));
-        rows.push(["Summary", "Launch Status", phase76Launch.launchStatus, `Hard blockers: ${phase76Launch.hardFailures}; warnings: ${phase76Launch.warnings}`]);
-        downloadCsv(`leaf-diary-update-76-safe-launch-packet-${today()}.csv`, rows);
+        phase82AuctionQa.forEach(r => rows.push(["Auction QA", r.title, r.pass ? "pass" : "review", r.reason]));
+        rows.push(["Summary", "Launch Status", phase76Launch.launchStatus, `Hard blockers: ${phase76Launch.hardFailures + phase82AuctionBlockers}; warnings: ${phase76Launch.warnings + phase82AuctionWarnings}`]);
+        downloadCsv(`leaf-diary-update-82-safe-launch-auction-packet-${today()}.csv`, rows);
       };
       const copyLaunchNotes = async () => {
         try { await navigator.clipboard.writeText(phase76Launch.notes); alert("Launch notes copied. Save them with the uploaded file and backup copy."); }
@@ -12427,7 +12937,7 @@ Cancel keeps this local/free.`);
         {tab === "launch" && <div style={{ display:"grid", gridTemplateColumns:"1.25fr .75fr", gap:12 }}>
           <Card style={{ borderLeft:`6px solid ${phase76Launch.launchColor}` }}>
             <Row between center wrap gap={10} style={{ marginBottom:10 }}>
-              <div><div style={{ fontFamily:F.display, fontSize:24, color:C.g900, fontWeight:900 }}>🛡️ Update 76 Safe Launch Gate</div><div style={{ color:C.tx3, fontSize:12 }}>Final upload gate for the AI phases. This does not change data, exports, or Supabase schema.</div></div>
+              <div><div style={{ fontFamily:F.display, fontSize:24, color:C.g900, fontWeight:900 }}>🛡️ Update 82 Safe Launch Gate</div><div style={{ color:C.tx3, fontSize:12 }}>Final upload gate for AI + Palmstreet auction phases. This does not change data, exports, or Supabase schema.</div></div>
               <Tag text={phase76Launch.launchStatus} color={phase76Launch.launchColor} />
             </Row>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:9, marginBottom:12 }}>
@@ -12436,6 +12946,10 @@ Cancel keeps this local/free.`);
               <KPI label="Checklist" value={`${releaseProgress}%`} sub="target 85%+" color={releaseProgress >= 85 ? C.g600 : C.amber} />
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:9 }}>{phase76Launch.rows.map(r => <CheckRow key={r.id} {...r} />)}</div>
+            <div style={{ marginTop:12, background:C.purpleBg, border:`1px solid ${C.purple}55`, borderRadius:16, padding:12 }}>
+              <Row between center wrap gap={8} style={{ marginBottom:9 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>🏷️ Update 82 Auction Launch Checks</div><div style={{ color:C.tx3, fontSize:12 }}>These must pass before uploading the auction build live.</div></div><Tag text={`${phase82AuctionQa.filter(i=>i.pass).length}/${phase82AuctionQa.length} passing`} color={phase82AuctionBlockers ? C.red : C.purple} /></Row>
+              <div style={{ display:"grid", gap:8 }}>{phase82AuctionQa.map(r => <CheckRow key={r.id} id={`launch-${r.id}`} title={r.title} body={r.reason} status={r.pass ? "pass" : r.severity === "critical" ? "fail" : "warn"} page={r.page} />)}</div>
+            </div>
           </Card>
           <Card style={{ borderLeft:`5px solid ${phase76Launch.launchColor}` }}>
             <div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Launch packet</div>
@@ -12471,11 +12985,11 @@ Cancel keeps this local/free.`);
             <li>Confirm owner login opens the owner board, manager login opens manager board, and employee login opens employee board.</li>
             <li>Test mobile: no horizontal scroll, bottom nav works, buttons are easy to tap.</li>
             <li>Download a backup/snapshot.</li>
-            <li>Open the Safe Launch tab and export/copy the Update 76 launch packet.</li>
+            <li>Open the Safe Launch tab and export/copy the Update 82 launch packet.</li>
             <li>Only then replace the live file.</li>
             <li>If the live upload fails, immediately re-upload the previous working HTML backup.</li>
           </ol>
-          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, color:C.g900, fontWeight:800 }}>Update 76 is still presentation-layer only. It does not change database tables, Supabase schema, show import, receipt scanner, payroll math, paperwork generation, CSV headers, barcodes, SKU, or plant numbers.</div>
+          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, color:C.g900, fontWeight:800 }}>Update 82 is still QA/launch-layer only. It does not change database tables, Supabase schema, show import, receipt scanner, payroll math, paperwork generation, CSV headers, barcodes, SKU, or plant numbers.</div>
         </Card>}
         <style>{`@media(max-width:760px){.ld-release-center div[style*="grid-template-columns: repeat(4,1fr)"],.ld-release-center div[style*="grid-template-columns: repeat(3,1fr)"],.ld-release-center div[style*="grid-template-columns: repeat(2,1fr)"],.ld-release-center div[style*="grid-template-columns: 1.25fr .75fr"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
       </div>;
@@ -12652,7 +13166,7 @@ Cancel keeps this local/free.`);
           <SettingsCard icon="🌐" title="Advanced AI Setup" body="Technical mobile AI gateway and cost-control settings." page="aigateway" button="Open" color={C.blue} />
         </div>}
 
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(6,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
       </div>;
     }
 
@@ -18177,7 +18691,7 @@ Cancel if you want to save money.`);
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING, weeklyCapacity: 400, weeklyCapacityOverrideEnabled: false, weeklyCapacityThisWeek: 400, weeklyCapacityNote: "", weeklyCapacityUpdatedAt: "", weeklyCapacityUpdatedBy: "", targetPPS: 3.5, avgShippingCost: 8, phase11Enabled: true, platformFees: { palmstreetPercent: 12, whatnotPercent: 8, defaultPercent: 10, freeShippingThreshold: 0 }, ppsRatingThresholds: { A: 5, B: 3, C: 1.5 }, activeAuctions: [], auctionPickHistory: [], auctionSettings: { dailyLimit: 15, defaultDurationHours: 24, minAuctionPrice: 10, noSaleAutoDiscountPercent: 0 } };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["dash", "command", "aihub", "inv", "upload"], employeeFooterTabs: ["emp_dash", "inv", "upload", "manual", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING, weeklyCapacity: 400, weeklyCapacityOverrideEnabled: false, weeklyCapacityThisWeek: 400, weeklyCapacityNote: "", weeklyCapacityUpdatedAt: "", weeklyCapacityUpdatedBy: "", targetPPS: 3.5, avgShippingCost: 8, phase11Enabled: true, platformFees: { palmstreetPercent: 12, whatnotPercent: 8, defaultPercent: 10, freeShippingThreshold: 0 }, ppsRatingThresholds: { A: 5, B: 3, C: 1.5 }, activeAuctions: [], auctionPickHistory: [], auctionSettings: { dailyLimit: 15, defaultDurationHours: 24, minAuctionPrice: 10, noSaleAutoDiscountPercent: 0 }, marketPricing: { enabled: true, discountPctBelowMarket: 7, minMarginPct: 55, maxCostPerLookup: 0.01, cacheHours: 24, requirePhoto: false, showSourceList: true, batchRateLimit: 5000, ownerApprovalRequired: true, allowManagerResearch: true, noNewPricingPage: true } };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
@@ -19595,7 +20109,7 @@ Answer with a practical action plan for Leaf Diary.`;
           </div>
           {copied && <div style={{ color:C.g600, fontSize:12, fontWeight:900 }}>Copied {copied} commands.</div>}
         </Card>
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"],div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}}`}</style>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(6,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"],div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
@@ -20292,6 +20806,119 @@ ${local.summary || "Fallback completed."}`;
       return checks;
     }
 
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 82 — AUCTION QA + LAUNCH HARDENING
+       No new pages. Adds auction-specific regression checks and launch
+       gates inside existing Phase 2 QA + Final Release Center only.
+       No Supabase schema changes, no CSV/header/barcode rewrites.
+    ══════════════════════════════════════════════════════════ */
+    function phase82BuildAuctionRegressionChecks({ plants = [], settings = {}, user = {} } = {}) {
+      const checks = [];
+      const add = (id, icon, title, pass, reason, page = AUCTION_PAGE_TARGET, severity = "info") => checks.push({
+        id, icon, title, pass: !!pass, reason: reason || "", page, severity,
+        color: pass ? C.g600 : severity === "critical" ? C.red : severity === "warning" ? C.amber : C.tx3
+      });
+      const sampleAuction = {
+        id:"auction-qa-1", plantId:"AUC-001", plantCode:"AUC-001", barcode:"AUC-001", sku:"AUC-001",
+        name:"Philodendron Auction QA", potSize:'4"', status:AUCTION_STATUS, suggestedPrice:35, price:35, cost:10,
+        photoUrl:"https://example.com/auction.jpg", labelPrinted:true,
+        auctionStartedAt:new Date(Date.now() - 3600000).toISOString(),
+        auctionDurationHours:24,
+        auctionEndsAt:new Date(Date.now() + 23 * 3600000).toISOString(),
+        auctionPlatform:AUCTION_PLATFORM,
+        auctionStartPrice:20,
+        aiDescription:"Auction QA plant description with enough length for description guard checks and CSV readiness."
+      };
+      const sampleEnded = {
+        ...sampleAuction,
+        id:"auction-qa-ended", plantId:"AUC-002", plantCode:"AUC-002", barcode:"AUC-002", sku:"AUC-002",
+        name:"Ended Auction QA", auctionEndsAt:new Date(Date.now() - 3600000).toISOString()
+      };
+      const samplePick = {
+        id:"auction-pick-1", plantId:"AUC-003", plantCode:"AUC-003", barcode:"AUC-003", sku:"AUC-003",
+        name:"Anthurium Auction Pick", potSize:'4"', status:"In Stock", suggestedPrice:55, price:55, cost:18,
+        photoUrl:"https://example.com/pick.jpg", dateAdded:new Date(Date.now() - 55 * 86400000).toISOString().slice(0,10), labelPrinted:true,
+        aiDescription:"Auction pick QA description with enough human-sounding words for marketplace export readiness."
+      };
+      const sampleNoPhoto = { ...samplePick, id:"auction-pick-nophoto", plantId:"AUC-004", plantCode:"AUC-004", photoUrl:"", photoBase64:"" };
+      const sampleSettings = {
+        ...safeObject(settings),
+        activeAuctions:[auctionRecordFromPlant(sampleAuction), auctionRecordFromPlant(sampleEnded)],
+        auctionPickHistory:[auctionRecordFromPlant(sampleAuction, { startedAt:sampleAuction.auctionStartedAt })]
+      };
+      try {
+        const hasStatuses = STATUSES.includes(AUCTION_STATUS) && STATUSES.includes(AUCTION_NO_SALE_STATUS);
+        add("auction-statuses", "🏷️", "Auction Statuses Loaded", hasStatuses, hasStatuses ? "Auction and Auction Ended — No Sale are available in shared status lists." : "Auction statuses are missing from STATUSES.", AUCTION_PAGE_TARGET, hasStatuses ? "info" : "critical");
+      } catch(e) { add("auction-statuses", "🏷️", "Auction Statuses Loaded", false, e.message, AUCTION_PAGE_TARGET, "critical"); }
+      try {
+        const summary = phase77BuildAuctionSummary({ plants:[sampleAuction, sampleEnded, samplePick], settings:sampleSettings });
+        add("auction-summary", "📊", "Auction Summary Counts", summary.active.length >= 2 && summary.overdue.length >= 1 && summary.slotsUsed >= 1, `${summary.active.length} active, ${summary.overdue.length} overdue, ${summary.slotsUsed}/${summary.limit} slots used.`, AUCTION_PAGE_TARGET, "critical");
+      } catch(e) { add("auction-summary", "📊", "Auction Summary Counts", false, e.message, AUCTION_PAGE_TARGET, "critical"); }
+      try {
+        const picks = buildAuctionPickList([samplePick, sampleNoPhoto, sampleAuction], sampleSettings, 15);
+        const ok = picks.some(x => x.plantId === "AUC-003") && !picks.some(x => x.plantId === "AUC-004") && !picks.some(x => x.plantId === "AUC-001");
+        add("auction-picks", "🏆", "Auction Picks Filter Correctly", ok, ok ? "Pick list includes photo-ready in-stock plant and excludes no-photo/active auction plants." : `Pick list returned ${picks.length} item(s); filter rules need review.`, AUCTION_PAGE_TARGET, ok ? "info" : "critical");
+      } catch(e) { add("auction-picks", "🏆", "Auction Picks Filter Correctly", false, e.message, AUCTION_PAGE_TARGET, "critical"); }
+      try {
+        const guard = runShowExportGuard([sampleAuction], "Palmstreet", { showName:"Auction QA" });
+        const text = JSON.stringify(guard || {});
+        const ok = guard && guard.status === "Not Ready" && /Auction|auction/i.test(text);
+        add("auction-export-guard", "🛡️", "Auction Blocks Show Export", ok, ok ? "Export Guard blocks Auction-status plants before Palmstreet/Whatnot CSV export." : "Auction plant was not clearly blocked by Export Guard.", "showbuilder", ok ? "info" : "critical");
+      } catch(e) { add("auction-export-guard", "🛡️", "Auction Blocks Show Export", false, e.message, "showbuilder", "critical"); }
+      try {
+        const daily = phase80BuildAuctionDailyTasks({ plants:[sampleAuction, sampleEnded, samplePick], settings:sampleSettings, role:"owner" });
+        const ok = safeArray(daily.tasks).some(t => /close|ended|auction/i.test(`${t.title} ${t.body}`)) && daily.summary.active.length >= 2;
+        add("auction-daily", "🌅", "Daily Auction Tasks", ok, ok ? `${daily.tasks.length} auction daily task card(s) generated.` : "Daily auction task card did not detect active/overdue auctions.", "today", ok ? "info" : "critical");
+      } catch(e) { add("auction-daily", "🌅", "Daily Auction Tasks", false, e.message, "today", "critical"); }
+      try {
+        const setterLog = { plants:null, settings:null };
+        const started = startAuction(samplePick, { durationHours:24, startPrice:25, note:"QA start" }, [samplePick], fn => { setterLog.plants = typeof fn === "function" ? fn([samplePick]) : fn; }, { ...settings, activeAuctions:[], auctionPickHistory:[] }, fn => { setterLog.settings = typeof fn === "function" ? fn({ ...settings, activeAuctions:[], auctionPickHistory:[] }) : fn; }, null, user);
+        const ok = started && started.ok && setterLog.settings && safeArray(setterLog.settings.activeAuctions).length === 1;
+        add("auction-start", "⏱️", "Start Auction Utility", ok, ok ? "startAuction adds the plant to activeAuctions and returns timer metadata." : "startAuction did not update activeAuctions in the test setter.", AUCTION_PAGE_TARGET, ok ? "info" : "critical");
+      } catch(e) { add("auction-start", "⏱️", "Start Auction Utility", false, e.message, AUCTION_PAGE_TARGET, "critical"); }
+      try {
+        const setterLog = { plants:null, settings:null };
+        const closed = closeAuction(sampleAuction, "sold", { finalPrice:44, resultNote:"QA sold" }, [sampleAuction], fn => { setterLog.plants = typeof fn === "function" ? fn([sampleAuction]) : fn; }, sampleSettings, fn => { setterLog.settings = typeof fn === "function" ? fn(sampleSettings) : fn; }, null, user);
+        const updatedPlant = safeArray(setterLog.plants)[0] || {};
+        const ok = closed && closed.ok && updatedPlant.status === "Sold" && +updatedPlant.salePrice === 44 && !safeArray(setterLog.settings?.activeAuctions).some(a => a.plantId === "AUC-001");
+        add("auction-close", "✅", "Close Auction Utility", ok, ok ? "closeAuction marks sold and removes the active auction record." : "closeAuction sold/no-sale flow needs review.", AUCTION_PAGE_TARGET, ok ? "info" : "critical");
+      } catch(e) { add("auction-close", "✅", "Close Auction Utility", false, e.message, AUCTION_PAGE_TARGET, "critical"); }
+      try {
+        const noStandaloneAuctionPage = !/page\s*===\s*["']auctions["']/.test(document.documentElement.innerHTML || "");
+        add("auction-no-new-page", "🚫", "No New Auction Page Route", noStandaloneAuctionPage, noStandaloneAuctionPage ? "Auction tools remain inside existing Shows/Today/Inventory workflows." : "A standalone page === 'auctions' route was detected.", "shows_ws", noStandaloneAuctionPage ? "info" : "critical");
+      } catch(e) { add("auction-no-new-page", "🚫", "No New Auction Page Route", true, "Route scan skipped in this runtime; source check should verify no page === auctions route.", "shows_ws", "warning"); }
+      return checks;
+    }
+
+
+
+    function phase83BuildMarketPricingSelfChecks({ plants = [], settings = {}, user = {} } = {}) {
+      const cfg = phase83MarketPricingSettings(settings);
+      const sample = { id:"qa-market-1", plantId:"QA-083", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock", dateAdded:today() };
+      const strongData = { plantName:sample.name, potSize:sample.potSize, dataSources:[
+        { platform:"Whatnot", priceUSD:22, type:"sold", listingDate:today() }, { platform:"Whatnot", priceUSD:25, type:"sold", listingDate:today() }, { platform:"Palmstreet", priceUSD:28, type:"asking", listingDate:today() }, { platform:"Etsy", priceUSD:26, type:"sold", listingDate:today() }, { platform:"eBay", priceUSD:23, type:"sold", listingDate:today() }, { platform:"Web", priceUSD:27, type:"asking", listingDate:today() }
+      ], dataPointCount:22, marketMedianPrice:24.5, confidenceScore:87, dataAge:"recent" };
+      const lowData = { plantName:sample.name, potSize:sample.potSize, dataSources:[{ platform:"Web", priceUSD:18, type:"asking", listingDate:today() }], dataPointCount:1, marketMedianPrice:18, confidenceScore:20, dataAge:"mixed" };
+      const riskPlant = { ...sample, cost:50 };
+      const competitive = calcAIMarketPrice(sample, strongData, settings, [sample]);
+      const marginRisk = calcAIMarketPrice(riskPlant, { ...strongData, marketMedianPrice:30, dataPointCount:20, confidenceScore:88 }, settings, [riskPlant]);
+      const lowConfidence = calcAIMarketPrice(sample, lowData, settings, [sample]);
+      const prompt = buildMarketPricePrompt(sample, settings);
+      const cached = getCachedMarketResearch({ ...sample, marketResearch:{ ...competitive, runAt:new Date().toISOString() } }, settings);
+      const expired = getCachedMarketResearch({ ...sample, marketResearch:{ ...competitive, runAt:new Date(Date.now() - ((cfg.cacheHours + 2) * 3600000)).toISOString() } }, settings);
+      const checks = [
+        { id:"mp-settings", icon:"⚙️", title:"Market Pricing Settings", pass: !!cfg.enabled && cfg.discountPctBelowMarket >= .05 && cfg.discountPctBelowMarket <= .10 && cfg.cacheHours > 0, reason:`Discount ${Math.round(cfg.discountPctBelowMarket*100)}% below market · min margin ${Math.round(cfg.minMarginPct)}% · cache ${cfg.cacheHours}h.`, page:"phase2qa", severity:"critical" },
+        { id:"mp-prompt", icon:"📝", title:"Pricing Prompt Builder", pass: /Whatnot/.test(prompt) && /Palmstreet/.test(prompt) && /RETURN FORMAT/.test(prompt), reason:"Prompt includes Whatnot, Palmstreet, Etsy, eBay, web search, and JSON-only return instructions.", page:"aihub", severity:"critical" },
+        { id:"mp-competitive", icon:"✅", title:"Competitive Price Formula", pass: competitive.priceStatus === "competitive" && competitive.suggestedPrice > 0 && competitive.suggestedPrice <= competitive.marketMedianPrice, reason:`Mock result: ${competitive.priceStatus} at ${$(competitive.suggestedPrice)} from market median ${$(competitive.marketMedianPrice)}.`, page:"buy_ws", severity:"critical" },
+        { id:"mp-margin-risk", icon:"🚨", title:"Margin Risk Guard", pass: marginRisk.priceStatus === "margin_risk" && marginRisk.suggestedPrice >= marginRisk.breakEvenPrice, reason:`Mock result: ${marginRisk.priceStatus}; suggested ${$(marginRisk.suggestedPrice)} protects break-even ${$(marginRisk.breakEvenPrice)}.`, page:"buy_ws", severity:"critical" },
+        { id:"mp-low-confidence", icon:"🟡", title:"Low Confidence Fallback", pass: lowConfidence.priceStatus === "low_confidence" && lowConfidence.suggestedPrice >= lowConfidence.breakEvenPrice, reason:`Mock result: ${lowConfidence.dataPointCount} source(s), confidence ${lowConfidence.confidenceScore}/100, falls back to PPS/break-even floor.`, page:"buy_ws", severity:"warning" },
+        { id:"mp-cache", icon:"💾", title:"24h Cache Guard", pass: !!cached && !expired, reason:"Recent research is reused; expired research requires a fresh owner/manager click.", page:"phase2qa", severity:"warning" },
+        { id:"mp-no-new-page", icon:"🚫", title:"No New Pricing Page", pass: cfg.noNewPricingPage === true, reason:"Bulk market pricing must live inside existing Inventory / Buy Smart / Show workflows instead of adding a new page.", page:"buy_ws", severity:"critical" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
+
     function Phase2QACenter({ user, plants = [], expenses = [], bills = [], receipts = [], settings = {}, themeMode = "light", setPage }) {
       const [status, setStatus] = useState(ldPhase2QaRead);
       const role = user?.role || "employee";
@@ -20308,6 +20935,22 @@ ${local.summary || "Fallback completed."}`;
       const aiRegressionPass = aiRegression.filter(i => i.pass).length;
       const aiRegressionBlockers = aiRegression.filter(i => !i.pass && i.severity === "critical").length;
       const aiRegressionWarnings = aiRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const auctionRegression = phase82BuildAuctionRegressionChecks({ plants, settings, user });
+      const auctionRegressionPass = auctionRegression.filter(i => i.pass).length;
+      const auctionRegressionBlockers = auctionRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const auctionRegressionWarnings = auctionRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketPricingRegression = phase83BuildMarketPricingSelfChecks({ plants, settings, user });
+      const marketPricingRegressionPass = marketPricingRegression.filter(i => i.pass).length;
+      const marketPricingRegressionBlockers = marketPricingRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketPricingRegressionWarnings = marketPricingRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketPanelRegression = phase84BuildMarketPanelSelfChecks({ settings, user });
+      const marketPanelRegressionPass = marketPanelRegression.filter(i => i.pass).length;
+      const marketPanelRegressionBlockers = marketPanelRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketPanelRegressionWarnings = marketPanelRegression.filter(i => !i.pass && i.severity !== "critical").length;
+      const marketButtonRegression = phase85BuildMarketButtonSelfChecks({ settings, user });
+      const marketButtonRegressionPass = marketButtonRegression.filter(i => i.pass).length;
+      const marketButtonRegressionBlockers = marketButtonRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const marketButtonRegressionWarnings = marketButtonRegression.filter(i => !i.pass && i.severity !== "critical").length;
       const features = [
         { id:"skeleton", icon:"⚡", title:"Skeleton Loading", page:"today", test:"Refresh the app. You should see Leaf Diary loading placeholders instead of a blank white flash." },
         { id:"onboarding", icon:"🎓", title:"Onboarding Checklist", page:"onboarding", test:"Open onboarding. Mark a step done, refresh, and confirm progress stays." },
@@ -20329,6 +20972,14 @@ ${local.summary || "Fallback completed."}`;
         { id:"ai72_buysmart", icon:"🛒", title:"Update 72 AI Buy Smarter", page:"buy_ws", test:"Open Buy Smart and AI Buy Plan. Confirm Buy More, Stop Buying, Only Buy Under, and nursery warnings show." },
         { id:"ai73_employee", icon:"👷", title:"Update 73 Employee AI Tasks", page:"employeeboard", test:"Open employee board and confirm tasks show no cost, profit, cash, tax, payroll, supplier ROI, or AI settings." },
         { id:"ai74_receipts", icon:"🧾", title:"Update 74 Receipt AI Copilot", page:"receipts", test:"Review a receipt. Confirm category, vendor, payment method warning, duplicate detection, and Smart Review button work." },
+        { id:"ai77_auction_foundation", icon:"🏷️", title:"Update 77 Auction Foundation", page:"shows_ws", test:"Confirm Auction and Auction Ended — No Sale statuses exist, badge colors work, and auction plants are blocked from show export." },
+        { id:"ai78_auction_timer", icon:"⏱️", title:"Update 78 Auction Timer Panel", page:"plants_ws", test:"Set a plant to Auction, start a 24h timer, confirm countdown appears, then close as Sold or No Sale." },
+        { id:"ai79_auction_manager", icon:"🏷️", title:"Update 79 Auction Manager in Shows", page:"shows_ws", test:"Open Shows and confirm Auction Manager cards/tabs show Active, Needs Close, and Today’s Picks without adding a new page." },
+        { id:"ai80_auction_daily", icon:"🌅", title:"Update 80 Auction Daily Tasks", page:"today", test:"Confirm Today, Owner Board, Manager Board, and Morning Briefing show ending-soon, overdue, and slots-left auction tasks." },
+        { id:"ai81_auction_picks", icon:"🏆", title:"Update 81 Best 15 Auction Picks", page:"shows_ws", test:"Confirm picks exclude active auctions, no-photo plants, and no-price plants while showing ranked reasons." },
+        { id:"ai82_auction_qa", icon:"🧪", title:"Update 82 Auction QA + Launch Gate", page:"phase2qa", test:"Run this QA screen and confirm auction self-checks pass before uploading the live file." },
+        { id:"ai83_market_pricing", icon:"🔍", title:"Update 83 Market Pricing Foundation", page:"phase2qa", test:"Confirm settings, pricing formula, prompt builder, cache guard, margin-risk guard, and no-new-page rule pass before wiring live buttons." },
+        { id:"ai84_market_panel", icon:"📊", title:"Update 84 Market Price Result Panel", page:"phase2qa", test:"Preview competitive, at-floor, margin-risk, and low-confidence panels. Confirm profit guard, source summary, and apply/keep buttons look good on mobile." },
       ];
       const regressions = [
         { id:"login", icon:"🔐", title:"Login + Role Launcher", page:"rolelauncher", test:"Owner, manager, and employee open the correct board after login." },
@@ -20347,8 +20998,8 @@ ${local.summary || "Fallback completed."}`;
       const pct = allChecks.length ? Math.round(doneCount / allChecks.length * 100) : 0;
       const mark = (id, value) => setStatus(prev => { const next = { ...prev, [id]: value, updatedAt:new Date().toISOString() }; ldPhase2QaSave(next); return next; });
       const reset = () => { const next = {}; ldPhase2QaSave(next); setStatus(next); };
-      const exportCsv = () => downloadCsv("leaf-diary-update-75-ai-regression-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page])]);
-      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0;
+      const exportCsv = () => downloadCsv("leaf-diary-update-85-market-buttons-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI + Auction + Market Pricing", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...auctionRegression.map(i => ["Auction Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPricingRegression.map(i => ["Market Pricing Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page]), ...marketPanelRegression.map(i => ["Market Price Panel Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page])]);
+      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0 && auctionRegressionBlockers === 0 && marketPricingRegressionBlockers === 0 && marketPanelRegressionBlockers === 0;
       const Stat = ({ label, value, sub, color }) => <Card style={{ borderTop:`4px solid ${color}`, padding:"13px 12px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.6 }}>{label}</div><div style={{ fontFamily:F.display, color, fontSize:28, fontWeight:900 }}>{value}</div>{sub && <div style={{ color:C.tx3, fontSize:11, fontWeight:700 }}>{sub}</div>}</Card>;
       const CheckCard = ({ item, section }) => { const st = status[item.id] || "untested"; const color = st === "pass" ? C.g600 : st === "review" ? C.amber : C.tx3; return <Card style={{ borderLeft:`5px solid ${color}`, padding:14 }}>
         <Row between center gap={10} wrap>
@@ -20371,13 +21022,16 @@ ${local.summary || "Fallback completed."}`;
             <Row gap={8} wrap><button onClick={exportCsv} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Export QA CSV</button><button onClick={()=>setPage("releasecenter")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Final Release Center</button></Row>
           </Row>
           <div style={{ marginTop:15, background:canGoLive ? "rgba(151,211,62,.16)" : "rgba(255,255,255,.08)", border:"1px solid rgba(151,211,62,.30)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
-            {canGoLive ? "✅ Phase 2 + AI regression looks ready for a live upload after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI self-check blocker(s).`}
+            {canGoLive ? "✅ Phase 2 + AI + auction + market-pricing panel looks ready after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI blocker(s) · ${auctionRegressionBlockers} auction blocker(s) · ${marketPricingRegressionBlockers} market-pricing blocker(s) · ${marketPanelRegressionBlockers} market-panel blocker(s).`}
           </div>
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:14 }}>
           <Stat label="QA Progress" value={`${pct}%`} sub={`${doneCount}/${allChecks.length} passed`} color={pct === 100 ? C.g600 : C.blue} />
           <Stat label="AI Self Checks" value={`${aiRegressionPass}/${aiRegression.length}`} sub={`${aiRegressionBlockers} blockers · ${aiRegressionWarnings} warnings`} color={aiRegressionBlockers ? C.red : aiRegressionWarnings ? C.amber : C.g600} />
+          <Stat label="Auction QA" value={`${auctionRegressionPass}/${auctionRegression.length}`} sub={`${auctionRegressionBlockers} blockers · ${auctionRegressionWarnings} warnings`} color={auctionRegressionBlockers ? C.red : auctionRegressionWarnings ? C.amber : C.g600} />
+          <Stat label="Market Pricing" value={`${marketPricingRegressionPass}/${marketPricingRegression.length}`} sub={`${marketPricingRegressionBlockers} blockers · ${marketPricingRegressionWarnings} warnings`} color={marketPricingRegressionBlockers ? C.red : marketPricingRegressionWarnings ? C.amber : C.g600} />
+          <Stat label="Price Panel" value={`${marketPanelRegressionPass}/${marketPanelRegression.length}`} sub={`${marketPanelRegressionBlockers} blockers · ${marketPanelRegressionWarnings} warnings`} color={marketPanelRegressionBlockers ? C.red : marketPanelRegressionWarnings ? C.amber : C.g600} />
           <Stat label="Needs Review" value={warnCount} sub="marked by tester" color={warnCount ? C.amber : C.g600} />
           <Stat label="Data Warnings" value={cloudIssues} sub={`${duplicates} dupes · ${noPrice} prices · ${receiptReview} receipts`} color={cloudIssues ? C.amber : C.g600} />
           <Stat label="Theme" value={themeMode === "dark" ? "Dark" : "Light"} sub="current device" color={themeMode === "dark" ? C.g600 : C.gold} />
@@ -20399,6 +21053,47 @@ ${local.summary || "Fallback completed."}`;
           </div>
         </Card>
 
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${auctionRegressionBlockers ? C.red : C.purple}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 82 Auction Self Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for auction statuses, timers, pick filtering, daily tasks, close flow, export blocking, and no-new-page rule.</div></div><Tag text={`${auctionRegressionPass}/${auctionRegression.length} passing`} color={auctionRegressionBlockers ? C.red : C.purple} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {auctionRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketPricingRegressionBlockers ? C.red : C.g600}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 83 Market Pricing Foundation Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for pricing settings, market prompt, competitive formula, margin-risk guard, low-confidence fallback, cache behavior, and no-new-page rule.</div></div><Tag text={`${marketPricingRegressionPass}/${marketPricingRegression.length} passing`} color={marketPricingRegressionBlockers ? C.red : C.g600} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketPricingRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketPanelRegressionBlockers ? C.red : C.blue}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 84 Market Price Panel Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for the result panel component, loading state, status styles, profit guard display, and source summary UI.</div></div><Tag text={`${marketPanelRegressionPass}/${marketPanelRegression.length} passing`} color={marketPanelRegressionBlockers ? C.red : C.blue} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketPanelRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${marketButtonRegressionBlockers ? C.red : C.g600}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 85 Market Price Button Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic checks for Research Market buttons in Manual Entry and Inventory edit modal, owner/manager access, and no automatic Gateway calls.</div></div><Tag text={`${marketButtonRegressionPass}/${marketButtonRegression.length} passing`} color={marketButtonRegressionBlockers ? C.red : C.g600} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {marketButtonRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
+        <Phase84MarketPricePanelPreview settings={settings} plants={plants} />
+
+
         <Card style={{ marginBottom:14 }}>
           <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Phase 2 Feature Tests</div><div style={{ color:C.tx3, fontSize:12 }}>These are the 12 Phase 2 upgrades. Open each feature, test it, then mark pass or review.</div></div><Tag text={`${features.length} checks`} color={C.g600} /></Row>
           <div style={{ display:"grid", gap:10 }}>{features.map(i => <CheckCard key={i.id} item={i} section="Phase 2" />)}</div>
@@ -20408,7 +21103,7 @@ ${local.summary || "Fallback completed."}`;
           <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Regression Tests</div><div style={{ color:C.tx3, fontSize:12 }}>Make sure the business system still works after all the Phase 2 UI upgrades.</div></div><Tag text="must not break" color={C.gold} /></Row>
           <div style={{ display:"grid", gap:10 }}>{regressions.map(i => <CheckCard key={i.id} item={i} section="Regression" />)}</div>
         </Card>
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(6,1fr)"],div[style*="grid-template-columns: repeat(5,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
@@ -21178,7 +21873,7 @@ ${local.summary || "Fallback completed."}`;
       if (cloudStatus === "loading" || !user) return <AppLoadingSkeleton title="Loading Leaf Diary Cloud" sub={cloudMsg || "Connecting to Supabase and preparing your business dashboard..."} showRepair={true} onRepair={() => { resetBrokenNavStorage(); const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const repairedOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, phone: "", jobTitle: "Owner", hourlyRate: 0, active: true, mustChangePassword: false, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Repair Startup", authStatus: "auth-created" }; const nextUsers = safeArray(users).some(u => u.email === email) ? safeArray(users) : [repairedOwner, ...safeArray(users)]; setUsersRaw(nextUsers); setUser(repairedOwner); try { cloudUpsertState("users", nextUsers); } catch(e) {} setCloudStatus("synced"); setCloudMsg("Startup repaired — app opened locally."); resetToPage("today"); }} onOffline={() => { const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const localOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, active: true, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Offline Continue", authStatus: "auth-created" }; setUser(localOwner); setCloudStatus("offline"); resetToPage("today"); }} />;
       if (user?.blocked || user?.active === false) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, padding: 20 }}><Card style={{ maxWidth: 420, textAlign: "center" }}><div style={{ fontSize: 38 }}>🚫</div><h2 style={{ fontFamily: F.display, color: C.red, margin: "8px 0" }}>Access Disabled</h2><p style={{ color: C.tx3 }}>This user is disabled in Leaf Diary. Contact the owner to re-enable access.</p><Btn v="danger" onClick={handleLogout}>Log Out</Btn></Card></div>;
 
-      const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit };
+      const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit, settings, setSettings };
       const cloudDot = cloudStatus === "synced" ? C.g400 : cloudStatus === "safe" ? C.blue : cloudStatus === "syncing" || cloudStatus === "loading" ? C.gold : C.amber;
       const cloudLabel = cloudStatus === "synced" ? "☁️ Supabase cloud synced" : cloudStatus === "safe" ? "🛡️ Cloud Safe Mode ON — local only" : cloudStatus === "syncing" ? "🔄 Saving to Supabase..." : cloudStatus === "loading" ? "🔄 Loading cloud..." : `⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
       const pageCanRender = leafDiaryCanRenderPage(page, user?.role || "employee");
