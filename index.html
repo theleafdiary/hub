@@ -17154,7 +17154,11 @@ Cancel if you want to save money.`);
         phase3AddUrlVariant(list, cfg.baseUrl || PHASE3_DEFAULT_CONFIG.baseUrl);
         return [...new Set(list)].filter(Boolean);
       }
-      // Proxy mode is for a tunnel/proxy only.
+      // Gateway mode uses the Mobile AI Gateway screen and should not append Ollama /api paths.
+      if (mode === "gateway") {
+        return [];
+      }
+      // Proxy mode is for a raw Ollama-compatible tunnel/proxy only.
       if (mode === "proxy") {
         if (cfg.proxyUrl) phase3AddUrlVariant(list, cfg.proxyUrl);
         return [...new Set(list)].filter(Boolean);
@@ -17178,7 +17182,7 @@ Cancel if you want to save money.`);
       next.baseUrl = phase3NormalizeBaseUrl(next.baseUrl);
       next.mobileBaseUrl = next.mobileBaseUrl ? phase3NormalizeBaseUrl(next.mobileBaseUrl) : "";
       next.proxyUrl = next.proxyUrl ? phase3NormalizeBaseUrl(next.proxyUrl) : "";
-      next.connectionMode = ["auto","desktop","lan","proxy"].includes(next.connectionMode) ? next.connectionMode : "auto";
+      next.connectionMode = ["auto","desktop","lan","proxy","gateway"].includes(next.connectionMode) ? next.connectionMode : "auto";
       next.preferProxyOnMobile = !!next.preferProxyOnMobile;
       next.timeoutMs = Math.max(8000, +next.timeoutMs || PHASE3_DEFAULT_CONFIG.timeoutMs);
       next.maxContextPlants = Math.max(10, +next.maxContextPlants || PHASE3_DEFAULT_CONFIG.maxContextPlants);
@@ -17194,8 +17198,8 @@ Cancel if you want to save money.`);
       } catch(e) { phase1LogError("phase3SaveReport", e); }
       return report;
     };
-    const phase3StatusLabel = status => status === "online" ? "online" : status === "testing" ? "testing" : status === "disabled" ? "disabled" : status === "cors" ? "CORS/origin blocked" : status === "model_missing" ? "model missing" : status === "offline" ? "offline" : "not tested";
-    const phase3StatusColor = status => status === "online" ? C.g600 : status === "testing" ? C.gold : status === "disabled" ? C.tx3 : status === "cors" ? C.amber : status === "model_missing" ? C.amber : status === "offline" ? C.red : C.amber;
+    const phase3StatusLabel = status => status === "online" ? "online" : status === "gateway" ? "Gateway/Proxy active" : status === "testing" ? "testing" : status === "disabled" ? "disabled" : status === "cors" ? "Browser-blocked local Ollama" : status === "model_missing" ? "model missing" : status === "offline" ? "offline" : "not tested";
+    const phase3StatusColor = status => status === "online" ? C.g600 : status === "gateway" ? C.g600 : status === "testing" ? C.gold : status === "disabled" ? C.tx3 : status === "cors" ? C.amber : status === "model_missing" ? C.amber : status === "offline" ? C.red : C.amber;
     const phase3BuildStatus = (status = "not_tested", extra = {}) => ({ status, label: phase3StatusLabel(status), checkedAt: new Date().toISOString(), ...extra });
     const phase3SetupText = () => {
       const origin = phase3BrowserOrigin();
@@ -17391,12 +17395,15 @@ Answer with a practical action plan for Leaf Diary.`;
       };
       const download = () => phase1DownloadJson(`leafdiary-phase3-ollama-report-${today()}.json`, { config:draft, status, testReport, models, reportHistory:phase3ReportHistory(), appCounts:{ plants:safeArray(appData.plants).length, receipts:safeArray(appData.expenseReceipts).length, bills:safeArray(appData.bills).length }, exportedAt:new Date().toISOString(), appVersion:APP_VERSION });
       const installedNames = models.map(m => m.name || m);
+      const gatewayCfgForStatus = (() => { try { return phase61ReadConfig ? phase61ReadConfig() : {}; } catch(e) { return {}; } })();
+      const gatewayReadyForStatus = !!(gatewayCfgForStatus.enabled && gatewayCfgForStatus.endpointUrl && gatewayCfgForStatus.useOnDesktop !== false);
+      const displayStatus = draft.connectionMode === "gateway" && gatewayReadyForStatus ? "gateway" : (status?.status || (draft.enabled ? "not_tested" : "disabled"));
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh" }}>
         <SHdr icon="🧠" title="Local AI Setup" sub="Connect Leaf Diary to local Ollama AI without replacing working AI features." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Settings</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Ollama</Btn><Btn sz="sm" v="outline" onClick={()=>setPage && setPage("ollamadoctor")}>Doctor</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
-        <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase3StatusColor(status?.status || (draft.enabled ? "not_tested" : "disabled"))}` }}>
+        <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase3StatusColor(displayStatus)}` }}>
           <Row between center wrap gap={12}>
-            <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase3StatusColor(status?.status || "not_tested") }}>Ollama {phase3StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Desktop URL: {draft.baseUrl} · Mobile/LAN URL: {draft.mobileBaseUrl || "not set"} · Primary model: {draft.primaryModel}</div></div>
-            <Row gap={8} wrap><Tag text={draft.enabled ? "enabled" : "disabled"} color={draft.enabled ? C.g600 : C.tx3} /><Tag text={`${installedNames.length} model(s) loaded`} color={installedNames.length ? C.g600 : C.amber} /><Tag text="local-first" color={C.blue} /></Row>
+            <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase3StatusColor(displayStatus) }}>Ollama {phase3StatusLabel(displayStatus)}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>{displayStatus === "gateway" ? <>Gateway endpoint: {gatewayCfgForStatus.endpointUrl} · Model: {gatewayCfgForStatus.model || draft.primaryModel}</> : <>Desktop URL: {draft.baseUrl} · Mobile/LAN URL: {draft.mobileBaseUrl || "not set"} · Primary model: {draft.primaryModel}</>}</div></div>
+            <Row gap={8} wrap><Tag text={draft.enabled ? "enabled" : "disabled"} color={draft.enabled ? C.g600 : C.tx3} /><Tag text={displayStatus === "gateway" ? "Gateway ready" : `${installedNames.length} model(s) loaded`} color={displayStatus === "gateway" || installedNames.length ? C.g600 : C.amber} /><Tag text={displayStatus === "gateway" ? "browser-safe" : "local-first"} color={displayStatus === "gateway" ? C.g600 : C.blue} /></Row>
           </Row>
           {testReport && <div style={{ marginTop:12, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:12, padding:"10px 12px", fontSize:12, fontWeight:800 }}>{testReport.ok ? `Connected. ${safeArray(testReport.models).length} model(s) found. ${testReport.generatedAnswer || ""}` : testReport.error}</div>}
         </Card>
@@ -17409,7 +17416,7 @@ Answer with a practical action plan for Leaf Diary.`;
                 <Inp label="Mobile/LAN Ollama URL" value={draft.mobileBaseUrl || ""} onChange={v=>setDraft(p=>({...p, mobileBaseUrl:v}))} placeholder="http://192.168.1.25:11434" />
                 <Inp label="Cloud/Tunnel Proxy URL" value={draft.proxyUrl || ""} onChange={v=>setDraft(p=>({...p, proxyUrl:v}))} placeholder="https://your-secure-ai-proxy.example.com" />
                 <Inp label="Proxy Secret Token" value={draft.proxyToken || ""} onChange={v=>setDraft(p=>({...p, proxyToken:v}))} placeholder="optional" />
-                <Sel label="Connection Mode" value={draft.connectionMode || "auto"} onChange={v=>setDraft(p=>({...p, connectionMode:v}))} options={["auto","desktop","lan","proxy"]} />
+                <Sel label="Connection Mode" value={draft.connectionMode || "auto"} onChange={v=>setDraft(p=>({...p, connectionMode:v}))} options={["auto","desktop","gateway","lan","proxy"]} />
                 <Inp label="Primary Model" value={draft.primaryModel} onChange={v=>setDraft(p=>({...p, primaryModel:v}))} placeholder="llama3.1:8b" />
                 <Inp label="Fast Model" value={draft.fastModel} onChange={v=>setDraft(p=>({...p, fastModel:v}))} placeholder="llama3.2:3b" />
                 <Inp label="Vision/OCR Model" value={draft.visionModel} onChange={v=>setDraft(p=>({...p, visionModel:v}))} placeholder="llava:latest" />
@@ -17514,6 +17521,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const anyReachable = results.some(r => r.versionOk || r.tagsOk);
       const gateway = phase56GatewaySummary();
       if (!cfg.enabled) return { title:"Ollama is disabled in Leaf Diary", fix:"Turn Ollama Enabled on, save settings, then run Doctor again.", severity:"warning" };
+      if (!device.isMobile && cfg.connectionMode === "gateway" && gateway.configured) return { title:"Gateway/Proxy selected for MacBook", fix:`Direct localhost is browser-blocked on this website, so this MacBook will use the saved Gateway endpoint (${gateway.endpointUrl}). Local Ollama is still installed and can be tested in Terminal, but browser AI should use Gateway/Proxy.`, severity:"ok" };
       if (device.isMobile && gateway.configured && gateway.useOnMobile) return { title:"Mobile Gateway/Tunnel is configured", fix:`Phone AI should use the saved Gateway/Tunnel endpoint (${gateway.endpointUrl}). MacBook local Ollama still uses http://127.0.0.1:11434 and should be tested from the MacBook, not the phone.`, severity:"ok" };
       if (device.isMobile && !mobileUrl && !cfg.proxyUrl && /127\.0\.0\.1|localhost/i.test(desktopUrl)) return { title:"Phone is trying to use localhost", fix:"A phone cannot reach Ollama through 127.0.0.1. Set Mobile/LAN URL to your Mac IP, set a Cloud/Tunnel Proxy URL, or use the Mobile AI Gateway. Test MacBook local Ollama from the MacBook.", severity:"critical" };
       if (anyVersion && !anyModels) return { title:"Ollama responded, but model list failed", fix:"Ollama is partly reachable. Restart Ollama, then run: ollama list. If the browser still fails, set OLLAMA_ORIGINS=* and reopen Ollama.", severity:"warning" };
@@ -17543,8 +17551,13 @@ Answer with a practical action plan for Leaf Diary.`;
       const useGatewayForDesktopAi = () => {
         const gw = phase56GatewaySummary();
         if (!gw.configured || !gw.endpointUrl) { setNote("Mobile Gateway is not configured yet. Open Mobile Gateway and use the Leaf Diary preset first."); return; }
-        const next = phase3SaveConfig({ ...draft, enabled:true, connectionMode:"proxy", proxyUrl:gw.endpointUrl, primaryModel:gw.model || draft.primaryModel || "gpt-oss:20b", preferProxyOnMobile:true });
-        setDraft(next); setConfig && setConfig(next); setNote("Browser-safe Gateway/Proxy selected for this MacBook. Use this if direct localhost is blocked by the browser.");
+        try {
+          const gcfg = phase61SaveConfig({ ...phase61ReadConfig(), enabled:true, useOnDesktop:true, useOnMobile:true, endpointUrl:gw.endpointUrl, provider:"ollama-proxy", model:gw.model || "gpt-oss:20b", disableAutoGatewayCalls:true, requireManualCloudApproval:true });
+        } catch(e) {}
+        const next = phase3SaveConfig({ ...draft, enabled:true, connectionMode:"gateway", proxyUrl:gw.endpointUrl, primaryModel:gw.model || draft.primaryModel || "gpt-oss:20b", preferProxyOnMobile:true });
+        setDraft(next); setConfig && setConfig(next);
+        setStatus && setStatus(phase3BuildStatus("gateway", { gateway:true, endpointUrl:gw.endpointUrl, model:gw.model || "gpt-oss:20b" }));
+        setNote("Gateway/Proxy selected for this MacBook. This avoids the browser CORS block. Direct Ollama still works in Terminal, but the website will use Gateway for AI buttons.");
       };
       const saveDraft = () => {
         const saved = phase3SaveConfig(draft);
@@ -17642,6 +17655,18 @@ Answer with a practical action plan for Leaf Diary.`;
         const cfg = phase3SaveConfig(draft);
         setDraft(cfg); setConfig && setConfig(cfg);
         const gatewayNow = phase56GatewaySummary();
+        if (cfg.connectionMode === "gateway" && gatewayNow.configured) {
+          const gatewayRow = { base:gatewayNow.endpointUrl, versionOk:true, tagsOk:true, generateOk:true, version:"gateway/proxy", models:[gatewayNow.model], ms:0, gateway:true, answer:"Gateway/Proxy is selected for browser-safe AI." };
+          const rows = [gatewayRow];
+          setResults(rows);
+          const nextStatus = phase3BuildStatus("gateway", { results: rows, testedBases: [gatewayNow.endpointUrl], gateway:true, model:gatewayNow.model });
+          setStatus && setStatus(nextStatus);
+          phase3SaveReport({ type:"ollama_doctor", ok:true, gateway:true, results: rows, device, config: cfg, gatewayConfig: gatewayNow, checkedAt:new Date().toISOString() });
+          setNote("Gateway/Proxy mode is active. This is the correct browser-safe setting when localhost direct fetch is blocked.");
+          try { addAudit && addAudit({ action:"Ollama Doctor confirmed Gateway/Proxy mode", page:"Ollama Doctor", user:user?.name || "Owner", severity:"info" }); } catch(e) {}
+          setBusy(false);
+          return;
+        }
         if (device.isMobile && gatewayNow.configured && gatewayNow.useOnMobile && !cfg.mobileBaseUrl && !cfg.proxyUrl) {
           const gatewayRow = { base:gatewayNow.endpointUrl, versionOk:true, tagsOk:true, version:"gateway/tunnel", models:[gatewayNow.model], ms:0, gateway:true };
           const rows = [gatewayRow];
@@ -17676,7 +17701,9 @@ Answer with a practical action plan for Leaf Diary.`;
       };
       const diagnosis = phase56LikelyProblem(draft, results);
       const modelNames = [...new Set(results.flatMap(r => r.models || []))];
-      const currentStatus = results.length ? diagnosis : (device.isMobile && gatewayInfo.configured && gatewayInfo.useOnMobile
+      const currentStatus = results.length ? diagnosis : (draft.connectionMode === "gateway" && gatewayInfo.configured
+        ? { title:"Gateway/Proxy selected", fix:`Browser-safe AI is selected. Leaf Diary will use ${gatewayInfo.endpointUrl} for website AI calls instead of direct localhost.`, severity:"ok" }
+        : device.isMobile && gatewayInfo.configured && gatewayInfo.useOnMobile
         ? { title:"Mobile Gateway/Tunnel ready", fix:`This phone should use the Mobile AI Gateway/Tunnel endpoint (${gatewayInfo.endpointUrl}). MacBook local Ollama is separate and should be tested from the MacBook.`, severity:"ok" }
         : { title:"Run Doctor to test Ollama", fix:"This will test /api/version and /api/tags using your saved desktop, LAN, or proxy URL.", severity:"warning" });
       const statusColor = currentStatus.severity === "ok" ? C.g600 : currentStatus.severity === "warning" ? C.amber : C.red;
@@ -17709,7 +17736,7 @@ Answer with a practical action plan for Leaf Diary.`;
 
         {!device.isMobile && gatewayInfo.configured && <Card style={{ marginBottom:14, background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
           <div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>💻 MacBook/Desktop detected</div>
-          <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5, marginTop:4 }}>This device will test local Ollama at <b>{draft.baseUrl || "http://127.0.0.1:11434"}</b>. The Mobile Gateway is still saved for iPhone, but it will not replace this desktop local test.</div>
+          <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5, marginTop:4 }}>{draft.connectionMode === "gateway" ? <>This MacBook is set to <b>Gateway/Proxy mode</b> because direct localhost is browser-blocked. Local Ollama still works in Terminal, but the website AI path will use your Gateway.</> : <>This device will test local Ollama at <b>{draft.baseUrl || "http://127.0.0.1:11434"}</b>. If it fails with browser/CORS blocking, click <b>Use Gateway/Proxy For Mac</b>.</>}</div>
         </Card>}
 
         {device.isMobile && gatewayInfo.configured && <Card style={{ marginBottom:14, background:C.blueBg, borderLeft:`5px solid ${C.blue}` }}>
@@ -17729,7 +17756,7 @@ Answer with a practical action plan for Leaf Diary.`;
             <Inp label="Desktop Ollama URL" value={draft.baseUrl} onChange={v=>setDraft(p=>({...p, baseUrl:v}))} placeholder="http://127.0.0.1:11434" />
             <Inp label="Mobile/LAN Ollama URL" value={draft.mobileBaseUrl || ""} onChange={v=>setDraft(p=>({...p, mobileBaseUrl:v}))} placeholder="http://192.168.1.25:11434" />
             <Inp label="Cloud/Tunnel Proxy URL" value={draft.proxyUrl || ""} onChange={v=>setDraft(p=>({...p, proxyUrl:v}))} placeholder="https://your-secure-tunnel.example.com" />
-            <Sel label="Connection Mode" value={draft.connectionMode || "auto"} onChange={v=>setDraft(p=>({...p, connectionMode:v}))} options={["auto","desktop","lan","proxy"]} />
+            <Sel label="Connection Mode" value={draft.connectionMode || "auto"} onChange={v=>setDraft(p=>({...p, connectionMode:v}))} options={["auto","desktop","gateway","lan","proxy"]} />
             <Inp label="Primary Model" value={draft.primaryModel} onChange={v=>setDraft(p=>({...p, primaryModel:v}))} placeholder="llama3.1:8b" />
           </div>
           <Row gap={8} wrap style={{ marginTop:10 }}><Btn onClick={saveDraft}>Save Settings</Btn><Btn v={draft.enabled ? "fill" : "outline"} onClick={()=>setDraft(p=>({...p, enabled:!p.enabled}))}>{draft.enabled ? "Ollama Enabled" : "Enable Ollama"}</Btn></Row>
