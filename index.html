@@ -1246,6 +1246,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
+  <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
 </head>
 
 <body>
@@ -6818,38 +6819,196 @@
       }
       return await reader.decodeFromVideoDevice(null, videoEl, cb);
     }
+    const ldHasQuaggaScanner = () => typeof window !== "undefined" && !!window.Quagga;
+    function ldBarcodeReaderFormats() {
+      try {
+        if (window.ZXing && window.ZXing.BarcodeFormat) {
+          return [
+            window.ZXing.BarcodeFormat.CODE_128,
+            window.ZXing.BarcodeFormat.CODE_39,
+            window.ZXing.BarcodeFormat.EAN_13,
+            window.ZXing.BarcodeFormat.EAN_8,
+            window.ZXing.BarcodeFormat.UPC_A,
+            window.ZXing.BarcodeFormat.UPC_E,
+            window.ZXing.BarcodeFormat.QR_CODE
+          ].filter(Boolean);
+        }
+      } catch(e) {}
+      return [];
+    }
+    function ldMakeZxingReader() {
+      if (!ldHasZxingScanner()) return null;
+      try {
+        const hints = new Map();
+        if (window.ZXing.DecodeHintType && window.ZXing.BarcodeFormat) {
+          const formats = ldBarcodeReaderFormats();
+          if (formats.length) hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+          if (window.ZXing.DecodeHintType.TRY_HARDER) hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+        }
+        return new window.ZXing.BrowserMultiFormatReader(hints, 500);
+      } catch(e) {
+        try { return new window.ZXing.BrowserMultiFormatReader(); } catch(_) { return null; }
+      }
+    }
+    function ldCanvasToBlob(canvas, type = "image/png", quality = .95) {
+      return new Promise((resolve, reject) => {
+        try { canvas.toBlob(b => b ? resolve(b) : reject(new Error("Could not process label photo.")), type, quality); }
+        catch(e) { reject(e); }
+      });
+    }
+    function ldLoadImageFile(file, maxDim = 2400) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          try {
+            let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+            const scale = Math.min(1, maxDim / Math.max(w, h));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(w * scale));
+            canvas.height = Math.max(1, Math.round(h * scale));
+            const ctx = canvas.getContext("2d", { willReadFrequently:true });
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            URL.revokeObjectURL(url);
+            resolve(canvas);
+          } catch(e) { URL.revokeObjectURL(url); reject(e); }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not load label photo.")); };
+        img.src = url;
+      });
+    }
+    function ldCropCanvas(source, xPct = 0, yPct = 0, wPct = 1, hPct = 1, maxDim = 2200) {
+      const sx = Math.max(0, Math.round(source.width * xPct));
+      const sy = Math.max(0, Math.round(source.height * yPct));
+      const sw = Math.max(1, Math.round(source.width * wPct));
+      const sh = Math.max(1, Math.round(source.height * hPct));
+      const scale = Math.min(1.7, maxDim / Math.max(sw, sh));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(sw * scale));
+      canvas.height = Math.max(1, Math.round(sh * scale));
+      const ctx = canvas.getContext("2d", { willReadFrequently:true });
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    }
+    function ldRotateCanvas(source, deg = 90) {
+      const rad = deg * Math.PI / 180;
+      const swap = Math.abs(deg) % 180 === 90;
+      const canvas = document.createElement("canvas");
+      canvas.width = swap ? source.height : source.width;
+      canvas.height = swap ? source.width : source.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently:true });
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(source, -source.width / 2, -source.height / 2);
+      return canvas;
+    }
+    function ldHighContrastCanvas(source) {
+      const canvas = document.createElement("canvas");
+      canvas.width = source.width; canvas.height = source.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently:true });
+      ctx.drawImage(source, 0, 0);
+      try {
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = img.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = (d[i] * .299 + d[i+1] * .587 + d[i+2] * .114);
+          const v = gray > 142 ? 255 : gray > 112 ? 210 : gray > 82 ? 40 : 0;
+          d[i] = d[i+1] = d[i+2] = v;
+        }
+        ctx.putImageData(img, 0, 0);
+      } catch(e) {}
+      return canvas;
+    }
+    async function ldBuildBarcodeImageVariants(file) {
+      const base = await ldLoadImageFile(file, 2400);
+      const variants = [];
+      const add = (name, canvas) => { if (canvas && canvas.width > 80 && canvas.height > 40) variants.push({ name, canvas }); };
+      add("original", base);
+      add("high contrast", ldHighContrastCanvas(base));
+      add("center zoom", ldCropCanvas(base, .05, .15, .90, .70));
+      add("middle strip", ldCropCanvas(base, .03, .32, .94, .36));
+      add("top half", ldCropCanvas(base, .03, .02, .94, .52));
+      add("bottom half", ldCropCanvas(base, .03, .46, .94, .52));
+      add("left/upper crop", ldCropCanvas(base, .00, .00, .72, .72));
+      add("right/lower crop", ldCropCanvas(base, .28, .28, .72, .72));
+      add("rotated right", ldRotateCanvas(base, 90));
+      add("rotated left", ldRotateCanvas(base, -90));
+      add("rotated 180", ldRotateCanvas(base, 180));
+      return variants;
+    }
+    async function ldDecodeCanvasNative(canvas, detectorFormats = []) {
+      if (!ldHasNativeBarcodeScanner()) return "";
+      const detector = new window.BarcodeDetector({ formats: detectorFormats });
+      const codes = await detector.detect(canvas);
+      return codes && codes.length ? String(codes[0].rawValue || codes[0].displayValue || "").trim() : "";
+    }
+    async function ldDecodeCanvasZxing(canvas) {
+      const reader = ldMakeZxingReader();
+      if (!reader) return "";
+      const blob = await ldCanvasToBlob(canvas, "image/png");
+      const url = URL.createObjectURL(blob);
+      try {
+        let result = null;
+        if (typeof reader.decodeFromImageUrl === "function") result = await reader.decodeFromImageUrl(url);
+        else {
+          const img = new Image();
+          img.src = url;
+          await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error("Could not load processed barcode photo.")); });
+          result = await reader.decodeFromImageElement(img);
+        }
+        return ldZxingText(result);
+      } finally {
+        try { reader.reset && reader.reset(); } catch(e) {}
+        try { URL.revokeObjectURL(url); } catch(e) {}
+      }
+    }
+    async function ldDecodeCanvasQuagga(canvas) {
+      if (!ldHasQuaggaScanner()) return "";
+      const dataUrl = canvas.toDataURL("image/png");
+      return await new Promise(resolve => {
+        try {
+          window.Quagga.decodeSingle({
+            src: dataUrl,
+            numOfWorkers: 0,
+            locate: true,
+            inputStream: { size: 1600, singleChannel: false },
+            locator: { patchSize: "medium", halfSample: false },
+            decoder: { readers: ["code_128_reader", "code_39_reader", "ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader"] }
+          }, result => {
+            const code = result && result.codeResult && result.codeResult.code ? String(result.codeResult.code).trim() : "";
+            resolve(code);
+          });
+        } catch(e) { resolve(""); }
+      });
+    }
     async function ldDecodeBarcodeFromImageFile(file, detectorFormats = []) {
       if (!file) return "";
-      if (ldHasNativeBarcodeScanner()) {
-        const detector = new window.BarcodeDetector({ formats: detectorFormats });
-        const bitmap = await createImageBitmap(file);
+      const attempts = [];
+      const variants = await ldBuildBarcodeImageVariants(file);
+      for (const v of variants) {
         try {
-          const codes = await detector.detect(bitmap);
-          return codes && codes.length ? String(codes[0].rawValue || codes[0].displayValue || "").trim() : "";
-        } finally {
-          try { bitmap.close && bitmap.close(); } catch(e) {}
-        }
+          const raw = await ldDecodeCanvasNative(v.canvas, detectorFormats);
+          if (raw) return raw;
+        } catch(e) { attempts.push(`native ${v.name}: ${e?.message || e}`); }
       }
-      if (ldHasZxingScanner()) {
-        const reader = new window.ZXing.BrowserMultiFormatReader();
-        const url = URL.createObjectURL(file);
+      for (const v of variants) {
         try {
-          let result = null;
-          if (typeof reader.decodeFromImageUrl === "function") {
-            result = await reader.decodeFromImageUrl(url);
-          } else {
-            const img = new Image();
-            img.src = url;
-            await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error("Could not load barcode photo.")); });
-            result = await reader.decodeFromImageElement(img);
-          }
-          return ldZxingText(result);
-        } finally {
-          try { reader.reset && reader.reset(); } catch(e) {}
-          try { URL.revokeObjectURL(url); } catch(e) {}
-        }
+          const raw = await ldDecodeCanvasZxing(v.canvas);
+          if (raw) return raw;
+        } catch(e) { attempts.push(`zxing ${v.name}: ${e?.message || e}`); }
       }
-      throw new Error("No live or image barcode scanner is available on this browser. Type the plant number manually.");
+      for (const v of variants) {
+        try {
+          const raw = await ldDecodeCanvasQuagga(v.canvas);
+          if (raw) return raw;
+        } catch(e) { attempts.push(`quagga ${v.name}: ${e?.message || e}`); }
+      }
+      if (!ldHasNativeBarcodeScanner() && !ldHasZxingScanner() && !ldHasQuaggaScanner()) {
+        throw new Error("No barcode photo reader loaded. Type the plant number manually or try again after reload.");
+      }
+      console.warn("Leaf Diary label photo decode attempts failed", attempts.slice(-8));
+      return "";
     }
 
     const labelifePrice = p => {
@@ -7317,14 +7476,14 @@
           const raw = await ldDecodeBarcodeFromImageFile(file, detectorFormats);
           if (!raw) {
             setScanStatus("notfound");
-            setScanError("No barcode found in that label photo. Retake it closer, brighter, and fill the photo with the barcode.");
+            setScanError("Could not read that label photo. Retake closer and sharper: fill the picture with only the barcode, keep the phone level, and use bright light.");
             return;
           }
           setScanMsg(`Barcode read: ${raw}. Looking up the plant...`);
           handleCode(raw, hasNativeScanner ? "label photo" : "label photo fallback");
         } catch(e) {
           setScanStatus("error");
-          setScanError("Could not read the label photo: " + (e?.message || String(e)));
+          setScanError("Could not read the label photo after enhanced retries: " + (e?.message || String(e)));
         }
       };
       const openBarcodePhotoPicker = () => {
@@ -7698,14 +7857,14 @@
           const raw = await ldDecodeBarcodeFromImageFile(file, detectorFormats);
           if (!raw) {
             setScanStatus("notfound");
-            setScanError("No barcode found in that label photo. Retake it closer, brighter, and fill the photo with the barcode.");
+            setScanError("Could not read that label photo. Retake closer and sharper: fill the picture with only the barcode, keep the phone level, and use bright light.");
             return;
           }
           setScanMsg(`Barcode read: ${raw}. Looking up the plant...`);
           handleCode(raw, hasNativeScanner ? "label photo" : "iPhone label photo fallback");
         } catch(e) {
           setScanStatus("error");
-          setScanError("Could not read the label photo: " + (e?.message || String(e)));
+          setScanError("Could not read the label photo after enhanced retries: " + (e?.message || String(e)));
         }
       };
       const openBarcodePhotoPicker = () => {
