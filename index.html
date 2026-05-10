@@ -2179,6 +2179,9 @@ Search these sources in this order:
 
 Find at least 20 individual price data points across these sources. Prefer sold/completed prices over asking prices. Exclude listings older than 90 days. Exclude listings that are clearly damaged, diseased, or have no photo.
 
+IMPORTANT GATEWAY RULE:
+If your runtime does not have live web search/browsing tools enabled, do NOT estimate or invent prices. Return the JSON format below with dataSources: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and marketNotes: \"WEB_SEARCH_NOT_AVAILABLE — Gateway/model answered but could not browse live marketplaces.\"
+
 RETURN FORMAT — return ONLY this JSON object, no other text:
 {
   "plantName": "${String(name).replace(/"/g, '\\"')}",
@@ -2284,6 +2287,51 @@ If you cannot find data for the exact pot size, use the closest size and note it
 
 
     /* ══════════════════════════════════════════════════════════
+       UPDATE 91 — MARKET RESEARCH DIAGNOSTICS
+       Explains 0 sources / 0 confidence fallbacks so owners know whether
+       Gateway web search, JSON formatting, cost guard, or settings caused it.
+    ══════════════════════════════════════════════════════════ */
+    function phase91BuildMarketResearchDiagnosis(result = {}) {
+      const r = safeObject(result);
+      const sources = safeArray(r.sources || r.dataSources);
+      const src = String(r.source || "").toLowerCase();
+      const hasMarket = (+r.marketMedianPrice > 0) && sources.length > 0;
+      const preview = String(r.gatewayAnswerPreview || r.gatewayReport?.answer || r.gatewayReport?.error || r.gatewayError || "").slice(0, 900);
+      const isFallback = src.includes("fallback") || r.priceStatus === "fallback" || !hasMarket;
+      if (!isFallback) return { show:false };
+      let title = "Live market data was not returned";
+      let body = "The app protected you by using your internal PPS/profit formula instead of inventing prices. That is why sources show 0 and confidence shows 0/100.";
+      let fixes = [
+        "Make sure the Cloudflare Gateway route for pricing has a real web-search tool/API behind it. A local Ollama model by itself cannot browse Whatnot, Palmstreet, Etsy, or eBay.",
+        "Run a normal Gateway connection test first, then run pricing again. Connection can work even if web search is not enabled.",
+        "If the Gateway returns text instead of JSON, the app will reject it and fall back for safety."
+      ];
+      let color = C.amber;
+      let bg = C.amberBg;
+      if (src.includes("cost_guard")) {
+        title = "Cost Guard blocked the market lookup";
+        body = r.priceReason || r.confidenceNote || "The lookup was stopped before calling the Gateway because the estimated lookup cost is over your max per-lookup limit.";
+        fixes = ["Raise maxCostPerLookup slightly, or keep using the PPS fallback for this plant."];
+      } else if (src.includes("gateway_disabled")) {
+        title = "Gateway is disabled or not configured";
+        body = r.priceReason || "The app used the local profit-safe preview because the Gateway endpoint/settings are not active.";
+        fixes = ["Open Mobile AI Gateway / AI Settings and restore the working Gateway settings.", "Confirm endpoint is leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai and connection mode is Gateway."];
+      } else if (src.includes("json_parse")) {
+        title = "Gateway answered, but did not return usable marketplace JSON";
+        body = "The model likely gave a paragraph, refused to browse, or returned no live source prices. The app requires structured JSON with dataSources and marketMedianPrice before it will trust the price.";
+        fixes = ["Your Gateway/model needs real web-search support for the pricing route.", "The Worker can also be upgraded to call a search API server-side, then pass found listings into the model.", "Do not use the fallback as a market price; use it only as your profit floor."];
+        color = C.red; bg = C.redBg;
+      } else if (src.includes("gateway_fallback") || src.includes("gateway_exception")) {
+        title = "Gateway market lookup failed";
+        body = r.priceReason || r.gatewayError || "The Gateway request failed, timed out, or returned an error.";
+        fixes = ["Test the Gateway connection.", "Check the Cloudflare Worker logs for the pricing request.", "If the worker is online, verify the pricing route can browse/search the web."];
+        color = C.red; bg = C.redBg;
+      }
+      return { show:true, title, body, fixes, preview, color, bg };
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
        UPDATE 84 — MARKET PRICE RESULT PANEL
        UI-only phase. Shows the four pricing states created in Update 83:
        competitive, at_floor, margin_risk, and low_confidence/fallback.
@@ -2340,7 +2388,7 @@ If you cannot find data for the exact pot size, use the closest size and note it
             <div style={{ height:7, background:C.g100, borderRadius:99, overflow:"hidden", marginTop:7 }}><div style={{ width:`${i < step ? 100 : i === step ? 62 : 8}%`, height:"100%", background:i <= step ? C.blue : C.bd, borderRadius:99, transition:"width .4s ease" }} /></div>
           </div>)}
         </div>
-        <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:10 }}>This is the visual loading state for the future Gateway lookup. Update 84 does not call the Gateway yet.</div>
+        <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:10 }}>Gateway pricing runs only after you click Research. If the Gateway cannot return real marketplace JSON, the app will fall back safely and explain why.</div>
         {onCancel && <Row style={{ marginTop:10 }}><Btn sz="sm" v="ghost" onClick={onCancel}>Cancel</Btn></Row>}
       </div>;
     }
@@ -2358,6 +2406,7 @@ If you cannot find data for the exact pot size, use the closest size and note it
       const status = String(r.priceStatus || "low_confidence");
       const isRisk = status === "margin_risk";
       const isLow = status === "low_confidence" || status === "fallback";
+      const diag = phase91BuildMarketResearchDiagnosis(r);
       const mainMessage = isRisk
         ? `Market only supports about ${$(median)}. Protect break-even at ${$(r.breakEvenPrice)} before listing.`
         : isLow
@@ -2383,6 +2432,18 @@ If you cannot find data for the exact pot size, use the closest size and note it
           </Row>
           <div style={{ color:C.tx2, fontSize:13, lineHeight:1.45, marginTop:10, fontWeight:750 }}>{mainMessage}</div>
         </div>
+
+        {diag.show && <div style={{ background:diag.bg, border:`1px solid ${diag.color}55`, borderLeft:`6px solid ${diag.color}`, borderRadius:16, padding:12, marginBottom:12 }}>
+          <Row gap={10} center style={{ marginBottom:7 }}><div style={{ fontSize:23 }}>🧭</div><div style={{ fontWeight:950, color:C.g900, fontSize:15 }}>{diag.title}</div></Row>
+          <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, fontWeight:750 }}>{diag.body}</div>
+          <div style={{ display:"grid", gap:5, marginTop:9 }}>
+            {safeArray(diag.fixes).map((f,i)=><div key={i} style={{ color:C.tx2, fontSize:12, lineHeight:1.35 }}>• {f}</div>)}
+          </div>
+          {!!diag.preview && <details style={{ marginTop:10 }}>
+            <summary style={{ cursor:"pointer", color:C.g800, fontWeight:950, fontSize:12 }}>Show Gateway response / error preview</summary>
+            <pre style={{ whiteSpace:"pre-wrap", background:C.card, border:`1px solid ${C.bd}`, borderRadius:12, padding:10, maxHeight:180, overflow:"auto", color:C.tx2, fontSize:11, lineHeight:1.35 }}>{diag.preview}</pre>
+          </details>}
+        </div>}
 
         <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:12 }}>
           <div style={{ fontWeight:950, color:C.g900, fontSize:14, marginBottom:8 }}>🛡️ Profit Guard</div>
@@ -2668,11 +2729,12 @@ If you cannot find data for the exact pot size, use the closest size and note it
           cfg:gatewayCfg
         });
         if (!report?.ok) {
-          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Gateway market research failed: ${report?.error || "No online response"}. Using internal sales history.`), source:"gateway_fallback", gatewayError:report?.error || "gateway_failed", gatewayReport:report };
+          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Gateway market research failed: ${report?.error || "No online response"}. Using internal sales history.`), source:"gateway_fallback", gatewayError:report?.error || "gateway_failed", gatewayAnswerPreview:String(report?.answer || report?.output || report?.error || "").slice(0,900), gatewayReport:report };
         }
-        const marketJson = phase86ExtractMarketJson(report.answer || report.output || "");
+        const answerText = report.answer || report.output || "";
+        const marketJson = phase86ExtractMarketJson(answerText);
         if (!marketJson || !(+marketJson.marketMedianPrice > 0 || safeArray(marketJson.dataSources || marketJson.sources).length)) {
-          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Gateway returned non-JSON or no usable market prices. Using internal sales history."), source:"json_parse_fallback", gatewayError:"invalid_market_json", gatewayAnswerPreview:String(report.answer || "").slice(0,500), gatewayReport:report };
+          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Gateway returned non-JSON or no usable market prices. This usually means the pricing Gateway/model does not have live web search enabled. Using internal sales history."), source:"json_parse_fallback", gatewayError:"invalid_market_json_or_no_web_sources", gatewayAnswerPreview:String(answerText || report.error || "No Gateway answer text returned.").slice(0,900), gatewayReport:report };
         }
         const priced = calcAIMarketPrice(normalizedPlant, marketJson, settings, allPlants);
         return { ...priced, source:"gateway_market_research", runAt:new Date().toISOString(), gatewayProvider:report.provider || gatewayCfg.provider, gatewayModel:report.model || gatewayCfg.model, gatewayMs:report.ms || null, estimatedCostPerLookup:estimatedCost, cacheHit:false };
@@ -12596,6 +12658,19 @@ Cancel keeps this local/free.`);
        QA/release layer only. No new page, no export/header/barcode,
        no plant-number, and no Supabase schema changes.
     ══════════════════════════════════════════════════════════ */
+    function phase91BuildMarketDiagnosticsSelfChecks({ settings = {}, plants = [], user = {} } = {}) {
+      const sample = { id:"qa-91", plantId:"QA-091", name:"Philodendron Carmel Marble", potSize:'4"', cost:40, suggestedPrice:126, status:"In Stock" };
+      const fallback = { ...phase83BuildFallbackMarketResult(sample, settings, [sample], "QA: Gateway returned no marketplace sources."), source:"json_parse_fallback", gatewayError:"invalid_market_json_or_no_web_sources", gatewayAnswerPreview:"The model answered without live web sources." };
+      const diag = phase91BuildMarketResearchDiagnosis(fallback);
+      const checks = [
+        { id:"mp91-diagnostics-helper", icon:"🧭", title:"Zero-Source Diagnostics", pass: typeof phase91BuildMarketResearchDiagnosis === "function" && diag.show, reason:"When sources are 0, the app explains why it used fallback instead of hiding the cause.", page:"phase2qa", severity:"critical" },
+        { id:"mp91-gateway-preview", icon:"📋", title:"Gateway Preview Captured", pass: !!diag.preview, reason:"Fallback results can show the Gateway answer/error preview for debugging.", page:"phase2qa", severity:"warning" },
+        { id:"mp91-prompt-no-invent", icon:"🛡️", title:"No-Web No-Invent Prompt", pass: String(buildMarketPricePrompt(sample, settings)).includes("WEB_SEARCH_NOT_AVAILABLE"), reason:"The pricing prompt now tells the model to admit when web search is unavailable instead of inventing prices.", page:"aihub", severity:"critical" },
+      ];
+      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
+    }
+
+
     function phase90BuildMarketPricingLaunchChecks({ plants = [], settings = {}, user = {} } = {}) {
       const cfg = phase83MarketPricingSettings(settings);
       const allPlants = safeArray(plants);
