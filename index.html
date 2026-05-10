@@ -1256,6 +1256,113 @@
       .ld-sprint-frame { left: 8%; right: 8%; top: 30%; height: 68px; }
     }
 
+
+    /* UPDATE 51 — Mobile Layout Cleanup
+       Fixes action button bars and wide tables on iPhone without changing business logic. */
+    button, button * {
+      word-break: normal !important;
+      overflow-wrap: normal !important;
+    }
+    .ld-header-actions {
+      min-width: 0;
+    }
+    .ld-table-scroll {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch;
+    }
+    .ld-table-scroll table {
+      min-width: 680px;
+    }
+    .ld-table-scroll th,
+    .ld-table-scroll td {
+      word-break: normal !important;
+      overflow-wrap: normal !important;
+      vertical-align: top;
+    }
+    .ld-table-scroll td button,
+    .ld-table-scroll th button {
+      white-space: nowrap !important;
+    }
+    .ld-mobile-help-text {
+      font-size: 11px;
+      color: #4A7060;
+      font-weight: 800;
+      line-height: 1.35;
+      display: none;
+      margin-top: 6px;
+    }
+    @media (max-width: 760px) {
+      .ld-header-actions {
+        width: 100% !important;
+        margin-top: 10px;
+      }
+      .ld-header-actions > div,
+      .ld-mobile-action-grid {
+        width: 100% !important;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+        align-items: stretch !important;
+      }
+      .ld-header-actions button,
+      .ld-mobile-action-grid button,
+      .ld-header-actions a,
+      .ld-mobile-action-grid a {
+        width: 100% !important;
+        min-height: 46px !important;
+        justify-content: center !important;
+        text-align: center !important;
+        padding: 10px 9px !important;
+        font-size: 12px !important;
+        line-height: 1.18 !important;
+        white-space: normal !important;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+      }
+      .ld-header-actions button:last-child:nth-child(odd),
+      .ld-mobile-action-grid button:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+      }
+      .ld-table-scroll {
+        border-radius: 12px;
+      }
+      .ld-table-scroll::before {
+        content: "Swipe table left/right";
+        display: block;
+        padding: 8px 10px;
+        background: #F0FBF4;
+        color: #174D2F;
+        font-size: 11px;
+        font-weight: 900;
+        border-bottom: 1px solid #CDE0D5;
+      }
+      .ld-table-scroll table {
+        min-width: 760px !important;
+      }
+      .ld-table-scroll th,
+      .ld-table-scroll td {
+        white-space: nowrap !important;
+      }
+      .ld-table-scroll td:nth-child(5),
+      .ld-table-scroll th:nth-child(5) {
+        min-width: 220px;
+        white-space: normal !important;
+      }
+      .ld-mobile-help-text { display: block; }
+    }
+    @media (max-width: 420px) {
+      .ld-header-actions > div,
+      .ld-mobile-action-grid {
+        grid-template-columns: 1fr !important;
+      }
+      .ld-header-actions button,
+      .ld-mobile-action-grid button {
+        font-size: 13px !important;
+      }
+    }
+
 </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -2016,7 +2123,7 @@
       return <button onClick={onClick} disabled={disabled} style={{ ...VS[v], padding: pad, fontSize: fs, fontWeight: 600, borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer", fontFamily: F.body, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", opacity: disabled ? .5 : 1, width: full ? "100%" : undefined, justifyContent: full ? "center" : undefined, transition: "opacity .12s", ...s }}>{children}</button>;
     }
     const Card = ({ children, style: s = {}, onClick }) => <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "16px 20px", cursor: onClick ? "pointer" : undefined, ...s }}>{children}</div>;
-    const Row = ({ children, gap = 10, wrap, center, between, end, style: s = {} }) => <div style={{ display: "flex", gap, flexWrap: wrap ? "wrap" : undefined, alignItems: center ? "center" : end ? "flex-end" : undefined, justifyContent: between ? "space-between" : undefined, ...s }}>{children}</div>;
+    const Row = ({ children, gap = 10, wrap, center, between, end, className, style: s = {} }) => <div className={className} style={{ display: "flex", gap, flexWrap: wrap ? "wrap" : undefined, alignItems: center ? "center" : end ? "flex-end" : undefined, justifyContent: between ? "space-between" : undefined, ...s }}>{children}</div>;
 
     function KPI({ label, value, sub, color, onClick }) {
       return <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "14px 14px", flex: 1, minWidth: 100, borderTop: `3px solid ${color || C.g500}`, cursor: onClick ? "pointer" : undefined }}>
@@ -2034,7 +2141,7 @@
           </div>
           {sub && <p style={{ fontSize: 13, color: C.tx3, margin: "4px 0 0", paddingLeft: 49 }}>{sub}</p>}
         </div>
-        {right && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>{right}</div>}
+        {right && <div className="ld-header-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>{right}</div>}
       </div>;
     }
     function Inp({ label, value, onChange, type = "text", placeholder, required, disabled, onKeyDown, style: s = {} }) {
@@ -2053,7 +2160,7 @@
       </div>;
     }
     function Tbl({ cols, rows, empty = "No data yet." }) {
-      return <div style={{ overflowX: "auto", border: `1px solid ${C.bd}`, borderRadius: 10 }}>
+      return <div className="ld-table-scroll" style={{ overflowX: "auto", border: `1px solid ${C.bd}`, borderRadius: 10 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead style={{ background: C.cardAlt }}>
             <tr>{cols.map(c => <th key={c.k || c.l} style={{ padding: "8px 11px", textAlign: c.right ? "right" : "left", color: C.tx3, fontWeight: 700, fontSize: 10, letterSpacing: .5, textTransform: "uppercase", borderBottom: `1px solid ${C.bd}`, whiteSpace: "nowrap" }}>{c.l}</th>)}</tr>
@@ -5053,7 +5160,7 @@
       const testResult = phase101InferPotSize({ lineText:testText, name:testText }, testNursery, settings);
       const downloadRules = () => phase1DownloadJson(`leafdiary-phase10-1-purchase-training-${today()}.json`, { appVersion:APP_VERSION, purchaseTraining:training, stats, exportedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="🧾" title="Receipt Reader Training" sub="Teach Leaf Diary how to read your nursery invoices before plants are saved." right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setPage && setPage("upload")}>📸 Upload Invoice</Btn><Btn sz="sm" v="ghost" onClick={downloadRules}>Download Rules</Btn></Row>} />
+        <SHdr icon="🧾" title="Receipt Reader Training" sub="Teach Leaf Diary how to read your nursery invoices before plants are saved." right={<Row className="ld-mobile-action-grid" gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setPage && setPage("upload")}>📸 Upload Invoice</Btn><Btn sz="sm" v="ghost" onClick={downloadRules}>Download Rules</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:"2px solid #97d33e" }}>
           <Row between wrap center gap={12}>
             <div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:26, fontWeight:900 }}>Teach Receipt Reader</div><div style={{ color:"rgba(255,255,255,.72)", fontSize:13, lineHeight:1.45, marginTop:4 }}>This protects the most important workflow: buy plants → take invoice photo → review nursery, pot size, cost, and quantity → save clean inventory. No paid cloud AI is needed for these training rules.</div></div>
@@ -5098,6 +5205,7 @@
         </div>
         <Card style={{ marginTop:14 }}>
           <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>Saved Pot-Size Rules</div><div style={{ fontSize:12, color:C.tx3 }}>Nursery-specific rules override general rules when a match is found.</div></div><Tag text={`${rules.length} rules`} color={C.g600} /></Row>
+          <div className="ld-mobile-help-text">Mobile tip: swipe the rules table left/right to see Notes and Delete.</div>
           <Tbl cols={[{k:"enabled",l:"On"},{k:"nursery",l:"Nursery"},{k:"match",l:"Invoice Text"},{k:"value",l:"Reads As"},{k:"notes",l:"Notes"},{k:"actions",l:"Actions"}]} rows={rules.map(r => ({
             enabled:<button onClick={()=>toggleRule(r.id)} style={{ background:r.enabled === false ? C.redBg : C.g100, color:r.enabled === false ? C.red : C.g800, border:`1px solid ${r.enabled === false ? C.red : C.g300}`, borderRadius:999, padding:"4px 8px", fontWeight:900, cursor:"pointer" }}>{r.enabled === false ? "Off" : "On"}</button>,
             nursery:r.nurseryCode === "*" || !r.nurseryCode ? "All" : r.nurseryCode,
@@ -6446,7 +6554,8 @@
         addAudit && addAudit({ action: `Exported Master Inventory CSV — ${list.length} plants`, user: user.name, page: 'Inventory' });
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🌿" title="Inventory Action Center" sub={`${displayList.length} showing · ${inventoryActionSummary}`} right={<Row gap={8}><Btn v={bulkMode ? "danger" : "soft"} sz="sm" onClick={() => bulkMode ? exitBulkMode() : setBulkMode(true)}>{bulkMode ? "Exit Bulk" : "☑️ Select Multiple"}</Btn><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="soft" sz="sm" onClick={() => setPage("photosprint")}>⚡ Photo Sprint</Btn>{canInlineEditInventory && <Btn v="soft" sz="sm" onClick={() => setPage("inlineedit")}>✏️ Inline Edit</Btn>}{canInlineEditInventory && <><Btn v="soft" sz="sm" onClick={() => setPage("bulkactions")}>☑️ Bulk Help</Btn><Btn v="soft" sz="sm" onClick={() => setPage("swipegestures")}>👆 Swipe Help</Btn></>}<Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
+        <SHdr icon="🌿" title="Inventory Action Center" sub={`${displayList.length} showing · ${inventoryActionSummary}`} right={<Row className="ld-mobile-action-grid" gap={8} wrap><Btn v={bulkMode ? "danger" : "soft"} sz="sm" onClick={() => bulkMode ? exitBulkMode() : setBulkMode(true)}>{bulkMode ? "Exit Bulk" : "☑️ Select Multiple"}</Btn><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="soft" sz="sm" onClick={() => setPage("photosprint")}>⚡ Photo Sprint</Btn>{canInlineEditInventory && <Btn v="soft" sz="sm" onClick={() => setPage("inlineedit")}>✏️ Inline Edit</Btn>}{canInlineEditInventory && <><Btn v="soft" sz="sm" onClick={() => setPage("bulkactions")}>☑️ Bulk Help</Btn><Btn v="soft" sz="sm" onClick={() => setPage("swipegestures")}>👆 Swipe Help</Btn></>}<Btn v="outline" sz="sm" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
+        <div className="ld-mobile-help-text">Mobile tip: the action buttons are grouped here so they stay readable. Use Photo Sprint for barcode-label photos, then plant photos.</div>
 
         <Card style={{ marginBottom: 14, background: C.blueBg, border: `1px solid ${C.blue}40` }}>
           <Row between wrap center gap={10}>
@@ -8169,7 +8278,7 @@
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="🏷️" title="Labels" sub="Download CSV for Labelife · Barcode value equals plant number · No in-app printing needed"
-          right={sel.size > 0 && <Row gap={6}>
+          right={sel.size > 0 && <Row className="ld-mobile-action-grid" gap={6} wrap>
             <Btn onClick={exportLabelifeFromLabels}>📥 Labelife Barcode CSV {sel.size}</Btn>
             <Btn v="outline" onClick={() => downloadCSV(avail.filter(p => sel.has(p.id)))}>📄 Research CSV</Btn>
             <Btn v="soft" onClick={exportPalmstreetFromLabels}>🌴 Palmstreet CSV + SKU Barcode</Btn>
@@ -8190,7 +8299,7 @@
               <div style={{ fontFamily:F.display, color:C.g900, fontSize:19, fontWeight:900 }}>Labelife barcode workflow</div>
               <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:3 }}>Select plants, click <b>Labelife Barcode CSV</b>, then upload that CSV into Labelife. Map <b>Barcode Value</b> to the barcode object and use <b>CODE128</b>. The barcode is the same as the plant number.</div>
             </div>
-            <Btn sz="sm" v="soft" onClick={() => setPage && setPage("labelife")}>Setup Help</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("barcodeqa")}>Barcode QA</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("scanlabel")}>Scan Label</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("photosprint")}>Photo Sprint</Btn>
+            <div className="ld-mobile-action-grid" style={{ display:"flex", gap:8, flexWrap:"wrap" }}><Btn sz="sm" v="soft" onClick={() => setPage && setPage("labelife")}>Setup Help</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("barcodeqa")}>Barcode QA</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("scanlabel")}>Scan Label</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("photosprint")}>Photo Sprint</Btn></div>
           </Row>
         </Card>
         <Row gap={8} wrap style={{ marginBottom: 16 }}>
