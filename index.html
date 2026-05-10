@@ -3300,7 +3300,7 @@
             {[["🏠 Today","today"],["🌿 Inventory","plants_ws"],["🎪 Shows","shows_ws"],["⚙️ Settings","admin_ws"]].map(([label,pageId]) => <button key={pageId} onClick={()=>setPage(pageId)} style={{ background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.35)", borderRadius:14, padding:"12px 9px", fontWeight:900, fontFamily:F.body, cursor:"pointer" }}>{label}</button>)}
           </div>
         </Card>
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(5,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
@@ -4189,6 +4189,168 @@
     }
 
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 73 — EMPLOYEE AI TASKS
+       Local/free, role-safe task cards for employees. No Supabase schema
+       changes. No cost, profit, cash, tax, AI settings, or supplier ROI
+       are included in employee tasks.
+    ══════════════════════════════════════════════════════════ */
+    const LD_PHASE73_ASSIGNMENTS_KEY = "leafDiaryEmployeeAiTaskAssignmentsV73";
+    const LD_PHASE73_DONE_KEY = "leafDiaryEmployeeAiTaskDoneV73";
+    const phase73UserKey = u => String(u?.id || u?.email || u?.name || "employee").trim() || "employee";
+    const phase73ReadJson = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch(e) { return fallback; } };
+    const phase73WriteJson = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch(e) {} };
+    const phase73PlantId = p => String(p?.plantId || p?.plantCode || p?.barcode || p?.id || "").trim();
+    const phase73ActiveClockIn = (timecards = [], user = {}) => safeArray(timecards).some(t => {
+      const sameUser = !user?.id && !user?.email && !user?.name ? true : (t.userId === user?.id || t.userEmail === user?.email || t.employeeName === user?.name || t.name === user?.name || t.user === user?.name);
+      const sameDay = t.date === today() || String(t.clockIn || t.createdAt || "").slice(0,10) === today();
+      return sameUser && sameDay && !t.out && !t.clockOut && !t.endTime;
+    });
+    function phase73MakeTask({ id, icon, title, reason, priority = "normal", page = "employeeboard", actionType = "task", plantIds = [], roleVisibility = ["employee","manager","owner"], button = "Open", count = "" }) {
+      return { id, icon, title, reason, priority, page, actionType, plantIds: safeArray(plantIds).filter(Boolean), roleVisibility, button, count, createdAt: new Date().toISOString(), safeForEmployee: true };
+    }
+    function phase73BuildEmployeeAITasks({ plants = [], receipts = [], timecards = [], user = {}, role = "employee", limits = {} } = {}) {
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64 && !p.imageUrl);
+      const noLabel = inStock.filter(p => !p.labelPrinted);
+      const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const showReady = inStock.filter(p => (p.photoUrl || p.photoBase64 || p.imageUrl) && (+p.suggestedPrice || +p.listPrice || +p.price) && p.labelPrinted !== false);
+      const soldOrders = groupSalesIntoOrders(plants);
+      const receiptsReview = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || r.status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
+      const clockedIn = phase73ActiveClockIn(timecards, user);
+      const photoLimit = Math.max(1, +limits.photoLimit || 25);
+      const labelLimit = Math.max(1, +limits.labelLimit || 40);
+      const pullLimit = Math.max(1, +limits.pullLimit || 20);
+      const orderLimit = Math.max(1, +limits.orderLimit || 10);
+      const tasks = [];
+      tasks.push(phase73MakeTask({
+        id:"clock-in", icon:"⏱️", title: clockedIn ? "You are clocked in" : "Clock in first",
+        reason: clockedIn ? "Your timecard is active. Work down the task list, then clock out when finished." : "Start the shift in Timecard before photos, labels, packing, receipts, or show prep.",
+        priority: clockedIn ? "good" : "urgent", page:"timecard", actionType:"timecard", button: clockedIn ? "Open Timecard" : "Clock In", count: clockedIn ? "Active" : "Start"
+      }));
+      if (noPhoto.length) tasks.push(phase73MakeTask({
+        id:"photo-sprint", icon:"⚡", title:`Take photos of ${Math.min(photoLimit, noPhoto.length)} plants`,
+        reason:`${noPhoto.length} in-stock plant(s) need photos before they are easy to sell or export. Use barcode scan → take photo → save → next plant.`,
+        priority:"high", page:"photosprint", actionType:"photo_sprint", plantIds:noPhoto.slice(0, photoLimit).map(phase73PlantId), button:"Photo Sprint", count:noPhoto.length
+      }));
+      if (noLabel.length) tasks.push(phase73MakeTask({
+        id:"print-labels", icon:"🏷️", title:`Print labels for ${Math.min(labelLimit, noLabel.length)} plants`,
+        reason:`${noLabel.length} plant(s) are missing printed labels. Labels keep barcode scanning, photo sprint, and show prep clean.`,
+        priority:"high", page:"labels", actionType:"print_labels", plantIds:noLabel.slice(0, labelLimit).map(phase73PlantId), button:"Labels", count:noLabel.length
+      }));
+      if (showReady.length) tasks.push(phase73MakeTask({
+        id:"pull-show-plants", icon:"🎪", title:`Pull ${Math.min(pullLimit, showReady.length)} show-ready plants`,
+        reason:`${showReady.length} plant(s) have the basics needed for show prep. Ask the owner/manager which platform and show list to stage.`,
+        priority:"normal", page:"showprep", actionType:"show_prep", plantIds:showReady.slice(0, pullLimit).map(phase73PlantId), button:"Pull List", count:showReady.length
+      }));
+      if (soldOrders.length) tasks.push(phase73MakeTask({
+        id:"pack-orders", icon:"📦", title:`Pack or review ${Math.min(orderLimit, soldOrders.length)} sold order groups`,
+        reason:`${soldOrders.length} sold order group(s) are saved from platform imports. Help with packing checks only when assigned.`,
+        priority:"normal", page:"packorders", actionType:"packing", button:"Packing", count:soldOrders.length
+      }));
+      if (receiptsReview.length) tasks.push(phase73MakeTask({
+        id:"scan-receipts", icon:"🧾", title:"Scan or clean receipts", reason:`${receiptsReview.length} receipt(s) need review or category cleanup. Upload gas, supplies, packaging, or nursery receipts when asked.`,
+        priority:"normal", page:"receipts", actionType:"receipt_scan", button:"Receipts", count:receiptsReview.length
+      }));
+      if (noPrice.length && role !== "employee") tasks.push(phase73MakeTask({
+        id:"manager-price-review", icon:"💲", title:"Manager price review", reason:`${noPrice.length} plant(s) need prices before they are show-ready. Employees should not see cost or profit; manager/owner can review pricing.`,
+        priority:"normal", page:"inv", actionType:"price_review", button:"Inventory", count:noPrice.length, roleVisibility:["manager","owner"]
+      }));
+      tasks.push(phase73MakeTask({
+        id:"clock-out", icon:"✅", title:"Clock out when finished", reason:"When the assigned work is done, return to Timecard and clock out so the day is complete.",
+        priority:"normal", page:"timecard", actionType:"timecard", button:"Clock Out", count:"Finish"
+      }));
+      return tasks.filter(t => safeArray(t.roleVisibility).includes(role) || role === "owner" || role === "manager");
+    }
+    function phase73AssignmentsForDate(date = today()) {
+      const store = phase73ReadJson(LD_PHASE73_ASSIGNMENTS_KEY, {});
+      return safeObject(store[date]);
+    }
+    function phase73GetAssignedTasks(user = {}, date = today()) {
+      const day = phase73AssignmentsForDate(date);
+      const rec = day[phase73UserKey(user)] || null;
+      return rec && Array.isArray(rec.tasks) ? rec : null;
+    }
+    function phase73SaveAssignment(assignee = {}, tasks = [], assignedBy = {}) {
+      const store = phase73ReadJson(LD_PHASE73_ASSIGNMENTS_KEY, {});
+      const date = today();
+      const day = safeObject(store[date]);
+      const key = phase73UserKey(assignee);
+      day[key] = {
+        id: uid(), date, assigneeKey:key, assigneeName: assignee.name || assignee.email || "Employee", assigneeEmail: assignee.email || "",
+        assignedBy: assignedBy?.name || assignedBy?.email || "Owner/Manager", createdAt:new Date().toISOString(),
+        tasks: safeArray(tasks).map(t => ({ ...t, assignedAt:new Date().toISOString(), assignedBy: assignedBy?.name || assignedBy?.email || "Owner/Manager" }))
+      };
+      store[date] = day;
+      phase73WriteJson(LD_PHASE73_ASSIGNMENTS_KEY, store);
+      return day[key];
+    }
+    function Phase73EmployeeAITasks({ plants = [], receipts = [], timecards = [], users = [], user = {}, setPage, mode = "employee", compact = false }) {
+      const role = user?.role || "employee";
+      const canAssign = role === "owner" || role === "manager" || mode === "manager" || mode === "owner";
+      const [done, setDone] = useState(() => phase73ReadJson(LD_PHASE73_DONE_KEY, {}));
+      const [savedAssignments, setSavedAssignments] = useState(() => phase73AssignmentsForDate(today()));
+      const generatedTasks = phase73BuildEmployeeAITasks({ plants, receipts, timecards, user, role: canAssign ? "manager" : role });
+      const assignedRecord = phase73GetAssignedTasks(user, today());
+      const visibleTasks = (!canAssign && assignedRecord?.tasks?.length) ? assignedRecord.tasks : generatedTasks;
+      const assignableUsers = safeArray(users).filter(u => (u.role || "employee") !== "owner");
+      const fallbackAssignee = assignableUsers[0] || { name:user?.name || "Employee", email:user?.email || "", role:"employee" };
+      const [assigneeKey, setAssigneeKey] = useState(phase73UserKey(fallbackAssignee));
+      const assignee = assignableUsers.find(u => phase73UserKey(u) === assigneeKey) || fallbackAssignee;
+      const doneKey = id => `${today()}-${phase73UserKey(user)}-${id}`;
+      const isDone = id => !!done[doneKey(id)];
+      const toggleDone = id => { const next = { ...done, [doneKey(id)]: !done[doneKey(id)] }; setDone(next); phase73WriteJson(LD_PHASE73_DONE_KEY, next); };
+      const priColor = p => p === "urgent" ? C.red : p === "high" ? C.amber : p === "good" ? C.g600 : C.blue;
+      const saveAssignment = () => {
+        const targetTasks = phase73BuildEmployeeAITasks({ plants, receipts, timecards, user:assignee, role:"employee" });
+        const rec = phase73SaveAssignment(assignee, targetTasks, user);
+        setSavedAssignments(phase73AssignmentsForDate(today()));
+        alert(`Saved ${targetTasks.length} AI task(s) for ${rec.assigneeName}.`);
+      };
+      const clearAssignment = () => {
+        const store = phase73ReadJson(LD_PHASE73_ASSIGNMENTS_KEY, {});
+        const date = today();
+        const day = safeObject(store[date]);
+        delete day[assigneeKey]; store[date] = day;
+        phase73WriteJson(LD_PHASE73_ASSIGNMENTS_KEY, store);
+        setSavedAssignments(phase73AssignmentsForDate(date));
+      };
+      const exportTasks = () => {
+        const rows = [["Date","Assigned To","Task","Priority","Count","Page","Plant IDs","Status"], ...visibleTasks.map(t => [today(), user?.name || user?.email || "User", t.title, t.priority, t.count || "", t.page, safeArray(t.plantIds).join(" "), isDone(t.id) ? "Done" : "Open"] )];
+        downloadCsv(`leaf-diary-ai-employee-tasks-${today()}.csv`, rows);
+      };
+      const assignedCount = Object.keys(savedAssignments || {}).length;
+      return <Card style={{ padding:compact ? 14 : 18, marginBottom:14, borderLeft:`6px solid #fb6392`, background:compact ? C.g50 : C.card }}>
+        <Row between center wrap gap={10} style={{ marginBottom:12 }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:F.display, fontSize:compact ? 20 : 23, color:C.g900, fontWeight:900 }}>🧠 AI Employee Tasks</div>
+            <div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{canAssign ? "Owner/manager can generate and assign a safe employee task list. Local-only first; no schema changes." : (assignedRecord ? `Assigned by ${assignedRecord.assignedBy}.` : "Safe task list only: clock in, photos, labels, show prep, packing, receipts, clock out.")}</div>
+          </div>
+          <Row gap={7} wrap><Tag text={`${visibleTasks.length} tasks`} color="#fb6392" />{canAssign && <Tag text={`${assignedCount} assigned today`} color={C.blue} />}<Btn sz="sm" v="soft" onClick={exportTasks}>Export</Btn></Row>
+        </Row>
+        {canAssign && <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) auto auto", gap:8, alignItems:"end", marginBottom:12 }}>
+          <Sel label="Assign To" value={assigneeKey} onChange={setAssigneeKey} options={(assignableUsers.length ? assignableUsers : [fallbackAssignee]).map(u => ({ v:phase73UserKey(u), l:`${u.name || u.email || "Employee"}${u.role ? ` · ${u.role}` : ""}` }))} />
+          <Btn onClick={saveAssignment}>Create Tasks</Btn>
+          <Btn v="ghost" onClick={clearAssignment}>Clear</Btn>
+        </div>}
+        {canAssign && savedAssignments[assigneeKey]?.tasks?.length && <div style={{ background:C.blueBg, border:`1px solid ${C.blue}33`, borderRadius:14, padding:"9px 11px", marginBottom:10, color:C.tx2, fontSize:12, fontWeight:800 }}>Saved for {savedAssignments[assigneeKey].assigneeName}: {savedAssignments[assigneeKey].tasks.length} task(s). Employees on this device will see assigned tasks first.</div>}
+        <div style={{ display:"grid", gap:9 }}>
+          {visibleTasks.map((t,i)=><div key={t.id+i} style={{ background:i===0 && !compact ? "#000" : C.cardAlt, color:i===0 && !compact ? "#fff" : C.tx1, border:`1px solid ${i===0 && !compact ? priColor(t.priority) : C.bd}`, borderRadius:16, padding:"12px 12px" }}>
+            <Row gap={11} center>
+              <button onClick={()=>toggleDone(t.id)} style={{ width:32, height:32, borderRadius:999, border:`2px solid ${isDone(t.id) ? C.g600 : C.bd}`, background:isDone(t.id) ? C.g600 : "#fff", color:"#fff", fontWeight:900, cursor:"pointer", flexShrink:0 }}>{isDone(t.id) ? "✓" : ""}</button>
+              <div style={{ width:42, height:42, borderRadius:14, background:priColor(t.priority)+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{t.icon}</div>
+              <div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:950, color:i===0 && !compact ? "#97d33e" : C.g900, textDecoration:isDone(t.id) ? "line-through" : "none" }}>{t.title}</div><div style={{ color:i===0 && !compact ? "rgba(255,255,255,.72)" : C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{t.reason}</div>{safeArray(t.plantIds).length > 0 && <div style={{ color:i===0 && !compact ? "rgba(255,255,255,.55)" : C.tx4, fontSize:10, marginTop:5, fontWeight:800 }}>Plants: {safeArray(t.plantIds).slice(0,8).join(", ")}{safeArray(t.plantIds).length > 8 ? ` +${safeArray(t.plantIds).length - 8}` : ""}</div>}</div>
+              <Btn sz="sm" v={t.priority === "urgent" ? "danger" : "soft"} onClick={()=>setPage(t.page)}>{t.button || "Open"}</Btn>
+            </Row>
+          </div>)}
+        </div>
+        <div style={{ marginTop:10, color:C.tx3, fontSize:11, lineHeight:1.35, fontWeight:800 }}>Employee-safe: this card never shows cost, profit, cash, taxes, owner repair tools, AI settings, payroll totals, or supplier ROI.</div>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: minmax(0,1fr) auto auto"]{grid-template-columns:1fr!important}.ld-page button{min-height:44px}}`}</style>
+      </Card>;
+    }
+
     function EmployeeSimpleHome({ plants = [], timecards = [], setPage, user }) {
       const inStock = plants.filter(p => p.status === "In Stock");
       const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
@@ -4218,6 +4380,7 @@
           </div>
         </div>
         <OnboardingChecklist user={user} plants={plants} timecards={timecards} settings={{}} nurseries={[]} setPage={setPage} compact={true} />
+        <Phase73EmployeeAITasks plants={plants} receipts={[]} timecards={timecards} users={[]} user={user} setPage={setPage} mode="employee" compact={true} />
         <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
           {buttons.map(([label,id,icon,sub]) => <button key={id+label} onClick={()=>setPage(id)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:22, padding:"18px 16px", textAlign:"left", cursor:"pointer", boxShadow:"0 8px 24px rgba(13,43,26,.07)", fontFamily:F.body }}>
             <Row gap={14} center>
@@ -7211,6 +7374,265 @@
       ];
       return lines.filter(x => x !== null && x !== undefined).join('\n').replace(/\n{3,}/g, '\n\n');
     };
+
+    /* UPDATE 67 — AI Plant Description Builder + Export Guard
+       Local/free first. No new page. Saved in localStorage by plant number.
+       Do not change plant numbers, Labelife barcode values, or platform CSV headers. */
+    const AI_DESC_KEY = 'leafDiaryAiDescriptionsByPlantId';
+    const AI_DESC_STYLES = ['Premium Collector', 'Live Auction Hype', 'Simple Clean', 'Beginner Friendly', 'Rare Plant Boutique', 'SEO Marketplace'];
+    function readAiDescriptionStore() {
+      try { const v = JSON.parse(localStorage.getItem(AI_DESC_KEY) || '{}'); return safeObject(v); } catch(e) { return {}; }
+    }
+    function writeAiDescriptionStore(store) {
+      try { localStorage.setItem(AI_DESC_KEY, JSON.stringify(safeObject(store))); } catch(e) {}
+    }
+    function aiDescKey(plant, platform = '') {
+      const id = safePlantId(plant) || platformScannerCode(plant) || plant?.id || '';
+      return `${String(platform || 'Any').toLowerCase()}::${String(id).trim()}`;
+    }
+    function aiDescFallbackKey(plant) {
+      const id = safePlantId(plant) || platformScannerCode(plant) || plant?.id || '';
+      return `any::${String(id).trim()}`;
+    }
+    function getAiDescRecord(plant, platform = '') {
+      const store = readAiDescriptionStore();
+      return safeObject(store[aiDescKey(plant, platform)] || store[aiDescFallbackKey(plant)]);
+    }
+    function saveAiDescRecord(plant, rec = {}, platform = '') {
+      const store = readAiDescriptionStore();
+      const key = aiDescKey(plant, platform || rec.platform || 'Any');
+      store[key] = { ...safeObject(store[key]), ...safeObject(rec), plantId: safePlantId(plant), platform: platform || rec.platform || 'Any', updatedAt: new Date().toISOString() };
+      writeAiDescriptionStore(store);
+      return store[key];
+    }
+    function removeAiDescRecord(plant, platform = '') {
+      const store = readAiDescriptionStore();
+      delete store[aiDescKey(plant, platform)];
+      delete store[aiDescFallbackKey(plant)];
+      writeAiDescriptionStore(store);
+    }
+    function plantHasPhotoForDescription(p) { return !!(publicPlantPhoto(p) || p.photoBase64 || p.imageUrl || p.image_url); }
+    function generateFreePlantDescription(p, opts = {}) {
+      const style = opts.style || 'Premium Collector';
+      const platform = opts.platform || 'Palmstreet';
+      const name = toTC(p.name || 'Leaf Diary Plant');
+      const pot = p.potSize || p.size || p.containerSize || '';
+      const genus = gOf(name);
+      const price = +p.suggestedPrice || +p.salePrice || +p.marketRec || 0;
+      const age = dHeld(p.dateAdded);
+      const hasPhoto = plantHasPhotoForDescription(p);
+      const exact = hasPhoto ? 'Exact plant shown.' : 'Plant will be shown clearly during the live show.';
+      const potLine = pot ? `Grown in a ${pot} pot.` : 'Pot size will be confirmed during the live show.';
+      const priceTier = price >= 80 ? 'premium collector-style' : price >= 40 ? 'collector-friendly' : 'easy-to-love';
+      const ageLine = Number.isFinite(age) && age >= 45 ? 'This one is also a smart pick for anyone watching for a special live-show deal.' : '';
+      const bank = {
+        'Live Auction Hype': [
+          `${name} is a ${priceTier} ${genus} with strong live-show appeal, clean presentation, and great shelf presence. ${potLine} ${exact} ${ageLine}`,
+          `Add some fresh Leaf Diary energy to your collection with this ${name}. It has a great look for a live auction, photographs well, and brings that instant plant-table excitement. ${potLine} ${exact}`
+        ],
+        'Simple Clean': [
+          `${name} from Leaf Diary. A clean, healthy-looking plant with attractive foliage and a simple indoor-plant feel. ${potLine} ${exact} Ships with care from Leaf Diary.`,
+          `${name} is a nice choice for plant lovers who want something easy to enjoy and simple to display. ${potLine} ${exact} Packed carefully by Leaf Diary.`
+        ],
+        'Beginner Friendly': [
+          `${name} is a friendly pick for someone building their indoor plant collection. It has an approachable look, nice foliage, and a good display size. ${potLine} ${exact}`,
+          `A great Leaf Diary plant for a shelf, table, or starter collection. ${name} brings an easy indoor-plant vibe without feeling boring. ${potLine} ${exact}`
+        ],
+        'Rare Plant Boutique': [
+          `${name} has that boutique Leaf Diary feel: interesting foliage, strong presentation, and a collector-style look without the boring big-box description. ${potLine} ${exact}`,
+          `A standout ${genus} with a polished rare-plant shop feel. ${name} is a great live-show pick for someone who likes plants with personality. ${potLine} ${exact}`
+        ],
+        'SEO Marketplace': [
+          `${name} is a beautiful indoor plant from Leaf Diary, selected for plant collectors and houseplant lovers looking for unique foliage and strong display appeal. ${potLine} ${exact}`,
+          `Shop this ${name} from Leaf Diary for a fresh addition to your indoor plant collection. It offers attractive foliage, a nice presentation, and careful Leaf Diary packing. ${potLine} ${exact}`
+        ],
+        'Premium Collector': [
+          `${name} has a polished collector feel with attractive foliage, strong contrast, and a premium shelf presence. ${potLine} ${exact} Selected by Leaf Diary for plant lovers who want something special.`,
+          `Beautiful ${name} with a refined Leaf Diary look and plenty of collector appeal. It is a strong choice for anyone wanting a plant that feels special on camera and on the shelf. ${potLine} ${exact}`
+        ]
+      };
+      const arr = bank[style] || bank['Premium Collector'];
+      const seed = String(safePlantId(p) || p.name || '').split('').reduce((n,ch)=>n+ch.charCodeAt(0),0);
+      return arr[seed % arr.length].replace(/\s+/g, ' ').trim();
+    }
+    function getPlantExportDescription(plant, opts = {}) {
+      const platform = opts.platform || '';
+      const rec = getAiDescRecord(plant, platform);
+      const saved = String(rec.description || '').trim();
+      if (saved) return saved;
+      if (plant.aiDescription) return String(plant.aiDescription).trim();
+      if (plant.description) return String(plant.description).trim();
+      return smartPlantDescription(plant, opts.showName || '');
+    }
+    /* UPDATE 70 — Export Guard
+       Strong platform-export safety check. Blocks bad exports by default.
+       Owner / permitted override only happens when the user taps export.
+       Does not change CSV headers, SKU/barcode values, plant numbers, or price helpers. */
+    function runShowExportGuard(list = [], platform = 'Palmstreet', opts = {}) {
+      const rows = safeArray(list);
+      const platformName = platform === 'Whatnot' ? 'Whatnot' : 'Palmstreet';
+      const base = platformName === 'Whatnot' ? validateWhatnotPlants(rows) : validatePalmstreetPlants(rows);
+      const errors = [...base];
+      const warnings = [];
+      const seenIds = {};
+      const seenDesc = {};
+      const validShowStatuses = ['In Stock', 'Ready For Show', 'Needs Label', 'Needs Photo'];
+      const normalizedDesc = desc => String(desc || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const descSimilarity = (a, b) => {
+        const aw = new Set(normalizedDesc(a).split(' ').filter(w => w.length > 3));
+        const bw = new Set(normalizedDesc(b).split(' ').filter(w => w.length > 3));
+        if (!aw.size || !bw.size) return 0;
+        let hit = 0;
+        aw.forEach(w => { if (bw.has(w)) hit++; });
+        return hit / Math.max(aw.size, bw.size);
+      };
+      rows.forEach((p, i) => {
+        const row = i + 1;
+        const id = safePlantId(p) || `Row ${row}`;
+        const actualId = safePlantId(p);
+        const scanCode = platformScannerCode(p);
+        const status = String(p?.status || 'In Stock');
+        const pot = String(p?.potSize || p?.pot_size || p?.size || p?.containerSize || '').trim();
+        const publicPhotoUrl = publicPlantPhoto(p);
+        const hasAnyPhoto = plantHasPhotoForDescription(p);
+        const savedDesc = String(getAiDescRecord(p, platformName).description || '').trim();
+        const manualDesc = String(p?.aiDescription || p?.description || '').trim();
+        const exportDesc = getPlantExportDescription(p, { platform: platformName, showName: opts.showName || '' }).trim();
+        const guardDesc = savedDesc || manualDesc;
+        const rawPriceText = String(p?.salePrice ?? p?.suggestedPrice ?? p?.marketRec ?? p?.price ?? '').trim();
+        const rawPrice = moneyNum(rawPriceText);
+
+        if (!actualId) errors.push(`Row ${row}: missing Plant ID / SKU`);
+        if (!scanCode) errors.push(`${id}: missing barcode/SKU value`);
+        if (actualId && scanCode && scanCode !== actualId) errors.push(`${id}: barcode/SKU must match plant number. Current scanner code: ${scanCode}`);
+        if (actualId) {
+          const key = actualId.toLowerCase();
+          seenIds[key] = seenIds[key] || [];
+          seenIds[key].push(row);
+        }
+        if (!validShowStatuses.includes(status)) errors.push(`${id}: plant status is ${status}. Only In Stock/show-ready plants can export.`);
+        if (['Sold', 'Dead', 'Damaged', 'Returned', 'Personal', 'Giveaway'].includes(status)) errors.push(`${id}: ${status} plant cannot be included in a platform show export.`);
+        if (!p?.name) errors.push(`${id}: missing plant name`);
+        if (!pot) errors.push(`${id}: missing pot size`);
+        if (platformName === 'Whatnot') {
+          if (!wholeDollarPrice(p)) errors.push(`${id}: missing Whatnot whole-dollar price`);
+          if (rawPrice && Math.round(rawPrice) !== rawPrice) warnings.push(`${id}: Whatnot export will round ${$(rawPrice)} up to ${wholeDollarPrice(p)} because Whatnot needs a whole-dollar integer.`);
+        } else if (!cleanPrice(p)) {
+          errors.push(`${id}: missing Palmstreet price`);
+        }
+        if (!hasAnyPhoto) errors.push(`${id}: missing plant photo. Add a public photo before platform export.`);
+        if (hasAnyPhoto && !isPublicHttpsUrl(publicPhotoUrl)) errors.push(`${id}: photo exists but the CSV needs a public https:// image URL.`);
+        if (!guardDesc) errors.push(`${id}: missing saved AI/manual description. Generate or write a description before export.`);
+        if (guardDesc && guardDesc.length < 45) warnings.push(`${id}: description is short; review before export.`);
+        if (exportDesc && exportDesc.length > 900) warnings.push(`${id}: description is very long and may be shortened by some platforms.`);
+        const compact = normalizedDesc(guardDesc || exportDesc).slice(0, 180);
+        if (compact) {
+          seenDesc[compact] = seenDesc[compact] || [];
+          seenDesc[compact].push(id);
+        }
+      });
+      Object.entries(seenIds).forEach(([id, rowsFound]) => {
+        if (rowsFound.length > 1) errors.push(`Duplicate plant number ${id.toUpperCase()} appears in show rows ${rowsFound.join(', ')}`);
+      });
+      Object.entries(seenDesc).forEach(([desc, ids]) => {
+        if (ids.length > 1) errors.push(`Duplicate description detected for ${ids.slice(0, 5).join(', ')}`);
+      });
+      const descRows = rows.map(p => ({ id: safePlantId(p) || platformScannerCode(p) || p?.id || '', desc: String(getAiDescRecord(p, platformName).description || p?.aiDescription || p?.description || '').trim() })).filter(x => x.id && x.desc);
+      for (let i = 0; i < descRows.length; i++) {
+        for (let j = i + 1; j < descRows.length; j++) {
+          const sim = descSimilarity(descRows[i].desc, descRows[j].desc);
+          if (sim >= .82) warnings.push(`${descRows[i].id} and ${descRows[j].id}: descriptions look too similar (${Math.round(sim * 100)}% match).`);
+        }
+      }
+      return { ok: errors.length === 0, errors, warnings, checked: rows.length, platform: platformName, generatedAt: new Date().toISOString() };
+    }
+
+    /* UPDATE 68 — Smart Gateway Unique Plant Descriptions
+       Manual only. Max 35 plants per Gateway call. Saves by plant number.
+       This does not change CSV headers, SKU/barcode values, or plant numbers. */
+    function aiDescGatewayPlantPayload(plant, platform = 'Palmstreet', style = 'Premium Collector') {
+      return {
+        plantId: safePlantId(plant) || platformScannerCode(plant) || plant?.id || '',
+        name: toTC(plant?.name || 'Leaf Diary Plant'),
+        potSize: plant?.potSize || plant?.size || plant?.containerSize || '',
+        genus: gOf(plant?.name || ''),
+        suggestedPrice: +plant?.suggestedPrice || +plant?.salePrice || +plant?.marketRec || +plant?.price || 0,
+        daysInStock: dHeld(plant?.dateAdded),
+        hasPhoto: plantHasPhotoForDescription(plant),
+        platform,
+        style
+      };
+    }
+    function aiDescBuildGatewayPrompt(plants = [], opts = {}) {
+      const platform = opts.platform || 'Palmstreet';
+      const style = opts.style || 'Premium Collector';
+      const showName = opts.showName || 'Leaf Diary live show';
+      const payload = safeArray(plants).map(p => aiDescGatewayPlantPayload(p, platform, style));
+      return `You are writing marketplace descriptions for Leaf Diary, a boutique rare plant seller.
+
+Write one 100% unique product description per plant for this live-show export.
+
+Rules:
+- Return JSON only. No markdown. No intro.
+- JSON format must be: [{"plantId":"...","description":"..."}]
+- Keep each description 45 to 85 words.
+- Do not mention AI.
+- Do not include cost, profit, supplier cost, or private notes.
+- Do not make false claims about rarity, health, pests, or care guarantees.
+- Use "Exact plant shown" only when hasPhoto is true.
+- Vary sentence structure so descriptions do not feel copied.
+- Tone: ${style}. Platform: ${platform}. Show: ${showName}.
+
+Plants:
+${JSON.stringify(payload, null, 2)}`;
+    }
+    function aiDescExtractJsonArray(text = '') {
+      const raw = String(text || '').trim();
+      if (!raw) return [];
+      const attempts = [raw];
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fenced) attempts.push(fenced[1].trim());
+      const start = raw.indexOf('['), end = raw.lastIndexOf(']');
+      if (start >= 0 && end > start) attempts.push(raw.slice(start, end + 1));
+      for (const a of attempts) {
+        try {
+          const parsed = JSON.parse(a);
+          if (Array.isArray(parsed)) return parsed;
+          if (Array.isArray(parsed.descriptions)) return parsed.descriptions;
+          if (Array.isArray(parsed.items)) return parsed.items;
+          if (Array.isArray(parsed.plants)) return parsed.plants;
+        } catch(e) {}
+      }
+      return [];
+    }
+    function aiDescCleanGatewayDescription(desc = '') {
+      return String(desc || '')
+        .replace(/^description\s*:\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 900);
+    }
+    function aiDescApplyGatewayRows(rows = [], targetPlants = [], opts = {}) {
+      const platform = opts.platform || 'Palmstreet';
+      const style = opts.style || 'Premium Collector';
+      const byId = {};
+      safeArray(targetPlants).forEach(p => {
+        const id = String(safePlantId(p) || platformScannerCode(p) || p?.id || '').trim().toLowerCase();
+        if (id) byId[id] = p;
+      });
+      let saved = 0;
+      safeArray(rows).forEach(row => {
+        const rowId = String(row.plantId || row.plantID || row.id || row.sku || row.code || '').trim().toLowerCase();
+        const plant = byId[rowId];
+        const description = aiDescCleanGatewayDescription(row.description || row.desc || row.text || row.copy || '');
+        if (!plant || !description) return;
+        const existing = getAiDescRecord(plant, platform);
+        if (existing.locked && existing.description) return;
+        saveAiDescRecord(plant, { description, style, platform, locked:false, source:'smart-gateway', generatedAt:new Date().toISOString() }, platform);
+        saved++;
+      });
+      return saved;
+    }
     const validatePalmstreetPlants = list => {
       const seen = new Set();
       const errors = [];
@@ -7232,7 +7654,7 @@
     const makePalmstreetCSV = (list, opts = {}) => {
       const rows = list.map(p => [
         palmTitle(p),
-        smartPlantDescription(p, opts.showName || ''),
+        getPlantExportDescription(p, { platform: 'Palmstreet', showName: opts.showName || '' }),
         publicPlantPhoto(p),
         cleanPrice(p),
         '1',
@@ -7276,7 +7698,7 @@
         d.category,
         d.subCategory,
         whatnotTitle(p),
-        smartPlantDescription(p, opts.showName || ''),
+        getPlantExportDescription(p, { platform: 'Whatnot', showName: opts.showName || '' }),
         '1',
         opts.listingType || d.type,
         wholeDollarPrice(p),
@@ -9117,6 +9539,140 @@
     }
 
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 74 — RECEIPT AI COPILOT UPGRADE
+       Local/free first. Smart Gateway review is manual owner/manager only.
+       No new page. No Supabase schema changes. Receipt fields are saved as
+       regular loose object metadata inside the current receipt record.
+    ══════════════════════════════════════════════════════════ */
+    function phase74Money(v) { return +(String(v || "").replace(/[^0-9.\-]/g, "")) || 0; }
+    function phase74Norm(v) { return String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+    function phase74ReceiptKey(r = {}) {
+      return [phase74Norm(r.vendor_name || r.vendor || r.payee), String(r.receipt_date || r.date || "").slice(0,10), String(phase74Money(r.total || r.amount).toFixed(2))].join("|");
+    }
+    function phase74TextOfReceipt(r = {}) {
+      return [
+        r.vendor_name, r.vendor, r.document_type, r.main_category, r.bill_category,
+        r.business_purpose, r.notes, r.ocr_text, r.raw_text, r.receipt_number,
+        ...(Array.isArray(r.items) ? r.items.map(i => [i.item_name, i.name, i.category, i.notes].filter(Boolean).join(" ")) : [])
+      ].filter(Boolean).join(" ");
+    }
+    function phase74RuleMatch(form = {}) {
+      const vendor = phase74Norm(form.vendor_name || form.vendor || "");
+      const text = phase74Norm(phase74TextOfReceipt(form));
+      const both = `${vendor} ${text}`;
+      const rules = [
+        { id:"gas", label:"Gas / nursery run", re:/(shell|racetrac|race trac|wawa|chevron|exxon|circle k|bp|mobil|sunoco|marathon|speedway|citgo|murphy|fuel|gasoline|diesel)/i, category:"Gas & Mileage", billCategory:"Other", purpose:"Nursery run gas", confidence:92, tax:true },
+        { id:"packaging", label:"Packaging supplies", re:/(walmart|sam s|target|dollar general|dollar tree|uline|bubble mailer|box|boxes|tape|poly mailer|thermal label|packing|packaging)/i, category:"Packaging Supplies", billCategory:"Supplier", purpose:"Packaging materials", confidence:86, tax:true },
+        { id:"shipping", label:"Shipping supplies / postage", re:/(usps|ups|fedex|post office|pirate ship|stamps com|shipping|postage|label)/i, category:"Shipping Supplies", billCategory:"Supplier", purpose:"Shipping supplies", confidence:88, tax:true },
+        { id:"nursery", label:"Plant inventory / nursery", re:/(nursery|grower|farms|foliage|plants|plant supply|wholesale|tropical|botanical|greenhouse|aroid|tissue culture|tc plant)/i, category:"Plant Care Supplies", billCategory:"Supplier", purpose:"Plant supply purchase", confidence:84, tax:true, docType:"nursery_invoice" },
+        { id:"soil", label:"Soil / amendments", re:/(soil|perlite|orchid bark|sphagnum|moss|pon|leca|fertilizer|substrate|amendment|potting mix)/i, category:"Soil & Amendments", billCategory:"Supplier", purpose:"Plant supply purchase", confidence:88, tax:true },
+        { id:"pots", label:"Pots / containers", re:/(pot|pots|planter|container|tray|nursery pot|clear pot|cache pot)/i, category:"Pots & Containers", billCategory:"Supplier", purpose:"Plant supply purchase", confidence:84, tax:true },
+        { id:"tools", label:"Tools / equipment", re:/(home depot|lowe s|ace hardware|tractor supply|harbor freight|shelf|shelving|rack|light|fan|humidifier|printer|scale|scanner|tool)/i, category:"Tools & Equipment", billCategory:"Supplier", purpose:"Live show supplies", confidence:82, tax:true },
+        { id:"software", label:"Software / website", re:/(shopify|canva|openai|cloudflare|google|meta|facebook|adobe|quickbooks|godaddy|ionos|domain|hosting|software|subscription)/i, category:"Software & Website", billCategory:"Software", purpose:"Website/software expense", confidence:90, tax:true, recurring:true, docType:"software_bill" },
+        { id:"platform", label:"Selling platform fee", re:/(palmstreet|whatnot|stripe|paypal|shopify payments|platform fee|seller fee)/i, category:"Software & Website", billCategory:"Platform Fee", purpose:"Website/software expense", confidence:88, tax:true },
+        { id:"utility", label:"Utility / phone / internet bill", re:/(duke energy|spectrum|xfinity|frontier|verizon|at t|t mobile|electric|utility|internet|phone bill)/i, category:"Rent & Utilities", billCategory:"Utilities", purpose:"Office/admin expense", confidence:90, tax:true, recurring:true, docType:"utility_bill" },
+        { id:"insurance", label:"Insurance bill", re:/(insurance|progressive|state farm|geico|allstate|policy|premium)/i, category:"Other", billCategory:"Insurance", purpose:"Other business expense", confidence:82, tax:true, recurring:true, docType:"insurance_bill" },
+        { id:"ads", label:"Advertising / marketing", re:/(ad spend|advertising|boosted post|facebook ads|meta ads|google ads|promotion|marketing)/i, category:"Advertising & Marketing", billCategory:"Other", purpose:"Website/software expense", confidence:85, tax:true }
+      ];
+      const hit = rules.find(r => r.re.test(both));
+      return hit || { id:"unknown", label:"Unknown / needs review", category:"Other", billCategory:"Other", purpose:"Other business expense", confidence:48, tax:true };
+    }
+    function phase74AnalyzeReceipt(form = {}, receipts = []) {
+      const rule = phase74RuleMatch(form);
+      const amount = phase74Money(form.total || form.amount);
+      const payment = String(form.payment_method || form.payMethod || "").trim();
+      const docType = String(form.document_type || "receipt");
+      const receiptNo = String(form.receipt_number || form.invoice_number || "").trim();
+      const date = String(form.receipt_date || form.date || "").slice(0,10);
+      const key = phase74ReceiptKey(form);
+      const duplicateMatches = safeArray(receipts).filter(r => phase74ReceiptKey(r) === key && key !== "||0.00");
+      const receiptNoMatches = receiptNo ? safeArray(receipts).filter(r => String(r.receipt_number || r.invoice_number || "").trim().toLowerCase() === receiptNo.toLowerCase()) : [];
+      const duplicateCount = Math.max(duplicateMatches.length, receiptNoMatches.length);
+      const items = safeArray(form.items);
+      const missing = [];
+      const suggestions = [];
+      const actions = [];
+      const addAction = (title, body, severity = "info", field = "") => actions.push({ id:uid(), title, body, severity, field });
+
+      if (!form.vendor_name) { missing.push("vendor"); addAction("Vendor missing", "Add the vendor/store name before saving so the receipt can be searched later.", "warning", "vendor_name"); }
+      if (!date) { missing.push("date"); addAction("Date missing", "Add the receipt date before saving.", "warning", "receipt_date"); }
+      if (!amount) { missing.push("total"); addAction("Total missing", "Add the total paid before saving to Expenses or Bills.", "critical", "total"); }
+      if (!payment || payment === "Other") { missing.push("payment"); addAction("Payment method needs review", "Choose Cash, Credit Card, Debit Card, PayPal, Venmo, Zelle, or the right payment method.", "warning", "payment_method"); }
+      if (payment === "Credit Card" && !String(form.card_last4 || "").trim()) addAction("Card last 4 missing", "Add the last 4 digits so card statements can be matched later.", "warning", "card_last4");
+      if (!form.receipt_image_url && !form.receipt_image_data && !form.imageUrl) addAction("Receipt image not preserved yet", "Save should keep a cloud image or local image backup. Re-upload if the image is missing.", "warning", "receipt_image");
+      if (!form.main_category || form.main_category === "Other") suggestions.push(`Category: ${rule.category}`);
+      if (!form.business_purpose || form.business_purpose === "Other business expense") suggestions.push(`Purpose: ${rule.purpose}`);
+      if (duplicateCount) addAction("Possible duplicate", `${duplicateCount} matching receipt(s) already exist by vendor/date/amount or receipt number. Review before saving anyway.`, "critical", "duplicate");
+      if (rule.recurring || ["bill","utility_bill","insurance_bill","software_bill"].includes(docType) || form.due_date || form.is_recurring) addAction("Bill/subscription detected", "This may need to route to Bills or Expense + Bill so it appears in upcoming payments.", "info", "route");
+      if (rule.id === "nursery") addAction("Nursery or plant purchase detected", "Confirm if this should be plant inventory, plant supplies, or a nursery invoice before saving.", "info", "main_category");
+      if (rule.id === "gas" && (!form.vehicle_name || !form.odometer)) addAction("Gas receipt details", "Add vehicle/odometer when available so nursery-run gas records are cleaner.", "info", "vehicle_name");
+      if (items.length > 1 && items.some(i => !i.category || i.category === "Other")) addAction("Line items need category split", "Some receipt line items are not categorized yet. Split supplies, tools, shipping, and plant purchases where possible.", "warning", "items");
+      if (!actions.length) addAction("Receipt looks ready", "Vendor, date, amount, category, payment, and duplicate checks look clean. Review once, then save.", "success", "review_status");
+
+      let confidence = rule.confidence || 50;
+      confidence -= missing.length * 9;
+      if (duplicateCount) confidence -= 22;
+      if (!form.main_category || form.main_category === "Other") confidence -= 8;
+      if (!form.receipt_image_url && !form.receipt_image_data && !form.imageUrl) confidence -= 6;
+      confidence = Math.max(5, Math.min(99, Math.round(confidence)));
+      const suggestedFields = {
+        main_category: (!form.main_category || form.main_category === "Other") ? rule.category : form.main_category,
+        bill_category: (!form.bill_category || form.bill_category === "Other") ? rule.billCategory : form.bill_category,
+        business_purpose: (!form.business_purpose || form.business_purpose === "Other business expense") ? rule.purpose : form.business_purpose,
+        document_type: rule.docType && (!form.document_type || form.document_type === "receipt" || form.document_type === "unknown") ? rule.docType : form.document_type,
+        deductible: form.deductible !== false && rule.tax !== false,
+        is_recurring: !!form.is_recurring || !!rule.recurring,
+        suggested_frequency: rule.recurring ? (form.suggested_frequency && form.suggested_frequency !== "One-Time" ? form.suggested_frequency : "Monthly") : (form.suggested_frequency || "One-Time"),
+        ai_confidence: Math.max((+form.ai_confidence || 0), confidence / 100),
+        review_status: confidence >= 85 && !duplicateCount && !missing.length ? "Reviewed" : "Needs Review"
+      };
+      const suggestedRoute = (rule.recurring || rule.docType === "utility_bill" || rule.docType === "insurance_bill" || rule.docType === "software_bill" || form.due_date || form.is_recurring) ? "both" : "expense";
+      return { ok:true, rule, confidence, status: confidence >= 85 && !duplicateCount && !missing.length ? "Ready" : duplicateCount ? "Duplicate Risk" : "Needs Review", color: confidence >= 85 ? C.g600 : confidence >= 65 ? C.gold : C.red, missing, actions, suggestions, suggestedFields, suggestedRoute, duplicateCount, duplicateMatches, receiptNoMatches, generatedAt:new Date().toISOString() };
+    }
+    function Phase74ReceiptCopilotCard({ analysis, onApply, onMarkReviewed, onSmartReview, busy, answer }) {
+      const a = analysis || { actions:[], confidence:0, rule:{ label:"Not scanned" }, color:C.tx3, status:"Needs Review" };
+      const sevColor = s => s === "critical" ? C.red : s === "warning" ? C.amber : s === "success" ? C.g600 : C.blue;
+      return <Card style={{ marginBottom:12, background:C.g50, border:`1px solid ${C.g300}`, borderLeft:`6px solid ${a.color || C.g600}` }}>
+        <Row between center wrap gap={10} style={{ marginBottom:10 }}>
+          <div>
+            <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🧠 Receipt AI Copilot</div>
+            <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Free/local review: category, vendor type, payment method, bill routing, tax readiness, and duplicates.</div>
+          </div>
+          <Row gap={7} wrap>
+            <Tag text={`${a.confidence || 0}% local confidence`} color={a.color || C.tx3} />
+            <Tag text={a.status || "Needs Review"} color={a.color || C.tx3} />
+          </Row>
+        </Row>
+        <div style={{ display:"grid", gridTemplateColumns:".8fr 1.2fr", gap:10, marginBottom:10 }}>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:12, padding:11 }}>
+            <div style={{ fontSize:11, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.5 }}>Detected Type</div>
+            <div style={{ fontFamily:F.display, fontSize:18, color:C.g900, fontWeight:900, marginTop:3 }}>{a.rule?.label || "Needs Review"}</div>
+            <div style={{ fontSize:12, color:C.tx3, marginTop:4 }}>Suggested category: <b>{a.suggestedFields?.main_category || "Other"}</b></div>
+            <div style={{ fontSize:12, color:C.tx3 }}>Suggested route: <b>{a.suggestedRoute === "both" ? "Expense + Bill" : "Expense Only"}</b></div>
+          </div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:12, padding:11 }}>
+            <div style={{ fontSize:11, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.5, marginBottom:6 }}>Fix Before Save</div>
+            <div style={{ display:"grid", gap:6 }}>
+              {(a.actions || []).slice(0,5).map((x,i) => <div key={i} style={{ border:`1px solid ${sevColor(x.severity)}33`, background:sevColor(x.severity)+"12", borderRadius:10, padding:"7px 9px" }}>
+                <div style={{ fontSize:12, fontWeight:900, color:sevColor(x.severity) }}>{x.title}</div>
+                <div style={{ fontSize:11, color:C.tx3, lineHeight:1.35, marginTop:2 }}>{x.body}</div>
+              </div>)}
+            </div>
+          </div>
+        </div>
+        <Row gap={8} wrap>
+          <Btn sz="sm" onClick={onApply}>Apply Suggested Fixes</Btn>
+          <Btn sz="sm" v="soft" onClick={onMarkReviewed}>Mark Reviewed</Btn>
+          {onSmartReview && <Btn sz="sm" v="ghost" onClick={onSmartReview} disabled={busy}>{busy ? "Reviewing..." : "Smart Review Receipt"}</Btn>}
+        </Row>
+        {answer && <div style={{ marginTop:10, background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.42)", borderRadius:12, padding:12, fontSize:12, lineHeight:1.45, whiteSpace:"pre-wrap" }}><b style={{ color:"#97d33e" }}>Smart Review Result:</b>\n{answer}</div>}
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns:.8fr 1.2fr"]{grid-template-columns:1fr!important;}}`}</style>
+      </Card>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        AI EXPENSE RECEIPT SCANNER — non-plant business receipts
     ══════════════════════════════════════════════════════════ */
@@ -9280,6 +9836,43 @@
       };
       const buildExpenseFromReceipt = rec => ({ id: "exp-" + rec.id, vendor: rec.vendor_name, date: rec.receipt_date || today(), amount: rec.total, category: rec.main_category || "Other", payMethod: rec.payment_method || "Cash", cardLast4: rec.card_last4 || "", notes: `${rec.business_purpose || "Receipt scan"}${rec.notes ? " — " + rec.notes : ""}`, taxDed: !!rec.deductible, receiptId: rec.id, receiptImageUrl: rec.receipt_image_url, receiptImagePath: rec.receipt_image_path, aiScanned: true, addedBy: user?.name || "Unknown" });
       const buildBillFromScan = rec => ({ id: "bill-" + rec.id, name: `${rec.vendor_name || "Bill"}${rec.invoice_number ? " #" + rec.invoice_number : ""}`, amount: rec.total, dueDate: rec.due_date || rec.receipt_date || today(), category: rec.bill_category || "Other", frequency: rec.suggested_frequency || "One-Time", payMethod: rec.payment_method || "", vendor: rec.vendor_name || "", notes: `Created from scanned ${rec.document_type}. Receipt ID: ${rec.id}. ${rec.notes || ""}`, status: "Unpaid", autoRenew: !!rec.is_recurring, receiptId: rec.id, aiScanned: true, created_at: new Date().toISOString() });
+      const phase74Copilot = phase74AnalyzeReceipt(form, receipts || []);
+      const phase74ApplySuggestions = () => {
+        setForm(p => ({
+          ...p,
+          ...phase74Copilot.suggestedFields,
+          field_confidence:{ ...(p.field_confidence || {}), main_category:Math.max(+((p.field_confidence || {}).main_category) || 0, (phase74Copilot.confidence || 0) / 100), payment_method:+((p.field_confidence || {}).payment_method) || .65 },
+          notes: String(p.notes || "").includes("Receipt Copilot reviewed") ? p.notes : `${p.notes || ""}${p.notes ? " — " : ""}Receipt Copilot reviewed: ${phase74Copilot.rule?.label || "needs review"}.`.trim()
+        }));
+        if (phase74Copilot.suggestedRoute) setRouteChoice(phase74Copilot.suggestedRoute);
+        setMsg("✅ Receipt Copilot suggestions applied. Review fields before saving.");
+      };
+      const phase74MarkReviewed = () => {
+        setForm(p => ({ ...p, review_status:"Reviewed", ai_confidence:Math.max(+p.ai_confidence || 0, (phase74Copilot.confidence || 0) / 100) }));
+        setMsg("✅ Marked reviewed locally. Confirm & Save when ready.");
+      };
+      const runPhase74SmartReview = async () => {
+        if (!(user?.role === "owner" || user?.role === "manager")) { setPhase74SmartAnswer("Smart Review is owner/manager only. Employees can still use the local/free copilot."); return; }
+        const cfg = typeof phase61ReadConfig === "function" ? phase61ReadConfig() : {};
+        const spend = typeof phase61CanSpend === "function" ? phase61CanSpend(cfg) : { ok:true };
+        if (!cfg.enabled || !cfg.endpointUrl) { setPhase74SmartAnswer("Gateway is not configured. Local Receipt Copilot is still working."); return; }
+        if (!spend.ok) { setPhase74SmartAnswer(spend.reason || "AI Cost Guard blocked this Smart Review."); return; }
+        const ok = window.confirm(`Use one approved Smart Gateway call to review this receipt?
+
+Cost Guard estimate: ${$(cfg.estimatedCostPerCall || 0.01)}.
+Cancel keeps this local/free.`);
+        if (!ok) return;
+        setPhase74SmartBusy(true); setPhase74SmartAnswer("Running Smart Review...");
+        try {
+          const safeReceipt = { vendor_name:form.vendor_name, receipt_date:form.receipt_date, document_type:form.document_type, total:form.total, subtotal:form.subtotal, tax:form.tax, main_category:form.main_category, bill_category:form.bill_category, business_purpose:form.business_purpose, payment_method:form.payment_method, card_last4:form.card_last4 ? "present" : "missing", due_date:form.due_date, is_recurring:form.is_recurring, items:safeArray(form.items).map(i=>({ item_name:i.item_name, quantity:i.quantity, line_total:i.line_total, category:i.category, deductible:i.deductible })), localCopilot:{ confidence:phase74Copilot.confidence, detected:phase74Copilot.rule?.label, actions:phase74Copilot.actions.map(a=>({ title:a.title, body:a.body, severity:a.severity })) } };
+          const prompt = `Review this Leaf Diary receipt. Return a short phone-readable checklist only. Say what category, payment method, duplicate risk, bill routing, and tax category should be reviewed. Do not claim you saved anything. Receipt: ${JSON.stringify(safeReceipt).slice(0,6500)}`;
+          const report = await phase61CallGateway({ question:"Smart Review this Leaf Diary receipt.", route:"receipts", routeDef:{ label:"Receipt AI Copilot", task:"receipt_audit", financials:"owner_manager" }, appData:{ plants:[], expenses:[], bills:[], timecards:[], receipt:safeReceipt }, user, model:cfg.model, extraPrompt:prompt, cfg });
+          setPhase74SmartAnswer(report.ok ? (report.answer || "Smart Review returned no text.") : ("Gateway failed safely: " + (report.error || "unknown error")));
+          addAudit && addAudit({ action:"Receipt AI Copilot Smart Review approved", page:"Receipt Scanner", details:`Provider ${report.provider || cfg.provider || "Gateway"} · model ${report.model || cfg.model || "default"}`, user:user?.name || "Unknown", severity:"info" });
+        } catch(e) {
+          setPhase74SmartAnswer("Smart Review failed safely: " + (e?.message || String(e)));
+        } finally { setPhase74SmartBusy(false); }
+      };
       const possibleDupes = receipts.filter(r => r.vendor_name && form.vendor_name && String(r.vendor_name).toLowerCase() === String(form.vendor_name).toLowerCase() && String(r.receipt_date) === String(form.receipt_date) && Math.abs((+r.total || 0) - cleanMoney(form.total)) < .01);
       const saveReceipt = async (addAnother=false, force=false) => {
         if (!form.vendor_name || !cleanMoney(form.total)) { setMsg("Vendor and total are required."); return; }
@@ -9289,7 +9882,7 @@
         try {
           const id = uid();
           const businessTotal = calcBusinessTotal(form);
-          const base = { ...form, id, created_at: new Date().toISOString(), uploaded_by: user?.name || "Unknown", total: cleanMoney(form.total), subtotal: cleanMoney(form.subtotal), tax: cleanMoney(form.tax), business_total: businessTotal, ai_scanned: true, source: "AI Receipt & Bill Engine", synced_to_expenses: routeChoice !== "bill", synced_to_bills: routeChoice === "bill" || routeChoice === "both" };
+          const base = { ...form, id, created_at: new Date().toISOString(), uploaded_by: user?.name || "Unknown", total: cleanMoney(form.total), subtotal: cleanMoney(form.subtotal), tax: cleanMoney(form.tax), business_total: businessTotal, ai_scanned: true, source: "AI Receipt & Bill Engine", synced_to_expenses: routeChoice !== "bill", synced_to_bills: routeChoice === "bill" || routeChoice === "both", phase74_copilot_score: phase74Copilot.confidence, phase74_copilot_status: phase74Copilot.status, phase74_detected_type: phase74Copilot.rule?.label || "", phase74_duplicate_count: phase74Copilot.duplicateCount || 0, phase74_actions: phase74Copilot.actions.map(a => ({ title:a.title, body:a.body, severity:a.severity, field:a.field })) };
           const stored = await uploadImage(id, base);
           const rec = { ...base, receipt_image_url: stored.url, receipt_image_path: stored.path, receipt_image_data: stored.fallbackData, items: (base.items || []).map((it, idx) => ({ ...it, id: it.id || `${id}-item-${idx+1}`, receipt_id: id, line_total: cleanMoney(it.line_total), unit_price: cleanMoney(it.unit_price), quantity: +it.quantity || 1 })) };
           const newRecords = [];
@@ -9334,6 +9927,8 @@
       const [phase8Busy, setPhase8Busy] = useState(false);
       const [phase8CloudAnswer, setPhase8CloudAnswer] = useState("");
       const [phase8LastReport, setPhase8LastReport] = useState(null);
+      const [phase74SmartBusy, setPhase74SmartBusy] = useState(false);
+      const [phase74SmartAnswer, setPhase74SmartAnswer] = useState("");
       const phase8DocKey = r => [String(r.vendor_name || "").trim().toLowerCase(), String(r.receipt_date || "").slice(0,10), String(+r.total || 0)].join("|");
       const phase8DuplicateGroups = Object.values((receipts || []).reduce((m,r)=>{ const k = phase8DocKey(r); if (k !== "||0") (m[k]=m[k]||[]).push(r); return m; },{})).filter(g=>g.length>1);
       const phase8MissingImages = (receipts || []).filter(r => !r.receipt_image_url && !r.receipt_image_data);
@@ -9394,7 +9989,7 @@
         {shouldTreatAsBill(form) && <div style={{ marginTop: 10, fontSize: 12, color: C.blue, fontWeight: 800 }}>Detected as {form.document_type}. Due date: {form.due_date || "review needed"}. Recurring: {form.is_recurring ? "Yes" : "No"} · Frequency: {form.suggested_frequency || "One-Time"}</div>}
       </Card>;
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🧾" title="AI Receipt & Bill Engine" sub="Scan receipts, bills, gas, Walmart supplies, nursery invoices, software bills, and shipping purchases. Review first, then route to Expenses and/or Bills."
+        <SHdr icon="🧾" title="AI Receipt & Bill Engine" sub="Update 74 Receipt AI Copilot: scan receipts, classify expenses, detect bills/duplicates, review payment method, then route to Expenses and/or Bills."
           right={<Row gap={8} wrap><Btn onClick={() => { setStep("upload"); setMsg(""); setScanWarning(""); }}>📸 Scan Document</Btn><Btn v="soft" onClick={() => setStep("archive")}>Tax Vault</Btn><Btn v="ghost" onClick={exportCSV}>Export CSV</Btn></Row>} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
           <KPI label="Docs This Month" value={monthReceipts.length} color={C.blue} />
@@ -9402,6 +9997,15 @@
           <KPI label="Business Total" value={$(businessMonth)} color={C.g600} />
           <KPI label="Needs Review" value={needsReview} color={needsReview ? C.amber : C.g600} />
         </div>
+        <Card style={{ marginBottom:12, borderLeft:`6px solid ${needsReview ? C.amber : C.g600}`, background:needsReview ? C.amberBg : C.g50 }}>
+          <Row between center wrap gap={10}>
+            <div>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:19, fontWeight:900 }}>🧠 Receipt AI Copilot is active</div>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Free/local rules classify gas, supplies, nursery purchases, software, utilities, shipping, duplicates, bill routing, and missing payment details. Smart Review only runs when owner/manager clicks it.</div>
+            </div>
+            <Row gap={7} wrap><Tag text="Local/free first" color={C.g600} /><Tag text="No schema change" color={C.blue} /></Row>
+          </Row>
+        </Card>
         <Card style={{ marginBottom:16, borderTop:"4px solid #68d8ff", background:C.blueBg }}>
           <Row between center wrap gap={10} style={{ marginBottom:12 }}>
             <div>
@@ -9452,6 +10056,7 @@
         {step === "review" && <Card style={{ maxWidth: 1120 }}>
           <Row between center wrap style={{ marginBottom: 12 }}><div><div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 20 }}>Confidence Review Screen</div><div style={{ fontSize: 12, color: C.tx3 }}>Confirm, edit, or reject. Nothing is saved silently.</div></div><Tag text={`${Math.round((+form.ai_confidence || 0) * 100)}% confidence`} color={confidenceColor(form.ai_confidence)} /></Row>
           <RouteChoice />
+          <Phase74ReceiptCopilotCard analysis={phase74Copilot} onApply={phase74ApplySuggestions} onMarkReviewed={phase74MarkReviewed} onSmartReview={(user?.role === "owner" || user?.role === "manager") ? runPhase74SmartReview : null} busy={phase74SmartBusy} answer={phase74SmartAnswer} />
           {possibleDupes.length > 0 && <div style={{ background: C.redBg, color: C.red, border: `1px solid ${C.red}55`, borderRadius: 10, padding: 12, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>⚠️ Possible duplicate document found for same vendor, date, and amount.</div>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginBottom: 10 }}>
             <div><Inp label="Vendor *" value={form.vendor_name} onChange={upd("vendor_name")} /><FieldConfBadge name="vendor_name" /></div>
@@ -10287,6 +10892,78 @@
     }
 
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 72 — AI BUY SMARTER
+       Local/free buying advisor. No new page, no export changes,
+       no barcode/SKU changes, no Supabase schema changes.
+       It uses the existing Buy Smart + Profit Per Slot math and turns
+       it into plain action cards the owner can choose to act on.
+    ══════════════════════════════════════════════════════════ */
+    function phase72BuildBuySmartActions({ genusRows = [], buyMore = [], avoid = [], cheapOnly = [], nurseryRows = [], stockRisk = [], safeSpend = 0, reserve = 0, plan = {}, showReady = 0, missingData = 0, canSeeMoney = false } = {}) {
+      const actions = [];
+      const add = (patch) => actions.push({
+        id: uid(),
+        priority: "Medium",
+        page: "buy_ws",
+        tab: "aiplan",
+        color: C.g600,
+        icon: "🧠",
+        actionLabel: "Open",
+        plantIds: [],
+        createdAt: new Date().toISOString(),
+        ...patch
+      });
+      const money = n => canSeeMoney ? $(n) : "hidden";
+      const topWinner = safeArray(buyMore)[0] || safeArray(genusRows).find(g => g.score >= 58 && g.sold >= 2);
+      const topStop = safeArray(avoid)[0];
+      const cheapTarget = safeArray(cheapOnly)[0] || safeArray(genusRows).find(g => g.score >= 45 && g.score < 62);
+      const bestNursery = safeArray(nurseryRows).filter(n => n.bought || n.sold).sort((a,b)=>(b.score||0)-(a.score||0))[0];
+      const weakNursery = safeArray(nurseryRows).filter(n => (n.bought || n.sold) && ((n.score || 0) < 45 || (n.deathRate || 0) >= 20 || (n.roi || 0) < 20)).sort((a,b)=>(a.score||0)-(b.score||0))[0];
+      const fastLowProfit = safeArray(genusRows).filter(g => (g.sold30 >= 2 || g.sellThru >= 45) && g.avgProfit > 0 && g.avgProfit < 10).sort((a,b)=>a.avgProfit-b.avgProfit)[0];
+      const slowStrong = safeArray(genusRows).filter(g => g.avgDays >= 35 && g.avgProfit >= 15).sort((a,b)=>b.avgProfit-a.avgProfit)[0];
+      const spaceRisk = safeArray(stockRisk)[0];
+
+      if ((+safeSpend || 0) <= 0) {
+        add({ icon:"🛑", title:"Do not buy today", reason:`Safe buy budget is ${money(safeSpend)}. Protect cash first and move plants already sitting in inventory.`, priority:"High", page:"money_ws", color:C.red, actionLabel:"Open Cash Pulse" });
+      } else {
+        add({ icon:"💵", title:"Buy only inside the safe budget", reason:`Safe buy budget is ${money(safeSpend)} after reserves of ${money(reserve)}. Do not spend this on C/D categories.`, priority:(+safeSpend > 300 ? "Medium" : "High"), page:"buy_ws", tab:"budget", color:(+safeSpend > 300 ? C.gold : C.amber), actionLabel:"Review Budget" });
+      }
+      if (topWinner) {
+        add({ icon:"✅", title:`Buy More: ${topWinner.genus}`, reason:`Sold ${topWinner.sold30 || topWinner.sold || 0} recently/overall, score ${topWinner.score}, death rate ${topWinner.deathRate || 0}%, avg profit ${money(topWinner.avgProfit || 0)}. Only buy clean plants that can hit the target sale price.`, priority:"High", page:"buy_ws", tab:"whatbuy", color:C.g600, actionLabel:"See Buy More" });
+      }
+      if (topStop) {
+        add({ icon:"🚫", title:`Stop Buying: ${topStop.genus}`, reason:`Score ${topStop.score}, ${topStop.inStock || 0} still in stock, ${topStop.deathRate || 0}% dead/damaged, avg days ${topStop.avgDays || "unknown"}. Move current stock before buying again.`, priority:"High", page:"buy_ws", tab:"avoid", color:C.red, actionLabel:"See Avoid List" });
+      }
+      if (cheapTarget) {
+        add({ icon:"🏷️", title:`Only Buy Under: ${cheapTarget.genus}`, reason:`This category is not a full green-light buy. Keep buy cost under ${money(cheapTarget.maxBuy || 0)} and aim to sell near ${money(cheapTarget.targetSell || 0)}.`, priority:"Medium", page:"buy_ws", tab:"prices", color:C.amber, actionLabel:"Open Price Guide" });
+      }
+      if (bestNursery) {
+        add({ icon:"🏪", title:`Best Nursery: ${bestNursery.name}`, reason:`Supplier score ${bestNursery.score}. Sell-through ${bestNursery.sellThru || 0}%, ROI ${bestNursery.roi || 0}%, dead/damaged ${bestNursery.deathRate || 0}%.`, priority:"Medium", page:"buy_ws", tab:"nurseries", color:C.g600, actionLabel:"See Nurseries" });
+      }
+      if (weakNursery) {
+        add({ icon:"⚠️", title:`Supplier Warning: ${weakNursery.name}`, reason:`Score ${weakNursery.score}, ROI ${weakNursery.roi || 0}%, dead/damaged ${weakNursery.deathRate || 0}%. Buy carefully or pause until recent plants sell cleanly.`, priority:"High", page:"buy_ws", tab:"nurseries", color:C.red, actionLabel:"Review Supplier" });
+      }
+      if (fastLowProfit) {
+        add({ icon:"📉", title:`Fast but low profit: ${fastLowProfit.genus}`, reason:`Demand exists, but avg profit is only ${money(fastLowProfit.avgProfit || 0)}. Raise sale price, lower buy cost, or stop using show slots on it.`, priority:"High", page:"buy_ws", tab:"prices", color:C.amber, actionLabel:"Fix Price" });
+      }
+      if (slowStrong) {
+        add({ icon:"💎", title:`Slow but strong profit: ${slowStrong.genus}`, reason:`Avg profit is ${money(slowStrong.avgProfit || 0)}, but avg days to sell is ${slowStrong.avgDays}. Buy selectively and use as premium anchors, not bulk inventory.`, priority:"Medium", page:"showbuilder", tab:"", color:C.blue, actionLabel:"Build Premium Show" });
+      }
+      if (spaceRisk?.plant) {
+        add({ icon:"⏳", title:"Clearance Priority", reason:`${spaceRisk.plant.plantId || "Plant"} ${spaceRisk.plant.name || ""} has been held ${spaceRisk.held || 0} days with ${spaceRisk.pps?.rating || "unknown"} profit-per-slot rating. Move it before buying more of that type.`, priority:"High", page:"buy_ws", tab:"risk", color:C.amber, actionLabel:"Open Risk List", plantIds:[spaceRisk.plant.plantId || spaceRisk.plant.plantCode || spaceRisk.plant.id].filter(Boolean) });
+      }
+      if (showReady < 25 && missingData > 0) {
+        add({ icon:"📸", title:"Do photos before a nursery run", reason:`Only ${showReady} plants are show-ready while ${missingData} are blocked by missing photos, labels, or prices. Unlock current inventory before spending more.`, priority:"High", page:"photosprint", tab:"", color:C.blue, actionLabel:"Photo Sprint" });
+      }
+      const target = +plan.minAcceptableProfit || ((+plan.targetPPS || 3.5) * 14);
+      if (target) {
+        add({ icon:"📦", title:"Profit-per-slot rule", reason:`Each plant should be able to create about ${money(target)} true profit over a normal hold period. Anything below that must sell fast or be bought cheaper.`, priority:"Medium", page:"slotprofit", tab:"", color:C.purple, actionLabel:"What Makes Money" });
+      }
+      return actions.slice(0, 10);
+    }
+
     /* ══════════════════════════════════════════════════════════
        BUY SMART WORKFLOW — profit/buying command center
        Safe wrapper: uses existing inventory/sales/nursery data only.
@@ -10383,12 +11060,26 @@
       const stopCount = avoid.length;
       const showReady = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price) && p.labelPrinted).length;
       const missingData = inStock.filter(p => !(p.photoUrl || p.photoBase64) || !(+p.suggestedPrice || +p.listPrice || +p.price) || !p.labelPrinted).length;
+      const phase72Actions = phase72BuildBuySmartActions({ genusRows, buyMore, avoid, cheapOnly, nurseryRows, stockRisk, safeSpend, reserve, plan, showReady, missingData, canSeeMoney });
+      const phase72Top = phase72Actions[0];
 
       const TabBtn = ({ id, children }) => <button onClick={()=>setTab(id)} style={{ background:tab===id?"#000":C.card, color:tab===id?"#97d33e":C.tx2, border:`1px solid ${tab===id?"#97d33e":C.bd}`, borderRadius:999, padding:"10px 13px", fontWeight:900, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{children}</button>;
       const Mini = ({ label, value, color=C.g700, sub }) => <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:"13px 13px", minWidth:0 }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, letterSpacing:.6, textTransform:"uppercase" }}>{label}</div><div style={{ fontFamily:F.display, color, fontSize:22, fontWeight:900, lineHeight:1.1, marginTop:5 }}>{value}</div>{sub && <div style={{ fontSize:11, color:C.tx3, marginTop:4 }}>{sub}</div>}</div>;
       const Line = ({ label, value, color=C.g900 }) => <Row between center style={{ padding:"8px 0", borderTop:`1px solid ${C.bdS}` }}><span style={{ fontSize:12, color:C.tx2, fontWeight:800 }}>{label}</span><span style={{ fontSize:12, color, fontWeight:900 }}>{value}</span></Row>;
       const Rating = ({ score }) => <Tag text={score >= 72 ? "A Buy" : score >= 58 ? "B Buy Carefully" : score >= 45 ? "C Only Cheap" : "D Avoid"} color={score >= 72 ? C.g600 : score >= 58 ? C.gold : score >= 45 ? C.amber : C.red} sm />;
       const DecisionCard = ({ icon, title, body, action, page, color=C.g600 }) => <Card style={{ borderLeft:`5px solid ${color}`, padding:16 }}><Row gap={12} center><div style={{ width:42, height:42, borderRadius:14, background:color+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:23, flexShrink:0 }}>{icon}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:2 }}>{body}</div></div>{action && <Btn sz="sm" v="outline" onClick={()=>setPage(page)}>{action}</Btn>}</Row></Card>;
+      const BuyActionCard = ({ a }) => <Card style={{ borderLeft:`6px solid ${a.color || C.g600}`, padding:15, background:a.priority === "High" ? (a.color === C.red ? C.redBg : C.goldBg) : C.card }}>
+        <Row between wrap center gap={10}>
+          <Row gap={11} center style={{ minWidth:0, flex:1 }}>
+            <div style={{ width:44, height:44, borderRadius:15, background:(a.color || C.g600)+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{a.icon || "🧠"}</div>
+            <div style={{ minWidth:0 }}>
+              <Row gap={7} center wrap><div style={{ fontFamily:F.display, color:C.g900, fontSize:18, fontWeight:900 }}>{a.title}</div><Tag text={a.priority || "Medium"} color={a.priority === "High" ? C.red : a.priority === "Medium" ? C.gold : C.g600} sm /></Row>
+              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.42, marginTop:3 }}>{a.reason}</div>
+            </div>
+          </Row>
+          <Btn sz="sm" v="outline" onClick={()=>{ if (a.tab) setTab(a.tab); if (a.page && a.page !== "buy_ws") setPage(a.page); }}>{a.actionLabel || "Open"}</Btn>
+        </Row>
+      </Card>;
       const GenusCard = ({ g, mode="buy" }) => <Card style={{ borderTop:`4px solid ${g.score >= 72 ? C.g600 : g.score >= 58 ? C.gold : g.score >= 45 ? C.amber : C.red}` }}>
         <Row between wrap center gap={8} style={{ marginBottom:10 }}>
           <div><Row gap={8} center wrap><h3 style={{ fontFamily:F.display, color:C.g900, margin:0, fontSize:20 }}>{g.genus}</h3><Rating score={g.score} /></Row><div style={{ fontSize:11, color:C.tx3, marginTop:3 }}>{g.total} bought · {g.inStock} in stock · {g.sold} sold{g.avgDays ? ` · avg ${g.avgDays} days` : ""}</div></div>
@@ -10421,6 +11112,19 @@
           <div style={{ marginTop:14, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.14)", borderRadius:16, padding:"12px 13px", fontWeight:900 }}>{safeSpend > 0 ? `Safe buy budget: ${canSeeMoney ? $(safeSpend) : "Hidden"}. Use it only on A/B rated plant categories.` : bank ? "Do not buy today. Cash reserve, bills, or payroll are too tight." : "Add bank balance in Money settings to unlock a safer buying budget."}</div>
         </div>
 
+        <Card style={{ marginBottom:14, borderLeft:`6px solid ${phase72Top?.color || C.g600}`, background:C.g50 }}>
+          <Row between wrap center gap={12}>
+            <div style={{ minWidth:0, flex:1 }}>
+              <Row gap={9} center wrap><div style={{ fontSize:24 }}>🧠</div><div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:900 }}>AI Buy Smarter Plan</div><Tag text="Free / Local" color={C.g600} /></Row>
+              <div style={{ color:C.tx2, fontSize:13, lineHeight:1.45, marginTop:5 }}>
+                {phase72Top ? <><b>{phase72Top.title}</b> — {phase72Top.reason}</> : "Import more sales and inventory data so Buy Smart can create stronger buying advice."}
+              </div>
+              <div style={{ color:C.tx3, fontSize:11, lineHeight:1.35, marginTop:6 }}>Uses sales history, inventory age, cost, sale price, dead/damaged rate, nursery source, platform history, and profit-per-slot math.</div>
+            </div>
+            <Row gap={8} wrap><Btn sz="sm" onClick={()=>setTab("aiplan")}>Open AI Buy Plan</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("slotprofit")}>What Makes Money</Btn></Row>
+          </Row>
+        </Card>
+
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <Mini label="Safe Buy Budget" value={canSeeMoney ? $(safeSpend) : "Hidden"} sub={`Reserve ${canSeeMoney ? $(reserve) : "hidden"}`} color={safeSpend > 300 ? C.g600 : safeSpend > 0 ? C.gold : C.red} />
           <Mini label="Buy More" value={buyMore.length} sub="A/B categories" color={C.g600} />
@@ -10436,6 +11140,7 @@
         </div>
 
         <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch", display:"flex", gap:8, marginBottom:14, paddingBottom:4 }}>
+          <TabBtn id="aiplan">🧠 AI Buy Plan</TabBtn>
           <TabBtn id="whatbuy">✅ What To Buy</TabBtn>
           <TabBtn id="avoid">🚫 What Not To Buy</TabBtn>
           <TabBtn id="nurseries">🏪 Nursery Scores</TabBtn>
@@ -10444,6 +11149,19 @@
           <TabBtn id="risk">⏳ Inventory Risk</TabBtn>
           <TabBtn id="tools">⚙️ Tools</TabBtn>
         </div>
+
+        {tab === "aiplan" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
+          <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e" }}>
+            <Row between wrap center gap={12}>
+              <div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:24, fontWeight:900 }}>AI Buy Smarter — local action cards</div><div style={{ color:"rgba(255,255,255,.72)", fontSize:12, lineHeight:1.45, marginTop:4 }}>No Gateway call. No automatic inventory changes. Use these cards before every nursery run.</div></div>
+              <Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setTab("whatbuy")}>Buy More</Btn><Btn sz="sm" v="soft" onClick={()=>setTab("avoid")}>Stop Buying</Btn><Btn sz="sm" v="soft" onClick={()=>setTab("nurseries")}>Nurseries</Btn></Row>
+            </Row>
+          </Card>
+          {phase72Actions.length ? phase72Actions.map(a => <BuyActionCard key={a.id} a={a} />) : <Card style={{ textAlign:"center", padding:36 }}><div style={{ fontSize:38 }}>🌱</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>Not enough data yet</h2><p style={{ color:C.tx3 }}>Import sold show data and keep plant costs/prices updated so the AI Buy Plan can rank categories.</p><Btn onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Card>}
+          <Card style={{ background:C.goldBg, border:`1px solid ${C.gold}55` }}>
+            <Row gap={10} center><div style={{ fontSize:27 }}>🛡️</div><div><div style={{ fontWeight:950, color:C.g900 }}>Buying rule</div><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45 }}>Do not buy C/D categories just because they are cheap. Buy A/B categories first, buy C categories only under the max-buy price, and pause D categories until current stock sells or clears.</div></div></Row>
+          </Card>
+        </div>}
 
         {tab === "whatbuy" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
           {buyMore.length ? buyMore.map(g => <GenusCard key={g.genus} g={g} />) : <Card style={{ gridColumn:"1/-1", textAlign:"center", padding:40 }}><div style={{ fontSize:38 }}>🌱</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>Not enough proven winners yet</h2><p style={{ color:C.tx3 }}>Import more sold show data so Buy Smart can rank what actually makes money.</p><Btn onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Card>}
@@ -10822,6 +11540,79 @@
 
 
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 76 — SAFE LAUNCH GATE + ROLLBACK PACKET
+       Release-center hardening only. No database writes, no Supabase
+       schema changes, no export/header/barcode changes.
+    ══════════════════════════════════════════════════════════ */
+    function phase76BuildLaunchReadiness({ plants = [], receipts = [], bills = [], settings = {}, done = {}, releaseProgress = 0, blockerCount = 0, warningCount = 0, pendingSyncCount = 0, cloudStatus = "", cloudMsg = "", isOwner = false } = {}) {
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const duplicateGroups = Object.values(safeArray(plants).reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1);
+      const missingPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64 && !p.photo && !p.imageUrl);
+      const missingPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price || +p.salePrice));
+      const reviewReceipts = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
+      const dueSoon = safeArray(bills).filter(b => b.status !== "Paid" && b.status !== "paid" && daysUntil(b.dueDate) <= 7 && daysUntil(b.dueDate) >= 0);
+      const aiGateway = safeObject(settings.aiGateway);
+      const endpoint = aiGateway.endpoint || aiGateway.gatewayEndpoint || aiGateway.gatewayUrl || aiGateway.url || "";
+      const provider = aiGateway.provider || aiGateway.aiProvider || settings.aiProvider || "";
+      const model = aiGateway.model || aiGateway.gatewayModel || settings.aiModel || "";
+      const costGuard = !!(aiGateway.costSaverMode || aiGateway.costGuardEnabled || settings?.aiCostGuard?.enabled || aiGateway.disableAutoGatewayCalls !== false);
+      const gatewayLooksRight = String(endpoint).includes("leaf-diary-ai-gateway") || String(provider).toLowerCase().includes("gateway") || String(provider).toLowerCase().includes("proxy");
+      const modelLooksRight = !model || String(model).toLowerCase().includes("gpt-oss:20b") || String(model).toLowerCase().includes("gpt-oss") || String(model).toLowerCase().includes("llama") || String(model).toLowerCase().includes("gateway");
+      const fnLoaded = name => {
+        try { return typeof window !== "undefined" ? (typeof eval(name) === "function") : false; } catch(e) { return false; }
+      };
+      const runtimeRows = [
+        { id:"u76-owner", area:"Access", title:"Owner-only release", body:isOwner ? "Owner release controls are available." : "Only the owner should upload a new live app file.", status:isOwner ? "pass" : "fail", page:"today" },
+        { id:"u76-export-guard", area:"Runtime", title:"Export Guard loaded", body:"Show exports are protected by the Update 70 guard before Palmstreet/Whatnot CSV download.", status:fnLoaded("runShowExportGuard") ? "pass" : "fail", page:"showbuilder" },
+        { id:"u76-description-resolver", area:"Runtime", title:"AI description resolver loaded", body:"Palmstreet/Whatnot exports can use locked/saved AI descriptions without changing SKU/barcode headers.", status:fnLoaded("getPlantExportDescription") ? "pass" : "fail", page:"showbuilder" },
+        { id:"u76-buy-smart", area:"Runtime", title:"AI Buy Smarter loaded", body:"Buy Smart can create local/free buy more, stop buying, and only-buy-under-price action cards.", status:fnLoaded("phase72BuildBuySmartActions") ? "pass" : "warn", page:"buy_ws" },
+        { id:"u76-employee-ai", area:"Runtime", title:"Employee AI Tasks loaded", body:"Employee task cards are local/free and should avoid cost, profit, cash, tax, and payroll totals.", status:fnLoaded("phase73BuildEmployeeAITasks") ? "pass" : "warn", page:"employeeboard" },
+        { id:"u76-receipt-ai", area:"Runtime", title:"Receipt AI Copilot loaded", body:"Receipt review should classify category/vendor/payment issues locally before any manual Smart Review.", status:fnLoaded("phase74AnalyzeReceipt") ? "pass" : "warn", page:"receipts" },
+        { id:"u76-ai-qa", area:"Runtime", title:"AI regression QA loaded", body:"Update 75 self-checks are available in Phase 2 Final QA.", status:fnLoaded("phase75BuildAiRegressionChecks") ? "pass" : "warn", page:"phase2qa" },
+        { id:"u76-ai-settings", area:"AI", title:"Working Gateway settings protected", body:gatewayLooksRight ? `Gateway/proxy mode appears configured. Cost Guard: ${costGuard ? "ON" : "CHECK"}.` : "Gateway endpoint/provider is not clearly set to the working proxy setup.", status:gatewayLooksRight && costGuard && modelLooksRight ? "pass" : "warn", page:"aigateway" },
+        { id:"u76-sync", area:"Data", title:"Pending sync is clear", body:`Pending sync count: ${pendingSyncCount}. Do not replace the live file while changes are waiting to sync.`, status:pendingSyncCount ? "fail" : "pass", page:"appcheck" },
+        { id:"u76-duplicates", area:"Data", title:"No duplicate plant numbers", body:`Duplicate plant number groups found: ${duplicateGroups.length}.`, status:duplicateGroups.length ? "fail" : "pass", page:"cleanup" },
+        { id:"u76-backup", area:"Manual", title:"Backup / rollback file kept", body:"Keep the last working HTML and download a data backup before replacing the live file.", status:(done["backup-file"] && done["backup-data"]) ? "pass" : "warn", page:"devtools" },
+        { id:"u76-mobile", area:"Manual", title:"Mobile screen tested", body:"Open the test file on an iPhone/mobile-size screen and confirm no horizontal scrolling or crushed buttons.", status:done["mobile"] || done["backup-mobile"] ? "pass" : "warn", page:"workflowqa" },
+        { id:"u76-roles", area:"Manual", title:"Role boards tested", body:"Confirm owner, manager, and employee views before upload so private financial/admin tools stay protected.", status:(done["employee"] && done["manager"] && done["today"]) ? "pass" : "warn", page:"rolelauncher" },
+      ];
+      const hardFailures = runtimeRows.filter(r => r.status === "fail").length;
+      const warnings = runtimeRows.filter(r => r.status === "warn").length + warningCount;
+      const launchStatus = hardFailures ? "Blocked — do not upload yet" : releaseProgress < 85 ? "Almost ready — finish checklist" : warnings ? "Ready with warnings" : "Ready to upload";
+      const launchColor = hardFailures ? C.red : releaseProgress < 85 ? C.amber : warnings ? C.gold : C.g600;
+      const topRisks = [];
+      if (missingPhoto.length) topRisks.push(`${missingPhoto.length} in-stock plants still need photos`);
+      if (missingPrice.length) topRisks.push(`${missingPrice.length} in-stock plants still need prices`);
+      if (reviewReceipts.length) topRisks.push(`${reviewReceipts.length} receipts need review`);
+      if (dueSoon.length) topRisks.push(`${dueSoon.length} bills are due soon`);
+      if (pendingSyncCount) topRisks.push(`${pendingSyncCount} pending sync item(s)`);
+      if (duplicateGroups.length) topRisks.push(`${duplicateGroups.length} duplicate plant-number group(s)`);
+      const notes = [
+        "LEAF DIARY UPDATE 76 SAFE LAUNCH NOTES",
+        `Status: ${launchStatus}`,
+        `Release checklist: ${releaseProgress}%`,
+        `Hard launch blockers: ${hardFailures}`,
+        `Warnings: ${warnings}`,
+        `Cloud status: ${cloudStatus || "unknown"} ${cloudMsg ? "- " + cloudMsg : ""}`,
+        "",
+        "Before replacing live app:",
+        "1. Keep the previous working HTML file.",
+        "2. Download a data backup/snapshot.",
+        "3. Test owner, manager, and employee views.",
+        "4. Test iPhone/mobile layout.",
+        "5. Build a small test show and run Export Guard.",
+        "6. Export Palmstreet and Whatnot test CSVs and confirm SKU/barcode still equals plant number.",
+        "7. If live upload fails, roll back to the previous working HTML immediately.",
+        "",
+        "Top risks:",
+        ...(topRisks.length ? topRisks.map(x => `- ${x}`) : ["- No major data risks detected."])
+      ].join("\n");
+      return { rows: runtimeRows, hardFailures, warnings, launchStatus, launchColor, topRisks, notes };
+    }
+
     /* ══════════════════════════════════════════════════════════
        FINAL RELEASE CENTER
        Owner go-live dashboard. Presentation layer only.
@@ -10860,12 +11651,15 @@
       const workflowKeys = ["today","inventory","intake","shows","orders","money","buysmart","settings","employee","manager","mobile","backup"];
       const requiredDone = workflowKeys.filter(k => !!done[k]).length;
       const releaseProgress = Math.round((requiredDone / workflowKeys.length) * 100);
-      const blockerCount = duplicateGroups.length + (devScore && devScore < 75 ? 1 : 0) + (!isOwner ? 1 : 0);
-      const warningCount = missingPhoto.length + missingPrice.length + missingLabel.length + aging60.length + receiptsReview.length + due7.length + pendingSyncCount;
+      const baseBlockerCount = duplicateGroups.length + (devScore && devScore < 75 ? 1 : 0) + (!isOwner ? 1 : 0);
+      const baseWarningCount = missingPhoto.length + missingPrice.length + missingLabel.length + aging60.length + receiptsReview.length + due7.length + pendingSyncCount;
+      const phase76Launch = phase76BuildLaunchReadiness({ plants, receipts, bills, settings, done, releaseProgress, blockerCount:baseBlockerCount, warningCount:baseWarningCount, pendingSyncCount, cloudStatus, cloudMsg, isOwner });
+      const blockerCount = baseBlockerCount + phase76Launch.hardFailures;
+      const warningCount = baseWarningCount + phase76Launch.rows.filter(r => r.status === "warn").length;
       const releaseStatus = blockerCount > 0 ? "Do not go live yet" : releaseProgress < 85 ? "Finish test checklist first" : warningCount > 0 ? "Safe with warnings" : "Ready for live upload";
       const releaseColor = blockerCount > 0 ? C.red : releaseProgress < 85 ? C.amber : warningCount > 0 ? C.gold : C.g600;
       const tabs = [
-        ["release","🚀","Final Check"], ["workflows","✅","Workflows"], ["data","🧹","Data Health"], ["roles","👥","Roles"], ["backup","💾","Backup"], ["notes","📋","Upload Plan"]
+        ["release","🚀","Final Check"], ["launch","🛡️","Safe Launch"], ["workflows","✅","Workflows"], ["data","🧹","Data Health"], ["roles","👥","Roles"], ["backup","💾","Backup"], ["notes","📋","Upload Plan"]
       ];
       const statusChip = (status) => status === "fail" ? ["Fix First", C.red] : status === "warn" ? ["Warning", C.amber] : ["Good", C.g600];
       const CheckRow = ({ id, title, body, status = "pass", page, manual }) => {
@@ -10918,7 +11712,18 @@
         workflowChecks.forEach(r => rows.push(["Workflow", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
         dataChecks.forEach(r => rows.push(["Data", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
         systemChecks.forEach(r => rows.push(["System", r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
+        phase76Launch.rows.forEach(r => rows.push([`Update 76 - ${r.area || "Safe Launch"}`, r.title, r.status, done[r.id] ? "Yes" : "No", r.body]));
         downloadCsv(`leaf-diary-final-release-check-${today()}.csv`, rows);
+      };
+      const exportLaunchPacket = () => {
+        const rows = [["Area", "Title", "Status", "Details"]];
+        phase76Launch.rows.forEach(r => rows.push([r.area || "Safe Launch", r.title, r.status, r.body]));
+        rows.push(["Summary", "Launch Status", phase76Launch.launchStatus, `Hard blockers: ${phase76Launch.hardFailures}; warnings: ${phase76Launch.warnings}`]);
+        downloadCsv(`leaf-diary-update-76-safe-launch-packet-${today()}.csv`, rows);
+      };
+      const copyLaunchNotes = async () => {
+        try { await navigator.clipboard.writeText(phase76Launch.notes); alert("Launch notes copied. Save them with the uploaded file and backup copy."); }
+        catch(e) { alert(phase76Launch.notes); }
       };
       const resetChecks = () => { if (confirm("Reset today's final release checklist on this device?")) saveDone({}); };
 
@@ -10942,6 +11747,31 @@
           <Card><div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:900, marginBottom:10 }}>Go-live decision</div>{systemChecks.map(r => <CheckRow key={r.id} {...r} />)}</Card>
           <Card style={{ borderLeft:`5px solid ${releaseColor}` }}><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Upload rule</div><p style={{ color:C.tx2, lineHeight:1.5, fontSize:13 }}>Do not replace the live app until blockers are zero, the checklist is mostly complete, and you have tested owner, manager, employee, and mobile views.</p><div style={{ display:"flex", flexDirection:"column", gap:8 }}><Btn onClick={()=>setPage("devtools")}>Download Backup / Snapshot</Btn><Btn v="soft" onClick={()=>setPage("workflowqa")}>Open Workflow Test</Btn><Btn v="outline" onClick={()=>setPage("quickstart")}>Open Training Guide</Btn><Btn v="ghost" onClick={resetChecks}>Reset Today's Checks</Btn></div></Card>
         </div>}
+        {tab === "launch" && <div style={{ display:"grid", gridTemplateColumns:"1.25fr .75fr", gap:12 }}>
+          <Card style={{ borderLeft:`6px solid ${phase76Launch.launchColor}` }}>
+            <Row between center wrap gap={10} style={{ marginBottom:10 }}>
+              <div><div style={{ fontFamily:F.display, fontSize:24, color:C.g900, fontWeight:900 }}>🛡️ Update 76 Safe Launch Gate</div><div style={{ color:C.tx3, fontSize:12 }}>Final upload gate for the AI phases. This does not change data, exports, or Supabase schema.</div></div>
+              <Tag text={phase76Launch.launchStatus} color={phase76Launch.launchColor} />
+            </Row>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:9, marginBottom:12 }}>
+              <KPI label="Hard Blockers" value={phase76Launch.hardFailures} sub="must be zero" color={phase76Launch.hardFailures ? C.red : C.g600} />
+              <KPI label="Warnings" value={phase76Launch.warnings} sub="review before upload" color={phase76Launch.warnings ? C.amber : C.g600} />
+              <KPI label="Checklist" value={`${releaseProgress}%`} sub="target 85%+" color={releaseProgress >= 85 ? C.g600 : C.amber} />
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:9 }}>{phase76Launch.rows.map(r => <CheckRow key={r.id} {...r} />)}</div>
+          </Card>
+          <Card style={{ borderLeft:`5px solid ${phase76Launch.launchColor}` }}>
+            <div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Launch packet</div>
+            <p style={{ color:C.tx2, lineHeight:1.5, fontSize:13 }}>Use this before replacing the live app file. Keep the packet with your backup so rollback is simple if anything goes wrong.</p>
+            <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:14, padding:10, maxHeight:230, overflowY:"auto", whiteSpace:"pre-wrap", fontFamily:F.mono, fontSize:11, color:C.tx2 }}>{phase76Launch.notes}</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:12 }}>
+              <Btn onClick={copyLaunchNotes}>Copy Launch Notes</Btn>
+              <Btn v="soft" onClick={exportLaunchPacket}>Export Launch Packet CSV</Btn>
+              <Btn v="outline" onClick={()=>setPage("phase2qa")}>Open AI Regression QA</Btn>
+              <Btn v="ghost" onClick={()=>setPage("devtools")}>Backup / Rollback Tools</Btn>
+            </div>
+          </Card>
+        </div>}
         {tab === "workflows" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:10 }}>{workflowChecks.map(r => <CheckRow key={r.id} {...r} />)}</div>}
         {tab === "data" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:10 }}>{dataChecks.map(r => <CheckRow key={r.id} {...r} />)}</div>}
         {tab === "roles" && <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
@@ -10964,9 +11794,11 @@
             <li>Confirm owner login opens the owner board, manager login opens manager board, and employee login opens employee board.</li>
             <li>Test mobile: no horizontal scroll, bottom nav works, buttons are easy to tap.</li>
             <li>Download a backup/snapshot.</li>
+            <li>Open the Safe Launch tab and export/copy the Update 76 launch packet.</li>
             <li>Only then replace the live file.</li>
+            <li>If the live upload fails, immediately re-upload the previous working HTML backup.</li>
           </ol>
-          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, color:C.g900, fontWeight:800 }}>This final update is still presentation-layer only. It does not change database tables, Supabase schema, show import, receipt scanner, payroll math, or paperwork generation.</div>
+          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, color:C.g900, fontWeight:800 }}>Update 76 is still presentation-layer only. It does not change database tables, Supabase schema, show import, receipt scanner, payroll math, paperwork generation, CSV headers, barcodes, SKU, or plant numbers.</div>
         </Card>}
         <style>{`@media(max-width:760px){.ld-release-center div[style*="grid-template-columns: repeat(4,1fr)"],.ld-release-center div[style*="grid-template-columns: repeat(3,1fr)"],.ld-release-center div[style*="grid-template-columns: repeat(2,1fr)"],.ld-release-center div[style*="grid-template-columns: 1.25fr .75fr"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
       </div>;
@@ -11356,6 +12188,8 @@
           <KPI label="Checklist" value={`${doneCount}/${sortedTasks.length}`} sub="marked done on device" color="#fb6392" />
         </div>
 
+        <Phase73EmployeeAITasks plants={plants} receipts={receipts} timecards={timecards} users={users} user={user} setPage={setPage} mode="employee" />
+
         <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:14, marginBottom:14 }}>
           <Card style={{ padding:18 }}>
             <Row between center wrap gap={10} style={{ marginBottom:10 }}>
@@ -11465,6 +12299,8 @@
           <KPI label="Show Ready" value={showReady.length} sub="photo + label + price" color={showReady.length >= 40 ? C.g600 : C.gold} onClick={()=>setPage("showbuilder")} />
           <KPI label="Orders Review" value={orders.length} sub={`${recentSold.length} sold in 7 days`} color={orders.length ? C.blue : C.g600} onClick={()=>setPage("orders_ws")} />
         </div>
+
+        <Phase73EmployeeAITasks plants={plants} receipts={receipts} timecards={timecards} users={users} user={user} setPage={setPage} mode="manager" />
 
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.25fr) minmax(0,.85fr)", gap:14, marginBottom:14 }}>
           <Card style={{ padding:18 }}>
@@ -11605,6 +12441,8 @@
           <KPI label="Show Ready" value={showReady.length} sub={`about ${showCountEstimate} full shows`} color={showReady.length >= 60 ? C.g600 : C.amber} onClick={()=>setPage("showbuilder")} />
           <KPI label="Owner Risk" value={duplicateGroups.length + noPrice.length + aging60.length + receiptsReview.length} sub="duplicates, prices, aging, receipts" color={(duplicateGroups.length + noPrice.length + aging60.length + receiptsReview.length) ? C.amber : C.g600} onClick={()=>setPage("appcheck")} />
         </div>
+
+        <Phase73EmployeeAITasks plants={plants} receipts={receipts} timecards={timecards} users={users} user={user} setPage={setPage} mode="owner" />
 
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.25fr) minmax(0,.85fr)", gap:14, marginBottom:14 }}>
           <Card style={{ padding:18 }}>
@@ -14274,6 +15112,13 @@ Cancel keeps this page local/free.`);
       const [phase7Plan, setPhase7Plan] = useState(() => safeObject(settings?.phase7LastShowPlan).ok ? settings.phase7LastShowPlan : null);
       const [phase7AiText, setPhase7AiText] = useState(settings?.phase7LastAiText || '');
       const [phase7Busy, setPhase7Busy] = useState(false);
+      const [aiDescStyle, setAiDescStyle] = useState(settings?.aiDescriptionStyle || 'Premium Collector');
+      const [aiDescPlatform, setAiDescPlatform] = useState(settings?.aiDescriptionPlatform || 'Palmstreet');
+      const [aiDescStoreVersion, setAiDescStoreVersion] = useState(0);
+      const [aiDescReviewOpen, setAiDescReviewOpen] = useState(false);
+      const [aiDescBusy, setAiDescBusy] = useState(false);
+      const [aiDescGatewayMsg, setAiDescGatewayMsg] = useState('');
+      const [exportGuard, setExportGuard] = useState(null);
       const dragIndexRef = useRef(null);
       const dragTouchTimerRef = useRef(null);
       const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -14298,6 +15143,7 @@ Cancel keeps this page local/free.`);
       const missing = ids.filter(id => !byPlantId(id));
       const errors = validatePalmstreetPlants(showPlants);
       const whatnotErrors = validateWhatnotPlants(showPlants);
+      const canOverrideExport = user?.role === 'owner' || user?.permissions?.canExportReports === true;
 
       const addPlantIds = list => {
         const clean = (list || []).map(x => String(x || '').trim()).filter(Boolean);
@@ -14394,23 +15240,38 @@ Cancel keeps this page local/free.`);
       const clear = () => { if (confirm('Clear this show list?')) { setIds([]); setMsg('Show list cleared.'); } };
       const clearFilters = () => { setPickSearch(''); setPotFilter('All'); setPhotoFilter('All'); setStatusFilter('In Stock'); setPriceFilter('All'); setHideAdded(false); setMsg('Filters cleared.'); };
 
+      const confirmExportGuardOrStop = (platform) => {
+        const report = runShowExportGuard(showPlants, platform, { showName });
+        setExportGuard(report);
+        if (report.errors.length) {
+          const details = report.errors.slice(0, 25).join('\n') + (report.errors.length > 25 ? `\n...and ${report.errors.length - 25} more` : '');
+          if (canOverrideExport) {
+            return confirm(`${platform} Export Guard found ${report.errors.length} issue(s):\n\n${details}\n\nOwner override: export anyway?`);
+          }
+          alert(`Fix these before exporting to ${platform}:\n\n${details}`);
+          setMsg(`${platform} Export Guard blocked export. Fix the red items first.`);
+          return false;
+        }
+        if (report.warnings.length) setMsg(`${platform} Export Guard passed with ${report.warnings.length} warning(s). Exporting now.`);
+        return true;
+      };
       const exportPalmstreet = () => {
         if (!showPlants.length) { alert('Add plants to the show first.'); return; }
-        if (errors.length) { alert('Fix these before exporting to Palmstreet:\n\n' + errors.slice(0, 25).join('\n') + (errors.length > 25 ? `\n...and ${errors.length - 25} more` : '')); return; }
+        if (!confirmExportGuardOrStop('Palmstreet')) return;
         const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
         downloadCSVFile(`${fileSafe}-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(showPlants, { showName, privateListing }));
         setPlants(prev => prev.map(p => ids.includes(plantIdOf(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: showName } : p));
         addAudit && addAudit({ action: `Exported Show Builder to Palmstreet CSV — ${showPlants.length} plants`, user: user.name, page: 'Show Builder' });
-        setMsg(`Palmstreet CSV exported for ${showPlants.length} plants. Prices are kept as entered with cents, quantity is 1, and the existing SKU column now carries the Labelife barcode value / plant number for Bluetooth scanning.`);
+        setMsg(`Palmstreet CSV exported for ${showPlants.length} plants. Export Guard ran first. Prices are kept as entered with cents, quantity is 1, and SKU/barcode stays the plant number.`);
       };
       const exportWhatnot = () => {
         if (!showPlants.length) { alert('Add plants to the show first.'); return; }
-        if (whatnotErrors.length) { alert('Fix these before exporting to Whatnot:\n\n' + whatnotErrors.slice(0, 25).join('\n') + (whatnotErrors.length > 25 ? `\n...and ${whatnotErrors.length - 25} more` : '')); return; }
+        if (!confirmExportGuardOrStop('Whatnot')) return;
         const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
         downloadCSVFile(`${fileSafe}-whatnot-upload-${today()}.csv`, makeWhatnotCSV(showPlants, { showName, shippingProfile: whatnotShippingProfile, listingType: whatnotListingType, includeCost: includeWhatnotCost }));
         setPlants(prev => prev.map(p => ids.includes(plantIdOf(p)) ? { ...p, whatnotExportedAt: new Date().toISOString(), lastShowName: showName } : p));
         addAudit && addAudit({ action: `Exported Show Builder to Whatnot CSV — ${showPlants.length} plants`, user: user.name, page: 'Show Builder' });
-        setMsg(`Whatnot CSV exported for ${showPlants.length} plants. Prices were rounded up to whole dollars with no $ or decimals. The existing SKU column carries the Labelife barcode value / plant number for Bluetooth scanning.`);
+        setMsg(`Whatnot CSV exported for ${showPlants.length} plants. Export Guard ran first. Prices are whole-dollar integers and SKU/barcode stays the plant number.`);
       };
       const exportShowList = () => {
         if (!showPlants.length) { alert('Add plants first.'); return; }
@@ -14418,6 +15279,117 @@ Cancel keeps this page local/free.`);
         downloadCSVFile(`${fileSafe}-internal-show-list-${today()}.csv`, makeShowListCSV(showPlants));
         setMsg('Internal show list exported.');
       };
+
+      const bumpAiDescStore = () => setAiDescStoreVersion(v => v + 1);
+      const aiDescriptionStats = () => {
+        const withDesc = showPlants.filter(p => String(getAiDescRecord(p, aiDescPlatform).description || '').trim()).length;
+        const locked = showPlants.filter(p => getAiDescRecord(p, aiDescPlatform).locked).length;
+        return { withDesc, locked, missing: Math.max(0, showPlants.length - withDesc) };
+      };
+      const generateFreeDescriptions = () => {
+        if (!showPlants.length) { alert('Add plants to the show first.'); return; }
+        let made = 0, skipped = 0;
+        showPlants.forEach(p => {
+          const existing = getAiDescRecord(p, aiDescPlatform);
+          if (existing.locked && existing.description) { skipped++; return; }
+          const description = generateFreePlantDescription(p, { style: aiDescStyle, platform: aiDescPlatform, showName });
+          saveAiDescRecord(p, { description, style: aiDescStyle, platform: aiDescPlatform, locked: !!existing.locked, source: 'free-template', generatedAt: new Date().toISOString() }, aiDescPlatform);
+          made++;
+        });
+        bumpAiDescStore();
+        setSettings && setSettings(prev => ({ ...safeObject(prev), aiDescriptionStyle: aiDescStyle, aiDescriptionPlatform: aiDescPlatform }));
+        setMsg(`Generated ${made} free ${aiDescStyle} description(s)${skipped ? ` · ${skipped} locked skipped` : ''}.`);
+        ldEmitNextStep({ icon:'✍️', title:'Descriptions generated', body:`${made} plant descriptions are ready for ${aiDescPlatform} export. Review and lock the ones you like.`, cta:'Review Descriptions', page:'showbuilder', color:C.g600 });
+      };
+      const generateSmartGatewayDescriptions = async () => {
+        if (!showPlants.length) { alert('Add plants to the show first.'); return; }
+        const targets = showPlants.filter(p => {
+          const rec = getAiDescRecord(p, aiDescPlatform);
+          return !(rec.locked && rec.description);
+        }).slice(0, 35);
+        if (!targets.length) { setMsg('All show descriptions are locked. Unlock or clear one before regenerating.'); return; }
+        const cfg = phase61ReadConfig();
+        const usage = phase61UsageSnapshot(cfg);
+        const ok = confirm(`Generate Smart Gateway descriptions for ${targets.length} plant(s)?\n\nThis uses 1 Gateway call. Today: ${usage.dailyCalls}/${usage.dailyLimit}. Estimated cost: ${$(cfg.estimatedCostPerRequest || 0.02)}.\n\nLocked descriptions will not change.`);
+        if (!ok) return;
+        setAiDescBusy(true);
+        setAiDescGatewayMsg('Sending show plants to Smart Gateway...');
+        setMsg('Smart Gateway is creating unique plant descriptions...');
+        try {
+          const extraPrompt = aiDescBuildGatewayPrompt(targets, { platform: aiDescPlatform, style: aiDescStyle, showName });
+          const report = await phase61CallGateway({
+            question:'Create unique marketplace descriptions for these Leaf Diary show plants. Return JSON only.',
+            route:'content',
+            routeDef:{ label:'AI Plant Description Builder', task:'plant_descriptions', financials:'none' },
+            appData:{ plants:targets, expenses:[], bills:[], timecards:[], expenseReceipts:[] },
+            user:user || { role:'owner', name:'Owner' },
+            model:cfg.model,
+            extraPrompt,
+            cfg
+          });
+          if (!report.ok) throw new Error(report.error || 'Gateway did not return a successful response.');
+          const rows = aiDescExtractJsonArray(report.answer || report.output || '');
+          const saved = aiDescApplyGatewayRows(rows, targets, { platform:aiDescPlatform, style:aiDescStyle });
+          bumpAiDescStore();
+          setSettings && setSettings(prev => ({ ...safeObject(prev), aiDescriptionStyle: aiDescStyle, aiDescriptionPlatform: aiDescPlatform, aiDescriptionLastSmartRun: new Date().toISOString() }));
+          setAiDescGatewayMsg(saved ? `Smart Gateway saved ${saved} unique description(s). Review and lock the ones you like.` : 'Gateway answered, but the app could not match descriptions to plant IDs. Use Review/Edit or run Free mode.');
+          setMsg(saved ? `Smart Gateway saved ${saved} unique description(s) for ${aiDescPlatform}.` : 'Smart Gateway response could not be matched to plant IDs.');
+          addAudit && addAudit({ action:`Generated ${saved} Smart Gateway plant descriptions`, user:user?.name || 'Owner', page:'Show Builder', details:`${aiDescPlatform} · ${aiDescStyle}` });
+        } catch(e) {
+          const err = e?.message || String(e);
+          setAiDescGatewayMsg('Smart Gateway failed safely: ' + err + '. Free descriptions still work.');
+          setMsg('Smart Gateway failed safely. Free descriptions still work.');
+          phase1LogError && phase1LogError('generateSmartGatewayDescriptions', e);
+        } finally {
+          setAiDescBusy(false);
+        }
+      };
+      const lockAllDescriptions = () => {
+        showPlants.forEach(p => {
+          const rec = getAiDescRecord(p, aiDescPlatform);
+          if (rec.description) saveAiDescRecord(p, { ...rec, locked:true, lockedAt:new Date().toISOString() }, aiDescPlatform);
+        });
+        bumpAiDescStore();
+        setMsg('All generated descriptions in this show are locked.');
+      };
+      const clearUnlockedDescriptions = () => {
+        if (!confirm('Clear unlocked descriptions for this show/platform? Locked descriptions will stay.')) return;
+        showPlants.forEach(p => { const rec = getAiDescRecord(p, aiDescPlatform); if (!rec.locked) removeAiDescRecord(p, aiDescPlatform); });
+        bumpAiDescStore();
+        setMsg('Unlocked descriptions cleared for this show/platform.');
+      };
+      const runExportGuardNow = (platform = aiDescPlatform) => {
+        const report = runShowExportGuard(showPlants, platform, { showName });
+        setExportGuard(report);
+        setMsg(report.errors.length ? `${platform} Export Guard found ${report.errors.length} issue(s).` : `${platform} Export Guard passed with ${report.warnings.length} warning(s).`);
+        return report;
+      };
+      const removeExportGuardBadPlants = (report = exportGuard) => {
+        const activeReport = report || runShowExportGuard(showPlants, aiDescPlatform, { showName });
+        const badIds = new Set();
+        safeArray(activeReport.errors).forEach(err => {
+          showPlants.forEach(p => {
+            const id = plantIdOf(p);
+            if (id && String(err).toLowerCase().includes(id.toLowerCase())) badIds.add(id.toLowerCase());
+          });
+        });
+        if (!badIds.size) {
+          showPlants.forEach(p => {
+            const single = runShowExportGuard([p], activeReport.platform || aiDescPlatform, { showName });
+            if (single.errors.length) badIds.add(plantIdOf(p).toLowerCase());
+          });
+        }
+        if (!badIds.size) { setMsg('Export Guard did not find removable bad plants. Fix descriptions, photos, prices, or plant data instead.'); return; }
+        if (!confirm(`Remove ${badIds.size} plant(s) with Export Guard errors from this show cart? Inventory will not be deleted.`)) return;
+        setIds(prev => prev.filter(id => !badIds.has(String(id).toLowerCase())));
+        setExportGuard(null);
+        setMsg(`Removed ${badIds.size} problem plant(s) from the show cart. Inventory records were not deleted.`);
+      };
+      const saveDescriptionEdit = (plant, description, locked) => {
+        saveAiDescRecord(plant, { description, style: aiDescStyle, platform: aiDescPlatform, locked: !!locked, source:'manual-edit', generatedAt: getAiDescRecord(plant, aiDescPlatform).generatedAt || new Date().toISOString() }, aiDescPlatform);
+        bumpAiDescStore();
+      };
+      const descStats = aiDescriptionStats();
 
       const availablePots = Array.from(new Set(showablePlants.map(potOf).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       const allStatuses = ['In Stock'];
@@ -14577,6 +15549,35 @@ Cancel if you want to save money.`);
         <SHdr icon="🎪" title="Show Builder" sub="Smart show planner plus scanner-ready Palmstreet/Whatnot exports. Current CSV order/price rules are preserved."
           right={<Row gap={6} wrap><Btn onClick={exportWhatnot}>🛒 Export Whatnot CSV</Btn><Btn v="soft" onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear Show</Btn></Row>} />
         {msg && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 800 }}>{msg}</div>}
+        {aiDescReviewOpen && <Modal title="Review AI Plant Descriptions" wide onClose={()=>setAiDescReviewOpen(false)}>
+          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`5px solid ${C.g600}`, borderRadius:14, padding:12, marginBottom:12 }}>
+            <div style={{ fontWeight:900, color:C.g900 }}>Descriptions save on this device by plant number.</div>
+            <div style={{ fontSize:12, color:C.tx3, lineHeight:1.45, marginTop:3 }}>These descriptions are used automatically in the existing Palmstreet <b>Item description*</b> field and Whatnot <b>Description</b> field. Locked descriptions will not be replaced when you regenerate.</div>
+          </div>
+          {!showPlants.length ? <div style={{ textAlign:'center', padding:30, color:C.tx3 }}>Add plants to the show first.</div> : <div style={{ display:'grid', gap:10, maxHeight:'62vh', overflowY:'auto', paddingRight:4 }}>
+            {showPlants.map((p, i) => {
+              const rec = getAiDescRecord(p, aiDescPlatform);
+              const current = rec.description || getPlantExportDescription(p, { platform:aiDescPlatform, showName });
+              return <div key={plantIdOf(p)} style={{ border:`1px solid ${C.bd}`, borderLeft:`5px solid ${rec.locked ? C.g600 : C.amber}`, borderRadius:14, padding:12, background:C.card }}>
+                <Row between center wrap gap={8} style={{ marginBottom:8 }}>
+                  <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900 }}>{i+1}. {toTC(p.name || 'Leaf Diary Plant')}</div><div style={{ fontSize:11, color:C.tx3, fontFamily:F.mono }}>{plantIdOf(p)} · {potOf(p) || 'No pot'} · {aiDescPlatform} · {rec.source || 'fallback'}</div></div>
+                  <Row gap={6} wrap><Tag text={rec.locked ? 'Locked' : 'Unlocked'} color={rec.locked ? C.g600 : C.amber} sm /><Btn sz="sm" v="soft" onClick={()=>{ const desc = generateFreePlantDescription(p, { style:aiDescStyle, platform:aiDescPlatform, showName }); saveDescriptionEdit(p, desc, rec.locked); }}>Regenerate</Btn></Row>
+                </Row>
+                <textarea value={current} onChange={e=>saveDescriptionEdit(p, e.target.value, rec.locked)} style={{ width:'100%', minHeight:96, padding:11, border:`1.5px solid ${C.bd}`, borderRadius:10, fontSize:13, lineHeight:1.45, fontFamily:F.body, resize:'vertical' }} />
+                <Row between center wrap gap={8} style={{ marginTop:8 }}>
+                  <label style={{ display:'flex', gap:7, alignItems:'center', fontSize:12, fontWeight:900, color:C.tx2 }}><input type="checkbox" checked={!!rec.locked} onChange={e=>saveDescriptionEdit(p, current, e.target.checked)} /> Lock this description</label>
+                  <div style={{ fontSize:11, color:C.tx3 }}>{String(current || '').length} characters</div>
+                </Row>
+              </div>;
+            })}
+          </div>}
+          <Row gap={8} wrap style={{ marginTop:14 }}>
+            <Btn onClick={generateFreeDescriptions}>Generate Missing/Unlocked</Btn>
+            <Btn v="soft" onClick={lockAllDescriptions}>Lock All</Btn>
+            <Btn v="outline" onClick={()=>runExportGuardNow(aiDescPlatform)}>Run Export Guard</Btn>
+            <Btn v="ghost" onClick={()=>setAiDescReviewOpen(false)}>Close</Btn>
+          </Row>
+        </Modal>}
         <Card style={{ marginBottom:12, background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
           <Row between center wrap gap={10}>
             <div style={{ minWidth:0 }}>
@@ -14624,6 +15625,45 @@ Cancel if you want to save money.`);
                 </details>
                 {phase7AiText && <div style={{ marginTop:8, background:'#000', color:'#fff', borderRadius:10, padding:10, fontSize:12, lineHeight:1.45, whiteSpace:'pre-wrap', maxHeight:180, overflowY:'auto' }}>{phase7AiText}</div>}
               </div>}
+            </Card>
+
+            <Card style={{ borderTop:`4px solid #fb6392` }}>
+              <Row between center wrap gap={10} style={{ marginBottom:10 }}>
+                <div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:19 }}>✍️ AI Plant Description Builder</div><div style={{ fontSize:12, color:C.tx3 }}>Creates unique show descriptions without adding another page. Saved by plant number and used in Palmstreet / Whatnot exports.</div></div>
+                <Tag text={`${descStats.withDesc}/${showPlants.length} described`} color={descStats.missing ? C.amber : C.g600} />
+              </Row>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+                <Sel label="Platform" value={aiDescPlatform} onChange={setAiDescPlatform} options={["Palmstreet", "Whatnot"]} />
+                <Sel label="Style" value={aiDescStyle} onChange={setAiDescStyle} options={AI_DESC_STYLES} />
+              </div>
+              <Row gap={7} wrap>
+                <Btn onClick={generateFreeDescriptions} disabled={!showPlants.length || aiDescBusy}>Generate Free Descriptions</Btn>
+                <Btn v="gold" onClick={generateSmartGatewayDescriptions} disabled={!showPlants.length || aiDescBusy}>{aiDescBusy ? 'Generating...' : 'Generate Smart Gateway'}</Btn>
+                <Btn v="soft" onClick={()=>setAiDescReviewOpen(true)} disabled={!showPlants.length}>Review / Edit</Btn>
+                <Btn v="outline" onClick={lockAllDescriptions} disabled={!descStats.withDesc}>Lock All</Btn>
+                <Btn v="ghost" onClick={clearUnlockedDescriptions} disabled={!descStats.withDesc}>Clear Unlocked</Btn>
+                <Btn v="gold" onClick={()=>runExportGuardNow(aiDescPlatform)} disabled={!showPlants.length}>Run Export Guard</Btn>
+              </Row>
+              <div style={{ marginTop:10, display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+                <KPI label="Descriptions" value={descStats.withDesc} sub={`${descStats.missing} missing`} color={descStats.missing ? C.amber : C.g600} />
+                <KPI label="Locked" value={descStats.locked} sub="will not regenerate" color={descStats.locked ? C.g600 : C.tx3} />
+                <KPI label="Guard" value={exportGuard ? (exportGuard.errors.length ? 'Fix' : 'Pass') : 'Not Run'} sub={exportGuard ? `${exportGuard.errors.length} errors · ${exportGuard.warnings.length} warnings` : 'check before export'} color={!exportGuard ? C.tx3 : exportGuard.errors.length ? C.red : C.g600} />
+              </div>
+              {exportGuard && <div style={{ marginTop:10, background:exportGuard.errors.length ? C.redBg : C.g50, border:`1px solid ${exportGuard.errors.length ? C.red : C.g300}40`, borderRadius:12, padding:10 }}>
+                <div style={{ fontWeight:900, color:exportGuard.errors.length ? C.red : C.g800 }}>{exportGuard.platform} Export Guard: {exportGuard.errors.length ? 'Not Ready' : 'Ready'}</div>
+                <div style={{ fontSize:11, color:C.tx3, marginTop:3 }}>Checked {exportGuard.checked} plant(s). Export blocks on red issues. Warnings do not block.</div>
+                {exportGuard.errors.slice(0,8).map((e,i)=><div key={'e'+i} style={{ fontSize:11, color:C.red, marginTop:4 }}>🚫 {e}</div>)}
+                {exportGuard.warnings.slice(0,8).map((w,i)=><div key={'w'+i} style={{ fontSize:11, color:C.amber, marginTop:4 }}>⚠️ {w}</div>)}
+                {exportGuard.errors.length > 8 && <div style={{ fontSize:11, color:C.red, marginTop:4 }}>...and {exportGuard.errors.length - 8} more issue(s)</div>}
+                <Row gap={7} wrap style={{ marginTop:10 }}>
+                  <Btn sz="sm" v="soft" onClick={()=>{ setPhotoFilter('Missing Photo'); setMsg('Showing plants missing photos. Use Photo Sprint to fix them.'); }}>Fix Photos</Btn>
+                  <Btn sz="sm" onClick={generateFreeDescriptions} disabled={!showPlants.length}>Generate Descriptions</Btn>
+                  <Btn sz="sm" v="outline" onClick={()=>removeExportGuardBadPlants(exportGuard)} disabled={!exportGuard.errors.length}>Remove Bad Plants</Btn>
+                  {exportGuard.errors.length > 0 && canOverrideExport && <Tag text="Owner override appears when exporting" color={C.gold} sm />}
+                </Row>
+              </div>}
+              {aiDescGatewayMsg && <div style={{ marginTop:10, background:C.blueBg, border:`1px solid ${C.blue}44`, borderRadius:12, padding:10, color:C.blue, fontSize:12, fontWeight:800, lineHeight:1.35 }}>{aiDescGatewayMsg}</div>}
+              <div style={{ fontSize:11, color:C.tx3, lineHeight:1.4, marginTop:9 }}>Free mode costs $0. Smart Gateway is manual only, max 35 plants per call, skips locked descriptions, and saves copy into the same Palmstreet/Whatnot CSV description fields.</div>
             </Card>
 
             <Card style={{ borderTop: `4px solid ${C.g600}` }}>
@@ -18484,6 +19524,79 @@ ${local.summary || "Fallback completed."}`;
     function ldPhase2QaSave(status) {
       try { localStorage.setItem("ld_phase2_qa_status", JSON.stringify(status || {})); } catch (e) {}
     }
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 75 — AI REGRESSION QA + RELEASE HARDENING
+       Local-only self checks for Updates 67-74. No new pages, no
+       Supabase schema changes, no export/header/barcode rewrites.
+    ══════════════════════════════════════════════════════════ */
+    function phase75BuildAiRegressionChecks({ plants = [], expenses = [], bills = [], receipts = [], timecards = [], nurseries = [], users = [], settings = {}, casdCerts = [], user = {} } = {}) {
+      const checks = [];
+      const add = (id, icon, title, pass, reason, page = "phase2qa", severity = "info") => checks.push({
+        id, icon, title, pass: !!pass, reason: reason || "", page, severity,
+        color: pass ? C.g600 : severity === "critical" ? C.red : severity === "warning" ? C.amber : C.tx3
+      });
+      const samplePlant = {
+        id:"qa-plant-1", plantId:"QA-001", plantCode:"QA-001", barcode:"QA-001", sku:"QA-001",
+        name:"Alocasia Black Velvet", potSize:'4"', status:"In Stock", suggestedPrice:35,
+        price:35, cost:10, photoUrl:"https://example.com/qa-001.jpg", dateAdded:today(), labelPrinted:true,
+        aiDescription:"QA plant description with enough human words for marketplace export testing and guard readiness.",
+        aiDescriptionLocked:true
+      };
+      const sampleBadPlant = {
+        id:"qa-bad-1", plantId:"QA-002", plantCode:"QA-002", name:"", potSize:"", status:"Sold", suggestedPrice:0,
+        photoUrl:"", aiDescription:"short"
+      };
+      try {
+        const snap = buildLeafDataSnapshot({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts });
+        add("brain", "🧠", "Business Brain Snapshot", !!(snap && snap.counts && typeof snap.counts.inStock === "number"), `Snapshot counts loaded: ${snap?.counts?.inStock || 0} in stock, ${snap?.counts?.noPhoto || 0} missing photos.`, "today");
+      } catch(e) { add("brain", "🧠", "Business Brain Snapshot", false, e.message, "today", "critical"); }
+
+      try {
+        const desc = getPlantExportDescription(samplePlant, { platform:"Whatnot", showName:"QA Show" });
+        add("descriptions", "✍️", "AI Description Resolver", !!(desc && desc.length >= 40 && desc.includes("QA plant description")), `Resolved description length: ${String(desc || "").length}.`, "showbuilder");
+      } catch(e) { add("descriptions", "✍️", "AI Description Resolver", false, e.message, "showbuilder", "critical"); }
+
+      try {
+        const guard = runShowExportGuard([samplePlant, sampleBadPlant], "Whatnot", { showName:"QA Show" });
+        add("export_guard", "🛡️", "Export Guard Blocks Bad Show", !!(guard && guard.status === "Not Ready" && guard.errors && guard.errors.length), `${guard?.errors?.length || 0} errors and ${guard?.warnings?.length || 0} warnings detected.`, "showbuilder");
+      } catch(e) { add("export_guard", "🛡️", "Export Guard Blocks Bad Show", false, e.message, "showbuilder", "critical"); }
+
+      try {
+        const whatnotCsv = makeWhatnotCSV([samplePlant], { showName:"QA Show" });
+        const palmCsv = makePalmstreetCSV([samplePlant], { showName:"QA Show" });
+        const ok = String(whatnotCsv).includes("QA-001") && String(whatnotCsv).includes("QA plant description") && String(palmCsv).includes("QA-001") && String(palmCsv).includes("QA plant description");
+        add("csv_safety", "📄", "CSV Export Description Safety", ok, ok ? "Palmstreet and Whatnot CSV helpers still use plant number/SKU and saved descriptions." : "CSV output did not include expected plant number or description.", "showbuilder", ok ? "info" : "critical");
+      } catch(e) { add("csv_safety", "📄", "CSV Export Description Safety", false, e.message, "showbuilder", "critical"); }
+
+      try {
+        const actions = phase72BuildBuySmartActions({
+          genusRows:[{ genus:"Syngonium", score:72, sold:8, sold30:4, avgProfit:14, deathRate:0, avgDays:9 }, { genus:"Common 4 inch", score:28, inStock:20, deathRate:25, avgDays:55, avgProfit:3 }],
+          buyMore:[{ genus:"Syngonium", score:72, sold30:4, avgProfit:14, deathRate:0 }],
+          avoid:[{ genus:"Common 4 inch", score:28, inStock:20, deathRate:25, avgDays:55 }],
+          cheapOnly:[{ genus:"Pothos", maxBuy:6, targetSell:18, score:48 }],
+          nurseryRows:[{ name:"QA Nursery", score:80, bought:20, sold:12, sellThru:60, roi:90, deathRate:0 }],
+          stockRisk:[{ plant:samplePlant, held:66, pps:{ rating:"D" } }],
+          safeSpend:250, reserve:100, plan:{ minAcceptableProfit:35, targetPPS:3.5 }, showReady:4, missingData:20, canSeeMoney:user?.role === "owner"
+        });
+        add("buy_smarter", "🛒", "AI Buy Smarter Actions", Array.isArray(actions) && actions.length >= 5, `${actions?.length || 0} action cards generated.`, "buy_ws");
+      } catch(e) { add("buy_smarter", "🛒", "AI Buy Smarter Actions", false, e.message, "buy_ws", "critical"); }
+
+      try {
+        const tasks = phase73BuildEmployeeAITasks({ plants:[samplePlant], receipts:[{ id:"r1", reviewStatus:"Needs Review" }], timecards:[], user:{ name:"QA Employee" }, role:"employee" });
+        const text = JSON.stringify(tasks || []);
+        const sensitive = /\b(cost|profit|cash|tax|payroll|supplier roi|roi|bank balance)\b/i.test(text);
+        add("employee_tasks", "👷", "Employee AI Tasks Role Safety", Array.isArray(tasks) && tasks.length && !sensitive, `${tasks?.length || 0} employee-safe tasks generated${sensitive ? " but sensitive wording was detected" : " with no sensitive money wording"}.`, "employeeboard", sensitive ? "critical" : "info");
+      } catch(e) { add("employee_tasks", "👷", "Employee AI Tasks Role Safety", false, e.message, "employeeboard", "critical"); }
+
+      try {
+        const receipt = phase74AnalyzeReceipt({ vendor:"Shell Gas", amount:"48.22", category:"", paymentMethod:"", receiptNumber:"123" }, [{ id:"old", vendor:"Shell Gas", amount:"48.22", date:today(), receiptNumber:"123" }]);
+        const ok = receipt && receipt.suggestedFields && /Gas/i.test(receipt.suggestedFields.category || "") && receipt.duplicateCount >= 1 && receipt.actions?.length;
+        add("receipt_copilot", "🧾", "Receipt AI Copilot", ok, `Category: ${receipt?.suggestedFields?.category || "none"}; duplicates: ${receipt?.duplicateCount || 0}; confidence: ${receipt?.confidence || 0}%.`, "receipts");
+      } catch(e) { add("receipt_copilot", "🧾", "Receipt AI Copilot", false, e.message, "receipts", "critical"); }
+
+      return checks;
+    }
+
     function Phase2QACenter({ user, plants = [], expenses = [], bills = [], receipts = [], settings = {}, themeMode = "light", setPage }) {
       const [status, setStatus] = useState(ldPhase2QaRead);
       const role = user?.role || "employee";
@@ -18496,6 +19609,10 @@ ${local.summary || "Fallback completed."}`;
       const receiptReview = safeArray(receipts).filter(r => (r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.mainCategory && !r.main_category)).length;
       const due7 = safeArray(bills).filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 7).length;
       const cloudIssues = [duplicates, noPrice, receiptReview, due7].filter(n => (+n || 0) > 0).length;
+      const aiRegression = phase75BuildAiRegressionChecks({ plants, expenses, bills, receipts, timecards: [], nurseries: [], users: [], settings, casdCerts: [], user });
+      const aiRegressionPass = aiRegression.filter(i => i.pass).length;
+      const aiRegressionBlockers = aiRegression.filter(i => !i.pass && i.severity === "critical").length;
+      const aiRegressionWarnings = aiRegression.filter(i => !i.pass && i.severity !== "critical").length;
       const features = [
         { id:"skeleton", icon:"⚡", title:"Skeleton Loading", page:"today", test:"Refresh the app. You should see Leaf Diary loading placeholders instead of a blank white flash." },
         { id:"onboarding", icon:"🎓", title:"Onboarding Checklist", page:"onboarding", test:"Open onboarding. Mark a step done, refresh, and confirm progress stays." },
@@ -18509,6 +19626,14 @@ ${local.summary || "Fallback completed."}`;
         { id:"charts", icon:"📊", title:"Data Visualization", page:"datacharts", test:"Open charts, switch tabs, and use View Table. No chart should overflow on phone." },
         { id:"accessibility", icon:"♿", title:"Accessibility Pass", page:"accessibility", test:"Run quick scan. Confirm focus rings, readable contrast, and image alt text checks." },
         { id:"darkmode", icon:"🌙", title:"Theme Mode", page:"darkmode", test:"Toggle dark mode, refresh, then toggle back. No page should become white-on-white." },
+        { id:"ai67_brain", icon:"🧠", title:"Update 67 AI Brain + Power Questions", page:"aihub", test:"Open Today and Ask Business AI. Confirm Free/Local answers work and Smart Gateway only runs when clicked." },
+        { id:"ai68_desc", icon:"✍️", title:"Update 68 Free Descriptions", page:"showbuilder", test:"Build a 5-plant show, generate free descriptions, edit one, lock one, and confirm locked descriptions stay." },
+        { id:"ai69_gateway", icon:"🌐", title:"Update 69 Smart Gateway Descriptions", page:"showbuilder", test:"Use Smart Unique Descriptions manually only. Confirm batch limit/cost guard and locked descriptions are skipped." },
+        { id:"ai70_guard", icon:"🛡️", title:"Update 70 Export Guard", page:"showbuilder", test:"Try exporting a bad show. Confirm missing photo/price/description/sold plant problems block export unless owner overrides." },
+        { id:"ai71_showpro", icon:"🎪", title:"Update 71 AI Show Builder Pro", page:"showbuilder", test:"Preview an AI show plan, then Replace Cart or Add To Cart. Confirm no export format changes." },
+        { id:"ai72_buysmart", icon:"🛒", title:"Update 72 AI Buy Smarter", page:"buy_ws", test:"Open Buy Smart and AI Buy Plan. Confirm Buy More, Stop Buying, Only Buy Under, and nursery warnings show." },
+        { id:"ai73_employee", icon:"👷", title:"Update 73 Employee AI Tasks", page:"employeeboard", test:"Open employee board and confirm tasks show no cost, profit, cash, tax, payroll, supplier ROI, or AI settings." },
+        { id:"ai74_receipts", icon:"🧾", title:"Update 74 Receipt AI Copilot", page:"receipts", test:"Review a receipt. Confirm category, vendor, payment method warning, duplicate detection, and Smart Review button work." },
       ];
       const regressions = [
         { id:"login", icon:"🔐", title:"Login + Role Launcher", page:"rolelauncher", test:"Owner, manager, and employee open the correct board after login." },
@@ -18527,8 +19652,8 @@ ${local.summary || "Fallback completed."}`;
       const pct = allChecks.length ? Math.round(doneCount / allChecks.length * 100) : 0;
       const mark = (id, value) => setStatus(prev => { const next = { ...prev, [id]: value, updatedAt:new Date().toISOString() }; ldPhase2QaSave(next); return next; });
       const reset = () => { const next = {}; ldPhase2QaSave(next); setStatus(next); };
-      const exportCsv = () => downloadCsv("leaf-diary-phase-2-qa-checklist.csv", [["Section","Feature","Status","Test","Page"], ...features.map(i => ["Phase 2", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page])]);
-      const canGoLive = doneCount === allChecks.length && cloudIssues === 0;
+      const exportCsv = () => downloadCsv("leaf-diary-update-75-ai-regression-qa.csv", [["Section","Feature","Status","Test/Result","Page"], ...features.map(i => ["Phase 2 + AI", i.title, status[i.id] || "untested", i.test, i.page]), ...regressions.map(i => ["Regression", i.title, status[i.id] || "untested", i.test, i.page]), ...aiRegression.map(i => ["Live AI Self Check", i.title, i.pass ? "pass" : "review", i.reason, i.page])]);
+      const canGoLive = doneCount === allChecks.length && cloudIssues === 0 && aiRegressionBlockers === 0;
       const Stat = ({ label, value, sub, color }) => <Card style={{ borderTop:`4px solid ${color}`, padding:"13px 12px" }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase", letterSpacing:.6 }}>{label}</div><div style={{ fontFamily:F.display, color, fontSize:28, fontWeight:900 }}>{value}</div>{sub && <div style={{ color:C.tx3, fontSize:11, fontWeight:700 }}>{sub}</div>}</Card>;
       const CheckCard = ({ item, section }) => { const st = status[item.id] || "untested"; const color = st === "pass" ? C.g600 : st === "review" ? C.amber : C.tx3; return <Card style={{ borderLeft:`5px solid ${color}`, padding:14 }}>
         <Row between center gap={10} wrap>
@@ -18551,12 +19676,13 @@ ${local.summary || "Fallback completed."}`;
             <Row gap={8} wrap><button onClick={exportCsv} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Export QA CSV</button><button onClick={()=>setPage("releasecenter")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Final Release Center</button></Row>
           </Row>
           <div style={{ marginTop:15, background:canGoLive ? "rgba(151,211,62,.16)" : "rgba(255,255,255,.08)", border:"1px solid rgba(151,211,62,.30)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
-            {canGoLive ? "✅ Phase 2 looks ready for a live upload after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} item(s) still need pass marks · ${cloudIssues} live data warning group(s).`}
+            {canGoLive ? "✅ Phase 2 + AI regression looks ready for a live upload after you backup the current working file." : `Testing progress ${pct}% · ${allChecks.length - doneCount} checklist item(s) still need pass marks · ${cloudIssues} live data warning group(s) · ${aiRegressionBlockers} AI self-check blocker(s).`}
           </div>
         </div>
 
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:14 }}>
           <Stat label="QA Progress" value={`${pct}%`} sub={`${doneCount}/${allChecks.length} passed`} color={pct === 100 ? C.g600 : C.blue} />
+          <Stat label="AI Self Checks" value={`${aiRegressionPass}/${aiRegression.length}`} sub={`${aiRegressionBlockers} blockers · ${aiRegressionWarnings} warnings`} color={aiRegressionBlockers ? C.red : aiRegressionWarnings ? C.amber : C.g600} />
           <Stat label="Needs Review" value={warnCount} sub="marked by tester" color={warnCount ? C.amber : C.g600} />
           <Stat label="Data Warnings" value={cloudIssues} sub={`${duplicates} dupes · ${noPrice} prices · ${receiptReview} receipts`} color={cloudIssues ? C.amber : C.g600} />
           <Stat label="Theme" value={themeMode === "dark" ? "Dark" : "Light"} sub="current device" color={themeMode === "dark" ? C.g600 : C.gold} />
@@ -18569,8 +19695,17 @@ ${local.summary || "Fallback completed."}`;
           </div>
         </Card>
 
+        <Card style={{ marginBottom:14, borderLeft:`5px solid ${aiRegressionBlockers ? C.red : C.g600}` }}>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Update 75 Live AI Self Checks</div><div style={{ color:C.tx3, fontSize:12 }}>Automatic local checks for AI Brain, descriptions, Export Guard, Buy Smarter, Employee Tasks, Receipt Copilot, and CSV safety.</div></div><Tag text={`${aiRegressionPass}/${aiRegression.length} passing`} color={aiRegressionBlockers ? C.red : C.g600} /></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+            {aiRegression.map(i => <Card key={i.id} style={{ borderLeft:`5px solid ${i.color}`, padding:13 }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}><div style={{ width:38, height:38, borderRadius:13, background:i.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{i.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{i.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:2 }}>{i.reason}</div><div style={{ marginTop:7 }}><Tag text={i.pass ? "Pass" : i.severity === "critical" ? "Blocker" : "Review"} color={i.color} sm /></div></div><Btn sz="sm" v="ghost" onClick={()=>setPage(i.page)}>Open</Btn></Row>
+            </Card>)}
+          </div>
+        </Card>
+
         <Card style={{ marginBottom:14 }}>
-          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Phase 2 Feature Tests</div><div style={{ color:C.tx3, fontSize:12 }}>These are the 12 Phase 2 upgrades. Open each feature, test it, then mark pass or review.</div></div><Tag text="12 features" color={C.g600} /></Row>
+          <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Phase 2 Feature Tests</div><div style={{ color:C.tx3, fontSize:12 }}>These are the 12 Phase 2 upgrades. Open each feature, test it, then mark pass or review.</div></div><Tag text={`${features.length} checks`} color={C.g600} /></Row>
           <div style={{ display:"grid", gap:10 }}>{features.map(i => <CheckCard key={i.id} item={i} section="Phase 2" />)}</div>
         </Card>
 
