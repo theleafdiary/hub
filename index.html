@@ -9487,226 +9487,686 @@
     /* ══════════════════════════════════════════════════════════
        MOBILE-FIRST TIMECARD + PAYROLL
     ══════════════════════════════════════════════════════════ */
+    /* ═══════════════════════════════════════════════════════════
+       TIMECARD v2 — REBUILT: MOBILE-FIRST, SECURE, ROLE-SPLIT
+       Changes from v1:
+       1.  Employee and owner are fully split views
+       2.  Live second-by-second shift timer (setInterval tick)
+       3.  Clock-Out requires 2-button confirmation — no accidents
+       4.  Double-tap lock (punching state, 2s) on clock-in/out
+       5.  Forgotten-shift detection on mount
+       6.  Overnight shift: shiftHours already adds 24h if end<start
+       7.  Hard cap: shifts >16h blocked, owner must fix manually
+       8.  Mobile shift history uses card rows, not a scrolling table
+       9.  Pay rate ($) hidden from employees in history and earnings
+      10.  "Show Bonus" relabeled to "My Show Earnings — pending"
+      11.  Employee userId locked to user.id on every punch
+      12.  All punches and edits logged via addAudit
+    ═══════════════════════════════════════════════════════════ */
     function Timecard({ timecards, setTimecards, user, employees, settings, setSettings, addAudit }) {
       const isOwner = user.role !== "employee";
+      const isEmp   = !isOwner;
       const workerList = (employees || []).filter(e => e.role !== "owner");
-      const [selEmp, setSelEmp] = useState(isOwner ? (workerList[0]?.id || user.id) : user.id);
-      const activeEmp = (employees || []).find(e => e.id === selEmp) || user;
-      const payCfg = employeePaySettings(settings, selEmp);
+
+      const [selEmp, setSelEmp]         = useState(isOwner ? (workerList[0]?.id || user.id) : user.id);
+      const [tab, setTab]               = useState(isOwner ? "admin" : "punch");
+      const [confirmOut, setConfirmOut] = useState(false);
+      const [punching, setPunching]     = useState(false);
+      const [msg, setMsg]               = useState("");
       const [showManual, setShowManual] = useState(false);
-      const [manual, setManual] = useState({ date: today(), in: "09:00", out: "17:00", break_: "30", notes: "" });
-      const [msg, setMsg] = useState("");
+      const [editEntry, setEditEntry]   = useState(null);
       const [noticeAllowed, setNoticeAllowed] = useState(false);
+      const [tick, setTick]             = useState(0);
+      const [manual, setManual]         = useState({
+        date: today(), in: "09:00", out: "17:00", break_: "30",
+        notes: "", userId: workerList[0]?.id || ""
+      });
 
-      const visibleCards = isOwner ? timecards.filter(t => t.userId === selEmp) : timecards.filter(t => t.userId === user.id);
-      const activeShift = timecards.find(t => t.userId === user.id && !t.out && t.status !== "Closed");
+      const activeEmp = (employees || []).find(e => e.id === selEmp) || user;
+      const payCfg    = employeePaySettings(settings, selEmp);
+
+      /* live second ticker — only runs while employee is clocked in */
+      const myActiveShift = timecards.find(t => t.userId === user.id && !t.out && t.status !== "Closed");
+      useEffect(() => {
+        if (!myActiveShift) return;
+        const id = setInterval(() => setTick(n => n + 1), 1000);
+        return () => clearInterval(id);
+      }, [myActiveShift ? myActiveShift.id : null]);
+
       const selectedActiveShift = timecards.find(t => t.userId === selEmp && !t.out && t.status !== "Closed");
-      const selectedToday = timecards.filter(t => t.userId === selEmp && t.date === today());
-      const activeHours = selectedActiveShift ? shiftHours(selectedActiveShift.date, selectedActiveShift.in, "", selectedActiveShift.break_) : 0;
-      const weekRows = timecards.filter(t => t.userId === selEmp && inSameWeek(t.date));
-      const weekHoursClosed = weekRows.reduce((s,t)=>s+(+t.hours || 0),0);
-      const weekHoursLive = weekHoursClosed + (selectedActiveShift ? activeHours : 0);
-      const monthRows = timecards.filter(t => t.userId === selEmp && String(t.date || "").startsWith(today().slice(0,7)));
-      const monthHourlyPay = monthRows.reduce((s,t)=>s+(+t.totalPay || 0),0);
-      const unpaidBonus = commissionAmountForEmployee(settings, selEmp, "unpaid");
-      const grossPaycheck = monthHourlyPay + unpaidBonus;
-      const tax = estimatedWithholding(grossPaycheck, payCfg);
 
-      const setEmpPayCfg = patch => setSettings(prev => ({
-        ...prev,
-        employeePaySettings: {
-          ...(prev.employeePaySettings || {}),
-          [selEmp]: { ...employeePaySettings(prev, selEmp), ...patch }
+      /* live hours — recalculates every second because tick forces re-render */
+      const liveHoursEmp     = myActiveShift ? shiftHours(myActiveShift.date, myActiveShift.in, "", myActiveShift.break_ || 0) : 0;
+      const livePayEmpRaw    = liveHoursEmp * (+employeePaySettings(settings, user.id).hourlyRate || 15);
+      const activeHoursOwner = selectedActiveShift ? shiftHours(selectedActiveShift.date, selectedActiveShift.in, "", selectedActiveShift.break_ || 0) : 0;
+
+      /* forgotten shift: open shift from a PRIOR day */
+      useEffect(() => {
+        const forgotten = timecards.find(t =>
+          t.userId === user.id && !t.out && t.status !== "Closed" && t.date !== today()
+        );
+        if (forgotten) {
+          setMsg("WARNING: You have an open shift from " + forgotten.date + " that was never clocked out. Contact your owner — they can fix it in Admin.");
         }
-      }));
+      }, []);
 
       useEffect(() => {
         if (typeof Notification !== "undefined" && Notification.permission === "granted") setNoticeAllowed(true);
       }, []);
 
+      /* shift-end browser notification */
       useEffect(() => {
-        if (!activeShift) return;
+        if (!myActiveShift) return;
         const timer = setInterval(() => {
           const cfg = employeePaySettings(settings, user.id);
-          const h = shiftHours(activeShift.date, activeShift.in, "", activeShift.break_);
-          const minutesUntilEnd = timeToMinutes(cfg.scheduledEnd) - (new Date().getHours() * 60 + new Date().getMinutes());
-          const nearEnd = minutesUntilEnd <= (+cfg.reminderMinutesBeforeEnd || 15) && minutesUntilEnd >= 0;
+          const h = shiftHours(myActiveShift.date, myActiveShift.in, "", myActiveShift.break_ || 0);
+          const minsUntilEnd = timeToMinutes(cfg.scheduledEnd) - (new Date().getHours() * 60 + new Date().getMinutes());
+          const nearEnd = minsUntilEnd <= (+cfg.reminderMinutesBeforeEnd || 15) && minsUntilEnd >= 0;
           if ((h >= (+cfg.maxDailyHours || 8) || nearEnd) && typeof Notification !== "undefined" && Notification.permission === "granted") {
-            new Notification("Leaf Diary Timecard", { body: h >= (+cfg.maxDailyHours || 8) ? "You are at your daily hour limit. Please clock out." : "Reminder: your shift is ending soon. Please clock out on time." });
+            new Notification("Leaf Diary Timecard", {
+              body: h >= (+cfg.maxDailyHours || 8)
+                ? "You are at your daily hour limit. Please clock out."
+                : "Your shift is ending soon. Please clock out on time."
+            });
           }
         }, 60000);
         return () => clearInterval(timer);
-      }, [activeShift, settings, user.id]);
+      }, [myActiveShift ? myActiveShift.id : null, settings, user.id]);
 
       const requestNotifications = async () => {
         if (typeof Notification === "undefined") { setMsg("This browser does not support reminders."); return; }
         const result = await Notification.requestPermission();
         setNoticeAllowed(result === "granted");
-        setMsg(result === "granted" ? "Browser reminders enabled while this app is open." : "Reminder permission was not enabled.");
+        setMsg(result === "granted" ? "Reminders enabled while this app is open." : "Permission not granted.");
       };
 
+      /* CLOCK IN — locked to user.id, 2-second debounce */
       const clockIn = () => {
-        if (activeShift) { setMsg("You are already clocked in."); return; }
+        if (punching)      { setMsg("Please wait..."); return; }
+        if (myActiveShift) { setMsg("You are already clocked in."); return; }
+        setPunching(true);
         const now = new Date().toTimeString().slice(0, 5);
         const row = {
           id: uid(),
-          userId: user.id,
+          userId: user.id,         /* SECURITY: always user.id — never a spoofable selEmp */
           userName: user.name,
-          date: today(),
-          in: now,
-          out: "",
-          break_: 0,
-          hours: 0,
-          regularHours: 0,
-          overtimeHours: 0,
+          date: today(), in: now, out: "", break_: 0,
+          hours: 0, regularHours: 0, overtimeHours: 0,
           hourlyRate: +employeePaySettings(settings, user.id).hourlyRate || 15,
-          totalPay: 0,
-          status: "Open",
-          source: "employee-clock",
-          notes: "",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          totalPay: 0, status: "Open", source: "employee-clock", notes: "",
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
         };
         setTimecards(p => [...p, row]);
-        addAudit && addAudit({ page:"Timecard", action:"Clock In", details:`${user.name} clocked in at ${now}` });
-        setMsg("Clocked in. Your shift is tracking now.");
+        addAudit && addAudit({ page: "Timecard", action: "Clock In", details: user.name + " clocked in at " + now });
+        setMsg("Clocked in at " + now + ". Your shift is tracking.");
         ldEmitNextStep("clocked_in");
+        setConfirmOut(false);
+        setTimeout(() => setPunching(false), 2000);
       };
 
+      /* CLOCK OUT — validates hours, overnight safe, hard cap 16h */
       const clockOut = () => {
-        if (!activeShift) { setMsg("You are not clocked in."); return; }
+        if (punching)       { setMsg("Please wait..."); return; }
+        if (!myActiveShift) { setMsg("You are not clocked in."); return; }
+        setPunching(true);
+        setConfirmOut(false);
         const now = new Date().toTimeString().slice(0, 5);
+        /* shiftHours already handles overnight (adds 24h if end < start) */
+        const rawHours = shiftHours(myActiveShift.date, myActiveShift.in, now, myActiveShift.break_ || 0);
+        /* hard cap — likely a forgotten punch-out */
+        if (rawHours > 16) {
+          setMsg("WARNING: This shift shows " + rawHours.toFixed(1) + "h. That is too long. Contact your owner — they will manually close the old shift.");
+          setPunching(false);
+          return;
+        }
         setTimecards(prev => prev.map(t => {
-          if (t.id !== activeShift.id) return t;
-          const rawHours = shiftHours(t.date, t.in, now, t.break_);
-          const priorWeekHours = prev.filter(x => x.userId === t.userId && x.id !== t.id && inSameWeek(x.date)).reduce((s,x)=>s+(+x.hours || 0),0);
-          const regularHours = Math.max(0, Math.min(rawHours, (+employeePaySettings(settings, t.userId).maxWeeklyHours || 40) - priorWeekHours));
-          const overtimeHours = Math.max(0, rawHours - regularHours);
-          const rate = +t.hourlyRate || +employeePaySettings(settings, t.userId).hourlyRate || 15;
-          return { ...t, out: now, hours: rawHours, regularHours:+regularHours.toFixed(2), overtimeHours:+overtimeHours.toFixed(2), totalPay:+((regularHours * rate) + (overtimeHours * rate * 1.5)).toFixed(2), status:"Closed", updatedAt:new Date().toISOString() };
+          if (t.id !== myActiveShift.id) return t;
+          const priorWeekH = prev.filter(x => x.userId === t.userId && x.id !== t.id && inSameWeek(x.date)).reduce((s, x) => s + (+x.hours || 0), 0);
+          const cfg = employeePaySettings(settings, t.userId);
+          const reg  = Math.max(0, Math.min(rawHours, (+cfg.maxWeeklyHours || 40) - priorWeekH));
+          const ot   = Math.max(0, rawHours - reg);
+          const rate = +t.hourlyRate || +cfg.hourlyRate || 15;
+          return {
+            ...t, out: now, hours: +rawHours.toFixed(2),
+            regularHours: +reg.toFixed(2), overtimeHours: +ot.toFixed(2),
+            totalPay: +((reg * rate) + (ot * rate * 1.5)).toFixed(2),
+            status: "Closed", updatedAt: new Date().toISOString()
+          };
         }));
-        addAudit && addAudit({ page:"Timecard", action:"Clock Out", details:`${user.name} clocked out at ${now}` });
-        setMsg("Clocked out and saved.");
+        addAudit && addAudit({ page: "Timecard", action: "Clock Out", details: user.name + " clocked out at " + now + " (" + rawHours.toFixed(2) + "h)" });
+        setMsg("Clocked out at " + now + ". Great work today!");
         ldEmitNextStep("clocked_out");
+        setTimeout(() => setPunching(false), 2000);
       };
 
+      /* owner: add manual shift */
       const addManual = () => {
-        const target = isOwner ? selEmp : user.id;
-        const targetUser = (employees || []).find(e => e.id === target) || user;
-        const cfg = employeePaySettings(settings, target);
-        const rawHours = shiftHours(manual.date, manual.in, manual.out, manual.break_);
-        const priorWeekHours = timecards.filter(x => x.userId === target && inSameWeek(x.date, manual.date)).reduce((s,x)=>s+(+x.hours || 0),0);
-        const regularHours = Math.max(0, Math.min(rawHours, (+cfg.maxWeeklyHours || 40) - priorWeekHours));
-        const overtimeHours = Math.max(0, rawHours - regularHours);
-        const totalPay = +((regularHours * (+cfg.hourlyRate || 15)) + (overtimeHours * (+cfg.hourlyRate || 15) * 1.5)).toFixed(2);
-        setTimecards(p => [...p, { id: uid(), userId: target, userName: targetUser.name, ...manual, break_:+manual.break_ || 0, hours:rawHours, regularHours:+regularHours.toFixed(2), overtimeHours:+overtimeHours.toFixed(2), hourlyRate:+cfg.hourlyRate || 15, totalPay, status:"Closed", source:"manual", createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() }]);
+        if (!isOwner) return;
+        const target = manual.userId || workerList[0]?.id || user.id;
+        const tUser  = (employees || []).find(e => e.id === target) || user;
+        const cfg    = employeePaySettings(settings, target);
+        const rawH   = shiftHours(manual.date, manual.in, manual.out, manual.break_);
+        const priorH = timecards.filter(x => x.userId === target && inSameWeek(x.date, manual.date)).reduce((s, x) => s + (+x.hours || 0), 0);
+        const reg    = Math.max(0, Math.min(rawH, (+cfg.maxWeeklyHours || 40) - priorH));
+        const ot     = Math.max(0, rawH - reg);
+        const rate   = +cfg.hourlyRate || 15;
+        const pay    = +((reg * rate) + (ot * rate * 1.5)).toFixed(2);
+        const entry  = {
+          id: uid(), userId: target, userName: tUser.name,
+          date: manual.date, in: manual.in, out: manual.out,
+          break_: +manual.break_ || 0, hours: +rawH.toFixed(2),
+          regularHours: +reg.toFixed(2), overtimeHours: +ot.toFixed(2),
+          hourlyRate: rate, totalPay: pay, status: "Closed",
+          source: "manual", notes: manual.notes || "",
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        };
+        setTimecards(p => [...p, entry]);
+        addAudit && addAudit({ page: "Timecard", action: "Manual Entry", details: "Owner added shift for " + tUser.name + " on " + manual.date + ": " + manual.in + "-" + manual.out });
         setShowManual(false);
-        setMsg("Manual shift added.");
+        setMsg("Manual shift added for " + tUser.name + ".");
       };
 
+      /* owner: save edited entry */
+      const saveEdit = () => {
+        if (!isOwner || !editEntry) return;
+        const cfg   = employeePaySettings(settings, editEntry.userId);
+        const rawH  = shiftHours(editEntry.date, editEntry.in, editEntry.out || "", editEntry.break_ || 0);
+        const priorH = timecards.filter(x => x.userId === editEntry.userId && x.id !== editEntry.id && inSameWeek(x.date, editEntry.date)).reduce((s, x) => s + (+x.hours || 0), 0);
+        const reg   = Math.max(0, Math.min(rawH, (+cfg.maxWeeklyHours || 40) - priorH));
+        const ot    = Math.max(0, rawH - reg);
+        const rate  = +editEntry.hourlyRate || +cfg.hourlyRate || 15;
+        const pay   = +((reg * rate) + (ot * rate * 1.5)).toFixed(2);
+        const updated = {
+          ...editEntry, hours: +rawH.toFixed(2),
+          regularHours: +reg.toFixed(2), overtimeHours: +ot.toFixed(2),
+          totalPay: pay, status: editEntry.out ? "Closed" : "Open",
+          updatedAt: new Date().toISOString(),
+          editedBy: user.name, editedAt: new Date().toISOString()
+        };
+        setTimecards(prev => prev.map(t => t.id === updated.id ? updated : t));
+        addAudit && addAudit({ page: "Timecard", action: "Entry Edited", details: user.name + " edited shift " + editEntry.id + " for " + editEntry.userName });
+        setEditEntry(null);
+        setMsg("Shift updated.");
+      };
+
+      /* owner: delete entry */
+      const deleteEntry = (id, empName) => {
+        if (!isOwner) return;
+        if (!confirm("Delete this shift for " + empName + "? This cannot be undone.")) return;
+        setTimecards(prev => prev.filter(t => t.id !== id));
+        addAudit && addAudit({ page: "Timecard", action: "Entry Deleted", details: user.name + " deleted shift " + id + " for " + empName });
+        setMsg("Shift deleted.");
+      };
+
+      /* mark all unpaid bonuses paid */
       const markPaidBonus = () => {
         if (!isOwner) return;
-        if (!confirm(`Mark unpaid show bonuses for ${activeEmp.name} as paid?`)) return;
-        setSettings(prev => ({ ...prev, showCommissions: (prev.showCommissions || []).map(c => c.employeeId === selEmp && String(c.status || "Unpaid") !== "Paid" ? { ...c, status:"Paid", paidAt:new Date().toISOString() } : c) }));
+        if (!confirm("Mark all unpaid show bonuses for " + activeEmp.name + " as paid?")) return;
+        setSettings(prev => ({
+          ...prev, showCommissions: (prev.showCommissions || []).map(c =>
+            c.employeeId === selEmp && String(c.status || "Unpaid") !== "Paid"
+              ? { ...c, status: "Paid", paidAt: new Date().toISOString() }
+              : c
+          )
+        }));
       };
 
-      const smsBody = encodeURIComponent(`Leaf Diary reminder: please clock out on time today. Your daily limit is ${payCfg.maxDailyHours || 8} hours.`);
-      const smsHref = payCfg.phone ? `sms:${String(payCfg.phone).replace(/[^0-9+]/g,"")}?&body=${smsBody}` : "";
+      /* derived data */
+      const visibleCards   = isOwner ? timecards.filter(t => t.userId === selEmp) : timecards.filter(t => t.userId === user.id);
+      const myWeekRows     = timecards.filter(t => t.userId === user.id && inSameWeek(t.date));
+      const myWeekHours    = myWeekRows.reduce((s, t) => s + (+t.hours || 0), 0) + (myActiveShift ? liveHoursEmp : 0);
+      const myMonthRows    = timecards.filter(t => t.userId === user.id && String(t.date || "").startsWith(today().slice(0, 7)));
+      const myMonthPay     = myMonthRows.reduce((s, t) => s + (+t.totalPay || 0), 0);
+      const myUnpaidBonus  = commissionAmountForEmployee(settings, user.id, "unpaid");
+      const myTodayHours   = timecards.filter(t => t.userId === user.id && t.date === today()).reduce((s, t) => s + (+t.hours || 0), 0) + (myActiveShift ? liveHoursEmp : 0);
+      const ownerWeekRows  = timecards.filter(t => t.userId === selEmp && inSameWeek(t.date));
+      const ownerWeekHours = ownerWeekRows.reduce((s, t) => s + (+t.hours || 0), 0) + (selectedActiveShift ? activeHoursOwner : 0);
+      const ownerMonthRows = timecards.filter(t => t.userId === selEmp && String(t.date || "").startsWith(today().slice(0, 7)));
+      const ownerMonthPay  = ownerMonthRows.reduce((s, t) => s + (+t.totalPay || 0), 0);
+      const ownerUnpaid    = commissionAmountForEmployee(settings, selEmp, "unpaid");
+      const ownerGross     = ownerMonthPay + ownerUnpaid;
+      const ownerTax       = estimatedWithholding(ownerGross, payCfg);
 
-      const warning = weekHoursLive >= (+payCfg.maxWeeklyHours || 40)
-        ? { color:C.red, text:`Over weekly limit: ${weekHoursLive.toFixed(1)} / ${payCfg.maxWeeklyHours || 40} hours` }
-        : weekHoursLive >= ((+payCfg.maxWeeklyHours || 40) - 4)
-          ? { color:C.amber, text:`Close to weekly limit: ${weekHoursLive.toFixed(1)} / ${payCfg.maxWeeklyHours || 40} hours` }
-          : selectedActiveShift && activeHours >= (+payCfg.maxDailyHours || 8)
-            ? { color:C.red, text:`Daily limit reached: ${activeHours.toFixed(1)} / ${payCfg.maxDailyHours || 8} hours today` }
-            : selectedActiveShift && activeHours >= ((+payCfg.maxDailyHours || 8) - .5)
-              ? { color:C.amber, text:`Close to daily limit: ${activeHours.toFixed(1)} / ${payCfg.maxDailyHours || 8} hours today` }
-              : null;
+      const ownerWarning = ownerWeekHours >= (+payCfg.maxWeeklyHours || 40)
+        ? { color: C.red,   text: "Over weekly limit: " + ownerWeekHours.toFixed(1) + " / " + (payCfg.maxWeeklyHours || 40) + "h" }
+        : ownerWeekHours >= ((+payCfg.maxWeeklyHours || 40) - 4)
+          ? { color: C.amber, text: "Close to weekly limit: " + ownerWeekHours.toFixed(1) + " / " + (payCfg.maxWeeklyHours || 40) + "h" }
+          : selectedActiveShift && activeHoursOwner >= (+payCfg.maxDailyHours || 8)
+            ? { color: C.red, text: "Daily limit reached: " + activeHoursOwner.toFixed(1) + " / " + (payCfg.maxDailyHours || 8) + "h today" }
+            : null;
 
-      const exportRows = [["Employee","Date","Clock In","Clock Out","Break Minutes","Regular Hours","Overtime Hours","Hourly Rate","Hourly Pay","Status","Notes"], ...visibleCards.map(t => [t.userName, t.date, t.in, t.out || "ACTIVE", t.break_ || 0, t.regularHours || t.hours || 0, t.overtimeHours || 0, t.hourlyRate || payCfg.hourlyRate, t.totalPay || 0, t.status || "", t.notes || ""])];
-      const todayHours = selectedToday.reduce((s,t)=>s+(+t.hours || 0),0) + (selectedActiveShift ? activeHours : 0);
+      const setEmpPayCfg = patch => setSettings(prev => ({
+        ...prev, employeePaySettings: {
+          ...(prev.employeePaySettings || {}),
+          [selEmp]: { ...employeePaySettings(prev, selEmp), ...patch }
+        }
+      }));
 
-      return <div style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="⏱️" title={isOwner ? "Employee Timecard" : "My Timecard"} sub="Clock in/out · 8-hour daily guard · 40-hour weekly guard · payroll totals"
-          right={<Row gap={8} wrap>{isOwner && <Btn sz="sm" v="outline" onClick={() => downloadCsv(`leaf-diary-timecards-${selEmp}-${today()}.csv`, exportRows)}>Export CSV</Btn>}{!isOwner && !activeShift && <Btn sz="lg" onClick={clockIn}>🟢 Clock In</Btn>}{!isOwner && activeShift && <Btn sz="lg" v="danger" onClick={clockOut}>🔴 Clock Out</Btn>}</Row>} />
+      const exportRows = [
+        ["Employee","Date","Clock In","Clock Out","Break Min","Regular Hrs","OT Hrs","Rate","Pay","Status","Notes","Source","Edited By"],
+        ...visibleCards.map(t => [
+          t.userName, t.date, t.in, t.out || "ACTIVE",
+          t.break_ || 0, t.regularHours || t.hours || 0, t.overtimeHours || 0,
+          t.hourlyRate || payCfg.hourlyRate, t.totalPay || 0,
+          t.status || "", t.notes || "", t.source || "", t.editedBy || ""
+        ])
+      ];
 
-        {msg && <div style={{ background:"#000", color:"#fff", border:`1px solid ${C.g300}`, borderRadius:14, padding:"12px 14px", marginBottom:12, fontWeight:800 }}>{msg}</div>}
+      /* live hours helper for any shift row */
+      const shiftHoursLive = t => shiftHours(t.date, t.in, "", t.break_ || 0);
 
-        {isOwner && <Card style={{ marginBottom:12, border:`2px solid ${warning ? warning.color : C.bd}` }}>
-          <Row gap={10} wrap center>
-            <div style={{ flex:"1 1 220px" }}><Sel label="Employee" value={selEmp} onChange={setSelEmp} options={workerList.map(e => ({ v:e.id, l:`${e.name} (${e.role})` }))} /></div>
-            <div style={{ flex:"1 1 140px" }}><Inp label="Hourly Rate" type="number" value={payCfg.hourlyRate} onChange={v => setEmpPayCfg({ hourlyRate:+v || 0 })} /></div>
-            <div style={{ flex:"1 1 130px" }}><Inp label="Daily Max" type="number" value={payCfg.maxDailyHours} onChange={v => setEmpPayCfg({ maxDailyHours:+v || 8 })} /></div>
-            <div style={{ flex:"1 1 130px" }}><Inp label="Weekly Max" type="number" value={payCfg.maxWeeklyHours} onChange={v => setEmpPayCfg({ maxWeeklyHours:+v || 40 })} /></div>
-            <div style={{ flex:"1 1 160px" }}><Inp label="Shift End" type="time" value={payCfg.scheduledEnd} onChange={v => setEmpPayCfg({ scheduledEnd:v })} /></div>
-            <div style={{ flex:"1 1 180px" }}><Inp label="Phone For SMS Link" value={payCfg.phone} onChange={v => setEmpPayCfg({ phone:v })} placeholder="352..." /></div>
-          </Row>
-          {warning && <div style={{ marginTop:12, background:warning.color+"18", border:`1px solid ${warning.color}`, color:warning.color, borderRadius:12, padding:12, fontWeight:900 }}>{warning.text}</div>}
-          <div style={{ marginTop:10, fontSize:12, color:C.tx3 }}>Automatic text messages require a Twilio/Supabase Edge Function. This version gives in-app alerts, browser notifications while open, and an owner SMS link.</div>
-        </Card>}
-
-        {!isOwner && <Card style={{ marginBottom:12, textAlign:"center", border:`2px solid ${activeShift ? C.g500 : C.bd}` }}>
-          <div style={{ fontSize:12, fontWeight:900, color:C.tx3, textTransform:"uppercase", letterSpacing:.7 }}>Current Status</div>
-          <div style={{ fontFamily:F.display, fontSize:34, fontWeight:900, color:activeShift ? C.g700 : C.tx1, margin:"6px 0" }}>{activeShift ? "Clocked In" : "Clocked Out"}</div>
-          {activeShift && <div style={{ color:C.tx2, fontWeight:800 }}>Started {activeShift.in} · {shiftHours(activeShift.date, activeShift.in, "", activeShift.break_).toFixed(1)}h today</div>}
-          <Row gap={8} wrap style={{ justifyContent:"center", marginTop:14 }}>
-            {!noticeAllowed && <Btn v="outline" onClick={requestNotifications}>Enable Reminders</Btn>}
-            {!activeShift ? <Btn sz="lg" onClick={clockIn}>🟢 Clock In</Btn> : <Btn sz="lg" v="danger" onClick={clockOut}>🔴 Clock Out</Btn>}
-          </Row>
-        </Card>}
-
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10, marginBottom:12 }}>
-          <KPI label="Today" value={`${todayHours.toFixed(1)}h`} color={C.blue} />
-          <KPI label="This Week" value={`${weekHoursLive.toFixed(1)}h`} sub={`${Math.max(0, (+payCfg.maxWeeklyHours || 40) - weekHoursLive).toFixed(1)}h left`} color={weekHoursLive >= (+payCfg.maxWeeklyHours || 40) ? C.red : C.g600} />
-          <KPI label="Hourly Pay" value={$(monthHourlyPay)} sub="This month" color={C.gold} />
-          <KPI label="Show Bonus" value={$(unpaidBonus)} sub="Unpaid commissions" color={C.purple} />
-        </div>
-
-        <Card style={{ marginBottom:12 }}>
-          <Row between wrap center>
-            <div>
-              <div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900 }}>Estimated Current Paycheck</div>
-              <div style={{ fontSize:12, color:C.tx3 }}>Hourly + unpaid Whatnot/Palmstreet show bonuses. Tax estimate is not tax advice.</div>
+      /* shared mobile-friendly shift cards */
+      const ShiftCards = ({ cards, showPay, allowEdit }) => (
+        <div>
+          {(!cards || cards.length === 0) && (
+            <div style={{ textAlign: "center", padding: "40px 16px", color: C.tx3, fontSize: 14 }}>
+              No shifts yet.
             </div>
-            {isOwner && unpaidBonus > 0 && <Btn v="gold" onClick={markPaidBonus}>Mark Bonuses Paid</Btn>}
-          </Row>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10, marginTop:12 }}>
-            <KPI label="Gross" value={$(grossPaycheck)} color={C.g600}/>
-            <KPI label="Est. Taxes" value={$(tax.total)} color={C.red}/>
-            <KPI label="Net Estimate" value={$(grossPaycheck - tax.total)} color={C.blue}/>
-            <KPI label="Bonus Rate" value={`${payCfg.bonusPercent || 1}%`} color={C.purple}/>
+          )}
+          {(cards || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map(t => {
+            const hrs      = t.out ? (+t.hours || 0) : shiftHoursLive(t);
+            const isActive = !t.out && t.status !== "Closed";
+            const hasOT    = (+t.overtimeHours || 0) > 0;
+            return (
+              <div key={t.id} style={{
+                background: C.card,
+                border: "1px solid " + (isActive ? C.g400 : t.editedBy ? C.amber + "88" : C.bd),
+                borderLeft: "4px solid " + (isActive ? C.g600 : hasOT ? C.red : C.bd),
+                borderRadius: 14, padding: "14px 16px", marginBottom: 10
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontWeight: 900, fontSize: 15, color: C.g900 }}>
+                      {new Date(t.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                      {t.source === "manual" && <span style={{ marginLeft: 8, fontSize: 10, color: C.tx3, fontWeight: 700, background: C.bdS, borderRadius: 6, padding: "1px 6px" }}>MANUAL</span>}
+                      {t.editedBy && <span style={{ marginLeft: 6, fontSize: 10, color: C.amber, fontWeight: 700, background: C.amberBg, borderRadius: 6, padding: "1px 6px" }}>EDITED</span>}
+                    </div>
+                    <div style={{ fontSize: 13, color: C.tx3, marginTop: 3 }}>
+                      {t.in} {"->"} {isActive ? "Active" : t.out}
+                      {(+t.break_ || 0) > 0 ? " · " + t.break_ + " min break" : ""}
+                    </div>
+                    {t.notes && <div style={{ fontSize: 12, color: C.tx3, marginTop: 4, fontStyle: "italic" }}>{t.notes}</div>}
+                    {isActive && <div style={{ marginTop: 6, fontSize: 12, color: C.g600, fontWeight: 800 }}>Live — {liveHoursEmp.toFixed(1)}h so far</div>}
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontWeight: 900, fontSize: 20, color: isActive ? C.blue : hasOT ? C.red : C.g700 }}>
+                      {hrs.toFixed(1)}h
+                    </div>
+                    {hasOT && <div style={{ fontSize: 11, color: C.red, fontWeight: 800 }}>{(+t.overtimeHours).toFixed(1)}h OT</div>}
+                    {showPay && (+t.totalPay || 0) > 0 && (
+                      <div style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginTop: 2 }}>{$(t.totalPay)}</div>
+                    )}
+                    {allowEdit && isOwner && (
+                      <div style={{ display: "flex", gap: 6, marginTop: 8, justifyContent: "flex-end" }}>
+                        <button onClick={() => { setEditEntry({...t}); setTab("admin"); }}
+                          style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, border: "1px solid " + C.bd, background: C.card, cursor: "pointer", color: C.tx2, fontWeight: 700 }}>
+                          Edit
+                        </button>
+                        <button onClick={() => deleteEntry(t.id, t.userName)}
+                          style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, border: "1px solid " + C.red, background: C.card, cursor: "pointer", color: C.red, fontWeight: 700 }}>
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+
+      /* ─────────────────────────────────────────
+         EMPLOYEE VIEW (role === "employee")
+      ───────────────────────────────────────── */
+      if (isEmp) {
+        const empCfg   = employeePaySettings(settings, user.id);
+        const myTabs   = ["punch", "history", "earnings"];
+        const tabLabel = { punch: "My Shift", history: "My History", earnings: "My Pay" };
+        return (
+          <div style={{ background: C.bg, minHeight: "100vh" }}>
+            <SHdr icon="⏱️" title="My Timecard" sub="Clock in and out and view your hours" />
+
+            {/* Tab bar */}
+            <div style={{ display: "flex", borderBottom: "1px solid " + C.bd, background: C.card, position: "sticky", top: 0, zIndex: 10 }}>
+              {myTabs.map(t => (
+                <button key={t} onClick={() => setTab(t)} style={{
+                  flex: 1, padding: "13px 4px", border: "none", background: "transparent",
+                  fontFamily: F.body, fontWeight: 900, fontSize: 13, cursor: "pointer",
+                  color: tab === t ? C.g700 : C.tx3,
+                  borderBottom: "3px solid " + (tab === t ? C.g600 : "transparent")
+                }}>{tabLabel[t]}</button>
+              ))}
+            </div>
+
+            {msg && (
+              <div style={{ background: "#000", color: "#fff", borderBottom: "3px solid " + C.g500, padding: "12px 16px", fontWeight: 800, fontSize: 14 }}>
+                {msg}
+              </div>
+            )}
+
+            {/* ─── PUNCH TAB ─── */}
+            {tab === "punch" && (
+              <div style={{ padding: "24px 16px 110px" }}>
+                <div style={{ fontFamily: F.display, fontSize: 22, fontWeight: 900, color: C.g900, marginBottom: 4 }}>
+                  {"Hi, " + (String(user.name || "").split(" ")[0] || "there") + " \uD83D\uDC4B"}
+                </div>
+                <div style={{ fontSize: 13, color: C.tx3, marginBottom: 28 }}>
+                  {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                </div>
+
+                {/* THE BIG BUTTON */}
+                <button
+                  onClick={() => myActiveShift ? setConfirmOut(true) : clockIn()}
+                  disabled={punching}
+                  style={{
+                    width: "100%", height: 88, borderRadius: 22, border: "none",
+                    background: punching ? C.tx4 : myActiveShift ? C.red : C.g600,
+                    color: "#fff", fontSize: 22, fontWeight: 900, letterSpacing: 1.2,
+                    cursor: punching ? "not-allowed" : "pointer",
+                    boxShadow: myActiveShift ? "0 8px 28px rgba(190,53,53,.40)" : "0 8px 28px rgba(46,138,85,.40)",
+                    transition: "transform .1s, box-shadow .1s", fontFamily: F.body
+                  }}>
+                  {punching ? "..." : myActiveShift ? "🔴  CLOCK OUT" : "🟢  CLOCK IN"}
+                </button>
+                <div style={{ textAlign: "center", fontSize: 13, color: C.tx3, marginTop: 8 }}>
+                  {myActiveShift ? "Tap to end your shift" : "Tap to start your shift"}
+                </div>
+
+                {/* Clock-Out confirmation */}
+                {confirmOut && (
+                  <div style={{ marginTop: 20, background: "#000", border: "2px solid " + C.red, borderRadius: 20, padding: "20px 16px" }}>
+                    <div style={{ color: "#fff", fontWeight: 900, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Clock out now?</div>
+                    <div style={{ color: "rgba(255,255,255,.7)", fontSize: 14, textAlign: "center", marginBottom: 18 }}>
+                      You have worked {liveHoursEmp.toFixed(1)} hours.
+                      {liveHoursEmp >= (+empCfg.maxDailyHours || 8) && (
+                        <div style={{ color: C.amber, fontWeight: 800, marginTop: 4 }}>Daily limit reached.</div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={clockOut}
+                        style={{ flex: 1, height: 56, background: C.red, color: "#fff", border: "none", borderRadius: 14, fontWeight: 900, fontSize: 16, cursor: "pointer", fontFamily: F.body }}>
+                        Yes, Clock Out
+                      </button>
+                      <button onClick={() => setConfirmOut(false)}
+                        style={{ flex: 1, height: 56, background: "rgba(255,255,255,.1)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 14, fontWeight: 700, fontSize: 16, cursor: "pointer", fontFamily: F.body }}>
+                        Keep Working
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Active shift live counter */}
+                {myActiveShift && !confirmOut && (
+                  <div style={{ marginTop: 20, background: C.g50, border: "1px solid " + C.g300, borderRadius: 16, padding: "18px 16px", textAlign: "center" }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: C.tx3, textTransform: "uppercase", letterSpacing: .8, marginBottom: 6 }}>On Shift Now</div>
+                    <div style={{ fontFamily: F.display, fontSize: 42, fontWeight: 900, color: C.g700, lineHeight: 1 }}>
+                      {liveHoursEmp.toFixed(1)}h
+                    </div>
+                    <div style={{ fontSize: 13, color: C.tx2, marginTop: 6, fontWeight: 700 }}>
+                      {"Started " + myActiveShift.in + (empCfg.maxDailyHours > 0 ? " · " + Math.max(0, (+empCfg.maxDailyHours || 8) - liveHoursEmp).toFixed(1) + "h until limit" : "")}
+                    </div>
+                    {liveHoursEmp >= (+empCfg.maxDailyHours || 8) && (
+                      <div style={{ marginTop: 8, color: C.red, fontWeight: 800, fontSize: 13 }}>Daily limit reached — please clock out.</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Today + week */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 20 }}>
+                  <KPI label="Today" value={myTodayHours.toFixed(1) + "h"} color={C.blue} />
+                  <KPI label="This Week" value={myWeekHours.toFixed(1) + "h"} sub={Math.max(0, (+empCfg.maxWeeklyHours || 40) - myWeekHours).toFixed(1) + "h left"} color={myWeekHours >= (+empCfg.maxWeeklyHours || 40) ? C.red : C.g600} />
+                </div>
+
+                {!noticeAllowed && (
+                  <div style={{ marginTop: 16 }}>
+                    <Btn v="outline" onClick={requestNotifications}>Enable Shift Reminders</Btn>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ─── HISTORY TAB ─── */}
+            {tab === "history" && (
+              <div style={{ padding: "16px 16px 110px" }}>
+                <div style={{ fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900, marginBottom: 4 }}>My Shifts</div>
+                <div style={{ fontSize: 13, color: C.tx3, marginBottom: 14 }}>{visibleCards.length} shift{visibleCards.length !== 1 ? "s" : ""} recorded</div>
+                <div style={{ background: C.g50, border: "1px solid " + C.g200, borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
+                  <div style={{ fontWeight: 900, fontSize: 14, color: C.g800, marginBottom: 8 }}>This Week</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    <div style={{ textAlign: "center" }}><div style={{ fontWeight: 900, fontSize: 20, color: C.g700 }}>{myWeekHours.toFixed(1)}h</div><div style={{ fontSize: 11, color: C.tx3 }}>Total</div></div>
+                    <div style={{ textAlign: "center" }}><div style={{ fontWeight: 900, fontSize: 20, color: C.red }}>{myWeekRows.reduce((s,t)=>s+(+t.overtimeHours||0),0).toFixed(1)}h</div><div style={{ fontSize: 11, color: C.tx3 }}>Overtime</div></div>
+                    <div style={{ textAlign: "center" }}><div style={{ fontWeight: 900, fontSize: 20, color: C.blue }}>{myWeekRows.length}</div><div style={{ fontSize: 11, color: C.tx3 }}>Shifts</div></div>
+                  </div>
+                </div>
+                {/* NO showPay for employees — rate hidden */}
+                <ShiftCards cards={visibleCards} showPay={false} allowEdit={false} />
+              </div>
+            )}
+
+            {/* ─── EARNINGS TAB ─── */}
+            {tab === "earnings" && (
+              <div style={{ padding: "16px 16px 110px" }}>
+                <div style={{ fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900, marginBottom: 14 }}>My Pay This Month</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  <KPI label="Hourly (this month)" value={$(myMonthPay)} color={C.g600} />
+                  <KPI label="Show Earnings — pending" value={$(myUnpaidBonus)} color={C.purple} sub="Ask owner for status" />
+                </div>
+                <Card style={{ background: C.g50, borderLeft: "4px solid " + C.g600 }}>
+                  <div style={{ fontWeight: 900, color: C.g900, marginBottom: 6 }}>How your pay works</div>
+                  <div style={{ fontSize: 13, color: C.tx2, lineHeight: 1.55 }}>
+                    Your hourly pay is calculated from your logged shifts. Show earnings are a bonus from shows you host — your owner marks them paid after each show. Ask your owner if you have questions.
+                  </div>
+                </Card>
+              </div>
+            )}
           </div>
-          <div style={{ fontSize:12, color:C.tx3, marginTop:10 }}>Estimated withholding: FICA {$(tax.fica)}, Federal {$(tax.federal)}, State {$(tax.state)}. Use your accountant/payroll provider for final taxes.</div>
-        </Card>
+        );
+      }
 
-        {isOwner && <Card style={{ marginBottom:12 }}>
-          <Row between center wrap>
-            <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900 }}>Owner Actions</div>
-            <Row gap={8} wrap>
-              <Btn v="ghost" onClick={() => setShowManual(p=>!p)}>+ Manual Shift</Btn>
-              {smsHref ? <a href={smsHref} style={{ textDecoration:"none" }}><Btn v="outline">Text Clock-Out Reminder</Btn></a> : <Btn v="ghost" disabled>Add phone to text</Btn>}
-            </Row>
-          </Row>
-        </Card>}
+      /* ─────────────────────────────────────────
+         OWNER / MANAGER VIEW
+      ───────────────────────────────────────── */
+      const ownerTabs      = ["admin", "history", "payroll"];
+      const ownerTabLabel  = { admin: "Admin", history: "Shift Log", payroll: "Payroll" };
+      const smsBody = encodeURIComponent("Leaf Diary reminder: please clock out on time. Limit is " + (payCfg.maxDailyHours || 8) + "h.");
+      const smsHref = payCfg.phone ? "sms:" + String(payCfg.phone).replace(/[^0-9+]/g, "") + "?&body=" + smsBody : "";
 
-        {showManual && <Card style={{ marginBottom:12 }}>
-          <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Add Manual Shift</div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:10 }}>
-            <Inp label="Date" type="date" value={manual.date} onChange={v => setManual(p => ({ ...p, date:v }))}/>
-            <Inp label="Clock In" type="time" value={manual.in} onChange={v => setManual(p => ({ ...p, in:v }))}/>
-            <Inp label="Clock Out" type="time" value={manual.out} onChange={v => setManual(p => ({ ...p, out:v }))}/>
-            <Inp label="Break Minutes" type="number" value={manual.break_} onChange={v => setManual(p => ({ ...p, break_:v }))}/>
-            <Inp label="Notes" value={manual.notes} onChange={v => setManual(p => ({ ...p, notes:v }))}/>
+      return (
+        <div style={{ background: C.bg, minHeight: "100vh" }}>
+          <SHdr icon="⏱️" title="Timecard Admin" sub="Manage all employee hours and pay"
+            right={<Btn sz="sm" v="outline" onClick={() => downloadCsv("leaf-diary-timecards-" + selEmp + "-" + today() + ".csv", exportRows)}>Export CSV</Btn>}
+          />
+
+          {/* Tab bar */}
+          <div style={{ display: "flex", borderBottom: "1px solid " + C.bd, background: C.card, position: "sticky", top: 0, zIndex: 10 }}>
+            {ownerTabs.map(t => (
+              <button key={t} onClick={() => setTab(t)} style={{
+                flex: 1, padding: "13px 4px", border: "none", background: "transparent",
+                fontFamily: F.body, fontWeight: 900, fontSize: 13, cursor: "pointer",
+                color: tab === t ? C.g700 : C.tx3,
+                borderBottom: "3px solid " + (tab === t ? C.g600 : "transparent")
+              }}>{ownerTabLabel[t]}</button>
+            ))}
           </div>
-          <Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={addManual}>Save Shift</Btn><Btn v="ghost" onClick={() => setShowManual(false)}>Cancel</Btn></Row>
-        </Card>}
 
-        <Tbl cols={[{k:"date",l:"Date"},{k:"in_",l:"In"},{k:"out_",l:"Out"},{k:"hrs",l:"Hours"},{k:"ot",l:"OT"},{k:"rate_",l:"Rate"},{k:"pay_",l:"Pay"},{k:"status_",l:"Status"}]}
-          rows={visibleCards.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t => ({ date:t.date, in_:t.in, out_:t.out || <Tag text="ACTIVE" color={C.g600}/>, hrs:`${(+t.hours || (t.out ? 0 : shiftHours(t.date,t.in,"",t.break_))).toFixed(1)}h`, ot:(+t.overtimeHours || 0) ? <b style={{color:C.red}}>{(+t.overtimeHours).toFixed(1)}h</b> : "—", rate_:`$${t.hourlyRate || payCfg.hourlyRate}/hr`, pay_:t.totalPay ? <b style={{color:C.gold}}>{$(t.totalPay)}</b> : "—", status_:<Tag text={t.status || (t.out ? "Closed" : "Open")} color={t.out ? C.tx3 : C.g600}/> }))}
-          empty="No shifts yet." />
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(4,minmax(0,1fr))"]{grid-template-columns:1fr 1fr!important}}`}</style>
-      </div>;
+          {msg && <div style={{ background: "#000", color: "#fff", borderBottom: "3px solid " + C.g500, padding: "12px 16px", fontWeight: 800, fontSize: 14 }}>{msg}</div>}
+
+          {/* ─── ADMIN TAB ─── */}
+          {tab === "admin" && (
+            <div style={{ padding: "14px 14px 110px" }}>
+              <Card style={{ marginBottom: 12, border: "2px solid " + (ownerWarning ? ownerWarning.color : C.bd) }}>
+                <Row gap={10} wrap center>
+                  <div style={{ flex: "1 1 220px" }}>
+                    <Sel label="Employee" value={selEmp} onChange={v => { setSelEmp(v); setShowManual(false); setEditEntry(null); }} options={workerList.map(e => ({ v: e.id, l: e.name + " (" + e.role + ")" }))} />
+                  </div>
+                  <div style={{ flex: "1 1 130px" }}><Inp label="Hourly Rate ($)" type="number" value={payCfg.hourlyRate} onChange={v => setEmpPayCfg({ hourlyRate: +v || 0 })} /></div>
+                  <div style={{ flex: "1 1 120px" }}><Inp label="Daily Max Hrs" type="number" value={payCfg.maxDailyHours} onChange={v => setEmpPayCfg({ maxDailyHours: +v || 8 })} /></div>
+                  <div style={{ flex: "1 1 120px" }}><Inp label="Weekly Max Hrs" type="number" value={payCfg.maxWeeklyHours} onChange={v => setEmpPayCfg({ maxWeeklyHours: +v || 40 })} /></div>
+                  <div style={{ flex: "1 1 140px" }}><Inp label="Shift End Time" type="time" value={payCfg.scheduledEnd} onChange={v => setEmpPayCfg({ scheduledEnd: v })} /></div>
+                  <div style={{ flex: "1 1 160px" }}><Inp label="Phone (SMS link)" value={payCfg.phone} onChange={v => setEmpPayCfg({ phone: v })} placeholder="352..." /></div>
+                </Row>
+                {ownerWarning && <div style={{ marginTop: 12, background: ownerWarning.color + "18", border: "1px solid " + ownerWarning.color, color: ownerWarning.color, borderRadius: 12, padding: 12, fontWeight: 900 }}>{ownerWarning.text}</div>}
+              </Card>
+
+              <Card style={{ marginBottom: 12 }}>
+                <Row between wrap center>
+                  <div>
+                    <div style={{ fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900 }}>{activeEmp.name}</div>
+                    <div style={{ fontSize: 13, color: C.tx3 }}>
+                      {selectedActiveShift ? "Active since " + selectedActiveShift.in + " · " + activeHoursOwner.toFixed(1) + "h" : "Clocked out"}
+                      {" · Week: " + ownerWeekHours.toFixed(1) + "/" + (payCfg.maxWeeklyHours || 40) + "h"}
+                    </div>
+                  </div>
+                  <Row gap={8} wrap>
+                    {ownerUnpaid > 0 && <Btn v="gold" onClick={markPaidBonus}>Mark Bonus Paid ({$(ownerUnpaid)})</Btn>}
+                    {smsHref && <a href={smsHref} style={{ textDecoration: "none" }}><Btn v="outline">Text Reminder</Btn></a>}
+                  </Row>
+                </Row>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10, marginTop: 12 }}>
+                  <KPI label="Today" value={(timecards.filter(t=>t.userId===selEmp&&t.date===today()).reduce((s,t)=>s+(+t.hours||0),0)+(selectedActiveShift?activeHoursOwner:0)).toFixed(1)+"h"} color={C.blue} />
+                  <KPI label="This Week" value={ownerWeekHours.toFixed(1)+"h"} sub={Math.max(0,(+payCfg.maxWeeklyHours||40)-ownerWeekHours).toFixed(1)+"h left"} color={ownerWeekHours>=(+payCfg.maxWeeklyHours||40)?C.red:C.g600} />
+                  <KPI label="Month Hourly" value={$(ownerMonthPay)} color={C.gold} />
+                  <KPI label="Unpaid Bonus" value={$(ownerUnpaid)} color={C.purple} />
+                </div>
+              </Card>
+
+              <Card style={{ marginBottom: 12 }}>
+                <Row between wrap center>
+                  <div>
+                    <div style={{ fontFamily: F.display, fontSize: 18, fontWeight: 900, color: C.g900 }}>Estimated Paycheck</div>
+                    <div style={{ fontSize: 11, color: C.tx3 }}>Hourly + unpaid bonuses. Not tax advice.</div>
+                  </div>
+                </Row>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10, marginTop: 10 }}>
+                  <KPI label="Gross" value={$(ownerGross)} color={C.g600} />
+                  <KPI label="Est. Taxes" value={$(ownerTax.total)} color={C.red} />
+                  <KPI label="Net Est." value={$(ownerGross - ownerTax.total)} color={C.blue} />
+                  <KPI label="Bonus %" value={(payCfg.bonusPercent || 1)+"%"} color={C.purple} />
+                </div>
+                <div style={{ fontSize: 11, color: C.tx3, marginTop: 8 }}>FICA {$(ownerTax.fica)} · Federal {$(ownerTax.federal)} · State {$(ownerTax.state)}</div>
+              </Card>
+
+              <Card style={{ marginBottom: 12 }}>
+                <Row between center wrap>
+                  <div style={{ fontWeight: 900, color: C.g900 }}>Admin Actions</div>
+                  <Btn v="ghost" onClick={() => { setShowManual(p => !p); setEditEntry(null); }}>{showManual ? "Cancel" : "+ Add Manual Shift"}</Btn>
+                </Row>
+              </Card>
+
+              {showManual && !editEntry && (
+                <Card style={{ marginBottom: 12 }}>
+                  <div style={{ fontFamily: F.display, fontWeight: 900, color: C.g900, marginBottom: 10 }}>Add Manual Shift</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 12 }}>
+                    <Sel label="Employee" value={manual.userId} onChange={v => setManual(p => ({...p, userId: v}))} options={workerList.map(e => ({v: e.id, l: e.name}))} />
+                    <Inp label="Date" type="date" value={manual.date} onChange={v => setManual(p => ({...p, date: v}))} />
+                    <Inp label="Clock In" type="time" value={manual.in} onChange={v => setManual(p => ({...p, in: v}))} />
+                    <Inp label="Clock Out" type="time" value={manual.out} onChange={v => setManual(p => ({...p, out: v}))} />
+                    <Inp label="Break Min" type="number" value={manual.break_} onChange={v => setManual(p => ({...p, break_: v}))} />
+                    <Inp label="Notes / Reason" value={manual.notes} onChange={v => setManual(p => ({...p, notes: v}))} />
+                  </div>
+                  <Row gap={8} wrap><Btn onClick={addManual}>Save Manual Shift</Btn><Btn v="ghost" onClick={() => setShowManual(false)}>Cancel</Btn></Row>
+                </Card>
+              )}
+
+              {editEntry && (
+                <Card style={{ marginBottom: 12, border: "2px solid " + C.amber }}>
+                  <div style={{ fontFamily: F.display, fontWeight: 900, color: C.g900, marginBottom: 10 }}>
+                    Edit Shift — {editEntry.userName} · {editEntry.date}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 12 }}>
+                    <Inp label="Clock In" type="time" value={editEntry.in} onChange={v => setEditEntry(p => ({...p, in: v}))} />
+                    <Inp label="Clock Out" type="time" value={editEntry.out} onChange={v => setEditEntry(p => ({...p, out: v}))} />
+                    <Inp label="Break Min" type="number" value={editEntry.break_ || 0} onChange={v => setEditEntry(p => ({...p, break_: +v}))} />
+                    <Inp label="Notes" value={editEntry.notes || ""} onChange={v => setEditEntry(p => ({...p, notes: v}))} />
+                  </div>
+                  <div style={{ fontSize: 12, color: C.amber, marginBottom: 10 }}>This edit will be logged with your name and timestamp in the audit trail.</div>
+                  <Row gap={8} wrap><Btn onClick={saveEdit}>Save Changes</Btn><Btn v="ghost" onClick={() => setEditEntry(null)}>Cancel</Btn></Row>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* ─── SHIFT LOG TAB ─── */}
+          {tab === "history" && (
+            <div style={{ padding: "14px 14px 110px" }}>
+              <div style={{ fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900, marginBottom: 14 }}>Shifts — {activeEmp.name}</div>
+              <ShiftCards cards={visibleCards} showPay={true} allowEdit={true} />
+            </div>
+          )}
+
+          {/* ─── PAYROLL TAB ─── */}
+          {tab === "payroll" && (
+            <div style={{ padding: "14px 14px 110px" }}>
+              <div style={{ fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900, marginBottom: 14 }}>All Employee Payroll — This Month</div>
+              {workerList.map(e => {
+                const cfg   = employeePaySettings(settings, e.id);
+                const eS    = timecards.filter(t => t.userId === e.id && String(t.date || "").startsWith(today().slice(0, 7)));
+                const eWk   = timecards.filter(t => t.userId === e.id && inSameWeek(t.date));
+                const eAct  = timecards.find(t => t.userId === e.id && !t.out && t.status !== "Closed");
+                const eWkH  = eWk.reduce((s,t)=>s+(+t.hours||0),0) + (eAct ? shiftHoursLive(eAct) : 0);
+                const eReg  = eS.reduce((s,t)=>s+(+t.regularHours||+t.hours||0),0);
+                const eOT   = eS.reduce((s,t)=>s+(+t.overtimeHours||0),0);
+                const ePay  = eS.reduce((s,t)=>s+(+t.totalPay||0),0);
+                const eBonus= commissionAmountForEmployee(settings, e.id, "unpaid");
+                const eGross= ePay + eBonus;
+                const eTax  = estimatedWithholding(eGross, cfg);
+                return (
+                  <Card key={e.id} style={{ marginBottom: 12, border: "2px solid " + (eWkH>=(+cfg.maxWeeklyHours||40)?C.red:eWkH>=(+cfg.maxWeeklyHours||40)-4?C.amber:C.bd) }}>
+                    <Row between wrap center style={{ marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900 }}>{e.name}</div>
+                        <div style={{ fontSize: 12, color: C.tx3 }}>
+                          {eAct ? "Active since " + eAct.in : "Clocked out"}
+                          {" · Week: " + eWkH.toFixed(1) + "/" + (cfg.maxWeeklyHours || 40) + "h"}
+                        </div>
+                      </div>
+                      <Row gap={6} wrap>
+                        {eWkH >= (+cfg.maxWeeklyHours || 40) && <Tag text="OVER 40h" color={C.red} />}
+                        {eBonus > 0 && <Btn sz="sm" v="gold" onClick={() => { setSelEmp(e.id); markPaidBonus(); }}>Mark Bonus Paid</Btn>}
+                      </Row>
+                    </Row>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5,minmax(0,1fr))", gap: 8 }}>
+                      <KPI label="Regular" value={eReg.toFixed(1)+"h"} color={C.tx1} />
+                      <KPI label="Overtime" value={eOT.toFixed(1)+"h"} color={eOT>0?C.red:C.tx3} />
+                      <KPI label="Hourly Pay" value={$(ePay)} color={C.gold} />
+                      <KPI label="Bonus Due" value={$(eBonus)} color={C.purple} />
+                      <KPI label="Gross Est." value={$(eGross)} color={C.g600} />
+                    </div>
+                    <div style={{ fontSize: 11, color: C.tx3, marginTop: 8 }}>
+                      {"Est. taxes " + $(eTax.total) + " · Net est. " + $(eGross - eTax.total)}
+                    </div>
+                  </Card>
+                );
+              })}
+              <Btn v="outline" onClick={() => {
+                const allRows = [["Employee","Month","Regular Hrs","OT Hrs","Hourly Pay","Bonus Due","Gross","Est.Taxes","Net Est.","Week Hrs","Status"]];
+                workerList.forEach(e => {
+                  const cfg   = employeePaySettings(settings, e.id);
+                  const eS    = timecards.filter(t=>t.userId===e.id&&String(t.date||"").startsWith(today().slice(0,7)));
+                  const eAct  = timecards.find(t=>t.userId===e.id&&!t.out&&t.status!=="Closed");
+                  const eWkH  = timecards.filter(t=>t.userId===e.id&&inSameWeek(t.date)).reduce((s,t)=>s+(+t.hours||0),0) + (eAct?shiftHoursLive(eAct):0);
+                  const eR    = eS.reduce((s,t)=>s+(+t.regularHours||+t.hours||0),0);
+                  const eOT   = eS.reduce((s,t)=>s+(+t.overtimeHours||0),0);
+                  const ePay  = eS.reduce((s,t)=>s+(+t.totalPay||0),0);
+                  const eB    = commissionAmountForEmployee(settings, e.id, "unpaid");
+                  const eG    = ePay + eB;
+                  const eT    = estimatedWithholding(eG, cfg);
+                  allRows.push([e.name, today().slice(0,7), eR.toFixed(2), eOT.toFixed(2), ePay.toFixed(2), eB.toFixed(2), eG.toFixed(2), eT.total.toFixed(2), (eG-eT.total).toFixed(2), eWkH.toFixed(2), eAct?"Clocked In":"Clocked Out"]);
+                });
+                downloadCsv("leaf-diary-payroll-" + today() + ".csv", allRows);
+              }}>Export All Payroll CSV</Btn>
+            </div>
+          )}
+
+          <style>{`@media(max-width:760px){
+            div[style*="repeat(4,minmax"]{grid-template-columns:1fr 1fr!important}
+            div[style*="repeat(5,minmax"]{grid-template-columns:1fr 1fr!important}
+          }`}</style>
+        </div>
+      );
     }
+
 
     function Payroll({ timecards, employees, settings, setSettings, user }) {
       const workerList = (employees || []).filter(e => e.role !== "owner");
