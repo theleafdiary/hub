@@ -2870,6 +2870,103 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         currentPrice: +plant.suggestedPrice || +plant.listPrice || +plant.price || 0
       };
     }
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 97 — DIRECT FAST MARKET POST
+       The normal phase61 Gateway wrapper still works for business AI, but
+       market pricing now calls the Worker connector directly. This avoids
+       the older wrapper timeout/path that was showing browser "Failed to fetch".
+       No new pages, no export changes, no barcode/SKU changes.
+    ══════════════════════════════════════════════════════════ */
+    function phase97BuildFastMarketPayload(plant = {}, user = {}, settings = {}) {
+      const marketPlant = phase95MarketGatewayPlant(plant);
+      return {
+        app:"Leaf Diary Business Hub",
+        appVersion:APP_VERSION,
+        mode:"market_pricing_sources_v93",
+        route:"pricing",
+        task:"market_price_lookup",
+        schemaVersion:"market_pricing_json_v97_direct",
+        requireWebSearch:true,
+        returnJsonOnly:true,
+        user:{ role:user?.role || "employee", name:user?.name || "Leaf Diary User" },
+        plant:marketPlant,
+        searchQueries:phase95MarketSearchQueries(plant).slice(0, 4),
+        pricingRules:{
+          potSizeMustMatch:true,
+          includeMismatchForTransparency:true,
+          medianUsesOnly:"exact_or_close_pot_size_matches",
+          doNotInventPrices:true,
+          fastMarketMode:true
+        },
+        requiredFields:["dataSources","marketMedianPrice","priceUSD","url","observedPotSize","potSizeMatch"]
+      };
+    }
+    function phase97ExtractMarketPayload(data = {}) {
+      if (data?.marketPricing && typeof data.marketPricing === "object") return data.marketPricing;
+      const answer = data?.answer || data?.output || data?.raw || "";
+      const parsed = phase86ExtractMarketJson(answer);
+      if (parsed?.marketPricing && typeof parsed.marketPricing === "object") return parsed.marketPricing;
+      if (parsed && (safeArray(parsed.dataSources || parsed.sources).length || "marketMedianPrice" in parsed)) return parsed;
+      return null;
+    }
+    async function phase97CallFastMarketWorker({ plant = {}, settings = {}, allPlants = [], user = {}, cfg = {} }) {
+      const endpoint = phase61NormalizeUrl((cfg && cfg.endpointUrl) || LEAF_AI_WORKING_ENDPOINT);
+      const token = String((cfg && cfg.secretToken) || LEAF_AI_WORKING_TOKEN || "").trim();
+      const payload = phase97BuildFastMarketPayload(plant, user, settings);
+      const started = Date.now();
+      const timeoutMs = Math.max(45000, +cfg.timeoutMs || 90000);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const headers = { "Content-Type":"application/json", "Accept":"application/json" };
+        if (token) headers["X-Leaf-Diary-AI-Token"] = token;
+        const res = await fetch(`${endpoint}?market=v97&ts=${Date.now()}`, {
+          method:"POST",
+          mode:"cors",
+          credentials:"omit",
+          cache:"no-store",
+          signal:controller.signal,
+          headers,
+          body:JSON.stringify(payload)
+        });
+        const text = await res.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch(e) { data = { raw:text }; }
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || `${res.status} ${res.statusText}: ${String(text).slice(0, 260)}`);
+        }
+        const marketJson = phase97ExtractMarketPayload(data);
+        if (!marketJson) {
+          throw new Error(`Worker answered but no marketPricing/dataSources JSON was found. Preview: ${String(text).slice(0, 500)}`);
+        }
+        const priced = calcAIMarketPrice(plant, marketJson, settings, allPlants);
+        return {
+          ...priced,
+          source:"direct_fast_market_worker_v97",
+          runAt:new Date().toISOString(),
+          gatewayProvider:data.provider || data.searchProvider || "tavily-fast-market",
+          gatewayModel:data.model || cfg.model || LEAF_AI_WORKING_GATEWAY_MODEL,
+          gatewayMs:Date.now() - started,
+          fastMarketMode:!!(data.fastMarketMode || marketJson.fastMarketMode),
+          rawSearchResultCount:data.rawSearchResultCount || marketJson.rawSearchResultCount || null,
+          searchQueries:data.searchQueries || marketJson.searchQueries || payload.searchQueries,
+          searchErrors:data.searchErrors || marketJson.searchErrors || []
+        };
+      } catch(e) {
+        const message = e?.name === "AbortError" ? `Direct market Worker timed out after ${Math.round(timeoutMs/1000)} seconds.` : (e?.message || String(e));
+        return {
+          ...phase83BuildFallbackMarketResult(plant, settings, allPlants, `Direct market Worker failed: ${message} Using internal sales history.`),
+          source:"direct_fast_market_worker_failed_v97",
+          gatewayError:message,
+          gatewayAnswerPreview:`Endpoint: ${endpoint}\nMode: direct fast market POST v97\nError: ${message}\nIf Worker GET shows update-96-fast, this is a browser POST/CORS/token issue or the app is still using old cached settings.`,
+          gatewayMs:Date.now() - started
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     async function runMarketPriceResearch(plant = {}, settings = {}, allPlants = [], user = {}, opts = {}) {
       const normalizedPlant = { ...plant, cost:+plant.cost || 0, suggestedPrice:+plant.suggestedPrice || +plant.listPrice || +plant.price || 0 };
       const { marketCfg, gatewayCfg, estimatedCost, canAffordLookup } = phase86BuildGatewayPricingConfig(settings);
@@ -2882,40 +2979,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       if (cached) return { ...cached, source:cached.source || "cached_market_research", cacheHit:true };
       if (!canAffordLookup) return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Cost guard blocked lookup. Estimated ${$(estimatedCost)} is above max ${$(marketCfg.maxCostPerLookup)}.`), source:"cost_guard_fallback", gatewayError:"per_lookup_cost_guard" };
       if (typeof phase61ShouldUseGateway === "function" && !phase61ShouldUseGateway(gatewayCfg)) return { ...phase85BuildLocalMarketPreview(normalizedPlant, settings, allPlants), source:"gateway_disabled_fallback", priceReason:"Gateway is disabled or missing endpoint. Local profit-safe preview used instead." };
-      const prompt = buildMarketPricePrompt(normalizedPlant, settings);
-      const routeDef = {
-        label:"Market Price Research",
-        task:"market_price_lookup",
-        financials:"owner_manager",
-        requireWebSearch:true,
-        schemaVersion:"market_pricing_json_v95",
-        marketPricingPlant: phase95MarketGatewayPlant(normalizedPlant),
-        searchQueries: phase95MarketSearchQueries(normalizedPlant)
-      };
-      try {
-        const report = await phase61CallGateway({
-          question:prompt,
-          route:"pricing",
-          routeDef,
-          appData:{ plants:[], expenses:[], bills:[], timecards:[], expenseReceipts:[] },
-          user,
-          model:gatewayCfg.model,
-          extraPrompt:`Context: research only this plant. Cost ${$(normalizedPlant.cost)}. Minimum margin ${marketCfg.minMarginPct}%. Return JSON only.`,
-          cfg:gatewayCfg
-        });
-        if (!report?.ok) {
-          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Gateway market research failed: ${report?.error || "No online response"}. Using internal sales history.`), source:"gateway_fallback", gatewayError:report?.error || "gateway_failed", gatewayAnswerPreview:String(report?.answer || report?.output || report?.error || "").slice(0,900), gatewayReport:report };
-        }
-        const answerText = report.answer || report.output || "";
-        const marketJson = phase86ExtractMarketJson(answerText);
-        if (!marketJson || !(+marketJson.marketMedianPrice > 0 || safeArray(marketJson.dataSources || marketJson.sources).length)) {
-          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Gateway returned non-JSON or no usable market prices. This usually means the pricing Gateway/model does not have live web search enabled. Using internal sales history."), source:"json_parse_fallback", gatewayError:"invalid_market_json_or_no_web_sources", gatewayAnswerPreview:String(answerText || report.error || "No Gateway answer text returned.").slice(0,900), gatewayReport:report };
-        }
-        const priced = calcAIMarketPrice(normalizedPlant, marketJson, settings, allPlants);
-        return { ...priced, source:"gateway_market_research", runAt:new Date().toISOString(), gatewayProvider:report.provider || gatewayCfg.provider, gatewayModel:report.model || gatewayCfg.model, gatewayMs:report.ms || null, estimatedCostPerLookup:estimatedCost, cacheHit:false };
-      } catch(e) {
-        return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Market research error: ${e?.message || e}. Using internal sales history.`), source:"gateway_exception_fallback", gatewayError:e?.message || String(e) };
-      }
+      // Update 97: market pricing uses the direct fast Worker connector instead of the generic business-AI wrapper.
+      return await phase97CallFastMarketWorker({ plant:normalizedPlant, settings, allPlants, user, cfg:gatewayCfg });
     }
     function phase86BuildMarketGatewaySelfChecks({ settings = {}, user = {} } = {}) {
       const owner = { role:"owner", name:"QA Owner" };
