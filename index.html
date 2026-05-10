@@ -1649,7 +1649,7 @@
           { title:"Sold Review", items:[["Sold Review","ship","✅","Review sold plants only"],["Import Show Sales","showimport","📥","Upload Palmstreet/Whatnot sales"],["Buyers","customers","👥","Buyer usernames and history"],["Refunds","refunds","↩️","Track issues"]] },
           { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["Shipping Paperwork","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
         ]},
-        money_ws:{ icon:"💵", title:"Money", sub:"Owner financials, receipts, payroll and taxes.", hero:"Know your cash before buying more", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
+        money_ws:{ icon:"💵", title:"Money", sub:"Cash pulse, receipts, bills, payroll, profit, and taxes.", hero:"Can Leaf Diary spend money this week?", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
           { title:"Daily Money", items:[["Cash Flow","cashflow","💵","Can you spend?"],["What Makes Money","slotprofit","📦","Max profit from 400 weekly slots"],["Morning Briefing","overnight","🌅","Daily money and task plan"],["Expenses","expense","💳","Business spending"],["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Due dates"]] },
           { title:"Pay + Tax", items:[["Timecard","timecard","⏱️","Hours"],["Payroll","payroll","👥","Pay employees"],["Commissions","commissions","🤝","Show commissions"],["Tax Center","tax","🧾","Tax-ready totals"]] }
         ]},
@@ -2197,6 +2197,171 @@
         {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:".9fr 1.1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>📜 Shipping Paperwork</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Use this to check state paperwork for CA, AZ, TX, LA, and Hawaii. This is a reminder layer only — the original certificate generator remains below.</p><div style={{ marginTop:10 }}>{docOrders.length ? docOrders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:14, color:C.g800, fontWeight:800 }}>No current sold orders found for state paperwork review.</div>}</div></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}>{canOwner ? <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} /> : <div style={{ padding:20, color:C.tx3 }}>Paperwork generator is owner-only.</div>}</Card></div>}
 
         <style>{`@media(max-width:760px){.ld-orders-workflow div[style*="grid-template-columns:repeat(4,1fr)"],.ld-orders-workflow div[style*="grid-template-columns: repeat(4,1fr)"],.ld-orders-workflow div[style*="grid-template-columns:1.1fr"],.ld-orders-workflow div[style*="grid-template-columns: 1fr 1fr"],.ld-orders-workflow div[style*="grid-template-columns:1fr 1fr"],.ld-orders-workflow div[style*="grid-template-columns:.85fr"],.ld-orders-workflow div[style*="grid-template-columns:.9fr"],.ld-orders-workflow div[style*="grid-template-columns:repeat(3,1fr)"],.ld-orders-workflow div[style*="grid-template-columns: repeat(3,1fr)"],.ld-orders-workflow div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important}.ld-orders-tabs{padding-left:2px}.ld-orders-workflow table{font-size:11px!important}}`}</style>
+      </div>;
+    }
+
+
+
+    /* ══════════════════════════════════════════════════════════
+       MONEY COMMAND CENTER
+       Safe wrapper around existing Cash Flow, Receipts, Expenses,
+       Bills, Payroll, Commissions, Tax, Goals and Reports.
+       No database, Supabase schema, receipt, payroll, or tax logic changes.
+    ══════════════════════════════════════════════════════════ */
+    function MoneyCommandCenter({ plants = [], expenses = [], setExpenses, bills = [], setBills, timecards = [], setTimecards, receipts = [], setReceipts, users = [], settings = {}, setSettings, user, addAudit, setPage }) {
+      const [tab, setTab] = useState(user?.role === "employee" ? "receipts" : "overview");
+      const role = user?.role || "employee";
+      const canOwner = role === "owner";
+      const canManager = role === "owner" || role === "manager";
+      const todayKey = today();
+      const month = monthKey();
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
+      const sold7 = sold.filter(p => dateInLast(plantSaleDate(p), 7));
+      const sold30 = sold.filter(p => dateInLast(plantSaleDate(p), 30));
+      const soldMonth = sold.filter(p => monthKey(plantSaleDate(p)) === month);
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const revenueMonth = soldMonth.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
+      const revenue7 = sold7.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
+      const feesMonth = soldMonth.reduce((s,p)=>s+platFee(p.platform || "", +p.salePrice || +p.suggestedPrice || 0, settings),0);
+      const fees30 = sold30.reduce((s,p)=>s+platFee(p.platform || "", +p.salePrice || +p.suggestedPrice || 0, settings),0);
+      const cogsMonth = soldMonth.reduce((s,p)=>s+(+p.cost || 0),0);
+      const cogs30 = sold30.reduce((s,p)=>s+(+p.cost || 0),0);
+      const grossMonth = revenueMonth - feesMonth - cogsMonth;
+      const monthExpenses = safeArray(expenses).filter(e => monthKey(e.date || e.expenseDate || e.createdAt) === month);
+      const expenseMonth = monthExpenses.reduce((s,e)=>s+(+e.amount || 0),0);
+      const payrollMonth = safeArray(timecards).filter(t => monthKey(t.date || t.clockIn || t.createdAt) === month).reduce((s,t)=>s+(+t.totalPay || +t.pay || 0),0);
+      const netMonth = grossMonth - expenseMonth - payrollMonth;
+      const gross30 = sold30.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0) - fees30 - cogs30;
+      const inventoryCost = inStock.reduce((s,p)=>s+(+p.cost || 0),0);
+      const inventoryValue = inStock.reduce((s,p)=>s+(+p.suggestedPrice || +p.listPrice || +p.price || 0),0);
+      const openBills = safeArray(bills).filter(b => String(b.status || "Unpaid") !== "Paid");
+      const bills7 = openBills.filter(b => daysUntil(b.dueDate) <= 7 && daysUntil(b.dueDate) >= -1);
+      const bills14 = openBills.filter(b => daysUntil(b.dueDate) <= 14 && daysUntil(b.dueDate) >= -1);
+      const bills7Total = bills7.reduce((s,b)=>s+(+b.amount || 0),0);
+      const bills14Total = bills14.reduce((s,b)=>s+(+b.amount || 0),0);
+      const payroll7 = safeArray(timecards).filter(t => dateInLast(t.date || t.clockIn || t.createdAt, 7)).reduce((s,t)=>s+(+t.totalPay || +t.pay || 0),0);
+      const receiptReview = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
+      const receiptNoImage = safeArray(receipts).filter(r => !(r.imageUrl || r.image_url || r.imageBase64 || r.photoUrl || r.photoBase64));
+      const commissions = safeArray(settings.showCommissions);
+      const unpaidCommissions = commissions.filter(c => !c.paidAt && String(c.status || "Unpaid") !== "Paid");
+      const commissionTotal = unpaidCommissions.reduce((s,c)=>s+(+c.amount || +c.commissionAmount || +c.commission || 0),0);
+      const bankBalance = +settings.currentBankBalance || 0;
+      const cashReservePct = +settings.cashSafetyBuffer || 15;
+      const cashReserve = bankBalance * (cashReservePct / 100);
+      const safeSpend = Math.max(0, bankBalance - bills14Total - payroll7 - commissionTotal - cashReserve);
+      const safeSpendText = bankBalance ? $(safeSpend) : "Add bank balance";
+      const buyDecision = !bankBalance ? "Add your current bank balance to calculate a safe buy budget." : safeSpend <= 0 ? "Do not buy today. Bills, payroll, commissions, or safety reserve need the cash." : safeSpend < 300 ? `Buy only proven A/B plants. Safe spend is about ${$(safeSpend)}.` : `You can safely spend about ${$(safeSpend)} if you stay with profitable plants.`;
+      const taxSales = revenueMonth * FL_SALES_TAX;
+      const seTax = Math.max(0, netMonth) * FL_SE_TAX;
+      const incomeTax = estIncomeTax(Math.max(0, netMonth));
+      const moneyIssues = [
+        { show:bills7Total>0, icon:"📅", title:"Bills due soon", body:`${$(bills7Total)} due within 7 days. Check this before buying inventory.`, button:"Open Bills", tab:"bills", color:C.red },
+        { show:receiptReview.length>0, icon:"🧾", title:"Receipts need review", body:`${receiptReview.length} receipt(s) need category review so your records stay tax-ready.`, button:"Review Receipts", tab:"receipts", color:C.blue },
+        { show:unpaidCommissions.length>0 && canOwner, icon:"🤝", title:"Employee commission pending", body:`${unpaidCommissions.length} commission record(s) may still need to be paid or marked paid.`, button:"Commissions", tab:"payroll", color:C.gold },
+        { show:payroll7>0 && canOwner, icon:"👥", title:"Payroll activity", body:`${$(payroll7)} in payroll/timecard pay from the last 7 days.`, button:"Payroll", tab:"payroll", color:C.purple },
+        { show:inventoryCost>0 && canOwner, icon:"🌿", title:"Cash tied in inventory", body:`${$(inventoryCost)} is currently tied up in in-stock plants with ${$(inventoryValue)} suggested sell value.`, button:"Profit", tab:"profit", color:C.g600 },
+        { show:netMonth<0 && canOwner, icon:"⚠️", title:"Month is negative", body:`Estimated month net is ${$(netMonth)} after cost, fees, expenses, and payroll.`, button:"Profit", tab:"profit", color:C.red }
+      ].filter(t => t.show);
+      const tabs = [
+        canManager ? ["overview", "💵", "Cash Pulse"] : null,
+        ["receipts", "🧾", "Receipts"],
+        canOwner ? ["expenses", "💳", "Expenses"] : null,
+        canOwner ? ["bills", "📅", "Bills"] : null,
+        ["timecard", "⏱️", "Timecard"],
+        canOwner ? ["payroll", "👥", "Payroll"] : null,
+        canOwner ? ["profit", "📈", "Profit"] : null,
+        canOwner ? ["taxes", "🧾", "Taxes"] : null,
+        canOwner ? ["goals", "🎯", "Goals"] : null
+      ].filter(Boolean);
+      const switchTab = next => setTab(next);
+      const MoneyTask = ({ icon, title, body, button, onClick, color = C.g600 }) => <button onClick={onClick} style={{ background:C.card, border:`1px solid ${C.bd}`, borderLeft:`5px solid ${color}`, borderRadius:18, padding:"14px 13px", textAlign:"left", cursor:"pointer", fontFamily:F.body, boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}>
+        <Row gap={10} center><div style={{ width:42, height:42, borderRadius:14, background:color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:23, flexShrink:0 }}>{icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, marginTop:3, lineHeight:1.35 }}>{body}</div>{button && <div style={{ marginTop:8, fontSize:11, fontWeight:900, color }}>{button} →</div>}</div></Row>
+      </button>;
+      const SimpleLine = ({ label, value, color = C.g900 }) => <Row between center style={{ padding:"9px 0", borderTop:`1px solid ${C.bdS}` }}><span style={{ fontSize:13, color:C.tx2, fontWeight:700 }}>{label}</span><span style={{ fontSize:13, color, fontWeight:900 }}>{value}</span></Row>;
+      const openFull = page => setPage(page);
+      if (role === "employee") {
+        return <div className="ld-page ld-money-workflow" style={{ padding:"16px 14px 112px", maxWidth:980, margin:"0 auto", fontFamily:F.body }}>
+          <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #f5c542", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+            <div style={{ fontSize:38, lineHeight:1 }}>💵</div>
+            <div style={{ fontFamily:F.display, fontSize:29, color:"#f5c542", fontWeight:900, marginTop:5 }}>Money Tasks</div>
+            <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Employee view: clock in, scan receipts, and keep daily records clean. Owner financials stay hidden.</div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:14 }}>
+            <KPI label="Receipts" value={safeArray(receipts).length} sub="saved" color={C.blue} />
+            <KPI label="Need Review" value={receiptReview.length} sub="receipt cleanup" color={receiptReview.length ? C.amber : C.g600} />
+            <KPI label="Timecards" value={safeArray(timecards).filter(t => t.userId === user?.id || t.userName === user?.name).length} sub="your records" color={C.purple} />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+            <MoneyTask icon="🧾" title="Scan receipt" body="Upload gas, supplies, Walmart, nursery run, or business purchase receipts here." button="Open receipt scanner" onClick={()=>setTab("receipts")} color={C.blue} />
+            <MoneyTask icon="⏱️" title="Clock in / clock out" body="Track your work time without seeing business profit, taxes, bills, or payroll reports." button="Open timecard" onClick={()=>setTab("timecard")} color={C.purple} />
+          </div>
+          <div style={{ display:"flex", gap:8, overflowX:"auto", WebkitOverflowScrolling:"touch", paddingBottom:8, marginBottom:12 }}>
+            {[ ["receipts","🧾","Receipts"], ["timecard","⏱️","Timecard"] ].map(([id,icon,label]) => <button key={id} onClick={()=>setTab(id)} style={{ border:`1.5px solid ${tab===id ? "#f5c542" : C.bd}`, background:tab===id ? "#000" : C.card, color:tab===id ? "#f5c542" : C.g900, borderRadius:999, padding:"10px 13px", fontWeight:900, whiteSpace:"nowrap", fontFamily:F.body }}>{icon} {label}</button>)}
+          </div>
+          {tab === "receipts" && <Card style={{ borderTop:`4px solid ${C.blue}`, padding:14 }}><ReceiptScanner receipts={receipts} setReceipts={setReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} /></Card>}
+          {tab === "timecard" && <Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} settings={settings} setSettings={setSettings} addAudit={addAudit} /></Card>}
+          <style>{`@media(max-width:760px){.ld-money-workflow div[style*="grid-template-columns:repeat(3,1fr)"],.ld-money-workflow div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}}`}</style>
+        </div>;
+      }
+      return <div className="ld-page ld-money-workflow" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #f5c542", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div><div style={{ fontSize:38, lineHeight:1 }}>💵</div><div style={{ fontFamily:F.display, fontSize:30, color:"#f5c542", fontWeight:900, marginTop:5 }}>Money Command Center</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>The main question: can Leaf Diary spend money this week?</div></div>
+            <Row gap={8} wrap><button onClick={()=>setTab("receipts")} style={{ background:"#f5c542", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧾 Scan Receipt</button><button onClick={()=>setTab("bills")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📅 Bills</button><button onClick={()=>setPage("buy_ws")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧠 Buy Smart</button></Row>
+          </Row>
+          <div style={{ marginTop:15, background:"rgba(245,197,66,.12)", border:"1px solid rgba(245,197,66,.28)", borderRadius:16, padding:"13px 14px" }}>
+            <div style={{ fontSize:12, color:"rgba(255,255,255,.62)", fontWeight:900, textTransform:"uppercase", letterSpacing:.8 }}>Safe Buy Decision</div>
+            <div style={{ fontSize:18, fontWeight:900, color:"#f5c542", marginTop:4 }}>{buyDecision}</div>
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <KPI label="Safe Buy Budget" value={safeSpendText} sub={bankBalance ? `${$(bills14Total)} bills · ${$(payroll7)} payroll` : "set bank balance"} color={safeSpend > 0 ? C.g600 : C.red} />
+          <KPI label="Profit This Month" value={$(netMonth)} sub={`${$(revenueMonth)} sales`} color={netMonth >= 0 ? C.g600 : C.red} />
+          <KPI label="Bills Due 7 Days" value={$(bills7Total)} sub={`${bills7.length} bill(s)`} color={bills7Total ? C.red : C.g600} />
+          <KPI label="Receipts To Review" value={receiptReview.length} sub={`${safeArray(receipts).length} saved`} color={receiptReview.length ? C.amber : C.g600} />
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1.15fr .85fr", gap:12, marginBottom:14 }}>
+          <Card style={{ borderTop:`4px solid ${safeSpend > 0 ? C.g600 : C.red}` }}>
+            <Row between center wrap style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontWeight:900, fontSize:20, color:C.g900 }}>💵 Cash Pulse</div><div style={{ color:C.tx3, fontSize:12 }}>This is the owner decision panel before buying plants.</div></div><Btn sz="sm" v="soft" onClick={()=>setPage("cashflow")}>Open Cash Flow</Btn></Row>
+            <SimpleLine label="Bank balance" value={bankBalance ? $(bankBalance) : "Not set"} color={bankBalance ? C.g900 : C.amber} />
+            <SimpleLine label="Bills due in 14 days" value={$(bills14Total)} color={bills14Total ? C.red : C.g600} />
+            <SimpleLine label="Payroll from last 7 days" value={$(payroll7)} color={payroll7 ? C.purple : C.g600} />
+            <SimpleLine label="Unpaid commissions" value={$(commissionTotal)} color={commissionTotal ? C.gold : C.g600} />
+            <SimpleLine label={`Safety reserve (${cashReservePct}%)`} value={$(cashReserve)} color={C.tx2} />
+            <SimpleLine label="Safe inventory spend" value={safeSpendText} color={safeSpend > 0 ? C.g600 : C.red} />
+            <Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={()=>setTab("receipts")}>Scan Receipt</Btn><Btn v="soft" onClick={()=>setTab("bills")}>Bills</Btn><Btn v="outline" onClick={()=>setTab("profit")}>Profit</Btn></Row>
+          </Card>
+          <Card style={{ borderTop:`4px solid ${C.gold}` }}>
+            <div style={{ fontFamily:F.display, fontWeight:900, fontSize:20, color:C.g900, marginBottom:8 }}>⚠️ Money Tasks</div>
+            {moneyIssues.length ? <div style={{ display:"grid", gap:9 }}>{moneyIssues.slice(0,5).map(t => <button key={t.title} onClick={()=>switchTab(t.tab)} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderLeft:`4px solid ${t.color}`, borderRadius:13, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{t.icon} {t.title}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3, lineHeight:1.35 }}>{t.body}</div></button>)}</div> : <p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>No urgent money blockers found. Keep scanning receipts and importing sales after each show.</p>}
+          </Card>
+        </div>
+
+        <div style={{ display:"flex", gap:8, overflowX:"auto", WebkitOverflowScrolling:"touch", paddingBottom:8, marginBottom:12 }}>
+          {tabs.map(([id, icon, label]) => <button key={id} onClick={()=>setTab(id)} style={{ border:`1.5px solid ${tab===id ? "#f5c542" : C.bd}`, background:tab===id ? "#000" : C.card, color:tab===id ? "#f5c542" : C.g900, borderRadius:999, padding:"10px 13px", fontWeight:900, whiteSpace:"nowrap", fontFamily:F.body, boxShadow:tab===id ? "0 5px 16px rgba(0,0,0,.16)" : "none", cursor:"pointer" }}>{icon} {label}</button>)}
+        </div>
+
+        {tab === "overview" && <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
+          <MoneyTask icon="🧾" title="Scan receipts" body={`${receiptReview.length} receipt(s) need review. Scan every gas, supplies, packaging, and nursery receipt.`} button="Receipts" onClick={()=>setTab("receipts")} color={C.blue} />
+          <MoneyTask icon="📅" title="Check bills" body={`${openBills.length} open bill(s). ${$(bills7Total)} due in the next 7 days.`} button="Bills" onClick={()=>setTab("bills")} color={bills7Total ? C.red : C.g600} />
+          <MoneyTask icon="👥" title="Review payroll" body={`${$(payroll7)} in last 7-day timecard pay and ${$(commissionTotal)} unpaid commissions.`} button="Payroll" onClick={()=>setTab("payroll")} color={C.purple} />
+          <MoneyTask icon="📈" title="Check profit" body={`${$(revenueMonth)} sales this month, ${$(netMonth)} estimated net after COGS, fees, expenses, and payroll.`} button="Profit" onClick={()=>setTab("profit")} color={netMonth >= 0 ? C.g600 : C.red} />
+          <MoneyTask icon="🧾" title="Tax snapshot" body={`${$(taxSales)} estimated FL sales tax and ${$(seTax + incomeTax)} estimated owner tax snapshot for the month.`} button="Taxes" onClick={()=>setTab("taxes")} color={C.gold} />
+          <MoneyTask icon="🎯" title="Set monthly targets" body="Use goals to keep sales, profit, and safe buying targets visible." button="Goals" onClick={()=>setTab("goals")} color={C.purple} />
+        </div>}
+
+        {tab === "receipts" && <Card style={{ borderTop:`4px solid ${C.blue}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🧾 Receipts</div><div style={{ fontSize:12, color:C.tx3 }}>{receiptReview.length} need review · {receiptNoImage.length} missing image</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("receipts")}>Open Full Tool</Btn></Row><ReceiptScanner receipts={receipts} setReceipts={setReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} /></Card>}
+        {tab === "expenses" && canOwner && <Card style={{ borderTop:`4px solid ${C.red}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>💳 Expenses</div><div style={{ fontSize:12, color:C.tx3 }}>{$(expenseMonth)} expenses recorded this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("expense")}>Open Full Tool</Btn></Row><Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} /></Card>}
+        {tab === "bills" && canOwner && <Card style={{ borderTop:`4px solid ${bills7Total ? C.red : C.g600}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>📅 Bills</div><div style={{ fontSize:12, color:C.tx3 }}>{$(bills7Total)} due in 7 days · {$(bills14Total)} due in 14 days.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("bills")}>Open Full Tool</Btn></Row><Bills bills={bills} setBills={setBills} /></Card>}
+        {tab === "timecard" && <Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>⏱️ Timecard</div><div style={{ fontSize:12, color:C.tx3 }}>Clock in/out and keep employee hours clean.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("timecard")}>Open Full Tool</Btn></Row><Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} settings={settings} setSettings={setSettings} addAudit={addAudit} /></Card>}
+        {tab === "payroll" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>👥 Payroll</div><div style={{ fontSize:12, color:C.tx3 }}>{$(payrollMonth)} payroll/timecard pay this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("payroll")}>Open Full Tool</Btn></Row><Payroll timecards={timecards} employees={users} settings={settings} setSettings={setSettings} user={user} /></Card><Card style={{ borderTop:`4px solid ${C.gold}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🤝 Commissions</div><div style={{ fontSize:12, color:C.tx3 }}>{unpaidCommissions.length} unpaid · {$(commissionTotal)} estimated open commission.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("commissions")}>Open Full Tool</Btn></Row><CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} /></Card></div>}
+        {tab === "profit" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:12 }}><Card style={{ borderTop:`4px solid ${netMonth >= 0 ? C.g600 : C.red}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:10 }}>📈 Profit Snapshot</div><SimpleLine label="Month sales" value={$(revenueMonth)} color={C.gold} /><SimpleLine label="Platform fees" value={`-${$(feesMonth)}`} color={C.red} /><SimpleLine label="Cost of plants sold" value={`-${$(cogsMonth)}`} color={C.red} /><SimpleLine label="Gross after COGS + fees" value={$(grossMonth)} color={grossMonth >= 0 ? C.g600 : C.red} /><SimpleLine label="Expenses" value={`-${$(expenseMonth)}`} color={C.red} /><SimpleLine label="Payroll" value={`-${$(payrollMonth)}`} color={C.purple} /><SimpleLine label="Estimated net" value={$(netMonth)} color={netMonth >= 0 ? C.g600 : C.red} /><Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={()=>setPage("reports")}>Reports</Btn><Btn v="soft" onClick={()=>setPage("slotprofit")}>What Makes Money</Btn></Row></Card><Card style={{ borderTop:`4px solid ${C.g600}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:10 }}>🌿 Inventory Money</div><SimpleLine label="In-stock cost" value={$(inventoryCost)} color={C.gold} /><SimpleLine label="Suggested sell value" value={$(inventoryValue)} color={C.g600} /><SimpleLine label="Potential gross spread" value={$(inventoryValue - inventoryCost)} color={(inventoryValue - inventoryCost) >= 0 ? C.g600 : C.red} /><SimpleLine label="7-day revenue" value={$(revenue7)} color={C.blue} /><SimpleLine label="30-day gross after COGS/fees" value={$(gross30)} color={gross30 >= 0 ? C.g600 : C.red} /><Btn v="outline" style={{ marginTop:12 }} onClick={()=>setPage("buy_ws")}>Open Buy Smart</Btn></Card></div>}
+        {tab === "taxes" && canOwner && <Card style={{ borderTop:`4px solid ${C.gold}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🧾 Taxes</div><div style={{ fontSize:12, color:C.tx3 }}>Quick view here, full tax center below.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("tax")}>Open Full Tool</Btn></Row><div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:12 }}><KPI label="FL Sales Tax" value={$(taxSales)} sub="rough 7% snapshot" color={C.gold}/><KPI label="SE Tax" value={$(seTax)} sub="rough owner estimate" color={C.purple}/><KPI label="Income Tax" value={$(incomeTax)} sub="rough estimate" color={C.blue}/></div><TaxCenter plants={plants} expenses={expenses} timecards={timecards} /></Card>}
+        {tab === "goals" && canOwner && <Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🎯 Goals</div><div style={{ fontSize:12, color:C.tx3 }}>Monthly sales, profit, and buying goals.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("goals")}>Open Full Tool</Btn></Row><ProfitGoals plants={plants} expenses={expenses} settings={settings} setSettings={setSettings} /></Card>}
+
+        <style>{`@media(max-width:760px){.ld-money-workflow div[style*="grid-template-columns:repeat(4,1fr)"],.ld-money-workflow div[style*="grid-template-columns:1.15fr .85fr"],.ld-money-workflow div[style*="grid-template-columns:repeat(3,1fr)"],.ld-money-workflow div[style*="grid-template-columns:1fr 1fr"],.ld-money-workflow div[style*="grid-template-columns:1.1fr .9fr"]{grid-template-columns:1fr!important}.ld-money-workflow table{font-size:11px!important}.ld-money-workflow .ld-full-tool{max-height:none!important}}`}</style>
       </div>;
     }
 
@@ -12123,7 +12288,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "intake_ws" && <IntakeWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} setNurseries={setNurseries} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
           {page === "shows_ws" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
           {page === "orders_ws" && <OrdersWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} users={users} settings={settings} setSettings={setSettings} refunds={refunds} setRefunds={setRefunds} casdCerts={casdCerts} setCasdCerts={setCasdCerts} setPage={navigate} />}
-          {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "money_ws" && <MoneyCommandCenter plants={plants} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} timecards={timecards} setTimecards={setTimecards} receipts={expenseReceipts} setReceipts={setExpenseReceipts} users={users} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "buy_ws" && CAN.seeReports(user.role) && <WorkspaceHome type="buy_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "admin_ws" && user.role === "owner" && <WorkspaceHome type="admin_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={navigate} />}
