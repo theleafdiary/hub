@@ -1211,6 +1211,8 @@
       { id:"appcheck", icon:"✅", l:"App Checkup", group:"Settings", roles:["owner"] },
       { id:"workflowqa", icon:"🧪", l:"Workflow Test Checklist", group:"Settings", roles:["owner"] },
       { id:"quickstart", icon:"🧭", l:"Quick Start Guide", group:"Settings", roles:["owner","manager","employee"] },
+      { id:"workflowcoach", icon:"🧩", l:"Next Step Coach", group:"Today", roles:["owner","manager","employee"] },
+      { id:"employeeboard", icon:"✅", l:"Employee Task Board", group:"Today", roles:["owner","manager","employee"] },
       { id:"ollama", icon:"🧠", l:"Local AI Setup", group:"Settings", roles:["owner"] },
       { id:"aigateway", icon:"🌐", l:"Advanced AI Setup", group:"Settings", roles:["owner"] },
       { id:"airouter", icon:"🧭", l:"AI Model Routing", group:"Settings", roles:["owner"] },
@@ -1219,7 +1221,7 @@
 
     const ROOT_PAGES = ["today", "plants_ws", "intake_ws", "shows_ws", "orders_ws", "money_ws", "buy_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
-      today:"today", dash:"today", command:"today", execai:"today", aihub:"today", dataai:"today", cashflow:"money_ws", overnight:"today", emp_dash:"today",
+      today:"today", dash:"today", command:"today", execai:"today", aihub:"today", dataai:"today", workflowcoach:"today", employeeboard:"today", cashflow:"money_ws", overnight:"today", emp_dash:"today",
       plants_ws:"plants_ws", inv:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
       intake_ws:"intake_ws", manual:"intake_ws", upload:"intake_ws", invoicetrainer:"intake_ws", history:"intake_ws",
       shows_ws:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
@@ -1496,6 +1498,7 @@
       const readyForShow = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || 0));
       const soldToday = plants.filter(p => p.status === "Sold" && String(plantSaleDate(p) || "").slice(0,10) === today());
       const buttons = [
+        ["My Task Board", "employeeboard", "✅", "Clock in, photos, labels, show prep, receipts, and clock out in one simple checklist."],
         ["Scan Plant Label", "inv", "📸", "Open inventory search/scan and pull up one plant fast."],
         ["Take Plant Photo", "inv", "📷", `${noPhoto.length} plant(s) need photos before they are show-ready.`],
         ["Print Labels Needed", "labels", "🏷️", `${needsLabel.length} plant label(s) need to be printed.`],
@@ -6109,6 +6112,7 @@
             </div>
             <Row gap={8} wrap>
               <button onClick={()=>open("quickstart")} style={{ background:"#fff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧭 Quick Guide</button>
+              <button onClick={()=>open("workflowcoach")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧩 Next Step</button>
               <button onClick={()=>open("admin")} style={{ background:"#b695ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>⚙️ Business Settings</button>
               <button onClick={()=>open("audit")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🔍 Security Log</button>
             </Row>
@@ -6133,6 +6137,8 @@
 
         {tab === "account" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
           <SettingsCard icon="🧭" title="Quick Start Guide" body="Plain-English guide for owners, managers, and employees. Shows what each workflow is for and where to tap first." page="quickstart" button="Open Guide" color={C.g600} />
+          <SettingsCard icon="🧩" title="Next Step Coach" body="Role-based helper that tells the owner, manager, or employee exactly what button to press next based on today's app data." page="workflowcoach" button="Open Coach" color={C.blue} />
+          <SettingsCard icon="✅" title="Employee Task Board" body="Simple daily work board for employees: clock in, photos, labels, show prep, receipts, and clock out. No cost, profit, tax, or owner settings." page="employeeboard" button="Open Board" color="#fb6392" />
           <SettingsCard icon="🏢" title="Business Settings" body="Business name, owner settings, app preferences, footer text, default business rules, and general setup." page="admin" button="Open Settings" color="#b695ff" />
           <SettingsCard icon="🎯" title="Goals" body="Monthly sales goals, profit goals, and targets for Leaf Diary." page="goals" button="Open Goals" color={C.gold} />
           <SettingsCard icon="📈" title="Reports" body="Owner business reports for sales, inventory, expenses, payroll, and plant performance." page="reports" button="Open Reports" color={C.blue} />
@@ -6180,6 +6186,8 @@
 
         {tab === "developer" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
           <SettingsCard icon="🧭" title="Quick Start Guide" body="Training guide for the new workflow app. Use this when handing the app to an employee or testing the new layout." page="quickstart" button="Open Guide" color={C.g600} />
+          <SettingsCard icon="🧩" title="Next Step Coach" body="Simple guided assistant that turns the app into a daily operating checklist for each role." page="workflowcoach" button="Open Coach" color={C.blue} />
+          <SettingsCard icon="✅" title="Employee Task Board" body="Use this to test what employees see and give staff a clean daily checklist without owner financial tools." page="employeeboard" button="Open Board" color="#fb6392" />
           <SettingsCard icon="✅" title="App Checkup" body="Plain-English owner checklist for broken navigation, data blockers, cloud state, receipt cleanup, duplicate plant numbers, and show blockers." page="appcheck" button="Open Checkup" color={C.g600} />
           <SettingsCard icon="🧪" title="Workflow Test Checklist" body="Step-by-step testing checklist for Today, Inventory, Intake, Shows, Orders, Money, Buy Smart, Settings, employee mode, and mobile safety before replacing the live file." page="workflowqa" button="Open Checklist" color={C.gold} />
           <SettingsCard icon="🧪" title="Developer Testing" body="Owner-only diagnostics, smoke tests, health checks, and rollback checkpoints." page="devtools" button="Open Testing" color={C.blue} />
@@ -6251,6 +6259,8 @@
             </div>
             <Row gap={8} wrap>
               <button onClick={()=>setPage("today")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🏠 Start Today</button>
+              <button onClick={()=>setPage("workflowcoach")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧩 Next Step Coach</button>
+              <button onClick={()=>setPage("employeeboard")} style={{ background:"#fb6392", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>✅ Employee Board</button>
               {isOwner && <button onClick={()=>setPage("workflowqa")} style={{ background:"#fff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧪 Test Checklist</button>}
               {isOwner && <button onClick={()=>setPage("appcheck")} style={{ background:"#b695ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>✅ App Checkup</button>}
             </Row>
@@ -6321,6 +6331,266 @@
         </Card>
 
         <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"],div[style*="grid-template-columns: minmax(0,1fr) minmax(0,1fr)"]{grid-template-columns:1fr!important;}.ld-page button{min-height:44px;}}`}</style>
+      </div>;
+    }
+
+    function EmployeeTaskBoard({ plants = [], receipts = [], timecards = [], users = [], user, setPage }) {
+      const role = user?.role || "employee";
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const noLabel = inStock.filter(p => !p.labelPrinted);
+      const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const readyForShow = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price));
+      const aging45 = inStock.filter(p => (dHeld(p.dateAdded) || 0) >= 45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
+      const soldOrders = groupSalesIntoOrders(plants).slice(0, 30);
+      const receiptsReview = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
+      const myCards = safeArray(timecards).filter(t => t.userId === user?.id || t.userEmail === user?.email || t.employeeName === user?.name || t.name === user?.name);
+      const clockedIn = myCards.some(t => (t.date === today() || String(t.clockIn || "").slice(0,10) === today()) && !t.out && !t.clockOut);
+      const todayCards = myCards.filter(t => t.date === today() || String(t.clockIn || "").slice(0,10) === today());
+      const [done, setDone] = useState(() => {
+        try { return JSON.parse(localStorage.getItem("leafDiaryEmployeeTaskBoardDoneV14") || "{}"); } catch(e) { return {}; }
+      });
+      const prefix = `${today()}-${user?.id || user?.email || user?.name || role}-`;
+      const isDone = id => !!done[prefix + id];
+      const toggleDone = id => {
+        const next = { ...done, [prefix + id]: !done[prefix + id] };
+        setDone(next);
+        try { localStorage.setItem("leafDiaryEmployeeTaskBoardDoneV14", JSON.stringify(next)); } catch(e) {}
+      };
+      const Task = (id, icon, title, body, page, count, priority = "normal") => ({ id, icon, title, body, page, count, priority });
+      const tasks = [
+        Task("clockin", "⏱️", clockedIn ? "You are clocked in" : "Clock in first", clockedIn ? "Timecard is active. Clock out when work is done." : "Start with the timecard before photos, labels, packing, or show prep.", "timecard", clockedIn ? "Active" : "Start", clockedIn ? "good" : "urgent"),
+        Task("photos", "📷", "Take plant photos", `${noPhoto.length} in-stock plant(s) need photos before they are easy to sell in shows.`, "inv", noPhoto.length, noPhoto.length ? "high" : "good"),
+        Task("labels", "🏷️", "Print needed labels", `${noLabel.length} plant(s) are missing printed labels. Labels keep show prep and imports cleaner.`, "labels", noLabel.length, noLabel.length ? "high" : "good"),
+        Task("prices", "💲", "Flag missing prices", `${noPrice.length} plant(s) need a price. Employees should flag these for owner/manager if they cannot edit prices.`, "inv", noPrice.length, noPrice.length ? "normal" : "good"),
+        Task("showprep", "🎪", "Pull show-ready plants", `${readyForShow.length} plant(s) look ready for show prep. Use this queue when the owner or manager says to stage a show.`, "shows_ws", readyForShow.length, readyForShow.length ? "normal" : "good"),
+        Task("orders", "📦", "Review sold orders", `${soldOrders.length} sold order group(s) are saved. Help review or pack only when assigned.`, "orders_ws", soldOrders.length, soldOrders.length ? "normal" : "good"),
+        Task("receipts", "🧾", "Scan or review receipts", `${receiptsReview.length} receipt(s) may need category review. Upload new supply/gas receipts when asked.`, "receipts", receiptsReview.length, receiptsReview.length ? "normal" : "good"),
+        Task("clockout", "✅", "Clock out when finished", todayCards.length ? "When all assigned work is complete, return to Timecard and clock out." : "After work is complete, use Timecard so payroll stays accurate.", "timecard", "Finish", "normal")
+      ];
+      const priorityColor = p => p === "urgent" ? C.red : p === "high" ? C.amber : p === "good" ? C.g600 : C.blue;
+      const sortedTasks = [...tasks].sort((a,b) => {
+        const order = { urgent:0, high:1, normal:2, good:3 };
+        return (order[a.priority] ?? 2) - (order[b.priority] ?? 2);
+      });
+      const doneCount = sortedTasks.filter(t => isDone(t.id)).length;
+      const exportEmployeeTasks = () => {
+        const rows = [["Date","User","Role","Task","Count","Status","Open Page"], ...sortedTasks.map(t => [today(), user?.name || user?.email || "User", role, t.title, t.count, isDone(t.id) ? "Done" : "Open", t.page])];
+        downloadCsv(`leaf-diary-employee-tasks-${today()}.csv`, rows);
+      };
+      const miniPlants = (arr, type) => arr.slice(0, 8).map((p,i)=><div key={(p.id||p.plantId||p.name||type)+i} style={{ padding:"8px 0", borderTop:i?`1px solid ${C.bdS}`:"none" }}>
+        <Row between gap={8} center>
+          <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:12 }}>{p.plantId || p.plantCode || "No ID"} · {p.name || "Plant"}</div><div style={{ color:C.tx3, fontSize:11 }}>{p.potSize || "Size missing"}{type === "aging" ? ` · ${fDays(dHeld(p.dateAdded))} old` : ""}</div></div>
+          <Tag text={type === "photo" ? "Photo" : type === "label" ? "Label" : type === "price" ? "Price" : "Pull"} color={type === "photo" ? C.blue : type === "label" ? C.gold : type === "price" ? C.amber : C.g600} sm />
+        </Row>
+      </div>);
+      return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1040, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #fb6392", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div>
+              <div style={{ fontSize:42, lineHeight:1 }}>✅</div>
+              <div style={{ fontFamily:F.display, fontSize:30, color:"#fb6392", fontWeight:900, marginTop:5 }}>Employee Daily Task Board</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Simple work checklist for photos, labels, show prep, receipts, orders, and timecard. No cost, profit, tax, or owner setup.</div>
+            </div>
+            <Row gap={8} wrap>
+              <button onClick={()=>setPage("timecard")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>⏱️ Timecard</button>
+              <button onClick={()=>setPage("workflowcoach")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧩 Coach</button>
+              <button onClick={exportEmployeeTasks} style={{ background:"#fff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>⬇️ Export Tasks</button>
+            </Row>
+          </Row>
+          <div style={{ marginTop:15, background:"rgba(251,99,146,.13)", border:"1px solid rgba(251,99,146,.35)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
+            {clockedIn ? "Clocked in — work from the checklist, then clock out." : "Start here: clock in before doing any assigned work."}
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <KPI label="Photos Needed" value={noPhoto.length} sub="plants blocked from selling" color={noPhoto.length ? C.blue : C.g600} />
+          <KPI label="Labels Needed" value={noLabel.length} sub="print before staging" color={noLabel.length ? C.gold : C.g600} />
+          <KPI label="Show Ready" value={readyForShow.length} sub="photo + price exists" color={C.g600} />
+          <KPI label="Checklist" value={`${doneCount}/${sortedTasks.length}`} sub="marked done on device" color="#fb6392" />
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:14, marginBottom:14 }}>
+          <Card style={{ padding:18 }}>
+            <Row between center wrap gap={10} style={{ marginBottom:10 }}>
+              <div><div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:900 }}>Today's Work</div><div style={{ color:C.tx3, fontSize:12 }}>Tap the circle when finished. Open sends the user to the correct tool.</div></div>
+              <Tag text={`${doneCount}/${sortedTasks.length} done`} color="#fb6392" />
+            </Row>
+            {sortedTasks.map((t,i)=><div key={t.id} style={{ padding:"12px 0", borderTop:i?`1px solid ${C.bdS}`:"none" }}>
+              <Row gap={11} center>
+                <button onClick={()=>toggleDone(t.id)} style={{ width:34, height:34, borderRadius:999, border:`2px solid ${isDone(t.id) ? C.g600 : C.bd}`, background:isDone(t.id) ? C.g600 : "#fff", color:"#fff", fontWeight:900, cursor:"pointer", flexShrink:0 }}>{isDone(t.id) ? "✓" : ""}</button>
+                <div style={{ width:44, height:44, borderRadius:15, background:priorityColor(t.priority)+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:25, flexShrink:0 }}>{t.icon}</div>
+                <div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:isDone(t.id) ? C.tx3 : C.g900, textDecoration:isDone(t.id) ? "line-through" : "none" }}>{t.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35 }}>{t.body}</div></div>
+                <Btn sz="sm" v={t.priority === "urgent" ? "danger" : "soft"} onClick={()=>setPage(t.page)}>Open</Btn>
+              </Row>
+            </div>)}
+          </Card>
+
+          <Card style={{ padding:18, background:C.cardAlt }}>
+            <div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:900, marginBottom:10 }}>Employee Rules</div>
+            {[
+              ["Clock in first", "No work should start until the timecard is running."],
+              ["Use queues, not memory", "Photos, labels, and staging should come from the app lists."],
+              ["Flag missing prices", "Employees should not guess prices unless the owner allows it."],
+              ["No owner tools", "Cost, profit, bills, taxes, admin settings, and AI setup stay hidden."],
+              ["Clock out last", "Payroll stays clean only when the day is closed out."]
+            ].map(([title,body],i)=><div key={title} style={{ padding:"9px 0", borderTop:i?`1px solid ${C.bdS}`:"none" }}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35 }}>{body}</div></div>)}
+          </Card>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:14 }}>
+          <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>📷 Photo Queue</div><Btn sz="sm" v="soft" onClick={()=>setPage("inv")}>Open Inventory</Btn></Row>{noPhoto.length ? miniPlants(noPhoto, "photo") : <p style={{ color:C.tx3, fontSize:12 }}>No missing-photo plants found.</p>}</Card>
+          <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>🏷️ Label Queue</div><Btn sz="sm" v="soft" onClick={()=>setPage("labels")}>Open Labels</Btn></Row>{noLabel.length ? miniPlants(noLabel, "label") : <p style={{ color:C.tx3, fontSize:12 }}>No missing-label plants found.</p>}</Card>
+          <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>🎪 Show Prep</div><Btn sz="sm" v="soft" onClick={()=>setPage("shows_ws")}>Open Shows</Btn></Row>{readyForShow.length ? miniPlants(readyForShow, "show") : <p style={{ color:C.tx3, fontSize:12 }}>Add photos and prices to create a show-ready queue.</p>}</Card>
+          <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>⚠️ Needs Attention</div><Btn sz="sm" v="soft" onClick={()=>setPage("workflowcoach")}>Open Coach</Btn></Row>{noPrice.length ? miniPlants(noPrice, "price") : aging45.length ? miniPlants(aging45, "aging") : <p style={{ color:C.tx3, fontSize:12 }}>No missing-price or aging attention queue found.</p>}</Card>
+        </div>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"],div[style*="grid-template-columns: 1.1fr .9fr"]{grid-template-columns:1fr!important;}.ld-page button{min-height:44px;}}`}</style>
+      </div>;
+    }
+
+    function WorkflowCoach({ plants = [], bills = [], receipts = [], timecards = [], users = [], settings = {}, user, setPage }) {
+      const role = user?.role || "employee";
+      const isOwner = role === "owner";
+      const isManager = role === "manager";
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const noLabel = inStock.filter(p => !p.labelPrinted);
+      const aging45 = inStock.filter(p => dHeld(p.dateAdded) >= 45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
+      const showReady = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price) && p.labelPrinted);
+      const orders = groupSalesIntoOrders(plants);
+      const openBills7 = safeArray(bills).filter(b => String(b.status || "").toLowerCase() !== "paid" && daysUntil(b.dueDate) <= 7);
+      const openBills14 = safeArray(bills).filter(b => String(b.status || "").toLowerCase() !== "paid" && daysUntil(b.dueDate) <= 14);
+      const receiptsReview = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
+      const clockedIn = safeArray(timecards).some(t => (t.userId === user?.id || t.userEmail === user?.email || t.employeeName === user?.name) && (t.date === today() || String(t.clockIn || "").slice(0,10) === today()) && !t.out && !t.clockOut);
+      const recentSold = sold.filter(p => dateInLast(plantSaleDate(p), 7));
+      const weekProfit = recentSold.reduce((s,p)=>s+trueProfit(p),0);
+      const bank = +settings.currentBankBalance || 0;
+      const due14 = openBills14.reduce((s,b)=>s+(+b.amount||0),0);
+      const payroll7 = safeArray(timecards).filter(t => dateInLast(t.date || t.clockIn, 7)).reduce((s,t)=>s+(+t.totalPay||+t.pay||0),0);
+      const reserve = due14 + payroll7 + (bank * ((+settings.cashSafetyBuffer || 15) / 100));
+      const safeSpend = Math.max(0, bank - reserve);
+      const [done, setDone] = useState(() => {
+        try { return JSON.parse(localStorage.getItem("leafDiaryNextStepCoachDoneV13") || "{}"); } catch(e) { return {}; }
+      });
+      const doneKeyPrefix = `${today()}-${role}-`;
+      const markDone = id => {
+        const next = { ...done, [doneKeyPrefix + id]: !done[doneKeyPrefix + id] };
+        setDone(next);
+        try { localStorage.setItem("leafDiaryNextStepCoachDoneV13", JSON.stringify(next)); } catch(e) {}
+      };
+      const isDone = id => !!done[doneKeyPrefix + id];
+      const task = (id, icon, title, body, page, priority = "normal", roleNote = "") => ({ id, icon, title, body, page, priority, roleNote });
+      const ownerTasks = [];
+      if (openBills7.length) ownerTasks.push(task("bills", "📅", "Check bills due this week", `${openBills7.length} bill(s) are due within 7 days. Check cash before buying plants.`, "money_ws", "urgent"));
+      if (orders.length) ownerTasks.push(task("orders", "📦", "Review sold orders", `${orders.length} sold order group(s) need review, packing status, paperwork check, or buyer cleanup.`, "orders_ws", "urgent"));
+      if (noPhoto.length) ownerTasks.push(task("photos", "📸", "Clear the photo blockers", `${noPhoto.length} in-stock plant(s) need photos before they are show-ready.`, "inv", "high"));
+      if (noPrice.length) ownerTasks.push(task("prices", "💲", "Set missing prices", `${noPrice.length} plant(s) have no price. They cannot be used correctly in show building or profit reports.`, "inv", "high"));
+      if (noLabel.length) ownerTasks.push(task("labels", "🏷️", "Print missing labels", `${noLabel.length} plant(s) need labels so the show/import flow stays clean.`, "labels", "normal"));
+      if (showReady.length >= 25) ownerTasks.push(task("show", "🎪", "Build tonight's show", `${showReady.length} plant(s) look show-ready. Build a pull list before going live.`, "shows_ws", "high"));
+      if (aging45.length) ownerTasks.push(task("aging", "⏳", "Move aging inventory", `${aging45.length} plant(s) are 45+ days old. Add the oldest ones to clearance or show review.`, "buy_ws", "normal"));
+      if (receiptsReview.length) ownerTasks.push(task("receipts", "🧾", "Clean up receipts", `${receiptsReview.length} receipt(s) need category review for clean money/tax reports.`, "receipts", "normal"));
+      ownerTasks.push(task("buy", "💡", safeSpend > 100 ? "Use Buy Smart before buying" : "Hold buying unless needed", safeSpend > 100 ? `Estimated safe buy budget is ${$(safeSpend)}. Check what to buy and what to stop buying first.` : `Safe spend is only ${$(safeSpend)} after bills/payroll reserve.`, "buy_ws", safeSpend > 100 ? "normal" : "high"));
+      const managerTasks = [
+        noPhoto.length ? task("photos", "📸", "Take plant photos", `${noPhoto.length} plant(s) need photos. Start with the highest value plants first.`, "inv", "high") : null,
+        noLabel.length ? task("labels", "🏷️", "Print labels", `${noLabel.length} plant(s) still need labels.`, "labels", "normal") : null,
+        showReady.length ? task("show", "🎪", "Prepare show list", `${showReady.length} plant(s) are ready for show planning.`, "shows_ws", "high") : null,
+        orders.length ? task("orders", "📦", "Review sold plants", `${orders.length} sold order group(s) need review.`, "orders_ws", "normal") : null,
+        receiptsReview.length ? task("receipts", "🧾", "Scan or review receipts", `${receiptsReview.length} receipt(s) need cleanup.`, "receipts", "normal") : null,
+      ].filter(Boolean);
+      const employeeTasks = [
+        task("clock", "⏱️", clockedIn ? "You are clocked in" : "Clock in first", clockedIn ? "You can start photo, label, receipt, or show prep tasks." : "Start your shift before doing plant work.", "timecard", clockedIn ? "normal" : "urgent"),
+        noPhoto.length ? task("photos", "📸", "Take photos from the queue", `${noPhoto.length} plant(s) need photos. Open Inventory and use the Need Photos filter.`, "inv", "high") : null,
+        noLabel.length ? task("labels", "🏷️", "Print labels", `${noLabel.length} plant label(s) need printing.`, "labels", "normal") : null,
+        showReady.length ? task("pull", "🎪", "Help pull show plants", `${showReady.length} plant(s) are show-ready. Ask owner/manager which show list to pull.`, "liveshow", "normal") : null,
+        receiptsReview.length ? task("receipt", "🧾", "Scan receipts if asked", "Use Receipt Scanner for gas, supplies, packaging, soil, or nursery receipts.", "receipts", "normal") : null,
+      ].filter(Boolean);
+      const tasks = isOwner ? ownerTasks : isManager ? managerTasks : employeeTasks;
+      const sortedTasks = [...tasks].sort((a,b)=>({ urgent:0, high:1, normal:2 }[a.priority] ?? 2) - ({ urgent:0, high:1, normal:2 }[b.priority] ?? 2));
+      const nextTask = sortedTasks.find(t => !isDone(t.id)) || sortedTasks[0];
+      const priorityColor = p => p === "urgent" ? C.red : p === "high" ? C.amber : C.g600;
+      const roleTitle = isOwner ? "Owner Daily Coach" : isManager ? "Manager Daily Coach" : "Employee Daily Coach";
+      const roleSub = isOwner ? "Profit, cash, blockers, shows, buying, and cleanup." : isManager ? "Inventory, shows, sold review, buyers, and receipts." : "Clock in, photos, labels, receipt scanning, and show help.";
+      return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:980, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #68d8ff", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div>
+              <div style={{ fontSize:42, lineHeight:1 }}>🧩</div>
+              <div style={{ fontFamily:F.display, fontSize:30, color:"#68d8ff", fontWeight:900, marginTop:5 }}>Next Step Coach</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>{roleTitle} · {roleSub}</div>
+            </div>
+            <Row gap={8} wrap>
+              <button onClick={()=>setPage("today")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🏠 Today</button>
+              <button onClick={()=>setPage("quickstart")} style={{ background:"#fff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧭 Guide</button>
+              {isOwner && <button onClick={()=>setPage("appcheck")} style={{ background:"#b695ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>✅ Checkup</button>}
+            </Row>
+          </Row>
+          <div style={{ marginTop:15, background:"rgba(104,216,255,.12)", border:"1px solid rgba(104,216,255,.35)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
+            This page is for users who do not know where to go next. It looks at the data and turns the app into a simple daily checklist.
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <KPI label="In Stock" value={inStock.length} sub={`${showReady.length} show-ready`} color={C.g600} />
+          <KPI label="Blockers" value={noPhoto.length + noPrice.length + noLabel.length} sub={`${noPhoto.length} photo · ${noPrice.length} price · ${noLabel.length} label`} color={(noPhoto.length + noPrice.length + noLabel.length) ? C.amber : C.g600} />
+          <KPI label="Orders" value={orders.length} sub={`${sold.length} sold plants saved`} color={C.blue} />
+          <KPI label={isOwner ? "Safe Spend" : "Role"} value={isOwner ? $(safeSpend) : role} sub={isOwner ? "after reserve" : "filtered checklist"} color={isOwner ? C.gold : C.purple} />
+        </div>
+
+        {nextTask && <Card style={{ padding:18, marginBottom:14, borderLeft:`6px solid ${priorityColor(nextTask.priority)}`, background: nextTask.priority === "urgent" ? C.redBg : nextTask.priority === "high" ? C.amberBg : C.g50 }}>
+          <Row between center wrap gap={12}>
+            <Row gap={13} center style={{ flex:1, minWidth:250 }}>
+              <div style={{ width:56, height:56, borderRadius:18, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:31, flexShrink:0 }}>{nextTask.icon}</div>
+              <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Do this next: {nextTask.title}</div><div style={{ color:C.tx2, fontSize:13, marginTop:3, lineHeight:1.35 }}>{nextTask.body}</div></div>
+            </Row>
+            <Row gap={8} wrap><Btn onClick={()=>setPage(nextTask.page)}>Open</Btn><Btn v="soft" onClick={()=>markDone(nextTask.id)}>{isDone(nextTask.id) ? "Undo" : "Mark Done"}</Btn></Row>
+          </Row>
+        </Card>}
+
+        <div style={{ display:"grid", gridTemplateColumns:"1.2fr .8fr", gap:14, marginBottom:14 }}>
+          <Card style={{ padding:18 }}>
+            <Row between center wrap gap={10} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Today's Guided Checklist</div><div style={{ color:C.tx3, fontSize:12 }}>Mark items done on this device. The checklist resets by date and role.</div></div><Tag text={`${sortedTasks.filter(t=>isDone(t.id)).length}/${sortedTasks.length} done`} color={C.blue} /></Row>
+            {sortedTasks.length === 0 ? <div style={{ padding:24, textAlign:"center", color:C.tx3 }}>No urgent tasks found. Start with Today or Quick Start Guide.</div> : sortedTasks.map((t,i)=><div key={t.id} style={{ borderTop:i ? `1px solid ${C.bdS}` : "none", padding:"12px 0" }}>
+              <Row gap={11} center>
+                <button onClick={()=>markDone(t.id)} style={{ width:32, height:32, borderRadius:999, border:`2px solid ${isDone(t.id) ? C.g600 : C.bd}`, background:isDone(t.id) ? C.g600 : "#fff", color:"#fff", fontWeight:900, cursor:"pointer", flexShrink:0 }}>{isDone(t.id) ? "✓" : ""}</button>
+                <div style={{ width:42, height:42, borderRadius:14, background:priorityColor(t.priority)+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{t.icon}</div>
+                <div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:isDone(t.id) ? C.tx3 : C.g900, textDecoration:isDone(t.id) ? "line-through" : "none" }}>{t.title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35 }}>{t.body}</div></div>
+                <Btn sz="sm" v={t.priority === "urgent" ? "danger" : "soft"} onClick={()=>setPage(t.page)}>Open</Btn>
+              </Row>
+            </div>)}
+          </Card>
+
+          <Card style={{ padding:18, background:C.cardAlt }}>
+            <div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900, marginBottom:10 }}>Plain-English Rules</div>
+            {(isOwner ? [
+              ["Buy last, not first", "Check bills, payroll, receipts, and Buy Smart before spending cash."],
+              ["Photos make money", "A plant with no photo is blocked from easy selling."],
+              ["Import every show", "Sales, buyers, tips, and commissions only work if the show gets imported."],
+              ["Stop repeat mistakes", "Use Buy Smart to find low-profit plants and bad nursery buys."]
+            ] : isManager ? [
+              ["Prep before selling", "Photos, labels, and prices must be cleaned up before the show."],
+              ["Review sold orders", "Make sure sold plant data is clean after imports."],
+              ["Ask before money decisions", "Managers should not change owner finance settings unless approved."]
+            ] : [
+              ["Clock in first", "Always open Timecard before starting work."],
+              ["Use the queue", "Do photos and labels from the task queue, not memory."],
+              ["No owner tools", "Cost, profit, payroll, taxes, and settings are protected."],
+              ["When confused", "Open this coach or Quick Start Guide."]
+            ]).map(([title,body],i)=><div key={title} style={{ padding:"9px 0", borderTop:i ? `1px solid ${C.bdS}` : "none" }}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35 }}>{body}</div></div>)}
+          </Card>
+        </div>
+
+        <Card style={{ padding:18 }}>
+          <div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900, marginBottom:12 }}>Fast Buttons</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:9 }}>
+            {[
+              ["🏠 Today", "today"], ["✅ Employee Board", "employeeboard"], ["🌿 Inventory", "plants_ws"], ["📸 Add / Intake", "intake_ws"], ["🎪 Shows", "shows_ws"], ["📦 Orders", "orders_ws"], ["💵 Money", "money_ws"], ["💡 Buy Smart", "buy_ws"], ["🧭 Quick Guide", "quickstart"]
+            ].filter(([label,id]) => isOwner || !["💵 Money","💡 Buy Smart"].includes(label)).map(([label,id]) => <button key={id} onClick={()=>setPage(id)} style={{ background:id==="today"?"#000":C.card, color:id==="today"?"#fff":C.tx1, border:`1px solid ${id==="today"?"#000":C.bd}`, borderRadius:14, padding:"13px 10px", fontWeight:900, fontFamily:F.body, cursor:"pointer" }}>{label}</button>)}
+          </div>
+        </Card>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 1.2fr .8fr"]{grid-template-columns:1fr!important;}.ld-page button{min-height:44px;}}`}</style>
       </div>;
     }
 
@@ -13059,6 +13329,8 @@ ${local.summary || "Fallback completed."}`;
           {page === "devtools" && user.role === "owner" && <Phase2DeveloperConsole appData={buildCurrentAppData()} context={{ cloudStatus, cloudMsg, pendingSyncCount, startupMode, page }} user={user} makePhase1Snapshot={makePhase1Snapshot} downloadPhase1Health={downloadPhase1Health} addAudit={addAudit} setPage={navigate} />}
           {page === "appcheck" && user.role === "owner" && <AppCheckup plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} auditLog={auditLog} cloudStatus={cloudStatus} cloudMsg={cloudMsg} pendingSyncCount={pendingSyncCount} phase2Report={phase2Report} phase1Health={phase1Health} setPage={navigate} makeSnapshot={makePhase1Snapshot} downloadHealth={downloadPhase1Health} />}
           {page === "workflowqa" && user.role === "owner" && <WorkflowTestChecklist plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} auditLog={auditLog} cloudStatus={cloudStatus} cloudMsg={cloudMsg} pendingSyncCount={pendingSyncCount} phase2Report={phase2Report} phase1Health={phase1Health} user={user} setPage={navigate} />}
+          {page === "workflowcoach" && <WorkflowCoach plants={plants} bills={bills} receipts={expenseReceipts} timecards={timecards} users={users} settings={settings} user={user} setPage={navigate} />}
+          {page === "employeeboard" && <EmployeeTaskBoard plants={plants} receipts={expenseReceipts} timecards={timecards} users={users} user={user} setPage={navigate} />}
           {page === "ollama" && user.role === "owner" && <Phase3OllamaConsole appData={buildCurrentAppData()} user={user} config={phase3Config} setConfig={setPhase3Config} status={phase3Status} setStatus={setPhase3Status} addAudit={addAudit} setPage={navigate} />}
           {page === "aigateway" && user.role === "owner" && <Phase61AIGatewayConsole appData={buildCurrentAppData()} user={user} config={phase61Config} setConfig={setPhase61Config} status={phase61Status} setStatus={setPhase61Status} addAudit={addAudit} setPage={navigate} />}
           {page === "airouter" && user.role === "owner" && <Phase4AIRouterConsole appData={buildCurrentAppData()} user={user} phase3Config={phase3Config} routes={phase4Routes} setRoutes={setPhase4Routes} addAudit={addAudit} setPage={navigate} />}
