@@ -13329,16 +13329,23 @@
         });
         return lines.join("\n");
       };
-      const ask = async (prompt) => {
+      const ask = async (prompt, mode = "auto") => {
         const use = String(prompt || q || "").trim();
         if (!use || busy) return;
         setQ(use);
         setBusy(true);
         const routeBefore = forcedRoute || phase4DetectRoute(use);
         const routeDef = routeDefs[routeBefore] || routeDefs.fallback || PHASE4_DEFAULT_ROUTES.routes.fallback;
-        setAnswer({ title:`${routeDef.icon || "🧭"} ${routeDef.label || "AI Task Routing"}`, body:"Thinking through your Leaf Diary data...", route:routeBefore, model:phase4ModelForRoute(routeBefore, phase3Cfg, phase4Cfg), status:"running", actions:actionsForRoute(routeBefore) });
+        setAnswer({ title:`${routeDef.icon || "🧭"} ${routeDef.label || "AI Task Routing"}`, body: mode === "gateway" ? "Using the manual Gateway/Proxy path for a smarter answer..." : mode === "free" ? "Using the free local business brain. No gateway/cloud call will run." : "Thinking through your Leaf Diary data...", route:routeBefore, model: mode === "gateway" ? (phase61ReadConfig().model || "gpt-oss:20b") : phase4ModelForRoute(routeBefore, phase3Cfg, phase4Cfg), status:"running", actions:actionsForRoute(routeBefore) });
         try {
-          const res = await phase4RouteAI({ question:use, forcedRoute, appData, user, phase3Cfg, phase4Cfg });
+          if (mode === "free") {
+            const local = phase4LocalFallback(routeBefore, appData);
+            const body = `${local.summary || "Local business brain completed."}\n\n${formatLocalFallback(local)}`;
+            setAnswer({ title:"🛡️ Free / Local Answer", body, route:routeBefore, model:"Leaf Diary local business brain", status:"fallback", actions:actionsForRoute(routeBefore), generatedAt:new Date().toISOString() });
+            addAudit && addAudit({ action:"Asked Business AI with free local mode", page:"Ask Business AI", details:`${use} | route ${routeBefore}`, user:user?.name||"Unknown", severity:"info" });
+            return;
+          }
+          const res = await phase4RouteAI({ question:use, forcedRoute, appData, user, phase3Cfg, phase4Cfg, allowGateway: mode === "gateway" });
           const finalRoute = res.route || routeBefore;
           const finalDef = routeDefs[finalRoute] || routeDefs.fallback || routeDef;
           const body = [res.answer || "No answer returned.", formatLocalFallback(res.local)].filter(Boolean).join("\n\n");
@@ -13369,7 +13376,7 @@
         <SHdr icon="💬" title="Ask Business AI" sub="Smart answers with local fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={()=>setPage && setPage("aihub")}>🤖 AI Center</Btn>{isOwner && <Btn sz="sm" v="soft" onClick={()=>setPage && setPage("airouter")}>🧭 AI Task Routing</Btn>}</Row>} />
         <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e", marginBottom:14 }}>
           <Row between center wrap gap={10}>
-            <div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:13, color:"rgba(255,255,255,.78)", marginTop:5 }}>Uses the AI task routing system. Ollama answers when available. Local rules answer when Ollama is off.</div></div>
+            <div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:13, color:"rgba(255,255,255,.78)", marginTop:5 }}>Default safe workflow: Ask Free / Local costs $0. Ask Smart Gateway only when you want the stronger model and approve the gateway call.</div></div>
             <Row gap={8} wrap><Tag text={phase4Cfg.enabled ? "Router ON" : "Router OFF"} color={phase4Cfg.enabled ? C.g600 : C.amber} /><Tag text={phase3Cfg.enabled ? "Ollama enabled" : "Local fallback"} color={phase3Cfg.enabled ? C.blue : C.amber} /><Tag text={`Route: ${detectedRoute}`} color={C.purple} /></Row>
           </Row>
         </Card>
@@ -13377,7 +13384,8 @@
         <Card style={{ marginBottom:14 }}>
           <textarea value={q} onChange={e=>setQ(e.target.value)} placeholder="Ask: What should I do today? Build me a Whatnot show. Where am I losing money?" style={{ width:"100%", minHeight:96, border:`1.5px solid ${C.bd}`, borderRadius:14, padding:13, fontFamily:F.body, fontSize:15 }} />
           <Row gap={8} wrap style={{ marginTop:10 }}>
-            <Btn onClick={()=>ask()} disabled={busy}>{busy ? "Thinking..." : "Ask Business AI"}</Btn>
+            <Btn onClick={()=>ask(null, "free")} disabled={busy}>{busy ? "Thinking..." : "Ask Free / Local"}</Btn>
+            {isOwner && <Btn v="gold" onClick={()=>ask(null, "gateway")} disabled={busy}>{busy ? "Thinking..." : "Ask Smart Gateway"}</Btn>}
             <Btn v="soft" onClick={()=>setQ("")} disabled={busy}>Clear</Btn>
             <Btn v="outline" onClick={copyAnswer} disabled={!answer?.body}>Copy Answer</Btn>
             {isOwner && <select value={forcedRoute} onChange={e=>setForcedRoute(e.target.value)} style={{ padding:"10px 12px", border:`1px solid ${C.bd}`, borderRadius:10, fontFamily:F.body, background:C.card }}>
@@ -13385,9 +13393,9 @@
               {Object.keys(routeDefs).filter(k=>k!=="fallback").map(k=><option key={k} value={k}>{routeDefs[k]?.icon || "•"} {routeDefs[k]?.label || k}</option>)}
             </select>}
           </Row>
-          <div style={{ fontSize:11, color:C.tx3, marginTop:8 }}>Detected route: <b>{detectedRoute}</b> · Model: <b>{phase4ModelForRoute(detectedRoute, phase3Cfg, phase4Cfg)}</b> · Missing photos: {noPhoto.length} · Missing prices: {noPrice.length}</div>
+          <div style={{ fontSize:11, color:C.tx3, marginTop:8 }}>Detected route: <b>{detectedRoute}</b> · Free button uses app/local rules with no cost · Smart Gateway uses <b>{phase61ReadConfig().model || "gpt-oss:20b"}</b> only when clicked · Missing photos: {noPhoto.length} · Missing prices: {noPrice.length}</div>
         </Card>
-        <Card style={{ marginBottom:14 }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Power Questions</div><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>{quickPrompts.map(p=><button key={p} onClick={()=>ask(p)} disabled={busy} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:11, textAlign:"left", fontWeight:800, color:C.tx2, cursor:busy?"not-allowed":"pointer", opacity:busy ? .7 : 1 }}>{p}</button>)}</div></Card>
+        <Card style={{ marginBottom:14 }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:10 }}>Power Questions</div><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>{quickPrompts.map(p=><button key={p} onClick={()=>ask(p, "free")} disabled={busy} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:11, textAlign:"left", fontWeight:800, color:C.tx2, cursor:busy?"not-allowed":"pointer", opacity:busy ? .7 : 1 }}>{p}</button>)}</div></Card>
         {answer && <Card style={{ borderTop:`4px solid ${answer.status === "ollama" ? "#68d8ff" : answer.status === "blocked" ? C.red : "#97d33e"}` }}>
           <Row between center wrap>
             <div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>{answer.title}</div><div style={{ fontSize:12, color:C.tx3 }}>Route: {answer.route} · Model: {answer.model || "local"} · Status: {answer.status}{answer.generatedAt ? ` · ${new Date(answer.generatedAt).toLocaleTimeString()}` : ""}</div></div>
@@ -17940,6 +17948,58 @@ Answer with a practical action plan for Leaf Diary.`;
       model: "gpt-oss:20b",
       endpointUrl: phase61NormalizeUrl(cfg?.endpointUrl || "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai")
     });
+
+
+    /* UPDATE 65 — AI WORKING SETTINGS LOCK
+       Saves the known-good AI setup so it can be restored after cache/device mistakes.
+       This is localStorage only and does not change business records. */
+    const LD_AI_WORKING_SETTINGS_KEY = "leafdiary_working_ai_settings_v1";
+    function ldBuildWorkingAISettingsSnapshot(note = "Gateway/Proxy working") {
+      const gateway = phase61CostSaverPreset(phase61ReadConfig());
+      const local = phase3SaveConfig({
+        ...phase3ReadConfig(),
+        enabled: true,
+        connectionMode: "gateway",
+        baseUrl: "http://127.0.0.1:11434",
+        primaryModel: "llama3.1:8b",
+        fastModel: "llama3.1:8b",
+        codingModel: "llama3.1:8b",
+        proxyUrl: gateway.endpointUrl
+      });
+      return {
+        appVersion: APP_VERSION,
+        savedAt: new Date().toISOString(),
+        note,
+        gatewayConfig: gateway,
+        ollamaConfig: local,
+        routerConfig: phase4ReadRoutes ? phase4ReadRoutes() : {},
+        instructions: {
+          iphone: "Use Mobile AI Gateway / Tunnel.",
+          macbook: "Use Gateway/Proxy mode in the website. Direct local Ollama still works in Terminal but website fetch may be blocked.",
+          costGuard: "Cloud/gateway calls stay manual. Free/local app logic is used first."
+        }
+      };
+    }
+    function ldSaveWorkingAISettings(note = "Gateway/Proxy working") {
+      const snap = ldBuildWorkingAISettingsSnapshot(note);
+      try { localStorage.setItem(LD_AI_WORKING_SETTINGS_KEY, JSON.stringify(snap)); } catch(e) { phase1LogError("ldSaveWorkingAISettings", e); }
+      return snap;
+    }
+    function ldReadWorkingAISettings() {
+      return safeObject(safeJsonParse(localStorage.getItem(LD_AI_WORKING_SETTINGS_KEY), {}));
+    }
+    function ldRestoreWorkingAISettings() {
+      const snap = ldReadWorkingAISettings();
+      if (!snap || !snap.gatewayConfig) return null;
+      const gw = phase61SaveConfig({ ...phase61CostSaverPreset(snap.gatewayConfig), enabled:true, useOnMobile:true, useOnDesktop:true, disableAutoGatewayCalls:true, requireManualCloudApproval:true });
+      const ol = phase3SaveConfig({ ...safeObject(snap.ollamaConfig), enabled:true, connectionMode:"gateway", proxyUrl:gw.endpointUrl, baseUrl:"http://127.0.0.1:11434", primaryModel:snap.ollamaConfig?.primaryModel || "llama3.1:8b" });
+      if (snap.routerConfig && phase4SaveRoutes) phase4SaveRoutes(snap.routerConfig);
+      return { gatewayConfig:gw, ollamaConfig:ol, snapshot:snap };
+    }
+    function ldDownloadWorkingAISettings() {
+      const snap = ldReadWorkingAISettings().savedAt ? ldReadWorkingAISettings() : ldSaveWorkingAISettings("Downloaded working settings");
+      phase1DownloadJson(`leaf-diary-working-ai-settings-${today()}.json`, snap);
+    }
     function phase61BuildSafeBusinessPayload({ question = "", route = "executive", routeDef = {}, appData = {}, user = {}, model = "", extraPrompt = "" }) {
       const owner = user?.role === "owner";
       const cfg = phase61ReadConfig();
@@ -18036,7 +18096,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const activateCostSaver = () => { const next = phase61CostSaverPreset(draft); setDraft(next); const saved = phase61SaveConfig(next); setConfig && setConfig(saved); setAnswer("AI Cost Guard activated: cloud calls are manual-only, daily limit 8, monthly tracker $5, inventory payload capped at 35, owner financials redacted by default."); };
       const download = () => phase1DownloadJson(`leafdiary-phase61-ai-gateway-${today()}.json`, { appVersion:APP_VERSION, config:{ ...draft, secretToken:draft.secretToken ? "saved-token-hidden" : "" }, status, usage:phase61ReadUsage(), lastReport:testReport, generatedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", maxWidth:1080, margin:"0 auto" }}>
-        <SHdr icon="🌐" title="Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Gateway/Proxy answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🌐" title="Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Gateway/Proxy answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="gold" onClick={()=>{ const snap = ldSaveWorkingAISettings("Confirmed working Gateway/Proxy settings"); setAnswer(`✅ Working AI settings saved.\nGateway: ${snap.gatewayConfig.endpointUrl}\nModel: ${snap.gatewayConfig.model}\nProvider: Ollama Proxy / Gateway`); }}>Lock Working Settings</Btn><Btn sz="sm" v="outline" onClick={()=>{ const restored = ldRestoreWorkingAISettings(); if (restored) { setDraft(restored.gatewayConfig); setConfig && setConfig(restored.gatewayConfig); setStatus && setStatus(phase61BuildStatus("online", { provider:restored.gatewayConfig.provider, model:restored.gatewayConfig.model, endpointUrl:restored.gatewayConfig.endpointUrl })); setAnswer("✅ Working AI settings restored. Test Gateway again to confirm."); } else setAnswer("No locked AI settings found yet. Click Lock Working Settings after Gateway is connected."); }}>Restore Settings</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase61StatusColor(status?.status || (draft.enabled ? "not_tested" : "disabled"))}` }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Ollama model: {draft.model} · Provider: {draft.provider === "ollama-proxy" ? "Ollama Proxy / Gateway" : "Ollama Cloud API"}</div></div>
