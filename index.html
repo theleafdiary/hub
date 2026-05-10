@@ -1641,6 +1641,22 @@
       .ld-header-search-input::placeholder { color:transparent; }
     }
 
+    /* UPDATE 57 — Header Search Dismiss Fix */
+    .ld-header-search-results { overscroll-behavior: contain; }
+    .ld-header-search-help {
+      padding: 10px 12px;
+      color: rgba(255,255,255,.62);
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+    @media (max-width: 760px) {
+      .ld-header-search-results {
+        top: 58px;
+        max-height: 48vh;
+      }
+    }
+
 </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -3913,13 +3929,25 @@
       const [menuSearch, setMenuSearch] = useState("");
       const [headerSearch, setHeaderSearch] = useState("");
       const [headerSearchOpen, setHeaderSearchOpen] = useState(false);
+      const headerSearchRef = useRef(null);
+      const headerSearchInputRef = useRef(null);
       const role = user?.role || "employee";
       const tools = getToolsForRole(role);
       const bottomTabs = role === "employee"
         ? ["today","plants_ws","shows_ws"]
         : ["today","plants_ws","shows_ws","orders_ws","money_ws"];
       const workspaceById = Object.fromEntries(WORKSPACES.map(w => [w.id, w]));
-      const openPage = id => { setPage(id); setMenuOpen(false); setAddOpen(false); setAiMenuOpen(false); setMenuSearch(""); setHeaderSearch(""); setHeaderSearchOpen(false); };
+      const openPage = id => {
+        setHeaderSearchOpen(false);
+        setHeaderSearch("");
+        try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(e) {}
+        try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch(e) {}
+        setPage(id);
+        setMenuOpen(false);
+        setAddOpen(false);
+        setAiMenuOpen(false);
+        setMenuSearch("");
+      };
       const phaseStatusItems = Array.isArray(cloudControls.phaseStatusItems) ? cloudControls.phaseStatusItems : [];
       const isOwner = role === "owner";
       const isManager = role === "manager";
@@ -3986,26 +4014,43 @@
           .filter(item => `${item.title} ${item.sub} ${item.group} ${item.id}`.toLowerCase().includes(q))
           .slice(0, 10);
       })();
-      const openHeaderSearchResult = id => { openPage(id); };
+      const openHeaderSearchResult = id => {
+        setHeaderSearchOpen(false);
+        setHeaderSearch("");
+        try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(e) {}
+        openPage(id);
+      };
       const headerSearchKeyDown = e => {
         if (e.key === "Enter" && headerSearchResults[0]) { e.preventDefault(); openHeaderSearchResult(headerSearchResults[0].id); }
-        if (e.key === "Escape") { setHeaderSearch(""); setHeaderSearchOpen(false); }
+        if (e.key === "Escape") { setHeaderSearch(""); setHeaderSearchOpen(false); try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(err) {} }
       };
+      useEffect(() => {
+        const closeOnOutside = ev => {
+          if (!headerSearchRef.current) return;
+          if (!headerSearchRef.current.contains(ev.target)) setHeaderSearchOpen(false);
+        };
+        document.addEventListener("pointerdown", closeOnOutside, true);
+        document.addEventListener("touchstart", closeOnOutside, true);
+        return () => {
+          document.removeEventListener("pointerdown", closeOnOutside, true);
+          document.removeEventListener("touchstart", closeOnOutside, true);
+        };
+      }, []);
       return <>
         <div className="ld-topbar-main">
           <button onClick={()=>openPage("today")} aria-label="Go to Today" style={{ display:"flex", alignItems:"center", gap:8, background:"transparent", border:"none", padding:0, cursor:"pointer", color:"#fff", fontFamily:F.body, flexShrink:0 }}>
             <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height:38, width:38, objectFit:"contain", borderRadius:"50%", background:"#000", padding:1, boxShadow:"0 0 0 1px rgba(255,255,255,.25)" }} />
             <div className="ld-header-logo-wordmark" style={{ textAlign:"left", lineHeight:1.05 }}><div style={{ fontSize:14, fontWeight:900, fontFamily:F.display, letterSpacing:.5 }}>LEAF DIARY</div><div style={{ fontSize:10, color:"#97d33e", fontWeight:800 }}>RARE ROOTS, REAL LOVE</div></div>
           </button>
-          <div className="ld-header-search">
+          <div className="ld-header-search" ref={headerSearchRef}>
             <span className="ld-header-search-icon">⌕</span>
-            <input className="ld-header-search-input" value={headerSearch} onChange={e=>{ setHeaderSearch(e.target.value); setHeaderSearchOpen(true); }} onFocus={()=>setHeaderSearchOpen(true)} onKeyDown={headerSearchKeyDown} placeholder="Search app..." aria-label="Search Leaf Diary pages and tools" />
-            {headerSearch && <button className="ld-header-search-clear" onClick={()=>{ setHeaderSearch(""); setHeaderSearchOpen(false); }} aria-label="Clear search">×</button>}
-            {headerSearchOpen && (headerSearch || document.activeElement?.className === "ld-header-search-input") && <div className="ld-header-search-results" onMouseDown={e=>e.preventDefault()}>
-              {headerSearchResults.length ? headerSearchResults.map(item => <button key={item.id} className="ld-header-search-result" onClick={()=>openHeaderSearchResult(item.id)}>
+            <input ref={headerSearchInputRef} className="ld-header-search-input" value={headerSearch} onChange={e=>{ setHeaderSearch(e.target.value); setHeaderSearchOpen(!!e.target.value.trim()); }} onFocus={()=>{ if (headerSearch.trim()) setHeaderSearchOpen(true); }} onKeyDown={headerSearchKeyDown} placeholder="Search app..." aria-label="Search Leaf Diary pages and tools" />
+            {headerSearch && <button className="ld-header-search-clear" onMouseDown={e=>e.preventDefault()} onClick={()=>{ setHeaderSearch(""); setHeaderSearchOpen(false); try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(err) {} }} aria-label="Clear search">×</button>}
+            {headerSearchOpen && headerSearch.trim() && <div className="ld-header-search-results">
+              {headerSearchResults.length ? headerSearchResults.map(item => <button key={item.id} className="ld-header-search-result" onMouseDown={e=>{ e.preventDefault(); openHeaderSearchResult(item.id); }} onClick={()=>openHeaderSearchResult(item.id)}>
                 <span style={{ fontSize:22, width:28, textAlign:"center", flexShrink:0 }}>{item.icon || "•"}</span>
                 <span style={{ minWidth:0 }}><span className="ld-header-search-result-title">{item.title}</span><span className="ld-header-search-result-sub">{item.sub || item.group}</span></span>
-              </button>) : <div style={{ padding:12, color:"rgba(255,255,255,.62)", fontSize:12, fontWeight:800 }}>No matching tools found.</div>}
+              </button>) : <div className="ld-header-search-help">No matching tools found. Try photo, barcode, inventory, receipt, show, timecard, or ollama.</div>}
             </div>}
           </div>
           <Row gap={7} center style={{ flexShrink:0 }}>
@@ -17106,9 +17151,12 @@ Cancel if you want to save money.`);
       return {
         origin,
         mac: `# Same-computer desktop test
+# 1) Quit Ollama completely from the menu bar first
 launchctl setenv OLLAMA_ORIGINS "*"
 launchctl setenv OLLAMA_HOST "127.0.0.1:11434"
-# Then fully quit and reopen Ollama`,
+# 2) Reopen Ollama
+# 3) Test in Terminal:
+curl http://127.0.0.1:11434/api/tags`,
         macLan: `# Phone on same Wi-Fi as this Mac
 ipconfig getifaddr en0
 launchctl setenv OLLAMA_ORIGINS "*"
@@ -17523,6 +17571,11 @@ Answer with a practical action plan for Leaf Diary.`;
           <QuickCard icon="📱" title="iPhone / Same Wi‑Fi" color={C.blue} body="Use Phone LAN Preset. Set OLLAMA_HOST to 0.0.0.0:11434 on the Mac, then enter the Mac IP as Mobile/LAN URL." />
           <QuickCard icon="🛡️" title="Safe Fallback" color={C.gold} body="If Ollama fails, Leaf Diary still uses local/free business rules. This Doctor does not change inventory, money, or show data." />
         </div>
+
+        <Card style={{ marginBottom:14, background:C.redBg, borderLeft:`5px solid ${C.red}` }}>
+          <div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900, marginBottom:8 }}>MacBook CORS Fix</div>
+          <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5 }}>If this page says <b>Ollama CORS/origin blocked</b>, the app is working but the browser is being blocked by Ollama. On the MacBook: quit Ollama completely, run the MacBook Desktop commands below, reopen Ollama, then click <b>Run Doctor</b> again.</div>
+        </Card>
 
         <Card style={{ background:C.amberBg, borderLeft:`5px solid ${C.amber}` }}>
           <div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900, marginBottom:8 }}>Fix Commands</div>
