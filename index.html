@@ -1210,6 +1210,7 @@
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
 </head>
 
 <body>
@@ -1218,7 +1219,7 @@
     const { useState, useRef, useEffect, useCallback } = React;
 
     /* ═══════════════════════════════════════════════════════════
-       LEAF DIARY CRM v7 — Update 38 Scan Label + Add Photo
+       LEAF DIARY CRM v7 — Update 42 Photo Sprint Entry Points
        Adds 8 front-facing workflows without deleting old components
        Fresh modern palette · Bills tracker · True profit engine
        Admin panel · QR labels · Buy intelligence · Florida tax
@@ -1666,7 +1667,7 @@
     function phase11BuildRoleTasks(appData = {}, settings = {}) {
       const plants=safeArray(appData.plants), inStock=plants.filter(p=>p.status==="In Stock");
       const ranked=phase11RankPlants(plants, settings), noPhoto=ranked.filter(r=>!(r.plant.photoUrl||r.plant.photoBase64)), needsLabel=inStock.filter(p=>!p.labelPrinted), aging60=ranked.filter(r=>r.daysHeld>=60), premium=ranked.filter(r=>r.price>=50).slice(0,5), lowD=ranked.filter(r=>r.pps.rating==="D");
-      return { owner:[{title:"Review low-PPS plants", body:`${lowD.length} in-stock plants are D-rated. Raise price, move to clearance, or stop buying that type.`, page:"slotprofit"},{title:"Build Palmstreet anchors", body: premium.length ? `Start with ${premium.slice(0,3).map(r=>r.plant.name).join(", ")}.` : "No premium anchors found; add photos/prices to high-value inventory.", page:"showbuilder"}], employee:[{title:`Photo priority list`, body:noPhoto.length ? `Photograph highest PPS first: ${noPhoto.slice(0,5).map(r=>r.plant.plantId || r.plant.name).join(", ")}.` : "Photo queue is clean.", page:"inv"},{title:"Build Whatnot queue", body:"Pull B-rated and better plants under $50 for fast auction energy.", page:"showbuilder"}], operations:[{title:`Print ${needsLabel.length} labels`, body:needsLabel.length ? "Print labels before staging plants for shows." : "Label queue is clean.", page:"labels"},{title:"Stage aging plants", body:aging60.length ? `Pull ${Math.min(20,aging60.length)} oldest plants for owner clearance review.` : "No urgent 60+ day aging stage list.", page:"discounts"}] };
+      return { owner:[{title:"Review low-PPS plants", body:`${lowD.length} in-stock plants are D-rated. Raise price, move to clearance, or stop buying that type.`, page:"slotprofit"},{title:"Build Palmstreet anchors", body: premium.length ? `Start with ${premium.slice(0,3).map(r=>r.plant.name).join(", ")}.` : "No premium anchors found; add photos/prices to high-value inventory.", page:"showbuilder"}], employee:[{title:`Photo priority list`, body:noPhoto.length ? `Photograph highest PPS first: ${noPhoto.slice(0,5).map(r=>r.plant.plantId || r.plant.name).join(", ")}.` : "Photo queue is clean.", page:"photosprint"},{title:"Build Whatnot queue", body:"Pull B-rated and better plants under $50 for fast auction energy.", page:"showbuilder"}], operations:[{title:`Print ${needsLabel.length} labels`, body:needsLabel.length ? "Print labels before staging plants for shows." : "Label queue is clean.", page:"labels"},{title:"Stage aging plants", body:aging60.length ? `Pull ${Math.min(20,aging60.length)} oldest plants for owner clearance review.` : "No urgent 60+ day aging stage list.", page:"discounts"}] };
     }
     const estIncomeTax = net => {
       if (net <= 0) return 0;
@@ -1781,7 +1782,7 @@
       const duplicateGroups = Object.values(plants.reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1);
 
       if (readyOrders.length) add(actions,"Review sold plant records",`${readyOrders.length} sold order group(s) are saved from Palmstreet/Whatnot. Shipping stays inside the platforms; verify sales, buyer names, tips, and commissions only.`,"ship","warning");
-      if (noPhoto.length) add(actions,"Photo task list",`${noPhoto.length} in-stock plant(s) need photos before they should be exported to Palmstreet/Whatnot.`,"inv","info");
+      if (noPhoto.length) add(actions,"Photo task list",`${noPhoto.length} in-stock plant(s) need photos before they should be exported to Palmstreet/Whatnot.`,"photosprint","info");
       if (needsLabel.length) add(actions,"Label task list",`${needsLabel.length} in-stock plant(s) need labels printed or reprinted.`,"labels","info");
       if (noPrice.length) add(warnings,"Missing prices",`${noPrice.length} in-stock plant(s) have no suggested/list price. These should be fixed before show building.`,"inv","warning");
       if (aging45.length) add(recommendations,"Aging inventory action",`${aging45.length} plant(s) are 45+ days old. Put the oldest ${Math.min(12, aging45.length)} into the next show or clearance batch.`,"discounts","warning");
@@ -1795,7 +1796,7 @@
       if (soldDocStates.length && !casdCerts.length) add(warnings,"State paperwork reminder",`${soldDocStates.length} sold plant(s) may need CA/AZ/TX/LA paperwork archived.`,"casd","warning");
 
       if (["daily_check","what_today","owner_summary"].includes(task)) {
-        add(actions,"Do this first today", noPhoto.length ? `Photograph ${Math.min(25,noPhoto.length)} missing-photo plants so they can be used in shows.` : "No urgent photo backlog. Focus on pricing and show planning.", "inv", noPhoto.length?"info":"info");
+        add(actions,"Do this first today", noPhoto.length ? `Photograph ${Math.min(25,noPhoto.length)} missing-photo plants with Fast Photo Sprint.` : "No urgent photo backlog. Focus on pricing and show planning.", "photosprint", noPhoto.length?"info":"info");
         add(actions,"Build next show from risk inventory", aging45.length ? `Start with ${Math.min(15,aging45.length)} aging plants, then add 5 premium hooks from higher priced inventory.` : "Use best-margin in-stock plants and recent top-selling genus mix.", "showbuilder", "info");
         add(recommendations,"Current business score",`Month: ${$(revenue)} revenue, ${$(net)} estimated net after COGS, fees, expenses, and payroll. Inventory cost at risk: ${$(invCost)}.`,"reports","info");
       }
@@ -1834,7 +1835,7 @@
         buyerRows.slice(0,10).forEach(b => add(recommendations,"VIP buyer",`${b.name}: ${b.count} plant(s), ${$(b.total)} total spend, est profit ${$(b.profit)}. Offer early access or bundle preview.`,"customers","info"));
       }
       if (task === "employee_tasks") {
-        add(actions,"Employee photo task",`Photograph ${Math.min(noPhoto.length,25)} missing-photo plants.`,"inv","info");
+        add(actions,"Employee photo task",`Use Fast Photo Sprint to photograph ${Math.min(noPhoto.length,25)} missing-photo plants.`,"photosprint","info");
         add(actions,"Employee label task",`Print labels for ${Math.min(needsLabel.length,50)} plants.`,"labels","info");
         add(actions,"Employee cleanup task",`Pull ${Math.min(aging45.length,15)} aging plants for next show review.`,"discounts","warning");
       }
@@ -2043,6 +2044,28 @@
 
 
 
+
+
+    /* UPDATE 42 — Photo Sprint Entry Point Helper
+       Reusable note/link wherever the app says photos or photo queue. */
+    function PhotoSprintTip({ setPage, count = 0, compact = false, title = "Fast Photo Sprint" }) {
+      return <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`5px solid ${C.g600}`, borderRadius:16, padding:compact ? "10px 11px" : "13px 14px", margin:compact ? "8px 0" : "0 0 14px" }}>
+        <Row between center wrap gap={10}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:F.display, fontSize:compact ? 17 : 20, color:C.g900, fontWeight:900 }}>⚡ {title}</div>
+            <div style={{ fontSize:12, color:C.tx2, lineHeight:1.4, marginTop:3 }}>
+              Employees: scan the barcode on the plant label, take the photo, wait for saved, then move to the next plant. No typing plant numbers.
+            </div>
+          </div>
+          <Row gap={7} wrap>
+            {Number(count) > 0 && <Tag text={`${count} need photos`} color={C.amber} />}
+            <Btn sz="sm" onClick={()=>setPage && setPage("photosprint")}>Open Photo Sprint</Btn>
+            <Btn sz="sm" v="soft" onClick={()=>setPage && setPage("scanlabel")}>Scan One Label</Btn>
+          </Row>
+        </Row>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        PHASE 2 STEP 1 — SKELETON LOADING COMPONENTS
        These are presentation-only placeholders. They do not touch data.
@@ -2159,7 +2182,7 @@
       const employeeSteps = [
         { id:"add_plant", icon:"🌿", title:"Add your first plant", body:"Save at least one plant so inventory is not empty.", done:anyPlant, page:"intake_ws", cta:"Add Plant" },
         { id:"print_label", icon:"🏷️", title:"Print a label", body:"Mark at least one plant label printed or use the Labels page.", done:anyLabel, page:"labels", cta:"Labels" },
-        { id:"take_photo", icon:"📸", title:"Take a photo", body:"Add a plant photo so the plant can be used in shows.", done:anyPhoto, page:"inv", cta:"Photo Queue" },
+        { id:"take_photo", icon:"⚡", title:"Take a photo with barcode", body:"Use Fast Photo Sprint: scan the label, take the photo, then go to the next plant.", done:anyPhoto, page:"photosprint", cta:"Photo Sprint" },
         { id:"clock_in", icon:"⏱️", title:"Clock in for your shift", body:"Create your first timecard entry.", done:anyTimecard, page:"timecard", cta:"Timecard" },
         { id:"build_show", icon:"🎪", title:"Build your first show", body:"Get at least 5 plants into the Show Builder list.", done:showCount >= 5, page:"showbuilder", cta:"Build Show" }
       ];
@@ -2257,10 +2280,10 @@
     ══════════════════════════════════════════════════════════ */
     const LD_NEXT_STEP_EVENT = "ld-next-step";
     const LD_NEXT_STEP_MAP = {
-      plant_saved_no_photo: { icon:"📸", title:"Plant saved — add a photo next", body:"This plant is in inventory, but it still needs a photo before it is show-ready.", cta:"Add Photo Now", page:"inv", color:C.g600 },
+      plant_saved_no_photo: { icon:"⚡", title:"Plant saved — add photo with barcode", body:"This plant still needs a photo. Use Fast Photo Sprint so the barcode opens the right plant without typing.", cta:"Open Photo Sprint", page:"photosprint", color:C.g600 },
       plant_saved_with_photo: { icon:"🎪", title:"Plant saved with photo", body:"This plant is closer to show-ready. Add it to tonight’s show or check its label/price.", cta:"Open Show Builder", page:"showbuilder", color:"#fb6392" },
       bulk_inventory_imported: { icon:"🏷️", title:"Inventory imported", body:"Original plant numbers were kept. Next step: print labels or review plants that need photos/prices.", cta:"Print Labels", page:"labels", color:C.gold },
-      labels_printed: { icon:"📸", title:"Labels ready — photograph next", body:"Labels are handled. Now take photos so the plants can be used in Whatnot or Palmstreet shows.", cta:"Photo Priority List", page:"inv", color:C.blue },
+      labels_printed: { icon:"⚡", title:"Labels ready — use Photo Sprint next", body:"Labels are handled. Scan each barcode label, take the plant photo, then move to the next plant.", cta:"Open Photo Sprint", page:"photosprint", color:C.blue },
       added_to_show: { icon:"🎪", title:"Plants added to show", body:"Review the sequence, pull the plants, and export when the show list looks right.", cta:"Review Show", page:"showbuilder", color:"#fb6392" },
       show_csv_exported: { icon:"📥", title:"Show CSV exported", body:"After the live show, import the results so sales, buyers, and employee commission are recorded.", cta:"Import Sales After Show", page:"showimport", color:C.blue },
       show_imported: { icon:"👥", title:"Sales imported — review buyers next", body:"Show sales are saved. Next, review sold groups, buyers, paperwork, and any commission/tips.", cta:"Review Orders", page:"orders_ws", color:C.blue },
@@ -3280,6 +3303,7 @@
       const due7 = safeArray(bills).filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 7);
       const todayCards = role === "owner" ? [
         ["👑", "Owner Daily Board", "Cash, show prep, risk, buying decisions, and delegation.", "ownerboard", C.gold],
+        ["⚡", "Photo Sprint", "Scan barcode labels and add plant photos fast.", "photosprint", C.g600],
         ["🧩", "Next Step Coach", "Plain-English list of what to do next.", "workflowcoach", C.blue],
         ["💡", "Buy Smart", "What to buy, what not to buy, and safe budget.", "buy_ws", C.gold],
         ["💵", "Money", "Check cash before spending.", "money_ws", C.g600],
@@ -3289,6 +3313,7 @@
         ["🧑‍💼", "Manager Daily Board", "Photos, labels, show prep, order review, and receipts.", "managerboard", C.blue],
         ["🧩", "Next Step Coach", "Operations checklist for today.", "workflowcoach", C.blue],
         ["🌿", "Inventory", "Fix plant photos, labels, and missing data.", "plants_ws", C.g600],
+        ["⚡", "Photo Sprint", "Scan barcode labels and add plant photos fast.", "photosprint", C.g600],
         ["🎪", "Shows", "Build, prep, run, and import shows.", "shows_ws", "#fb6392"],
         ["🧺", "Show Prep Pull List", "Pull plants and staging tasks for the next live show.", "showprep", C.gold],
         ["📦", "Order Packing Board", "Pack sold orders, paperwork, heat packs, and platform-ready checks.", "packorders", C.blue],
@@ -3322,7 +3347,7 @@
         "When stuck, open Next Step Coach or ask the owner/manager."
       ];
       const blockers = [
-        { label:"Need Photos", value:noPhoto.length, page:"inv", color:noPhoto.length?C.amber:C.g600 },
+        { label:"Need Photos", value:noPhoto.length, page:"photosprint", color:noPhoto.length?C.amber:C.g600 },
         { label:"Need Labels", value:needsLabel.length, page:"labels", color:needsLabel.length?C.blue:C.g600 },
         { label:"Need Price", value:noPrice.length, page:"inv", color:noPrice.length?C.red:C.g600 },
         { label:"Aging 45+", value:aging45.length, page:role === "employee" ? "inv" : "discounts", color:aging45.length?C.amber:C.g600 },
@@ -3330,7 +3355,7 @@
         { label:"Receipts Review", value:receiptNeeds.length, page:"receipts", color:receiptNeeds.length?C.gold:C.g600 },
         { label:"Bills 7 Days", value:role === "owner" ? due7.length : "Hidden", page:"money_ws", color:due7.length?C.red:C.g600 }
       ];
-      const ButtonCard = ({ item }) => { const [icon, title, body, pageId, color] = item; const locked = !leafDiaryCanRenderPage(pageId, role); return <button disabled={locked} onClick={()=>setPage(pageId)} style={{ background:locked?"#f2f2f2":C.card, border:`1px solid ${locked?"#ddd":C.bd}`, borderLeft:`5px solid ${locked?C.tx4:color}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:locked?"not-allowed":"pointer", fontFamily:F.body, opacity:locked?.55:1, boxShadow:"0 8px 24px rgba(13,43,26,.06)" }}>
+      const ButtonCard = ({ item }) => { const [icon, title, body, pageId, color] = item; const locked = !leafDiaryCanRenderPage(pageId, role); return <button disabled={locked} onClick={()=>setPage(pageId)} style={{ background:locked?"#f2f2f2":C.card, border:`1px solid ${locked?"#ddd":C.bd}`, borderLeft:`5px solid ${locked?C.tx4:color}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:locked?"not-allowed":"pointer", fontFamily:F.body, opacity: locked ? .55 : 1, boxShadow:"0 8px 24px rgba(13,43,26,.06)" }}>
         <Row gap={12} center><div style={{ width:46, height:46, borderRadius:16, background:String(color)+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:25, flexShrink:0 }}>{icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:15 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, marginTop:3, lineHeight:1.35 }}>{locked ? "Locked for this role." : body}</div></div><span style={{ color:C.tx4, fontWeight:900, fontSize:22 }}>›</span></Row>
       </button>; };
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1050, margin:"0 auto", fontFamily:F.body }}>
@@ -3461,7 +3486,7 @@
         { id:"today", icon:"🏠", title:"Today's Tasks", sub:"Start here" },
         { id:"dataai", icon:"💬", title:"Ask Leaf Diary", sub:"Get help with daily work" },
         { id:"upload", icon:"📸", title:"Upload Invoice", sub:"Add plant purchase photo" },
-        { id:"inv", icon:"📷", title:"Take Plant Photos", sub:"Find plants needing photos" },
+        { id:"photosprint", icon:"⚡", title:"Fast Photo Sprint", sub:"Scan label, take photo, next plant" },
         { id:"labels", icon:"🏷️", title:"Print Labels", sub:"Label plants" },
         { id:"timecard", icon:"⏱️", title:"Timecard", sub:"Clock in and out" }
       ];
@@ -3561,7 +3586,7 @@
               <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:9 }}>
                 {[
                   { id:"upload", icon:"📸", title:"Upload Invoice" },
-                  { id:"inv", icon:"📷", title:"Take Photos" },
+                  { id:"photosprint", icon:"⚡", title:"Photo Sprint" },
                   { id:"labels", icon:"🏷️", title:"Print Labels" },
                   { id:"receipts", icon:"🧾", title:"Receipt" },
                   { id:"timecard", icon:"⏱️", title:"Timecard" },
@@ -3629,7 +3654,7 @@
         ["Scan Plant Label", "inv", "📸", "Open inventory search/scan and pull up one plant fast."],
         ["Scan Label", "scanlabel", "📷", "Scan a barcode label, pull up the plant, and add a photo without typing."],
         ["Photo Sprint", "photosprint", "⚡", "Scan label, take photo, save, and keep going."],
-        ["Take Plant Photo", "inv", "📷", `${noPhoto.length} plant(s) need photos before they are show-ready.`],
+        ["Take Plant Photo", "photosprint", "⚡", `${noPhoto.length} plant(s) need photos. Scan label, take photo, then go to the next plant.`],
         ["Print Labels Needed", "labels", "🏷️", `${needsLabel.length} plant label(s) need to be printed.`],
         ["Build Today's Show", "showbuilder", "🎪", `${readyForShow.length} plant(s) look ready for Palmstreet or Whatnot.`],
         ["Review Sold Orders", "ship", "📦", "Help review sold plant groups after shows when assigned."],
@@ -3714,7 +3739,7 @@
       const addTask = (icon, title, body, page, button, sev="info") => tasks.push({ icon, title, body, page, button, sev });
       if (due7.length && isOwner) addTask("📅", "Pay or review bills due this week", `${due7.length} bill(s) due in 7 days totaling ${$(due7Total)}.`, "bills", "Open Bills", "critical");
       if (readyOrders.length) addTask("📦", "Review sold orders from shows", `${readyOrders.length} sold order group(s) need review after platform import.`, "ship", "Open Orders", readyOrders.length > 5 ? "critical" : "warning");
-      if (noPhoto.length) addTask("📸", "Take plant photos", `${noPhoto.length} plant(s) are blocked from show-ready status because they need photos.`, "inv", "Photo Queue", "warning");
+      if (noPhoto.length) addTask("⚡", "Run Fast Photo Sprint", `${noPhoto.length} plant(s) are blocked from show-ready status because they need photos.`, "photosprint", "Photo Sprint", "warning");
       if (needsLabel.length) addTask("🏷️", "Print needed labels", `${needsLabel.length} plant(s) need labels before staging or selling.`, "labels", "Print Labels", "info");
       if (noPrice.length) addTask("💲", "Set missing prices", `${noPrice.length} plant(s) need a price before they can be used in a show.`, "inv", "Price Plants", "warning");
       if (aging45.length) addTask("⏳", "Move aging inventory", `${aging45.length} plant(s) are 45+ days old. Pull the oldest ${Math.min(12, aging45.length)} for review.`, "discounts", "Review Aging", aging60.length ? "critical" : "warning");
@@ -3781,7 +3806,7 @@
               <div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:10 }}>⚡ Fast Buttons</div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                 {[
-                  ["📸 Photo Queue", "inv"], ["🏷️ Labels", "labels"], ["🎪 Show", "showbuilder"], ["📥 Import Sales", "showimport"], ["🧾 Receipts", "receipts"], ["🧠 Buy Smart", "buy_ws"]
+                  ["⚡ Photo Sprint", "photosprint"], ["🏷️ Labels", "labels"], ["🎪 Show", "showbuilder"], ["📥 Import Sales", "showimport"], ["🧾 Receipts", "receipts"], ["🧠 Buy Smart", "buy_ws"]
                 ].map(([label,page])=><button key={label} onClick={()=>setPage(page)} style={{ background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.35)", borderRadius:14, padding:"12px 9px", fontWeight:900, fontFamily:F.body, cursor:"pointer", fontSize:12 }}>{label}</button>)}
               </div>
             </Card>
@@ -3811,7 +3836,7 @@
       const open = id => canOpen(id) && setPage(id);
       const pack = {
         today:{ icon:"🏠", title:"Today", sub:"Your simple daily operating screen.", hero:"What needs attention now", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["Sold Groups",readyOrders.length,"from platforms"],["No Photos",noPhoto.length,"fix before show"],["Month Sales",$(monthSales),"sold this month"]], sections:[
-          { title:"Start Here", items:[["Role Launcher","rolelauncher","🚦","Open the correct daily board for owner, manager, or employee"],["Keyboard Shortcuts","keyboardshortcuts","⌨️","Use Ctrl/Command+K, G shortcuts, and the help overlay"],["Data Visualization","datacharts","📊","Charts for revenue, profit, plants, cash flow, and goals"],["Accessibility Check","accessibility","♿","Focus, contrast, screen reader labels, and touch target scan"],["Theme Mode","darkmode","🌙","Toggle light or dark mode for comfort on this device"],["Phase 2 Final QA","phase2qa","🧪","Test every Phase 2 feature and regression before live upload"],["Next-Step Suggestions","nextsteps","➡️","Preview and test the green helper cards shown after saves/actions"],["Onboarding Checklist","onboarding","🎓","First-time checklist for owners, managers, and employees"],["Final Release Center","releasecenter","🚀","Owner-only final checklist before uploading a new live version"],["Show Prep Pull List","showprep","🧺","Pull plants, fix photos/labels, and stage the live table"],["Order Packing Board","packorders","📦","Pack sold orders, check paperwork, and mark local packing steps"],["Owner Daily Board","ownerboard","👑","One owner screen for priorities, cash, show prep, delegation, and risk"],["Manager Daily Board","managerboard","🧑‍💼","Operations board for photos, labels, show prep, orders, receipts, and team tasks"],["Owner AI Brief","execai","🧠","CEO-style decisions and simulations"],["What Makes Money","slotprofit","📦","Rank plants by weekly slot profit"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Today Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
+          { title:"Start Here", items:[["Role Launcher","rolelauncher","🚦","Open the correct daily board for owner, manager, or employee"],["Keyboard Shortcuts","keyboardshortcuts","⌨️","Use Ctrl/Command+K, G shortcuts, and the help overlay"],["Data Visualization","datacharts","📊","Charts for revenue, profit, plants, cash flow, and goals"],["Accessibility Check","accessibility","♿","Focus, contrast, screen reader labels, and touch target scan"],["Theme Mode","darkmode","🌙","Toggle light or dark mode for comfort on this device"],["Phase 2 Final QA","phase2qa","🧪","Test every Phase 2 feature and regression before live upload"],["Next-Step Suggestions","nextsteps","➡️","Preview and test the green helper cards shown after saves/actions"],["Onboarding Checklist","onboarding","🎓","First-time checklist for owners, managers, and employees"],["Final Release Center","releasecenter","🚀","Owner-only final checklist before uploading a new live version"],["Fast Photo Sprint","photosprint","⚡","Scan barcode labels, take photos, and move to the next plant"],["Show Prep Pull List","showprep","🧺","Pull plants, fix photos/labels, and stage the live table"],["Order Packing Board","packorders","📦","Pack sold orders, check paperwork, and mark local packing steps"],["Owner Daily Board","ownerboard","👑","One owner screen for priorities, cash, show prep, delegation, and risk"],["Manager Daily Board","managerboard","🧑‍💼","Operations board for photos, labels, show prep, orders, receipts, and team tasks"],["Owner AI Brief","execai","🧠","CEO-style decisions and simulations"],["What Makes Money","slotprofit","📦","Rank plants by weekly slot profit"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Today Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
           { title:"Common Tasks", items:[["Add Plant","manual","✏️","Manual inventory entry"],["Scan Receipt","receipts","🧾","Save expense receipt"],["Import Show","showimport","📥","Whatnot/Palmstreet sales"],["Social Post","social","📣","Turn plant photos into posts"]] }
         ]},
         intake_ws:{ icon:"➕", title:"Add / Intake", sub:"One clean workflow for invoices, manual adds, existing inventory, and labels.", hero:"Buy plants → add plants → assign numbers → print labels", color:"#97d33e", kpis:[["Invoice Upload","📸","photo first"],["Manual Add","✏️","quick entry"],["Archive","📋","past invoices"],["Labels","🏷️","print next"]], sections:[
@@ -3819,7 +3844,7 @@
           { title:"Finish Intake", items:[["Print Labels","labels","🏷️","Print after plant IDs are assigned"],["Open Inventory","inv","🌿","Check new plants"],["Nursery Scores","nursery","🏪","Supplier records and performance"],["Ask Leaf Diary","dataai","💬","Ask what is missing before the show"]] }
         ]},
         plants_ws:{ icon:"🌿", title:"Inventory", sub:"Everything plant-related in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
-          { title:"Inventory Work", items:[["Inventory","inv","🌿","Search and edit all plants"],["Saved Views","savedfilters","🔖","One-tap saved inventory filters"],["Inline Editing","inlineedit","✏️","Tap price, size, or status without opening full details"],["Bulk Actions","bulkactions","☑️","Select many plants and act on the whole batch"],["Swipe Gestures","swipegestures","👆","Swipe plant cards right to stage or left to hide"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Receipt Reader Training","invoicetrainer","🧾","Teach invoice pot-size rules"],["Past Invoices","history","📋","Previous uploads"]] },
+          { title:"Inventory Work", items:[["Fast Photo Sprint","photosprint","⚡","Barcode scan → photo → next plant"],["Scan Label + Add Photo","scanlabel","📷","Careful one-plant barcode photo workflow"],["Inventory","inv","🌿","Search and edit all plants"],["Saved Views","savedfilters","🔖","One-tap saved inventory filters"],["Inline Editing","inlineedit","✏️","Tap price, size, or status without opening full details"],["Bulk Actions","bulkactions","☑️","Select many plants and act on the whole batch"],["Swipe Gestures","swipegestures","👆","Swipe plant cards right to stage or left to hide"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Receipt Reader Training","invoicetrainer","🧾","Teach invoice pot-size rules"],["Past Invoices","history","📋","Previous uploads"]] },
           { title:"Plant Tools", items:[["Labels","labels","🏷️","Print plant labels"],["Plant Care","care","🩺","Quarantine and health"],["Locations","locations","📍","Racks, trailer, rooms"],["Sell-Through","sellthru","📊","What sells fastest"]] }
         ]},
         shows_ws:{ icon:"🎪", title:"Show Command Center", sub:"Build, run, import, pay, and promote live shows.", hero:"Sell faster with one guided show workflow", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Commissions","1%","after fees"]], sections:[
@@ -3992,7 +4017,7 @@
           </Card>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:14 }}>
             <Card><div style={{ fontSize:28 }}>🏷️</div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:needsLabel.length?C.amber:C.g600 }}>{needsLabel.length}</div><div style={{ fontWeight:900, color:C.g900 }}>Labels Needed</div><p style={{ fontSize:12, color:C.tx3 }}>Print these before staging plants for shows.</p><Btn full onClick={()=>setPage("labels")}>Print Labels</Btn></Card>
-            <Card><div style={{ fontSize:28 }}>📸</div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:needsPhoto.length?C.blue:C.g600 }}>{needsPhoto.length}</div><div style={{ fontWeight:900, color:C.g900 }}>Photos Needed</div><p style={{ fontSize:12, color:C.tx3 }}>Plants without photos are harder to add to shows and listings.</p><Btn full v="soft" onClick={()=>setPage("inv")}>Photo Queue</Btn></Card>
+            <Card><div style={{ fontSize:28 }}>📸</div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:needsPhoto.length?C.blue:C.g600 }}>{needsPhoto.length}</div><div style={{ fontWeight:900, color:C.g900 }}>Photos Needed</div><p style={{ fontSize:12, color:C.tx3 }}>Plants without photos are harder to add to shows and listings.</p><Btn full v="soft" onClick={()=>setPage("photosprint")}>Open Photo Sprint</Btn></Card>
             <Card><div style={{ fontSize:28 }}>💲</div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:missingPrice.length?C.red:C.g600 }}>{missingPrice.length}</div><div style={{ fontWeight:900, color:C.g900 }}>Prices Needed</div><p style={{ fontSize:12, color:C.tx3 }}>Set prices now so the Show Builder can use the plants.</p><Btn full v="soft" onClick={()=>setPage("inv")}>Price Queue</Btn></Card>
           </div>
           <Card>
@@ -4216,7 +4241,7 @@
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
             {canManage && <TaskCard icon="🧠" title="Build tonight’s show" body={`Use ${platform}, ${showType}, and target ${targetCount} plants. The app will favor photo-ready, priced plants and mix premium with aging inventory.`} button="Auto Build" onClick={quickBuild} color="#fb6392" />}
-            <TaskCard icon="📸" title="Fix photo blockers" body={`${noPhoto.length} plant(s) need photos before they look good in a live show or export.`} button="Open Photo Queue" onClick={()=>setPage("inv")} color={C.amber} />
+            <TaskCard icon="📸" title="Fix photo blockers" body={`${noPhoto.length} plant(s) need photos before they look good in a live show or export.`} button="Open Photo Sprint" onClick={()=>setPage("photosprint")} color={C.amber} />
             <TaskCard icon="💲" title="Fix price blockers" body={`${noPrice.length} plant(s) need prices before the show builder can use them correctly.`} button="Open Pricing Queue" onClick={()=>setPage("inv")} color={noPrice.length ? C.red : C.g600} />
             {canManage && <TaskCard icon="📥" title="After the show" body="Import the Whatnot or Palmstreet CSV, confirm who hosted, review tips, and save sold plants." button="Import Sales" onClick={()=>setTab("import")} color="#68d8ff" />}
           </div>
@@ -4229,7 +4254,7 @@
         {tab === "prep" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <Card style={{ borderTop:"4px solid #fb6392" }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>🎪 Current Show Pull List</div><div style={{ fontSize:12, color:C.tx3 }}>{showCart.length ? `${showCart.length} plants are marked for a show.` : "No plants are marked for a show yet."}</div></div><Btn sz="sm" onClick={()=>setTab(canManage ? "build" : "live")}>{canManage ? "Build Show" : "Live Mode"}</Btn></Row>{showCart.length ? showCart.slice(0,30).map((p,i)=><PullPlant key={(p.id||p.plantId||p.name)+i} p={p} idx={i}/>) : <PreviewBuckets />}</Card>
           <Card style={{ borderTop:`4px solid ${C.amber}` }}><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:8 }}>🧺 Prep Tasks</div>{[
-            ["Photo table", `${noPhoto.length} plant(s) still need photos before the next show.`, "inv", C.amber],
+            ["Photo table", `${noPhoto.length} plant(s) still need photos before the next show.`, "photosprint", C.amber],
             ["Labels", `${inStock.filter(p=>!p.labelPrinted).length} plant(s) need labels printed or reprinted.`, "labels", C.blue],
             ["Bundles", "Create bundles for lower-ticket plants and fast auction moments.", "bundles", C.purple],
             ["Discounts", `${aging45.length} plant(s) are 45+ days old and should be reviewed for show pricing.`, "discounts", C.red]
@@ -4334,7 +4359,7 @@
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <MiniTask icon="🧺" title="Pull List" value={plannedList.length} body={showCart.length ? "Using plants already marked for show." : "Using best ready plants until a show is built."} color="#fb6392" />
-          <MiniTask icon="📸" title="Need Photos" value={noPhoto.length} body="Photo blockers before show/export." page="inv" color={noPhoto.length ? C.amber : C.g600} />
+          <MiniTask icon="📸" title="Need Photos" value={noPhoto.length} body="Photo blockers before show/export." page="photosprint" color={noPhoto.length ? C.amber : C.g600} />
           <MiniTask icon="🏷️" title="Need Labels" value={needsLabel.length} body="Print these before staging." page="labels" color={needsLabel.length ? C.blue : C.g600} />
           <MiniTask icon="💲" title="Need Prices" value={noPrice.length} body={canManage ? "Manager/owner should fix these." : "Ask manager/owner to set prices."} page={canManage ? "inv" : "workflowcoach"} color={noPrice.length ? C.red : C.g600} />
         </div>
@@ -4342,7 +4367,7 @@
           {tabs.map(([id,icon,label,count]) => <button key={id} onClick={()=>setTab(id)} style={{ background:tab===id ? "#000" : C.card, color:tab===id ? "#f5c542" : C.g900, border:`1.5px solid ${tab===id ? "#f5c542" : C.bd}`, borderRadius:999, padding:"11px 13px", fontWeight:900, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{icon} {label} <span style={{ opacity:.72 }}>({count})</span></button>)}
         </div>
         {tab === "pull" && <Card style={{ borderTop:"4px solid #fb6392" }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🧺 Plants To Pull</div><div style={{ fontSize:12, color:C.tx3 }}>{showCart.length ? "This is the current show cart." : "No saved show cart yet, so this is a safe suggested pull list."}</div></div><Btn sz="sm" v="soft" onClick={()=>setPage("shows_ws")}>Build / Edit Show</Btn></Row><div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>{plannedList.length ? plannedList.map((p,i)=><PlantPrepCard key={(p.id||p.plantId||p.name)+i} p={p} idx={i} prefix="pull" action="pull" color="#fb6392" note={(dHeld(p.dateAdded)||0) >= 45 ? "Aging inventory — good show candidate" : (+p.suggestedPrice||+p.listPrice||+p.price||0) >= 50 ? "Premium hook" : "Show ready"} />) : <div style={{ padding:24, textAlign:"center", color:C.tx3 }}>No show-ready plants found yet. Add photos and prices first.</div>}</div></Card>}
-        {tab === "photos" && <Card style={{ borderTop:`4px solid ${C.amber}` }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>📸 Photo Queue</div><div style={{ fontSize:12, color:C.tx3 }}>Take these photos before the plant goes into a live show.</div></div><Btn sz="sm" onClick={()=>setPage("inv")}>Open Inventory</Btn></Row><div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>{noPhoto.length ? noPhoto.slice(0,120).map((p,i)=><PlantPrepCard key={(p.id||p.plantId||p.name)+i} p={p} idx={i} prefix="photo" action="photo" color={C.amber} note="Needs photo" />) : <div style={{ padding:24, textAlign:"center", color:C.g600, fontWeight:900 }}>Photo queue is clean.</div>}</div></Card>}
+        {tab === "photos" && <Card style={{ borderTop:`4px solid ${C.amber}` }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>📸 Photo Queue</div><div style={{ fontSize:12, color:C.tx3 }}>Take these photos before the plant goes into a live show.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={()=>setPage("photosprint")}>Open Photo Sprint</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("inv")}>Inventory</Btn></Row></Row><PhotoSprintTip setPage={setPage} count={noPhoto.length} compact={true} title="Use barcode photo sprint" /><div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>{noPhoto.length ? noPhoto.slice(0,120).map((p,i)=><PlantPrepCard key={(p.id||p.plantId||p.name)+i} p={p} idx={i} prefix="photo" action="photo" color={C.amber} note="Needs photo" />) : <div style={{ padding:24, textAlign:"center", color:C.g600, fontWeight:900 }}>Photo queue is clean.</div>}</div></Card>}
         {tab === "labels" && <Card style={{ borderTop:`4px solid ${C.blue}` }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🏷️ Label Queue</div><div style={{ fontSize:12, color:C.tx3 }}>Print or reprint these labels before staging the live table.</div></div><Btn sz="sm" onClick={()=>setPage("labels")}>Print Labels</Btn></Row><div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>{needsLabel.length ? needsLabel.slice(0,120).map((p,i)=><PlantPrepCard key={(p.id||p.plantId||p.name)+i} p={p} idx={i} prefix="label" action="label" color={C.blue} note="Needs label" />) : <div style={{ padding:24, textAlign:"center", color:C.g600, fontWeight:900 }}>Label queue is clean.</div>}</div></Card>}
         {tab === "prices" && <Card style={{ borderTop:`4px solid ${C.red}` }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>💲 Price Blockers</div><div style={{ fontSize:12, color:C.tx3 }}>{canManage ? "Set prices before building/exporting a show." : "Ask the manager or owner to set these prices."}</div></div>{canManage && <Btn sz="sm" onClick={()=>setPage("inv")}>Open Pricing Queue</Btn>}</Row><div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>{noPrice.length ? noPrice.slice(0,120).map((p,i)=><PlantPrepCard key={(p.id||p.plantId||p.name)+i} p={p} idx={i} prefix="price" action={canManage ? "price" : "ask"} color={C.red} note={canManage ? "Needs price" : "Tell manager/owner this needs a price"} />) : <div style={{ padding:24, textAlign:"center", color:C.g600, fontWeight:900 }}>No price blockers.</div>}</div></Card>}
         {tab === "stage" && <Card style={{ borderTop:`4px solid ${C.g600}` }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>✅ Show Staging Checklist</div><div style={{ fontSize:12, color:C.tx3 }}>Use this before going live so nothing gets missed.</div></div><Btn sz="sm" v="soft" onClick={()=>setPage("liveshow")}>Open Live Mode</Btn></Row><StageChecklist /></Card>}
@@ -6348,7 +6373,7 @@
         addAudit && addAudit({ action: `Exported Master Inventory CSV — ${list.length} plants`, user: user.name, page: 'Inventory' });
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🌿" title="Inventory Action Center" sub={`${displayList.length} showing · ${inventoryActionSummary}`} right={<Row gap={8}><Btn v={bulkMode ? "danger" : "soft"} sz="sm" onClick={() => bulkMode ? exitBulkMode() : setBulkMode(true)}>{bulkMode ? "Exit Bulk" : "☑️ Select Multiple"}</Btn><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn>{canInlineEditInventory && <Btn v="soft" sz="sm" onClick={() => setPage("inlineedit")}>✏️ Inline Edit</Btn>}{canInlineEditInventory && <><Btn v="soft" sz="sm" onClick={() => setPage("bulkactions")}>☑️ Bulk Help</Btn><Btn v="soft" sz="sm" onClick={() => setPage("swipegestures")}>👆 Swipe Help</Btn></>}<Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
+        <SHdr icon="🌿" title="Inventory Action Center" sub={`${displayList.length} showing · ${inventoryActionSummary}`} right={<Row gap={8}><Btn v={bulkMode ? "danger" : "soft"} sz="sm" onClick={() => bulkMode ? exitBulkMode() : setBulkMode(true)}>{bulkMode ? "Exit Bulk" : "☑️ Select Multiple"}</Btn><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="soft" sz="sm" onClick={() => setPage("photosprint")}>⚡ Photo Sprint</Btn>{canInlineEditInventory && <Btn v="soft" sz="sm" onClick={() => setPage("inlineedit")}>✏️ Inline Edit</Btn>}{canInlineEditInventory && <><Btn v="soft" sz="sm" onClick={() => setPage("bulkactions")}>☑️ Bulk Help</Btn><Btn v="soft" sz="sm" onClick={() => setPage("swipegestures")}>👆 Swipe Help</Btn></>}<Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
 
         <Card style={{ marginBottom: 14, background: C.blueBg, border: `1px solid ${C.blue}40` }}>
           <Row between wrap center gap={10}>
@@ -6418,6 +6443,7 @@
             </div>
           ))}
         </div>}
+        <PhotoSprintTip setPage={setPage} count={needPhotos.length} compact={true} title="Photo queue shortcut" />
         <Card className="ld-inventory-action-panel" style={{ marginBottom:14, padding:16, background:C.g50, border:`1px solid ${C.g200}` }}>
           <Row between center wrap gap={10} style={{ marginBottom:12 }}>
             <div>
@@ -6708,6 +6734,45 @@
       if (found) return found;
       return rows.find(p => [p.plantId, p.plantCode, p.barcodeValue].some(v => labelifeLooseCode(v) === loose)) || null;
     }
+
+    /* UPDATE 43 — iPhone/Safari scanner fallback helpers
+       Native BarcodeDetector is not available on many iPhones, so we fall back to ZXing when loaded. */
+    const ldHasNativeBarcodeScanner = () => typeof window !== "undefined" && "BarcodeDetector" in window;
+    const ldHasZxingScanner = () => typeof window !== "undefined" && !!(window.ZXing && window.ZXing.BrowserMultiFormatReader);
+    const ldScannerModeLabel = () => ldHasNativeBarcodeScanner() ? "Native" : ldHasZxingScanner() ? "iPhone Fallback" : "Manual";
+    const ldZxingText = result => {
+      try { if (result && typeof result.getText === "function") return result.getText(); } catch(e) {}
+      return String(result?.text || result?.rawValue || result?.displayValue || result || "").trim();
+    };
+    async function ldDecodeBarcodeFromImageFile(file, detectorFormats = []) {
+      if (!file) return "";
+      if (ldHasNativeBarcodeScanner()) {
+        const detector = new window.BarcodeDetector({ formats: detectorFormats });
+        const bitmap = await createImageBitmap(file);
+        try {
+          const codes = await detector.detect(bitmap);
+          return codes && codes.length ? String(codes[0].rawValue || codes[0].displayValue || "").trim() : "";
+        } finally {
+          try { bitmap.close && bitmap.close(); } catch(e) {}
+        }
+      }
+      if (ldHasZxingScanner()) {
+        const reader = new window.ZXing.BrowserMultiFormatReader();
+        const url = URL.createObjectURL(file);
+        try {
+          const img = new Image();
+          img.src = url;
+          await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error("Could not load barcode photo.")); });
+          const result = await reader.decodeFromImageElement(img);
+          return ldZxingText(result);
+        } finally {
+          try { reader.reset && reader.reset(); } catch(e) {}
+          try { URL.revokeObjectURL(url); } catch(e) {}
+        }
+      }
+      throw new Error("No live or image barcode scanner is available on this browser. Type the plant number manually.");
+    }
+
     const labelifePrice = p => {
       const raw = +p?.suggestedPrice || +p?.listPrice || +p?.price || +p?.salePrice || 0;
       if (!raw || raw <= 0) return "";
@@ -7018,6 +7083,7 @@
       const streamRef = useRef(null);
       const frameRef = useRef(null);
       const detectorRef = useRef(null);
+      const codeReaderRef = useRef(null);
       const lastScanRef = useRef(0);
       const [manualCode, setManualCode] = useState("");
       const [scanStatus, setScanStatus] = useState("idle");
@@ -7036,7 +7102,10 @@
       const allPlants = safeArray(plants);
       const inStock = allPlants.filter(p => p.status === "In Stock" || p.status === "Needs Photo");
       const needPhotos = inStock.filter(p => !(p.photoUrl || p.photoBase64 || p.imageUrl));
-      const hasNativeScanner = typeof window !== "undefined" && "BarcodeDetector" in window;
+      const hasNativeScanner = ldHasNativeBarcodeScanner();
+      const hasLibraryScanner = ldHasZxingScanner();
+      const canLiveScanner = hasNativeScanner || hasLibraryScanner;
+      const scannerMode = ldScannerModeLabel();
       const detectorFormats = ["code_128", "code_39", "ean_13", "qr_code", "data_matrix"];
       const sprintCount = completed.filter(r => String(r.sessionStartedAt || "") === sessionStartedAt).length;
       const saveCompleted = row => {
@@ -7047,6 +7116,8 @@
       const stopScanner = () => {
         try { if (frameRef.current) cancelAnimationFrame(frameRef.current); } catch(e) {}
         frameRef.current = null;
+        try { if (codeReaderRef.current && codeReaderRef.current.reset) codeReaderRef.current.reset(); } catch(e) {}
+        codeReaderRef.current = null;
         try { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); } catch(e) {}
         streamRef.current = null;
         if (videoRef.current) { try { videoRef.current.pause(); videoRef.current.srcObject = null; } catch(e) {} }
@@ -7106,27 +7177,38 @@
         setScanError("");
         setSprintError("");
         setScanMsg("");
-        if (!hasNativeScanner) {
+        if (!canLiveScanner) {
           setScanStatus("unsupported");
-          setScanError("Live barcode scanning is not supported in this browser. Type the code manually or use the regular scanner fallback.");
+          setScanError("This iPhone/browser does not have a live scanner available yet. Type the plant number manually, or make sure the app has internet so the scanner fallback library can load.");
           return;
         }
         if (!navigator.mediaDevices?.getUserMedia) {
           setScanStatus("unsupported");
-          setScanError("Camera access is not available in this browser.");
+          setScanError("Camera access is not available in this browser. Open the app over HTTPS and allow camera permission.");
           return;
         }
         try {
           stopScanner();
           setScanStatus("scanning");
-          const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
-          streamRef.current = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            await videoRef.current.play();
+          await new Promise(r => setTimeout(r, 80));
+          if (hasNativeScanner) {
+            const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+            streamRef.current = stream;
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              await videoRef.current.play();
+            }
+            setScanMsg("Native scanner active. Point the camera at the Labelife CODE128 barcode.");
+            frameRef.current = requestAnimationFrame(scanLoop);
+            return;
           }
-          setScanMsg("Sprint Mode: scan the plant label barcode, then take the plant photo.");
-          frameRef.current = requestAnimationFrame(scanLoop);
+          if (!videoRef.current) throw new Error("Camera preview is not ready yet. Tap Start Sprint Scan again.");
+          const reader = new window.ZXing.BrowserMultiFormatReader();
+          codeReaderRef.current = reader;
+          setScanMsg("iPhone scanner fallback active. Point the camera at the Labelife barcode.");
+          await reader.decodeFromVideoDevice(null, videoRef.current, (result, err) => {
+            if (result) handleCode(ldZxingText(result), "iPhone scanner fallback");
+          });
         } catch(e) {
           setScanStatus("error");
           setScanError("Camera could not start: " + (e?.message || String(e)));
@@ -7138,16 +7220,13 @@
         if (!file) return;
         setFoundPlant(null); setScanError(""); setScanMsg("Scanning uploaded barcode photo...");
         try {
-          const detector = await ensureDetector();
-          const bitmap = await createImageBitmap(file);
-          const codes = await detector.detect(bitmap);
-          try { bitmap.close && bitmap.close(); } catch(e) {}
-          if (!codes || !codes.length) {
+          const raw = await ldDecodeBarcodeFromImageFile(file, detectorFormats);
+          if (!raw) {
             setScanStatus("notfound");
             setScanError("No barcode found in that photo. Try a closer photo or type the plant number.");
             return;
           }
-          handleCode(codes[0].rawValue || codes[0].displayValue || "", "label photo");
+          handleCode(raw, hasNativeScanner ? "label photo" : "label photo fallback");
         } catch(e) {
           setScanStatus("error");
           setScanError(e?.message || String(e));
@@ -7202,7 +7281,7 @@
           setScanMsg("");
           try { localStorage.setItem("ld_last_photo_sprint", JSON.stringify(row)); } catch(e) {}
           ldEmitNextStep({ icon:"⚡", title:"Sprint photo saved", body:`${savedName} · ${plantNumberNow || codeNow} was saved. Keep scanning the next plant label.`, cta:"Photo Sprint", page:"photosprint", color:C.g600 });
-          if (autoNext && hasNativeScanner) setTimeout(() => startScanner(), 650);
+          if (autoNext && canLiveScanner) setTimeout(() => startScanner(), 650);
         } catch(e) {
           setSprintError("Could not save photo: " + (e?.message || String(e)));
         } finally {
@@ -7236,19 +7315,29 @@
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <KPI label="Need Photos" value={needPhotos.length} sub="current queue" color={needPhotos.length ? C.amber : C.g600} />
           <KPI label="Saved This Sprint" value={sprintCount} sub="this open session" color={sprintCount ? C.g600 : C.tx3} />
-          <KPI label="Native Scanner" value={hasNativeScanner ? "Yes" : "No"} sub="browser support" color={hasNativeScanner ? C.g600 : C.amber} />
+          <KPI label="Scanner" value={scannerMode} sub={canLiveScanner ? "camera ready" : "manual only"} color={canLiveScanner ? C.g600 : C.amber} />
           <KPI label="Auto Next" value={autoNext ? "On" : "Off"} sub="after save" color={autoNext ? C.g600 : C.tx3} />
         </div>
+
+        <Card style={{ marginBottom:14, background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`6px solid ${C.g600}`, padding:"13px 14px" }}>
+          <Row gap={10} center>
+            <div style={{ width:38, height:38, borderRadius:14, background:C.g100, color:C.g800, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>＊</div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>Employee note: this screen is for fast plant photos.</div>
+              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:2 }}>Scan the barcode on the plant label, take the photo, wait for the saved message, then move to the next plant. You do not need to type the plant number or search for the plant.</div>
+            </div>
+          </Row>
+        </Card>
 
         <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:14 }}>
           <div style={{ display:"grid", gap:14 }}>
             <Card style={{ padding:16 }}>
               <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>1. Scan The Label</div><div style={{ color:C.tx3, fontSize:12 }}>Point the camera at the Labelife CODE128 barcode.</div></div>
+                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>1. Scan The Label</div><div style={{ color:C.tx3, fontSize:12 }}>Point the camera at the Labelife CODE128 barcode. iPhone will use the fallback scanner library when native scanning is missing.</div></div>
                 <Row gap={8} wrap><label style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:C.g100, color:C.g800, border:`1px solid ${C.g300}`, borderRadius:999, padding:"11px 13px", fontWeight:900, cursor:"pointer" }}>Scan Label Photo<input type="file" accept="image/*" capture="environment" onChange={e=>scanImageFile(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label></Row>
               </Row>
               <div className="ld-sprint-video-wrap">
-                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-sprint-video" playsInline muted /><div className="ld-sprint-frame" /><div className="ld-sprint-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:48 }}>▌▌</div><div>{hasNativeScanner ? "Tap Start Sprint Scan" : "Live scanner not supported here"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>Manual lookup still works on every device.</div></div>}
+                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-sprint-video" playsInline muted /><div className="ld-sprint-frame" /><div className="ld-sprint-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:48 }}>▌▌</div><div>{canLiveScanner ? "Tap Start Sprint Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{canLiveScanner ? "iPhone uses the fallback scanner when native scan is missing." : "Manual lookup still works on every device."}</div></div>}
               </div>
               {scanMsg && <div style={{ marginTop:10, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:10, color:C.g900, fontSize:12, fontWeight:800 }}>{scanMsg}</div>}
               {scanError && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}55`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>{scanError}</div>}
@@ -7272,6 +7361,7 @@
                 <div style={{ fontFamily:F.display, fontSize:24, color:C.g900, fontWeight:900 }}>{foundPlant.name || "Unnamed Plant"}</div>
                 <div style={{ color:C.tx3, fontSize:12, marginTop:4 }}>{plantNumber} · {foundPlant.potSize || "pot size missing"} · {foundPlant.status || "status missing"}</div>
               </div>
+              <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:"9px 10px", color:C.tx2, fontSize:12, lineHeight:1.4, marginBottom:10 }}><b>Next:</b> take the photo. After it saves, the app clears this plant and gets ready for the next barcode.</div>
               <Row gap={8} wrap>
                 <label className="ld-photo-file-btn">📷 Take Photo<input type="file" accept="image/*" capture="environment" disabled={saving} onChange={e=>saveSprintPhoto(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
                 <label className="ld-photo-file-btn soft">🖼️ Upload<input type="file" accept="image/*" disabled={saving} onChange={e=>saveSprintPhoto(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
@@ -7307,7 +7397,7 @@
         </Card>
         <Row gap={8} wrap style={{ marginTop:14 }}>
           <Btn onClick={()=>setPage("scanlabel")}>Regular Scanner</Btn>
-          <Btn v="soft" onClick={()=>setPage("inv")}>Photo Queue</Btn>
+          <Btn v="soft" onClick={()=>setPage("inv")}>Inventory Queue</Btn>
           <Btn v="outline" onClick={()=>setPage("labelife")}>Labelife CSV</Btn>
         </Row>
         <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 1.1fr .9fr"]{grid-template-columns:1fr!important;}}`}</style>
@@ -7319,6 +7409,7 @@
       const streamRef = useRef(null);
       const frameRef = useRef(null);
       const detectorRef = useRef(null);
+      const codeReaderRef = useRef(null);
       const lastScanRef = useRef(0);
       const [manualCode, setManualCode] = useState("");
       const [scanStatus, setScanStatus] = useState("idle");
@@ -7336,7 +7427,10 @@
       const allPlants = safeArray(plants);
       const inStock = allPlants.filter(p => p.status === "In Stock");
       const noPhoto = inStock.filter(p => !(p.photoUrl || p.photoBase64 || p.imageUrl));
-      const hasNativeScanner = typeof window !== "undefined" && "BarcodeDetector" in window;
+      const hasNativeScanner = ldHasNativeBarcodeScanner();
+      const hasLibraryScanner = ldHasZxingScanner();
+      const canLiveScanner = hasNativeScanner || hasLibraryScanner;
+      const scannerMode = ldScannerModeLabel();
       const detectorFormats = ["code_128", "code_39", "ean_13", "qr_code", "data_matrix"];
       const saveHistory = row => {
         const next = [row, ...history.filter(h => h.code !== row.code)].slice(0, 8);
@@ -7346,6 +7440,8 @@
       const stopScanner = () => {
         try { if (frameRef.current) cancelAnimationFrame(frameRef.current); } catch(e) {}
         frameRef.current = null;
+        try { if (codeReaderRef.current && codeReaderRef.current.reset) codeReaderRef.current.reset(); } catch(e) {}
+        codeReaderRef.current = null;
         try { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); } catch(e) {}
         streamRef.current = null;
         if (videoRef.current) {
@@ -7412,27 +7508,38 @@
         setFoundPlant(null);
         setScanError("");
         setScanMsg("");
-        if (!hasNativeScanner) {
+        if (!canLiveScanner) {
           setScanStatus("unsupported");
-          setScanError("This browser does not support live barcode scanning. Use manual lookup for now, or try Chrome/Android. Next update can add a scanner library fallback.");
+          setScanError("This iPhone/browser does not have a live scanner available yet. Type the plant number manually, or make sure the app has internet so the scanner fallback library can load.");
           return;
         }
         if (!navigator.mediaDevices?.getUserMedia) {
           setScanStatus("unsupported");
-          setScanError("Camera access is not available in this browser.");
+          setScanError("Camera access is not available in this browser. Open the app over HTTPS and allow camera permission.");
           return;
         }
         try {
           stopScanner();
           setScanStatus("scanning");
-          const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
-          streamRef.current = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            await videoRef.current.play();
+          await new Promise(r => setTimeout(r, 80));
+          if (hasNativeScanner) {
+            const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+            streamRef.current = stream;
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              await videoRef.current.play();
+            }
+            setScanMsg("Native scanner active. Point the green box at the Labelife CODE128 barcode.");
+            frameRef.current = requestAnimationFrame(scanLoop);
+            return;
           }
-          setScanMsg("Point the green box at the Labelife CODE128 barcode.");
-          frameRef.current = requestAnimationFrame(scanLoop);
+          if (!videoRef.current) throw new Error("Camera preview is not ready yet. Tap Start Camera again.");
+          const reader = new window.ZXing.BrowserMultiFormatReader();
+          codeReaderRef.current = reader;
+          setScanMsg("iPhone scanner fallback active. Point the camera at the Labelife barcode.");
+          await reader.decodeFromVideoDevice(null, videoRef.current, (result, err) => {
+            if (result) handleCode(ldZxingText(result), "iPhone scanner fallback");
+          });
         } catch(e) {
           setScanStatus("error");
           setScanError("Camera could not start: " + (e?.message || String(e)));
@@ -7542,7 +7649,7 @@
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <KPI label="In Stock" value={inStock.length} sub="scan-ready inventory" color={C.g600} />
           <KPI label="Need Photos" value={noPhoto.length} sub="photo sprint queue" color={noPhoto.length ? C.amber : C.g600} />
-          <KPI label="Native Scanner" value={hasNativeScanner ? "Yes" : "No"} sub="browser support" color={hasNativeScanner ? C.g600 : C.amber} />
+          <KPI label="Scanner" value={scannerMode} sub={canLiveScanner ? "camera ready" : "manual only"} color={canLiveScanner ? C.g600 : C.amber} />
           <KPI label="Last Code" value={lastCode || "—"} sub="barcode read" color={lastCode ? C.blue : C.tx3} />
         </div>
 
@@ -7550,11 +7657,11 @@
           <div style={{ display:"grid", gap:14 }}>
             <Card style={{ padding:16 }}>
               <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Camera Scanner</div><div style={{ color:C.tx3, fontSize:12 }}>Use this after your Labelife barcode labels are printed and on the pots.</div></div>
+                <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:900 }}>Camera Scanner</div><div style={{ color:C.tx3, fontSize:12 }}>Use this after your Labelife barcode labels are printed. iPhone uses the scanner library fallback when native scanning is missing.</div></div>
                 <Row gap={8} wrap>{scanStatus === "scanning" ? <Btn v="danger" onClick={stopScanner}>Stop Camera</Btn> : <Btn onClick={startScanner}>Start Camera</Btn>}</Row>
               </Row>
               <div className="ld-scan-video-wrap">
-                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-scan-video" playsInline muted /><div className="ld-scan-frame" /><div className="ld-scan-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:42 }}>▌▌</div><div>{hasNativeScanner ? "Tap Start Camera Scan" : "Live scanner not supported in this browser"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>Manual lookup still works on every device.</div></div>}
+                {scanStatus === "scanning" ? <><video ref={videoRef} className="ld-scan-video" playsInline muted /><div className="ld-scan-frame" /><div className="ld-scan-line" /></> : <div style={{ color:"#97d33e", textAlign:"center", padding:28, fontWeight:900 }}><div style={{ fontSize:42 }}>▌▌</div><div>{canLiveScanner ? "Tap Start Camera Scan" : "Live scanner unavailable"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:12, marginTop:6 }}>{canLiveScanner ? "iPhone uses the fallback scanner when native scan is missing." : "Manual lookup still works on every device."}</div></div>}
               </div>
               {scanMsg && <div style={{ marginTop:10, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:10, color:C.g900, fontSize:12, fontWeight:800 }}>{scanMsg}</div>}
               {scanError && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}55`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>{scanError}</div>}
@@ -8983,7 +9090,7 @@
       if (user?.role === "employee") {
         return <div className="ld-page" style={{ padding:"16px 14px 112px", background:C.bg, minHeight:"100vh", maxWidth:760, margin:"0 auto" }}>
           <div style={{ background:"#000", color:"#fff", borderRadius:26, padding:"20px 18px", border:"2px solid #97d33e", marginBottom:14 }}><div style={{ fontSize:36 }}>🧠</div><div style={{ fontFamily:F.display, fontSize:28, color:"#97d33e", fontWeight:900 }}>Buy Smart</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)" }}>Owner and manager buying decisions are protected.</div></div>
-          <Card><div style={{ fontWeight:900, color:C.g900, marginBottom:6 }}>Employee view</div><div style={{ color:C.tx3, fontSize:13 }}>You can help by keeping photos, labels, and show prep clean. Cost, profit, nursery scores, and buying decisions stay hidden.</div><Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={()=>setPage("inv")}>Photo Queue</Btn><Btn v="soft" onClick={()=>setPage("labels")}>Labels</Btn><Btn v="outline" onClick={()=>setPage("showbuilder")}>Build Show</Btn></Row></Card>
+          <Card><div style={{ fontWeight:900, color:C.g900, marginBottom:6 }}>Employee view</div><div style={{ color:C.tx3, fontSize:13 }}>You can help by keeping photos, labels, and show prep clean. Cost, profit, nursery scores, and buying decisions stay hidden.</div><Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={()=>setPage("photosprint")}>Photo Sprint</Btn><Btn v="soft" onClick={()=>setPage("labels")}>Labels</Btn><Btn v="outline" onClick={()=>setPage("showbuilder")}>Build Show</Btn></Row></Card>
         </div>;
       }
 
@@ -9700,8 +9807,8 @@
           <SettingsCard icon="📊" title="Phase 2 Step 10: Data Visualization" body="Lightweight charts for revenue, profit, plant performance, Buy Smart, cash flow, and goal progress without adding a new library." page="datacharts" button="Open Charts" color={C.gold} />
           <SettingsCard icon="♿" title="Phase 2 Step 11: Accessibility Pass" body="Improves contrast, focus rings, image alt text, ARIA labels, reduced motion support, and includes a quick accessibility scan page." page="accessibility" button="Open Check" color={C.g600} />
           <SettingsCard icon="✅" title="Barcode QA + Backfill" body="Checks Labelife barcode readiness, repairs barcodeValue/barcodeType from the existing plant number, and exports a barcode problem report." page="barcodeqa" button="Open QA" color={C.gold} />
-          <SettingsCard icon="📷" title="Scan Label + Add Photo" body="Scan a Labelife CODE128 barcode, confirm the plant, then take or upload a photo without typing the plant number." page="scanlabel" button="Open Scanner" color={C.blue} />
-          <SettingsCard icon="⚡" title="Fast Photo Sprint" body="Scan label, take or upload the plant photo, save it, then jump right to the next plant for high-volume photo days." page="photosprint" button="Open Sprint" color={C.g600} />
+          <SettingsCard icon="📷" title="Scan Label + Add Photo" body="Scan a Labelife CODE128 barcode, confirm the plant, then take/upload a photo. Includes iPhone scanner fallback." page="scanlabel" button="Open Scanner" color={C.blue} />
+          <SettingsCard icon="⚡" title="Fast Photo Sprint" body="Scan label, take/upload photo, save it, then jump to the next plant. Includes iPhone scanner fallback." page="photosprint" button="Open Sprint" color={C.g600} />
           <SettingsCard icon="🌙" title="Phase 2 Step 12: Theme Mode" body="Adds a light/dark mode toggle saved on this device using Leaf Diary color tokens, without changing Supabase or business data." page="darkmode" button="Open Theme" color={C.purple} />
           <SettingsCard icon="🧪" title="Phase 2 Final QA" body="One checklist for all 12 Phase 2 upgrades plus regression tests before uploading the HTML file live." page="phase2qa" button="Open QA" color={C.blue} />
           <SettingsCard icon="🎓" title="Phase 2 Step 2: Onboarding Checklist" body="First-time owner and employee checklist now appears on the home screen and stores progress locally on each device." page="onboarding" button="Open Checklist" color="#97d33e" />
@@ -9879,7 +9986,7 @@
       const Task = (id, icon, title, body, page, count, priority = "normal") => ({ id, icon, title, body, page, count, priority });
       const tasks = [
         Task("clockin", "⏱️", clockedIn ? "You are clocked in" : "Clock in first", clockedIn ? "Timecard is active. Clock out when work is done." : "Start with the timecard before photos, labels, packing, or show prep.", "timecard", clockedIn ? "Active" : "Start", clockedIn ? "good" : "urgent"),
-        Task("photos", "📷", "Take plant photos", `${noPhoto.length} in-stock plant(s) need photos before they are easy to sell in shows.`, "inv", noPhoto.length, noPhoto.length ? "high" : "good"),
+        Task("photos", "⚡", "Fast Photo Sprint", `${noPhoto.length} in-stock plant(s) need photos. Scan label, take photo, save, next plant.`, "photosprint", noPhoto.length, noPhoto.length ? "high" : "good"),
         Task("labels", "🏷️", "Print needed labels", `${noLabel.length} plant(s) are missing printed labels. Labels keep show prep and imports cleaner.`, "labels", noLabel.length, noLabel.length ? "high" : "good"),
         Task("prices", "💲", "Flag missing prices", `${noPrice.length} plant(s) need a price. Employees should flag these for owner/manager if they cannot edit prices.`, "inv", noPrice.length, noPrice.length ? "normal" : "good"),
         Task("showprep", "🎪", "Pull show-ready plants", `${readyForShow.length} plant(s) look ready for show prep. Use this queue when the owner or manager says to stage a show.`, "shows_ws", readyForShow.length, readyForShow.length ? "normal" : "good"),
@@ -9923,7 +10030,7 @@
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
-          <KPI label="Photos Needed" value={noPhoto.length} sub="plants blocked from selling" color={noPhoto.length ? C.blue : C.g600} />
+          <KPI label="Photos Needed" value={noPhoto.length} sub="tap to sprint" color={noPhoto.length ? C.blue : C.g600} onClick={()=>setPage("photosprint")} />
           <KPI label="Labels Needed" value={noLabel.length} sub="print before staging" color={noLabel.length ? C.gold : C.g600} />
           <KPI label="Show Ready" value={readyForShow.length} sub="photo + price exists" color={C.g600} />
           <KPI label="Checklist" value={`${doneCount}/${sortedTasks.length}`} sub="marked done on device" color="#fb6392" />
@@ -9958,7 +10065,7 @@
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:14 }}>
-          <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>📷 Photo Queue</div><Btn sz="sm" v="soft" onClick={()=>setPage("inv")}>Open Inventory</Btn></Row>{noPhoto.length ? miniPlants(noPhoto, "photo") : <p style={{ color:C.tx3, fontSize:12 }}>No missing-photo plants found.</p>}</Card>
+          <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>⚡ Photo Sprint Queue</div><Row gap={7} wrap><Btn sz="sm" onClick={()=>setPage("photosprint")}>Open Sprint</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("inv")}>Inventory</Btn></Row></Row><PhotoSprintTip setPage={setPage} count={noPhoto.length} compact={true} title="Employee photo instructions" />{noPhoto.length ? miniPlants(noPhoto, "photo") : <p style={{ color:C.tx3, fontSize:12 }}>No missing-photo plants found.</p>}</Card>
           <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>🏷️ Label Queue</div><Btn sz="sm" v="soft" onClick={()=>setPage("labels")}>Open Labels</Btn></Row>{noLabel.length ? miniPlants(noLabel, "label") : <p style={{ color:C.tx3, fontSize:12 }}>No missing-label plants found.</p>}</Card>
           <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>🎪 Show Prep</div><Btn sz="sm" v="soft" onClick={()=>setPage("shows_ws")}>Open Shows</Btn></Row>{readyForShow.length ? miniPlants(readyForShow, "show") : <p style={{ color:C.tx3, fontSize:12 }}>Add photos and prices to create a show-ready queue.</p>}</Card>
           <Card style={{ padding:18 }}><Row between center style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>⚠️ Needs Attention</div><Btn sz="sm" v="soft" onClick={()=>setPage("workflowcoach")}>Open Coach</Btn></Row>{noPrice.length ? miniPlants(noPrice, "price") : aging45.length ? miniPlants(aging45, "aging") : <p style={{ color:C.tx3, fontSize:12 }}>No missing-price or aging attention queue found.</p>}</Card>
@@ -9996,7 +10103,7 @@
       const mkTask = (id, icon, title, body, page, button, level="normal") => ({ id, icon, title, body, page, button, level });
       const tasks = [];
       if (activeClockIns.length) tasks.push(mkTask("clocked", "⏱️", "Team is clocked in", `${activeClockIns.length} team timecard(s) are active today. Check timecards before the day ends.`, "timecard", "Timecards", "info"));
-      if (noPhoto.length) tasks.push(mkTask("photos", "📸", "Assign photo queue", `${noPhoto.length} in-stock plant(s) need photos before they are show-ready. Start with high-value and aging plants.`, "inv", "Photo Queue", "high"));
+      if (noPhoto.length) tasks.push(mkTask("photos", "⚡", "Assign Fast Photo Sprint", `${noPhoto.length} in-stock plant(s) need photos. Have staff scan labels and take photos without typing.`, "photosprint", "Photo Sprint", "high"));
       if (noLabel.length) tasks.push(mkTask("labels", "🏷️", "Print labels", `${noLabel.length} plant(s) still need labels. Print these before staging a show.`, "labels", "Labels", "high"));
       if (noPrice.length) tasks.push(mkTask("prices", "💲", "Flag missing prices", `${noPrice.length} plant(s) need a price. Managers can flag these for owner review or set prices if allowed.`, "inv", "Review", "warning"));
       if (showReady.length >= 20) tasks.push(mkTask("showprep", "🎪", "Pull plants for show", `${showReady.length} plant(s) are photo + label + price ready. Build or pull the next live show.`, "showbuilder", "Build Show", "info"));
@@ -10033,7 +10140,7 @@
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
-          <KPI label="Need Photos" value={noPhoto.length} sub="before show export" color={noPhoto.length ? C.blue : C.g600} onClick={()=>setPage("inv")} />
+          <KPI label="Need Photos" value={noPhoto.length} sub="open photo sprint" color={noPhoto.length ? C.blue : C.g600} onClick={()=>setPage("photosprint")} />
           <KPI label="Need Labels" value={noLabel.length} sub="print before staging" color={noLabel.length ? C.amber : C.g600} onClick={()=>setPage("labels")} />
           <KPI label="Show Ready" value={showReady.length} sub="photo + label + price" color={showReady.length >= 40 ? C.g600 : C.gold} onClick={()=>setPage("showbuilder")} />
           <KPI label="Orders Review" value={orders.length} sub={`${recentSold.length} sold in 7 days`} color={orders.length ? C.blue : C.g600} onClick={()=>setPage("orders_ws")} />
@@ -10068,7 +10175,7 @@
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:14 }}>
-          <PlantMiniList title="Photo Queue" icon="📸" list={noPhoto} page="inv" color={C.blue} empty="No missing-photo queue." />
+          <PlantMiniList title="Photo Sprint Queue" icon="⚡" list={noPhoto} page="photosprint" color={C.blue} empty="No missing-photo queue." />
           <PlantMiniList title="Label Queue" icon="🏷️" list={noLabel} page="labels" color={C.amber} empty="No missing-label queue." />
           <PlantMiniList title="Aging / Review" icon="⏳" list={aging45} page="discounts" color={C.gold} empty="No 45+ day review queue." />
         </div>
@@ -10076,7 +10183,7 @@
         <Card style={{ padding:18 }}>
           <div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:900, marginBottom:12 }}>Quick Operations</div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:9 }}>
-            {[["📸 Inventory", "inv"], ["🏷️ Labels", "labels"], ["🎪 Shows", "shows_ws"], ["📥 Import Sales", "showimport"], ["📦 Orders", "orders_ws"], ["🧾 Receipts", "receipts"], ["⏱️ Timecards", "timecard"], ["🧩 Coach", "workflowcoach"]].map(([label,page]) => <button key={page} onClick={()=>setPage(page)} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:14, padding:"13px 10px", fontWeight:900, fontFamily:F.body, cursor:"pointer", color:C.g900 }}>{label}</button>)}
+            {[["⚡ Photo Sprint", "photosprint"], ["🌿 Inventory", "inv"], ["🏷️ Labels", "labels"], ["🎪 Shows", "shows_ws"], ["📥 Import Sales", "showimport"], ["📦 Orders", "orders_ws"], ["🧾 Receipts", "receipts"], ["⏱️ Timecards", "timecard"], ["🧩 Coach", "workflowcoach"]].map(([label,page]) => <button key={page} onClick={()=>setPage(page)} style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:14, padding:"13px 10px", fontWeight:900, fontFamily:F.body, cursor:"pointer", color:C.g900 }}>{label}</button>)}
           </div>
         </Card>
         <div style={{ marginTop:14, padding:"11px 13px", borderRadius:14, background:C.g50, border:`1px solid ${C.g200}`, color:C.tx2, fontSize:12, lineHeight:1.4 }}>
@@ -10223,7 +10330,7 @@
           <Card style={{ padding:18 }}>
             <div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>👥 Delegate Today</div>
             {[
-              ["📸 Photos", noPhoto.length, "employeeboard"], ["🏷️ Labels", noLabel.length, "labels"], ["🎪 Show Pull", showReady.length, "shows_ws"], ["🧾 Receipts", receiptsReview.length, "receipts"]
+              ["⚡ Photo Sprint", noPhoto.length, "photosprint"], ["🏷️ Labels", noLabel.length, "labels"], ["🎪 Show Pull", showReady.length, "shows_ws"], ["🧾 Receipts", receiptsReview.length, "receipts"]
             ].map(([label,count,page])=><button key={label} onClick={()=>setPage(page)} style={{ width:"100%", background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:"10px 11px", marginBottom:8, textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><Row between center><span style={{ fontWeight:900, color:C.g900 }}>{label}</span><Tag text={String(count)} color={count ? C.amber : C.g600} sm /></Row></button>)}
           </Card>
           <Card style={{ padding:18 }}>
@@ -10235,7 +10342,7 @@
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:14 }}>
-          <MiniQueue title="Photo Queue" icon="📸" items={noPhoto} page="employeeboard" color={C.blue} empty="No missing-photo queue right now." />
+          <MiniQueue title="Photo Sprint Queue" icon="⚡" items={noPhoto} page="photosprint" color={C.blue} empty="No missing-photo queue right now." />
           <MiniQueue title="Aging Queue" icon="⏳" items={aging45} page="discounts" color={C.amber} empty="No aging plants over 45 days found." />
         </div>
         <style>{`@media(max-width:760px){.ld-owner-board div[style*="grid-template-columns: repeat(4,1fr)"],.ld-owner-board div[style*="grid-template-columns: minmax(0,1.25fr) minmax(0,.85fr)"],.ld-owner-board div[style*="grid-template-columns: repeat(3,1fr)"],.ld-owner-board div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important}.ld-owner-board button{min-height:44px}}`}</style>
@@ -10279,7 +10386,7 @@
       const ownerTasks = [];
       if (openBills7.length) ownerTasks.push(task("bills", "📅", "Check bills due this week", `${openBills7.length} bill(s) are due within 7 days. Check cash before buying plants.`, "money_ws", "urgent"));
       if (orders.length) ownerTasks.push(task("orders", "📦", "Review sold orders", `${orders.length} sold order group(s) need review, packing status, paperwork check, or buyer cleanup.`, "orders_ws", "urgent"));
-      if (noPhoto.length) ownerTasks.push(task("photos", "📸", "Clear the photo blockers", `${noPhoto.length} in-stock plant(s) need photos before they are show-ready.`, "inv", "high"));
+      if (noPhoto.length) ownerTasks.push(task("photos", "⚡", "Run Fast Photo Sprint", `${noPhoto.length} in-stock plant(s) need photos before they are show-ready.`, "photosprint", "high"));
       if (noPrice.length) ownerTasks.push(task("prices", "💲", "Set missing prices", `${noPrice.length} plant(s) have no price. They cannot be used correctly in show building or profit reports.`, "inv", "high"));
       if (noLabel.length) ownerTasks.push(task("labels", "🏷️", "Print missing labels", `${noLabel.length} plant(s) need labels so the show/import flow stays clean.`, "labels", "normal"));
       if (showReady.length >= 25) ownerTasks.push(task("show", "🎪", "Build tonight's show", `${showReady.length} plant(s) look show-ready. Build a pull list before going live.`, "shows_ws", "high"));
@@ -10287,7 +10394,7 @@
       if (receiptsReview.length) ownerTasks.push(task("receipts", "🧾", "Clean up receipts", `${receiptsReview.length} receipt(s) need category review for clean money/tax reports.`, "receipts", "normal"));
       ownerTasks.push(task("buy", "💡", safeSpend > 100 ? "Use Buy Smart before buying" : "Hold buying unless needed", safeSpend > 100 ? `Estimated safe buy budget is ${$(safeSpend)}. Check what to buy and what to stop buying first.` : `Safe spend is only ${$(safeSpend)} after bills/payroll reserve.`, "buy_ws", safeSpend > 100 ? "normal" : "high"));
       const managerTasks = [
-        noPhoto.length ? task("photos", "📸", "Take plant photos", `${noPhoto.length} plant(s) need photos. Start with the highest value plants first.`, "inv", "high") : null,
+        noPhoto.length ? task("photos", "⚡", "Fast Photo Sprint", `${noPhoto.length} plant(s) need photos. Scan label, take photo, save, next plant.`, "photosprint", "high") : null,
         noLabel.length ? task("labels", "🏷️", "Print labels", `${noLabel.length} plant(s) still need labels.`, "labels", "normal") : null,
         showReady.length ? task("show", "🎪", "Prepare show list", `${showReady.length} plant(s) are ready for show planning.`, "shows_ws", "high") : null,
         orders.length ? task("orders", "📦", "Review sold plants", `${orders.length} sold order group(s) need review.`, "orders_ws", "normal") : null,
@@ -10295,7 +10402,7 @@
       ].filter(Boolean);
       const employeeTasks = [
         task("clock", "⏱️", clockedIn ? "You are clocked in" : "Clock in first", clockedIn ? "You can start photo, label, receipt, or show prep tasks." : "Start your shift before doing plant work.", "timecard", clockedIn ? "normal" : "urgent"),
-        noPhoto.length ? task("photos", "📸", "Take photos from the queue", `${noPhoto.length} plant(s) need photos. Open Inventory and use the Need Photos filter.`, "inv", "high") : null,
+        noPhoto.length ? task("photos", "⚡", "Take photos with barcode scanner", `${noPhoto.length} plant(s) need photos. Open Fast Photo Sprint and scan each label.`, "photosprint", "high") : null,
         noLabel.length ? task("labels", "🏷️", "Print labels", `${noLabel.length} plant label(s) need printing.`, "labels", "normal") : null,
         showReady.length ? task("pull", "🎪", "Help pull show plants", `${showReady.length} plant(s) are show-ready. Ask owner/manager which show list to pull.`, "liveshow", "normal") : null,
         receiptsReview.length ? task("receipt", "🧾", "Scan receipts if asked", "Use Receipt Scanner for gas, supplies, packaging, soil, or nursery receipts.", "receipts", "normal") : null,
@@ -10535,7 +10642,7 @@
       const score = Math.max(0, 100 - (duplicateGroups.length * 12) - Math.min(25, missingPrice.length) - Math.min(25, missingPhoto.length) - Math.min(15, receiptsReview.length) - (ownerCount ? 0 : 25));
       const issues = [
         { icon:"🧬", title:"Duplicate plant numbers", count:duplicateGroups.length, body:"Duplicate plant IDs can break show imports, labels, and sold matching.", page:"cleanup", color:duplicateGroups.length ? C.red : C.g600, action:"Repair" },
-        { icon:"📸", title:"Missing photos", count:missingPhoto.length, body:"Plants without photos are harder to add to shows and social posts.", page:"inv", color:missingPhoto.length ? C.amber : C.g600, action:"Photo Queue" },
+        { icon:"⚡", title:"Missing photos", count:missingPhoto.length, body:"Use Fast Photo Sprint so employees scan the label and take photos without typing.", page:"photosprint", color:missingPhoto.length ? C.amber : C.g600, action:"Photo Sprint" },
         { icon:"💵", title:"Missing prices", count:missingPrice.length, body:"Plants with no price cannot be forecasted correctly for shows or profit.", page:"inv", color:missingPrice.length ? C.amber : C.g600, action:"Price Queue" },
         { icon:"🏷️", title:"Missing labels", count:missingLabel.length, body:"Labels keep plant numbers clear when pulling shows and packing sales.", page:"labels", color:missingLabel.length ? C.blue : C.g600, action:"Labels" },
         { icon:"⏳", title:"Aging 60+ days", count:aging60.length, body:"Older plants may need price review, clearance, or stop-buying checks.", page:"buy_ws", color:aging60.length ? C.amber : C.g600, action:"Review" },
@@ -11863,7 +11970,7 @@
       const profit30 = sold30.reduce((s,p)=>s+trueProfit(p),0);
       const dashboardCards = [
         ["In Stock", inStock.length, "🌿", "inv"],
-        ["Missing Photos", noPhoto.length, "📸", "inv"],
+        ["Missing Photos", noPhoto.length, "⚡", "photosprint"],
         ["Aging 45+ Days", aging.length, "⏳", "discounts"],
         ["30-Day Sales", canMoney ? $(revenue30) : sold30.length, "💵", "reports"]
       ];
@@ -12095,7 +12202,7 @@ function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, rec
       const actions = [];
       if (cashGap > 0) actions.push(phase6DecisionCard("Protect cash first", `Bills/payroll due soon are ${phase6Money(cashNeeded)}. You are short by about ${phase6Money(cashGap)} based on bank balance saved in settings.`, "cashflow", "critical", phase6Money(cashGap)));
       if (duplicateGroups.length) actions.push(phase6DecisionCard("Fix duplicate plant IDs before exporting", `${duplicateGroups.length} duplicate Plant ID group(s) can break labels, show exports, and sold matching.`, "cleanup", "critical", duplicateGroups.length));
-      if (noPhoto.length) actions.push(phase6DecisionCard("Photo sprint", `Take photos for ${Math.min(25,noPhoto.length)} plants first. Missing photos block show-ready inventory and social content.`, "inv", "warning", noPhoto.length));
+      if (noPhoto.length) actions.push(phase6DecisionCard("Photo sprint", `Take photos for ${Math.min(25,noPhoto.length)} plants first. Missing photos block show-ready inventory and social content.`, "photosprint", "warning", noPhoto.length));
       if (noPrice.length) actions.push(phase6DecisionCard("Price missing inventory", `${noPrice.length} in-stock plant(s) have no price. They should not go into a show until priced.`, "inv", "warning", noPrice.length));
       if (aging60.length) actions.push(phase6DecisionCard("Move aging inventory", `Pull the oldest ${Math.min(12, aging60.length)} plant(s) into the next show or clearance batch.`, "discounts", "warning", aging60.length));
       actions.push(phase6DecisionCard("Build the next show around premium + clearance", `Use ${premium.length ? premium[0].name : "your strongest premium plant"} as a hook, then mix in aging plants. Rough gross opportunity: ${phase6Money(showRevenuePotential)}.`, "showbuilder", "success", phase6Money(showRevenuePotential)));
@@ -12112,7 +12219,7 @@ function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, rec
       if (premium.length) opportunities.push(phase6DecisionCard("Use premium anchors", `${premium.slice(0,3).map(p=>`${p.plantId||""} ${p.name}`).join(" • ")} can anchor a higher-ticket show.`, "showbuilder", "success", premium.length));
       opportunities.push(phase6DecisionCard("Turn today's tasks into employee work", "Give employees photos, labels, and aging-pull tasks. Owner should stay on buying, pricing, and cash decisions.", "aihub", "info", "Delegate"));
       const employeeTasks = [
-        phase6DecisionCard("Take plant photos", `${Math.min(noPhoto.length, 25)} plant photo(s) should be done first.`, "inv", noPhoto.length ? "warning" : "success", noPhoto.length),
+        phase6DecisionCard("Take plant photos", `${Math.min(noPhoto.length, 25)} plant photo(s) should be done first.`, "photosprint", noPhoto.length ? "warning" : "success", noPhoto.length),
         phase6DecisionCard("Print missing labels", `${inStock.filter(p=>!p.labelPrinted).length} label(s) need attention.`, "labels", "info", inStock.filter(p=>!p.labelPrinted).length),
         phase6DecisionCard("Pull old show candidates", `${Math.min(aging60.length, 12)} aging plant(s) should be staged for owner review.`, "discounts", aging60.length ? "warning" : "success", aging60.length)
       ];
@@ -14630,7 +14737,7 @@ Cancel if you want to save money.`);
       const warnings = [];
       const opportunities = [];
       const employeeTasks = [];
-      if (noPhoto.length) { tasks.push({ title:"Photo sprint", body:`Take photos for ${Math.min(25,noPhoto.length)} plants first. ${noPhoto.length} plants still need photos.`, page:"inv", severity:"warning", value:noPhoto.length }); employeeTasks.push({ title:"Take plant photos", body:`Photograph the first ${Math.min(25,noPhoto.length)} no-photo plants before show building.`, page:"inv", severity:"warning", value:noPhoto.length }); }
+      if (noPhoto.length) { tasks.push({ title:"Photo sprint", body:`Take photos for ${Math.min(25,noPhoto.length)} plants first. ${noPhoto.length} plants still need photos.`, page:"photosprint", severity:"warning", value:noPhoto.length }); employeeTasks.push({ title:"Take plant photos", body:`Photograph the first ${Math.min(25,noPhoto.length)} no-photo plants before show building.`, page:"photosprint", severity:"warning", value:noPhoto.length }); }
       if (aging60.length) { tasks.push({ title:"Move 60+ day plants", body:`Pull the oldest ${Math.min(12,aging60.length)} plants into clearance or next live show.`, page:"discounts", severity:"warning", value:aging60.length }); employeeTasks.push({ title:"Stage old show candidates", body:`Pull ${Math.min(12,aging60.length)} aging plants for owner review.`, page:"discounts", severity:"warning", value:aging60.length }); }
       if (noPrice.length) warnings.push({ title:"Missing prices before show", body:`${noPrice.length} in-stock plants are missing price data. Fix before exporting.`, page:"inv", severity:"warning", value:noPrice.length });
       if (needsLabel.length) employeeTasks.push({ title:"Print missing labels", body:`${needsLabel.length} plant label(s) need attention.`, page:"labels", severity:"info", value:needsLabel.length });
