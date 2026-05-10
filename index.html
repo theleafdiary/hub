@@ -17536,6 +17536,16 @@ Answer with a practical action plan for Leaf Diary.`;
         try { await navigator.clipboard.writeText(text); setCopied(label); setTimeout(()=>setCopied(""), 1800); }
         catch(e) { window.prompt("Copy this text", text); }
       };
+      const openLocalVersionTest = () => {
+        try { window.open((draft.baseUrl || "http://127.0.0.1:11434").replace(/\/+$/, "") + "/api/version", "_blank", "noopener,noreferrer"); }
+        catch(e) { setNote("Open this in Chrome on the MacBook: " + (draft.baseUrl || "http://127.0.0.1:11434") + "/api/version"); }
+      };
+      const useGatewayForDesktopAi = () => {
+        const gw = phase56GatewaySummary();
+        if (!gw.configured || !gw.endpointUrl) { setNote("Mobile Gateway is not configured yet. Open Mobile Gateway and use the Leaf Diary preset first."); return; }
+        const next = phase3SaveConfig({ ...draft, enabled:true, connectionMode:"proxy", proxyUrl:gw.endpointUrl, primaryModel:gw.model || draft.primaryModel || "gpt-oss:20b", preferProxyOnMobile:true });
+        setDraft(next); setConfig && setConfig(next); setNote("Browser-safe Gateway/Proxy selected for this MacBook. Use this if direct localhost is blocked by the browser.");
+      };
       const saveDraft = () => {
         const saved = phase3SaveConfig(draft);
         setDraft(saved);
@@ -17574,23 +17584,42 @@ Answer with a practical action plan for Leaf Diary.`;
       const testOne = async (base) => {
         const row = { base, versionOk:false, tagsOk:false, generateOk:false, version:null, models:[], answer:"", error:"", ms:0 };
         const started = Date.now();
+        const noCorsProbe = async (path) => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5500);
+          try {
+            const res = await fetch(base + path, { method:"GET", mode:"no-cors", credentials:"omit", cache:"no-store", signal:controller.signal });
+            return !!res;
+          } catch(e) { return false; }
+          finally { clearTimeout(timeout); }
+        };
         const fetchJson = async (path, opts = {}) => {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), Math.max(8000, Math.min(+draft.timeoutMs || 30000, 45000)));
           try {
-            const res = await fetch(base + path, { method:opts.method || "GET", body:opts.body, mode:"cors", credentials:"omit", cache:"no-store", signal:controller.signal, headers:{ "Accept":"application/json", ...(opts.body ? { "Content-Type":"application/json" } : {}) } });
+            const res = await fetch(base + path, { method:opts.method || "GET", body:opts.body, mode:"cors", credentials:"omit", cache:"no-store", signal:controller.signal, referrerPolicy:"no-referrer", headers:{ "Accept":"application/json", ...(opts.body ? { "Content-Type":"application/json" } : {}) } });
             const text = await res.text();
             let json = null;
             try { json = text ? JSON.parse(text) : null; } catch(e) { json = { raw:text }; }
             if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 180)}`);
             return json;
+          } catch(e) {
+            if (!opts.body && path === "/api/version") {
+              const reachedOpaque = await noCorsProbe(path);
+              if (reachedOpaque) {
+                const err = new Error("Browser can reach Ollama, but JavaScript cannot read the response. This is usually CORS / private-network / HTTPS-to-localhost blocking. Terminal and address-bar tests can pass while app fetch is blocked.");
+                err.name = "OllamaBrowserCorsBlocked";
+                throw err;
+              }
+            }
+            throw e;
           } finally { clearTimeout(timeout); }
         };
         try {
           const v = await fetchJson("/api/version");
           row.versionOk = true;
           row.version = v?.version || v?.raw || "responded";
-        } catch(e) { row.error = phase3FriendlyError(e); }
+        } catch(e) { row.browserBlocked = e?.name === "OllamaBrowserCorsBlocked"; row.error = row.browserBlocked ? e.message : phase3FriendlyError(e); }
         try {
           const t = await fetchJson("/api/tags");
           row.tagsOk = true;
@@ -17707,9 +17736,19 @@ Answer with a practical action plan for Leaf Diary.`;
         </Card>
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
-          <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Connection Results</div>{results.length ? <div style={{ display:"grid", gap:8 }}>{results.map((r,i)=><div key={i} style={{ background:C.cardAlt, border:`1px solid ${r.versionOk && r.tagsOk ? C.g300 : C.red + "55"}`, borderRadius:14, padding:12 }}><Row between center gap={8}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{r.base}</div><Tag text={r.versionOk && r.tagsOk ? "Connected" : r.versionOk ? "Partial" : "Failed"} color={r.versionOk && r.tagsOk ? C.g600 : r.versionOk ? C.amber : C.red} sm /></Row><div style={{ color:C.tx3, fontSize:12, marginTop:6, lineHeight:1.45 }}>Version: {r.version || "not reached"} · Models: {r.models?.length || 0} · Generate: {r.generateOk ? "passed" : r.models?.length ? "failed" : "not tested"} · {r.ms}ms</div>{r.answer && <div style={{ color:C.g700, fontSize:12, marginTop:6, lineHeight:1.35, fontWeight:800 }}>{r.answer}</div>}{r.error && <div style={{ color:C.red, fontSize:12, marginTop:6, lineHeight:1.35 }}>{r.error}</div>}</div>)}</div> : <div style={{ color:C.tx3, fontSize:13 }}>Click Run Doctor to test every configured Ollama URL.</div>}</Card>
+          <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Connection Results</div>{results.length ? <div style={{ display:"grid", gap:8 }}>{results.map((r,i)=><div key={i} style={{ background:C.cardAlt, border:`1px solid ${r.versionOk && r.tagsOk ? C.g300 : C.red + "55"}`, borderRadius:14, padding:12 }}><Row between center gap={8}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{r.base}</div><Tag text={r.versionOk && r.tagsOk ? "Connected" : r.versionOk ? "Partial" : "Failed"} color={r.versionOk && r.tagsOk ? C.g600 : r.versionOk ? C.amber : C.red} sm /></Row><div style={{ color:C.tx3, fontSize:12, marginTop:6, lineHeight:1.45 }}>Version: {r.version || "not reached"} · Models: {r.models?.length || 0} · Generate: {r.generateOk ? "passed" : r.models?.length ? "failed" : "not tested"} · {r.ms}ms</div>{r.browserBlocked && <div style={{ color:C.amber, fontSize:12, marginTop:6, lineHeight:1.35, fontWeight:900 }}>Browser reached Ollama but the app could not read it. Use the CORS restart fix or select Gateway/Proxy for browser-safe AI.</div>}{r.answer && <div style={{ color:C.g700, fontSize:12, marginTop:6, lineHeight:1.35, fontWeight:800 }}>{r.answer}</div>}{r.error && <div style={{ color:r.browserBlocked ? C.amber : C.red, fontSize:12, marginTop:6, lineHeight:1.35 }}>{r.error}</div>}</div>)}</div> : <div style={{ color:C.tx3, fontSize:13 }}>Click Run Doctor to test every configured Ollama URL.</div>}</Card>
           <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Installed Models</div>{modelNames.length ? modelNames.map(name=><Row key={name} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><span style={{ fontWeight:900, fontSize:12, color:C.tx1 }}>{name}</span><button onClick={()=>setDraft(p=>({...p, primaryModel:name}))} style={{ background:C.g100, border:`1px solid ${C.g300}`, color:C.g800, borderRadius:999, padding:"7px 10px", fontWeight:900, cursor:"pointer" }}>Use</button></Row>) : <div style={{ color:C.tx3, fontSize:13 }}>No models found yet. On the MacBook, run <b>ollama list</b> or <b>ollama pull llama3.1:8b</b>.</div>}</Card>
         </div>
+
+        <Card style={{ marginBottom:14, background:C.blueBg, borderLeft:`5px solid ${C.blue}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900 }}>🌉 Browser Bridge Options</div>
+              <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5, marginTop:4 }}>Your Terminal and Chrome address bar can reach Ollama. If this app still fails, the browser is blocking JavaScript fetch to localhost. Use the direct URL button to verify, then either restart Ollama with CORS or use the saved Gateway/Proxy path on this MacBook too.</div>
+            </div>
+            <Row gap={8} wrap><Btn sz="sm" v="soft" onClick={openLocalVersionTest}>Open Local Version URL</Btn><Btn sz="sm" onClick={useGatewayForDesktopAi}>Use Gateway/Proxy For Mac</Btn></Row>
+          </Row>
+        </Card>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:14 }}>
           <QuickCard icon="💻" title="MacBook / Same Computer" color={C.g600} body="Use Desktop Preset. Leaf Diary in Chrome and Ollama must run on the same MacBook. URL should be http://127.0.0.1:11434." />
