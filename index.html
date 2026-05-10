@@ -1414,6 +1414,90 @@
       }
     }
 
+
+    /* UPDATE 53 — Exact Mobile Action + Rules Layout Repair
+       Fixes Inventory Action Center, Labels action buttons, and Receipt Reader rules on phones. */
+    @media (max-width: 760px) {
+      .ld-header-actions {
+        width: 100% !important;
+        display: block !important;
+        margin-top: 12px !important;
+      }
+      .ld-header-actions > .ld-mobile-action-grid,
+      .ld-header-actions .ld-mobile-action-grid,
+      .ld-mobile-action-grid {
+        width: 100% !important;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+        flex-wrap: initial !important;
+        align-items: stretch !important;
+      }
+      .ld-header-actions > .ld-mobile-action-grid > *,
+      .ld-header-actions .ld-mobile-action-grid > *,
+      .ld-mobile-action-grid > * {
+        min-width: 0 !important;
+        width: 100% !important;
+      }
+      .ld-header-actions button,
+      .ld-mobile-action-grid button,
+      .ld-header-actions a,
+      .ld-mobile-action-grid a {
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 48px !important;
+        border-radius: 15px !important;
+        padding: 11px 8px !important;
+        justify-content: center !important;
+        text-align: center !important;
+        font-size: 12px !important;
+        line-height: 1.16 !important;
+        white-space: normal !important;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+        hyphens: none !important;
+      }
+      .ld-header-actions button span,
+      .ld-mobile-action-grid button span {
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+      }
+      .ld-mobile-action-grid button:last-child:nth-child(odd) {
+        grid-column: 1 / -1 !important;
+      }
+      .ld-rules-desktop-table { display: none !important; }
+      .ld-rules-mobile-cards { display: grid !important; gap: 10px !important; }
+      .ld-rule-mobile-card {
+        background: #FFFFFF;
+        border: 1px solid #CDE0D5;
+        border-left: 5px solid #2E8A55;
+        border-radius: 16px;
+        padding: 12px;
+        box-shadow: 0 6px 18px rgba(13,43,26,.055);
+      }
+      .ld-rule-mobile-card .ld-rule-line {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0;
+        border-top: 1px solid #E5F0E9;
+        font-size: 12px;
+      }
+      .ld-rule-mobile-card .ld-rule-line:first-child { border-top: 0; }
+      .ld-rule-mobile-card .ld-rule-label { color: #4A7060; font-weight: 900; }
+      .ld-rule-mobile-card .ld-rule-value { color: #0E1F15; font-weight: 800; text-align: right; }
+      .ld-rule-mobile-card button { min-height: 42px !important; }
+    }
+    @media (min-width: 761px) {
+      .ld-rules-mobile-cards { display: none !important; }
+      .ld-rules-desktop-table { display: block !important; }
+    }
+    @media (max-width: 360px) {
+      .ld-header-actions > .ld-mobile-action-grid,
+      .ld-header-actions .ld-mobile-action-grid,
+      .ld-mobile-action-grid { grid-template-columns: 1fr !important; }
+    }
+
 </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -5256,15 +5340,30 @@
         </div>
         <Card style={{ marginTop:14 }}>
           <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>Saved Pot-Size Rules</div><div style={{ fontSize:12, color:C.tx3 }}>Nursery-specific rules override general rules when a match is found.</div></div><Tag text={`${rules.length} rules`} color={C.g600} /></Row>
-          <div className="ld-mobile-help-text">Mobile tip: swipe the rules table left/right to see Notes and Delete.</div>
-          <Tbl cols={[{k:"enabled",l:"On"},{k:"nursery",l:"Nursery"},{k:"match",l:"Invoice Text"},{k:"value",l:"Reads As"},{k:"notes",l:"Notes"},{k:"actions",l:"Actions"}]} rows={rules.map(r => ({
-            enabled:<button onClick={()=>toggleRule(r.id)} style={{ background:r.enabled === false ? C.redBg : C.g100, color:r.enabled === false ? C.red : C.g800, border:`1px solid ${r.enabled === false ? C.red : C.g300}`, borderRadius:999, padding:"4px 8px", fontWeight:900, cursor:"pointer" }}>{r.enabled === false ? "Off" : "On"}</button>,
-            nursery:r.nurseryCode === "*" || !r.nurseryCode ? "All" : r.nurseryCode,
-            match:<span style={{ fontFamily:F.mono }}>{r.match}</span>,
-            value:<b>{r.value}</b>,
-            notes:<span style={{ fontSize:11, color:C.tx3 }}>{r.notes || ""}</span>,
-            actions:<button onClick={()=>deleteRule(r.id)} style={{ background:"transparent", color:C.red, border:"none", cursor:"pointer", fontWeight:900 }}>Delete</button>
-          }))} empty="No training rules yet." />
+          <div className="ld-mobile-help-text">Mobile view: rules are shown as cards so they stay readable. Use desktop for the full table.</div>
+          <div className="ld-rules-mobile-cards">
+            {rules.map(r => <div key={r.id} className="ld-rule-mobile-card">
+              <Row between center gap={8} style={{ marginBottom:6 }}>
+                <div style={{ fontFamily:F.display, color:C.g900, fontSize:17, fontWeight:900 }}>{r.match || "Rule"} → {r.value || ""}</div>
+                <button onClick={()=>toggleRule(r.id)} style={{ background:r.enabled === false ? C.redBg : C.g100, color:r.enabled === false ? C.red : C.g800, border:`1px solid ${r.enabled === false ? C.red : C.g300}`, borderRadius:999, padding:"7px 10px", fontWeight:900, cursor:"pointer" }}>{r.enabled === false ? "Off" : "On"}</button>
+              </Row>
+              <div className="ld-rule-line"><span className="ld-rule-label">Nursery</span><span className="ld-rule-value">{r.nurseryCode === "*" || !r.nurseryCode ? "All" : r.nurseryCode}</span></div>
+              <div className="ld-rule-line"><span className="ld-rule-label">Invoice Text</span><span className="ld-rule-value" style={{ fontFamily:F.mono }}>{r.match}</span></div>
+              <div className="ld-rule-line"><span className="ld-rule-label">Reads As</span><span className="ld-rule-value">{r.value}</span></div>
+              {r.notes && <div style={{ marginTop:8, color:C.tx3, fontSize:12, lineHeight:1.35 }}>{r.notes}</div>}
+              <Btn sz="sm" v="danger" full style={{ marginTop:10 }} onClick={()=>deleteRule(r.id)}>Delete Rule</Btn>
+            </div>)}
+          </div>
+          <div className="ld-rules-desktop-table">
+            <Tbl cols={[{k:"enabled",l:"On"},{k:"nursery",l:"Nursery"},{k:"match",l:"Invoice Text"},{k:"value",l:"Reads As"},{k:"notes",l:"Notes"},{k:"actions",l:"Actions"}]} rows={rules.map(r => ({
+              enabled:<button onClick={()=>toggleRule(r.id)} style={{ background:r.enabled === false ? C.redBg : C.g100, color:r.enabled === false ? C.red : C.g800, border:`1px solid ${r.enabled === false ? C.red : C.g300}`, borderRadius:999, padding:"4px 8px", fontWeight:900, cursor:"pointer" }}>{r.enabled === false ? "Off" : "On"}</button>,
+              nursery:r.nurseryCode === "*" || !r.nurseryCode ? "All" : r.nurseryCode,
+              match:<span style={{ fontFamily:F.mono }}>{r.match}</span>,
+              value:<b>{r.value}</b>,
+              notes:<span style={{ fontSize:11, color:C.tx3 }}>{r.notes || ""}</span>,
+              actions:<button onClick={()=>deleteRule(r.id)} style={{ background:"transparent", color:C.red, border:"none", cursor:"pointer", fontWeight:900 }}>Delete</button>
+            }))} empty="No training rules yet." />
+          </div>
         </Card>
       </div>;
     }
@@ -6605,7 +6704,7 @@
         addAudit && addAudit({ action: `Exported Master Inventory CSV — ${list.length} plants`, user: user.name, page: 'Inventory' });
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🌿" title="Inventory Action Center" sub={`${displayList.length} showing · ${inventoryActionSummary}`} right={<Row className="ld-mobile-action-grid" gap={8} wrap><Btn v={bulkMode ? "danger" : "soft"} sz="sm" onClick={() => bulkMode ? exitBulkMode() : setBulkMode(true)}>{bulkMode ? "Exit Bulk" : "☑️ Select Multiple"}</Btn><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="soft" sz="sm" onClick={() => setPage("photosprint")}>⚡ Photo Sprint</Btn>{canInlineEditInventory && <Btn v="soft" sz="sm" onClick={() => setPage("inlineedit")}>✏️ Inline Edit</Btn>}{canInlineEditInventory && <><Btn v="soft" sz="sm" onClick={() => setPage("bulkactions")}>☑️ Bulk Help</Btn><Btn v="soft" sz="sm" onClick={() => setPage("swipegestures")}>👆 Swipe Help</Btn></>}<Btn v="outline" sz="sm" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
+        <SHdr icon="🌿" title="Inventory Action Center" sub={`${displayList.length} showing · ${inventoryActionSummary}`} right={<Row className="ld-mobile-action-grid" gap={8} wrap><Btn v={bulkMode ? "danger" : "soft"} sz="sm" onClick={() => bulkMode ? exitBulkMode() : setBulkMode(true)}>{bulkMode ? "Exit Bulk" : "☑️ Select"}</Btn><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="soft" sz="sm" onClick={() => setPage("photosprint")}>⚡ Photo Sprint</Btn>{canInlineEditInventory && <Btn v="soft" sz="sm" onClick={() => setPage("inlineedit")}>✏️ Edit</Btn>}{canInlineEditInventory && <><Btn v="soft" sz="sm" onClick={() => setPage("bulkactions")}>☑️ Bulk</Btn><Btn v="soft" sz="sm" onClick={() => setPage("swipegestures")}>👆 Swipe</Btn></>}<Btn v="outline" sz="sm" onClick={exportMasterInventory}>📥 Export</Btn></Row>} />
         <div className="ld-mobile-help-text">Mobile tip: the action buttons are grouped here so they stay readable. Use Photo Sprint for barcode-label photos, then plant photos.</div>
 
         <Card style={{ marginBottom: 14, background: C.blueBg, border: `1px solid ${C.blue}40` }}>
@@ -8330,11 +8429,11 @@
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="🏷️" title="Labels" sub="Download CSV for Labelife · Barcode value equals plant number · No in-app printing needed"
           right={sel.size > 0 && <Row className="ld-mobile-action-grid" gap={6} wrap>
-            <Btn onClick={exportLabelifeFromLabels}>📥 Labelife Barcode CSV {sel.size}</Btn>
+            <Btn onClick={exportLabelifeFromLabels}>📥 Labelife CSV {sel.size}</Btn>
             <Btn v="outline" onClick={() => downloadCSV(avail.filter(p => sel.has(p.id)))}>📄 Research CSV</Btn>
-            <Btn v="soft" onClick={exportPalmstreetFromLabels}>🌴 Palmstreet CSV + SKU Barcode</Btn>
+            <Btn v="soft" onClick={exportPalmstreetFromLabels}>🌴 Palmstreet CSV</Btn>
             <Btn v="ghost" onClick={addSelectedToShow}>🎪 Add to Show</Btn>
-            <Btn v="gold" onClick={startJob} disabled={!!jobStatus && jobStatus !== "done"}>🤖 Research Prices</Btn>
+            <Btn v="gold" onClick={startJob} disabled={!!jobStatus && jobStatus !== "done"}>🤖 Prices</Btn>
           </Row>} />
         {jobStatus && jobStatus !== "done" && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 10, padding: "12px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ flex: 1 }}><div style={{ fontWeight: 700, color: C.g800, fontSize: 13 }}>🔍 Researching market prices…</div><div style={{ fontSize: 12, color: C.tx3, marginTop: 2 }}>Plant {jobStatus.current}/{jobStatus.total}: {jobStatus.name}</div></div>
