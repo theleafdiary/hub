@@ -1163,7 +1163,7 @@
     ];
     const TOOL_CATALOG = [
       { id:"dash", icon:"📊", l:"Dashboard", group:"Today", roles:["owner","manager"] },
-      { id:"command", icon:"🚀", l:"Today Today Command Center", group:"Today", roles:["owner"] },
+      { id:"command", icon:"🚀", l:"Today Command Center", group:"Today", roles:["owner"] },
       { id:"execai", icon:"🧠", l:"Owner AI Brief", group:"Today", roles:["owner"] },
       { id:"aihub", icon:"🤖", l:"Leaf Diary AI", group:"Today", roles:["owner","manager","employee"] },
       { id:"dataai", icon:"💬", l:"Ask Business AI", group:"Today", roles:["owner","manager","employee"] },
@@ -1454,6 +1454,8 @@
         ["Take Plant Photo", "inv", "📷", `${noPhoto.length} plant(s) need photos before they are show-ready.`],
         ["Print Labels Needed", "labels", "🏷️", `${needsLabel.length} plant label(s) need to be printed.`],
         ["Build Today's Show", "showbuilder", "🎪", `${readyForShow.length} plant(s) look ready for Palmstreet or Whatnot.`],
+        ["Review Sold Orders", "ship", "📦", "Help review sold plant groups after shows when assigned."],
+        ["Scan Receipt", "receipts", "🧾", "Upload a receipt photo for supplies, gas, or plant purchases."],
         ["Clock In / Clock Out", "timecard", "⏱️", "Track work time. No money, cost, reports, or admin shown here."]
       ];
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:720, margin:"0 auto", fontFamily:F.body }}>
@@ -1480,9 +1482,140 @@
       </div>;
     }
 
+    function TodayCommandCenter({ user, plants = [], expenses = [], bills = [], timecards = [], receipts = [], casdCerts = [], settings = {}, setPage }) {
+      const role = user?.role || "employee";
+      const isOwner = role === "owner";
+      const allPlants = safeArray(plants);
+      const allBills = safeArray(bills);
+      const allReceipts = safeArray(receipts);
+      const allTimecards = safeArray(timecards);
+      const inStock = allPlants.filter(p => p.status === "In Stock");
+      const sold = allPlants.filter(p => p.status === "Sold");
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const needsLabel = inStock.filter(p => !p.labelPrinted);
+      const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const aging45 = inStock.filter(p => (dHeld(p.dateAdded) || 0) >= 45).sort((a,b)=>(dHeld(b.dateAdded)||0)-(dHeld(a.dateAdded)||0));
+      const aging60 = inStock.filter(p => (dHeld(p.dateAdded) || 0) >= 60);
+      const readyForShow = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price) && p.labelPrinted !== false);
+      const readyOrders = groupSalesIntoOrders(allPlants);
+      const receiptsNeedReview = allReceipts.filter(r => {
+        const status = String(r.reviewStatus || r.review_status || r.status || "").toLowerCase();
+        return status.includes("review") || (!r.category && !r.mainCategory && !r.main_category);
+      });
+      const openBills = allBills.filter(b => String(b.status || "Unpaid").toLowerCase() !== "paid");
+      const due7 = openBills.filter(b => daysUntil(b.dueDate) >= 0 && daysUntil(b.dueDate) <= 7);
+      const due14 = openBills.filter(b => daysUntil(b.dueDate) >= 0 && daysUntil(b.dueDate) <= 14);
+      const due7Total = due7.reduce((s,b)=>s+(+b.amount||0),0);
+      const due14Total = due14.reduce((s,b)=>s+(+b.amount||0),0);
+      const sold7 = sold.filter(p => dateInLast(plantSaleDate(p), 7));
+      const sold30 = sold.filter(p => dateInLast(plantSaleDate(p), 30));
+      const profit7 = sold7.reduce((s,p)=>s+trueProfit(p),0);
+      const sales30 = sold30.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
+      const pendingCommissions = safeArray(settings.showCommissions).filter(c => String(c.status || "Unpaid").toLowerCase() !== "paid" && !c.paidAt && !c.paidDate);
+      const actionCount = noPhoto.length + needsLabel.length + noPrice.length + aging45.length;
+      let buyPlan = { safeSpend:0, buyDecision:"Add current bank balance to unlock safe-buy guidance.", reserve:0, topGenera:[] };
+      try { buyPlan = phase11BuildBuyingPlan({ plants:allPlants, bills:allBills, timecards:allTimecards }, settings || {}); } catch(e) {}
+      const showCapacity = 60;
+      const stockForShows = Math.round((inStock.length / Math.max(1, showCapacity)) * 10) / 10;
+      const lowMargin = inStock.filter(p => {
+        const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
+        return price > 0 && +p.cost > 0 && marg(+p.cost, price) < 45;
+      });
+      const genusMap = {};
+      sold30.forEach(p => {
+        const g = gOf(p.name);
+        genusMap[g] = genusMap[g] || { genus:g, sold:0, profit:0, revenue:0 };
+        genusMap[g].sold += 1;
+        genusMap[g].profit += trueProfit(p);
+        genusMap[g].revenue += (+p.salePrice || +p.suggestedPrice || 0);
+      });
+      const bestGenus = Object.values(genusMap).sort((a,b)=>b.profit-a.profit)[0];
+      const taskColor = sev => sev === "critical" ? C.red : sev === "warning" ? C.amber : sev === "money" ? C.gold : sev === "good" ? C.g600 : C.blue;
+      const tasks = [];
+      const addTask = (icon, title, body, page, button, sev="info") => tasks.push({ icon, title, body, page, button, sev });
+      if (due7.length && isOwner) addTask("📅", "Pay or review bills due this week", `${due7.length} bill(s) due in 7 days totaling ${$(due7Total)}.`, "bills", "Open Bills", "critical");
+      if (readyOrders.length) addTask("📦", "Review sold orders from shows", `${readyOrders.length} sold order group(s) need review after platform import.`, "ship", "Open Orders", readyOrders.length > 5 ? "critical" : "warning");
+      if (noPhoto.length) addTask("📸", "Take plant photos", `${noPhoto.length} plant(s) are blocked from show-ready status because they need photos.`, "inv", "Photo Queue", "warning");
+      if (needsLabel.length) addTask("🏷️", "Print needed labels", `${needsLabel.length} plant(s) need labels before staging or selling.`, "labels", "Print Labels", "info");
+      if (noPrice.length) addTask("💲", "Set missing prices", `${noPrice.length} plant(s) need a price before they can be used in a show.`, "inv", "Price Plants", "warning");
+      if (aging45.length) addTask("⏳", "Move aging inventory", `${aging45.length} plant(s) are 45+ days old. Pull the oldest ${Math.min(12, aging45.length)} for review.`, "discounts", "Review Aging", aging60.length ? "critical" : "warning");
+      if (receiptsNeedReview.length) addTask("🧾", "Clean up receipts", `${receiptsNeedReview.length} receipt(s) need category review or missing details.`, "receipts", "Open Receipts", "info");
+      if (pendingCommissions.length && isOwner) addTask("🤝", "Review employee commissions", `${pendingCommissions.length} show commission record(s) may still be unpaid.`, "commissions", "Review Pay", "money");
+      if (!tasks.length) addTask("✅", "Business is clean right now", "No major blockers found. Build a show or check Buy Smart for the next profit move.", "showbuilder", "Build Show", "good");
+      const topTasks = tasks.slice(0, 6);
+      const decisions = [
+        { icon:"🛒", title:"Safe buy decision", body: isOwner ? (buyPlan.buyDecision || `Safe buy budget: ${$(buyPlan.safeSpend || 0)}.`) : "Owner controls buying budget and cash decisions.", page:isOwner ? "cashflow" : "showbuilder", color: (+buyPlan.safeSpend || 0) > 300 ? C.g600 : (+buyPlan.safeSpend || 0) > 100 ? C.gold : C.red },
+        { icon:"🎪", title:"Show readiness", body:`${readyForShow.length} plant(s) look ready for a show. Current stock equals about ${stockForShows} full 60-plant show(s).`, page:"showbuilder", color: readyForShow.length >= 60 ? C.g600 : C.amber },
+        { icon:"🌿", title:"Inventory blocker", body: actionCount ? `${actionCount} plant action(s) are blocking speed: photos, labels, prices, or aging review.` : "Inventory action queue is clean.", page:"plants_ws", color: actionCount ? C.amber : C.g600 },
+        { icon:"🏆", title:"Best recent category", body: bestGenus ? `${bestGenus.genus} leads the last 30 days with ${bestGenus.sold} sold and about ${$(bestGenus.profit)} profit.` : "Not enough 30-day sales data yet. Import shows to build better buy advice.", page:"buy_ws", color:C.gold },
+        { icon:"🚫", title:"Stop-buying watch", body: lowMargin.length ? `${lowMargin.length} in-stock plant(s) are under 45% margin. Review before buying more of those types.` : "No major low-margin in-stock warning found.", page:"slotprofit", color: lowMargin.length ? C.red : C.g600 }
+      ];
+      const PulseCard = ({ icon, label, value, sub, color, page }) => <button onClick={()=>setPage(page)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderTop:`4px solid ${color}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:"pointer", fontFamily:F.body, boxShadow:"0 8px 24px rgba(13,43,26,.06)" }}>
+        <Row gap={10} center><div style={{ width:38, height:38, borderRadius:14, background:color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{icon}</div><div style={{ minWidth:0 }}><div style={{ fontSize:11, color:C.tx3, textTransform:"uppercase", letterSpacing:.6, fontWeight:900 }}>{label}</div><div style={{ fontFamily:F.display, fontSize:23, lineHeight:1.05, color, fontWeight:900 }}>{value}</div>{sub && <div style={{ fontSize:11, color:C.tx3, marginTop:3, fontWeight:700 }}>{sub}</div>}</div></Row>
+      </button>;
+      const TaskCard = ({ t, i }) => <button onClick={()=>setPage(t.page)} style={{ width:"100%", background:i===0?"#000":C.card, color:i===0?"#fff":C.tx1, border:`1px solid ${i===0?taskColor(t.sev):C.bd}`, borderRadius:20, padding:"14px 13px", textAlign:"left", cursor:"pointer", fontFamily:F.body, boxShadow:i===0?"0 12px 32px rgba(0,0,0,.22)":"0 6px 18px rgba(13,43,26,.06)" }}>
+        <Row gap={12} center><div style={{ width:44, height:44, borderRadius:15, background:i===0?"rgba(151,211,62,.16)":taskColor(t.sev)+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:25, flexShrink:0 }}>{t.icon}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:15, fontWeight:900, color:i===0?"#97d33e":C.g900 }}>{i+1}. {t.title}</div><div style={{ fontSize:12, color:i===0?"rgba(255,255,255,.72)":C.tx3, marginTop:3, lineHeight:1.35 }}>{t.body}</div></div><div style={{ background:i===0?"#97d33e":taskColor(t.sev), color:i===0?"#000":"#fff", borderRadius:999, padding:"8px 10px", fontSize:11, fontWeight:900, whiteSpace:"nowrap" }}>{t.button}</div></Row>
+      </button>;
+      return <div className="ld-page ld-today-command" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #97d33e", boxShadow:"0 14px 44px rgba(0,0,0,.2)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:36, lineHeight:1 }}>🏠</div>
+              <div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900, marginTop:4 }}>Today Command Center</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Open the app and know exactly what to do next. No hunting through 50 screens.</div>
+            </div>
+            <Row gap={8} wrap>
+              <button onClick={()=>setPage("showbuilder")} style={{ background:"#fb6392", color:"#fff", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🎪 Build Show</button>
+              <button onClick={()=>setPage("upload")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>➕ Add Plants</button>
+              <button onClick={()=>setPage("dataai")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>💬 Ask AI</button>
+            </Row>
+          </Row>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+          <PulseCard icon="💵" label={isOwner ? "Cash Available" : "Sales 30 Days"} value={isOwner ? $(settings.currentBankBalance || 0) : $(sales30)} sub={isOwner ? `safe buy ${$(buyPlan.safeSpend || 0)}` : `${sold30.length} plants sold`} color={isOwner ? C.gold : C.g600} page={isOwner ? "cashflow" : "reports"} />
+          <PulseCard icon="📈" label="Profit This Week" value={isOwner ? $(profit7) : `${sold7.length} sold`} sub={isOwner ? `${sold7.length} plants sold` : "weekly sales activity"} color={profit7 >= 0 ? C.g600 : C.red} page={isOwner ? "reports" : "ship"} />
+          <PulseCard icon="📦" label="Orders To Review" value={readyOrders.length} sub="after-show sold groups" color={readyOrders.length ? C.amber : C.g600} page="ship" />
+          <PulseCard icon="⚡" label="Plant Actions" value={actionCount} sub="photos, labels, prices, aging" color={actionCount ? C.amber : C.g600} page="plants_ws" />
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.25fr) minmax(0,.85fr)", gap:14 }}>
+          <Card style={{ padding:16 }}>
+            <Row between center wrap gap={8} style={{ marginBottom:12 }}><div><div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900 }}>✅ Do This First Today</div><div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>The app picked the highest-impact work from your inventory, shows, orders, receipts, bills, and payroll.</div></div><Tag text={`${topTasks.length} priority actions`} color="#97d33e" /></Row>
+            <div style={{ display:"grid", gap:10 }}>{topTasks.map((t,i)=><TaskCard key={i+t.title} t={t} i={i}/>)}</div>
+          </Card>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            <Card style={{ padding:16, background:C.g50, border:`1px solid ${C.g200}` }}>
+              <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:10 }}>🧠 Owner Decisions</div>
+              <div style={{ display:"grid", gap:9 }}>
+                {decisions.map((d,i)=><button key={i+d.title} onClick={()=>setPage(d.page)} style={{ background:C.card, border:`1px solid ${d.color}44`, borderLeft:`5px solid ${d.color}`, borderRadius:14, padding:"11px 12px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}>
+                  <div style={{ fontSize:13, fontWeight:900, color:C.g900 }}>{d.icon} {d.title}</div>
+                  <div style={{ fontSize:12, color:C.tx3, lineHeight:1.35, marginTop:3 }}>{d.body}</div>
+                </button>)}
+              </div>
+            </Card>
+
+            <Card style={{ padding:16 }}>
+              <div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:10 }}>⚡ Fast Buttons</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                {[
+                  ["📸 Photo Queue", "inv"], ["🏷️ Labels", "labels"], ["🎪 Show", "showbuilder"], ["📥 Import Sales", "showimport"], ["🧾 Receipts", "receipts"], ["🧠 Buy Smart", "buy_ws"]
+                ].map(([label,page])=><button key={label} onClick={()=>setPage(page)} style={{ background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.35)", borderRadius:14, padding:"12px 9px", fontWeight:900, fontFamily:F.body, cursor:"pointer", fontSize:12 }}>{label}</button>)}
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        <style>{`@media(max-width:760px){.ld-today-command div[style*="grid-template-columns: repeat(4,1fr)"],.ld-today-command div[style*="grid-template-columns: minmax(0,1.25fr) minmax(0,.85fr)"]{grid-template-columns:1fr!important}.ld-today-command div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:repeat(2,1fr)!important}.ld-today-command button{min-height:48px}}@media(max-width:380px){.ld-today-command div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}}`}</style>
+      </div>;
+    }
+
+
     function WorkspaceHome({ type, user, plants = [], expenses = [], bills = [], timecards = [], receipts = [], casdCerts = [], settings = {}, setPage }) {
       const role = user?.role || "employee";
       if ((type || "today") === "today" && role === "employee") return <EmployeeSimpleHome plants={plants} timecards={timecards} setPage={setPage} user={user} />;
+      if ((type || "today") === "today") return <TodayCommandCenter user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={receipts} casdCerts={casdCerts} settings={settings} setPage={setPage} />;
       const inStock = plants.filter(p => p.status === "In Stock");
       const sold = plants.filter(p => p.status === "Sold");
       const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
@@ -1505,16 +1638,16 @@
           { title:"Finish Intake", items:[["Print Labels","labels","🏷️","Print after plant IDs are assigned"],["Open Inventory","inv","🌿","Check new plants"],["Nursery Scores","nursery","🏪","Supplier records and performance"],["Ask Leaf Diary","dataai","💬","Ask what is missing before the show"]] }
         ]},
         plants_ws:{ icon:"🌿", title:"Inventory", sub:"Everything plant-related in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
-          { title:"Inventory Work", items:[["Inventory","inv","🌿","Search and edit all plants"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Purchase Intake Trainer","invoicetrainer","🧾","Teach invoice pot-size rules"],["Past Invoices","history","📋","Previous uploads"]] },
+          { title:"Inventory Work", items:[["Inventory","inv","🌿","Search and edit all plants"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Receipt Reader Training","invoicetrainer","🧾","Teach invoice pot-size rules"],["Past Invoices","history","📋","Previous uploads"]] },
           { title:"Plant Tools", items:[["Labels","labels","🏷️","Print plant labels"],["Plant Care","care","🩺","Quarantine and health"],["Locations","locations","📍","Racks, trailer, rooms"],["Sell-Through","sellthru","📊","What sells fastest"]] }
         ]},
         shows_ws:{ icon:"🎥", title:"Live Shows", sub:"All Whatnot, Palmstreet, live selling and marketing tools.", hero:"Sell faster with fewer clicks", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Commissions","1%","after fees"]], sections:[
           { title:"Run Shows", items:[["Show Builder","showbuilder","🎪","Build the show list"],["Live Show","liveshow","🎥","On-screen live mode"],["Import Show Sales","showimport","📥","Import Whatnot/Palmstreet CSV"],["Bundles","bundles","🧺","Group plants to sell"]] },
-          { title:"Sell More", items:[["Discounts","discounts","🏷️","Clear slow plants"],["Social Center","social","📣","Create posts from plant photos"],["AI Content","content","✨","Captions and descriptions"],["Buy Intel","intel","💡","What to buy next"]] }
+          { title:"Sell More", items:[["Discounts","discounts","🏷️","Clear slow plants"],["Social Center","social","📣","Create posts from plant photos"],["AI Content","content","✨","Captions and descriptions"],["Buy Smart","intel","💡","What to buy next"]] }
         ]},
         orders_ws:{ icon:"✅", title:"Sold Shows", sub:"Sold plants, buyer usernames, commissions and import review. Shipping stays in Palmstreet/Whatnot.", hero:"Review what sold without building shipping into the CRM", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Reminders",casdCerts.length,"archived"],["Refunds","↩️","manage"]], sections:[
           { title:"Sold Review", items:[["Sold Review","ship","✅","Review sold plants only"],["Import Show Sales","showimport","📥","Upload Palmstreet/Whatnot sales"],["Buyers","customers","👥","Buyer usernames and history"],["Refunds","refunds","↩️","Track issues"]] },
-          { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["State Doc Reminders","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
+          { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["Shipping Paperwork","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
         ]},
         money_ws:{ icon:"💵", title:"Money", sub:"Owner financials, receipts, payroll and taxes.", hero:"Know your cash before buying more", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
           { title:"Daily Money", items:[["Cash Flow","cashflow","💵","Can you spend?"],["What Makes Money","slotprofit","📦","Max profit from 400 weekly slots"],["Morning Briefing","overnight","🌅","Daily money and task plan"],["Expenses","expense","💳","Business spending"],["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Due dates"]] },
@@ -1525,8 +1658,8 @@
           { title:"Proof + Reports", items:[["Reports","reports","📈","Profit and sales reports"],["Cash Flow","cashflow","💵","Safe buy budget"],["Sell-Through","sellthru","📊","What sells fastest"],["Owner AI Brief","execai","🧠","Plain-English owner decisions"]] }
         ]},
         admin_ws:{ icon:"⚙️", title:"Settings", sub:"Owner setup, permissions, security, AI, and data.", hero:"Hide technical tools away from daily operations", color:"#b695ff", kpis:[["Users","👥","roles"],["Audit","🔍","history"],["Backups","💾","safety"],["Settings","⚙️","system"]], sections:[
-          { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Owner Repair Tools","cleanup","🧹","Fix duplicates/issues"],["Developer Testing Console","devtools","🧪","Diagnostics and safe tests"],["Local AI Setup","ollama","🧠","Local AI model settings"],["Mobile AI Gateway","aigateway","🌐","Mobile AI API bridge"],["AI Task Routing","airouter","🧭","Route each AI task to the right model"],["Owner AI Brief","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Daily operating plan"],["Reports","reports","📈","Business reports"],["What Makes Money","slotprofit","📦","Capacity and profit engine"]] },
-          { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Purchase Intake Trainer","invoicetrainer","🧾","Invoice training rules"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
+          { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Owner Repair Tools","cleanup","🧹","Fix duplicates/issues"],["Developer Testing","devtools","🧪","Diagnostics and safe tests"],["Local AI Setup","ollama","🧠","Local AI model settings"],["Mobile AI Gateway","aigateway","🌐","Mobile AI API bridge"],["AI Task Routing","airouter","🧭","Route each AI task to the right model"],["Owner AI Brief","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Daily operating plan"],["Reports","reports","📈","Business reports"],["What Makes Money","slotprofit","📦","Capacity and profit engine"]] },
+          { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Receipt Reader Training","invoicetrainer","🧾","Invoice training rules"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
         ]}
       }[type || "today"];
       const CardBtn = ({ item }) => { const [label,id,icon,sub] = item; const disabled = !canOpen(id); return <button disabled={disabled} onClick={()=>open(id)} className="ld-workspace-card" style={{ background:disabled?"#f1f1f1":C.card, border:`1px solid ${disabled?"#ddd":C.bd}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:disabled?"not-allowed":"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)", fontFamily:F.body, opacity:disabled ? .45 : 1 }}><Row gap={10} center><div style={{ width:42, height:42, borderRadius:14, background:(pack.color||C.g600)+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:23 }}>{icon}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{label}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{sub}</div></div><span style={{ color:C.tx4, fontWeight:900 }}>›</span></Row></button> };
@@ -1769,7 +1902,7 @@
         {reorderAlerts.length > 0 && <Card style={{ marginBottom: 18, background: C.g50, borderLeft: `5px solid ${C.g600}` }}>
           <Row between wrap center style={{ marginBottom: 10 }}>
             <div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 16 }}>🔁 Restock Alerts — Plants Running Low</div><div style={{ fontSize: 12, color: C.tx3 }}>Fast-selling genera with 60%+ sell-through and 2 or fewer left in stock.</div></div>
-            <Btn sz="sm" v="soft" onClick={() => setPage("intel")}>View Buy Intel →</Btn>
+            <Btn sz="sm" v="soft" onClick={() => setPage("intel")}>View Buy Smart →</Btn>
           </Row>
           {reorderAlerts.map(r => <Row key={r.genus} between center style={{ padding: "7px 0", borderTop: `1px solid ${C.bdS}` }}>
             <div style={{ fontWeight: 700, color: C.tx1 }}>{r.genus}</div>
@@ -1886,7 +2019,7 @@
         if (!match.trim() || !value.trim()) { alert("Add the invoice text to match and the pot size it means."); return; }
         const next = { id: uid(), nurseryCode, type:"potSize", match:match.trim(), value:value.trim(), notes:notes.trim(), enabled:true, createdAt:new Date().toISOString(), createdBy:user?.name || "Owner" };
         saveTraining({ rules:[...rules, next] });
-        addAudit && addAudit({ action:`Added purchase intake rule ${next.match} → ${next.value}`, user:user?.name || "Owner", page:"Purchase Intake Trainer" });
+        addAudit && addAudit({ action:`Added purchase intake rule ${next.match} → ${next.value}`, user:user?.name || "Owner", page:"Receipt Reader Training" });
         setMatch(""); setNotes("");
       };
       const toggleRule = id => saveTraining({ rules: rules.map(r => r.id === id ? { ...r, enabled: r.enabled === false } : r) });
@@ -1907,7 +2040,7 @@
       const testResult = phase101InferPotSize({ lineText:testText, name:testText }, testNursery, settings);
       const downloadRules = () => phase1DownloadJson(`leafdiary-phase10-1-purchase-training-${today()}.json`, { appVersion:APP_VERSION, purchaseTraining:training, stats, exportedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 100px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="🧾" title="Purchase Intake Trainer" sub="Teach Leaf Diary how to read your nursery invoices before plants are saved." right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setPage && setPage("upload")}>📸 Upload Invoice</Btn><Btn sz="sm" v="ghost" onClick={downloadRules}>Download Rules</Btn></Row>} />
+        <SHdr icon="🧾" title="Receipt Reader Training" sub="Teach Leaf Diary how to read your nursery invoices before plants are saved." right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setPage && setPage("upload")}>📸 Upload Invoice</Btn><Btn sz="sm" v="ghost" onClick={downloadRules}>Download Rules</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:"2px solid #97d33e" }}>
           <Row between wrap center gap={12}>
             <div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:26, fontWeight:900 }}>Teach Receipt Reader</div><div style={{ color:"rgba(255,255,255,.72)", fontSize:13, lineHeight:1.45, marginTop:4 }}>This protects the most important workflow: buy plants → take invoice photo → review nursery, pot size, cost, and quantity → save clean inventory. No paid cloud AI is needed for these training rules.</div></div>
@@ -2198,7 +2331,7 @@
       const updR = (k, f, v) => setRows(pr => pr.map(r => { if (r._k !== k) return r; const u = { ...r, [f]: v }; if (f === "potSize") { u.potSizeCorrected = r.potSize !== v; u.needsPotSizeReview = false; u.potSizeConfidence = r.potSizeCorrected ? "corrected" : (r.potSizeConfidence || "ocr"); u.potSizeNote = r.potSizeCorrected ? "Owner corrected pot size during invoice review." : (r.potSizeNote || ""); } if (f === "cost" || f === "suggestedPrice") u.margin = marg(f === "cost" ? +v : +r.cost, f === "suggestedPrice" ? +v : +r.suggestedPrice); return u; }));
       const rememberPotCorrections = () => {
         const correctionRows = rows.filter(r => r.potSizeCorrected && r.potSizeSourceText && r.potSizeSourceText !== "missing" && r.potSize);
-        if (!correctionRows.length) { alert("No trainable pot-size corrections found yet. Add rules manually in Purchase Intake Trainer for invoice abbreviations."); return; }
+        if (!correctionRows.length) { alert("No trainable pot-size corrections found yet. Add rules manually in Receipt Reader Training for invoice abbreviations."); return; }
         const existing = phase101GetTraining(settings);
         const nextRules = [...(existing.rules || [])];
         correctionRows.forEach(r => {
@@ -2209,7 +2342,7 @@
         });
         setSettings && setSettings(prev => ({ ...prev, purchaseTraining:{ ...existing, rules:nextRules } }));
         addAudit && addAudit({ action:`Remembered ${correctionRows.length} purchase intake correction(s)`, user:user.name, page:"Purchase Intake" });
-        alert(`Saved ${correctionRows.length} correction(s) to Purchase Intake Trainer.`);
+        alert(`Saved ${correctionRows.length} correction(s) to Receipt Reader Training.`);
       };
       const save = () => { setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid() }))]); addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name}`, user: user.name, page: "Invoice Upload" }); setStep("done"); };
       const reset = () => { setStep("upload"); setImg(null); setParsed(null); setRows([]); setErr(null); };
@@ -2258,8 +2391,8 @@
           </Card>
           {rows.some(r => r.needsPotSizeReview || r.potSizeConfidence === "rule" || r.potSizeCorrected) && <Card style={{ marginBottom: 12, background: rows.some(r => r.needsPotSizeReview) ? C.amberBg : C.g50, border: `1px solid ${rows.some(r => r.needsPotSizeReview) ? C.amber : C.g300}40` }}>
             <Row between wrap center gap={10}>
-              <div><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, fontSize:15 }}>🧾 Purchase Intake Trainer Applied</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{purchaseTraining.defaultPotSize || '4"'} is the default when size is missing. Rule matches are marked in the Pot column. Assumed sizes should be verified before saving.</div></div>
-              <Row gap={8} wrap>{rows.some(r => r.potSizeCorrected) && <Btn sz="sm" v="soft" onClick={rememberPotCorrections}>Remember Corrections</Btn>}<Btn sz="sm" v="ghost" onClick={() => alert("Open Plants → Purchase Intake Trainer from the menu to add nursery-specific invoice rules.")}>Training Rules</Btn></Row>
+              <div><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, fontSize:15 }}>🧾 Receipt Reader Training Applied</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{purchaseTraining.defaultPotSize || '4"'} is the default when size is missing. Rule matches are marked in the Pot column. Assumed sizes should be verified before saving.</div></div>
+              <Row gap={8} wrap>{rows.some(r => r.potSizeCorrected) && <Btn sz="sm" v="soft" onClick={rememberPotCorrections}>Remember Corrections</Btn>}<Btn sz="sm" v="ghost" onClick={() => alert("Open Plants → Receipt Reader Training from the menu to add nursery-specific invoice rules.")}>Training Rules</Btn></Row>
             </Row>
           </Card>}
           <div style={{ maxHeight: 420, overflowY: "auto", border: `1px solid ${C.bd}`, borderRadius: 9 }}>
@@ -4598,7 +4731,7 @@
         } catch (e) { setAi("Error: " + e.message); } finally { setLoading(false); }
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="📊" title="Buy Intelligence" sub="What to buy · What to avoid · What's making money"
+        <SHdr icon="📊" title="Buy Smartligence" sub="What to buy · What to avoid · What's making money"
           right={<Btn onClick={getAI} disabled={loading}>{loading ? "Analyzing…" : "🤖 Get AI Advice"}</Btn>} />
         {ai && <Card style={{ marginBottom: 20, background: C.g50, border: `1px solid ${C.g200}` }}>
           <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 10 }}>🤖 AI Buying Recommendations</div>
@@ -5155,7 +5288,7 @@
               ["inv", "🌿 Inventory"], ["upload", "📸 Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Receipt Scanner"],
               ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
               ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
-              ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 Buy Intel"], ["tax", "🧾 Tax Center"],
+              ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 Buy Smart"], ["tax", "🧾 Tax Center"],
               ["audit", "🔍 Audit Log"], ["admin", "⚙️ Admin"], ["cleanup", "🧹 Owner Repair Tools"], ["casd", "📜 State Docs"]
             ];
             const employeeChoices = [
@@ -9717,14 +9850,14 @@ Cancel if you want to save money.`);
         const r = phase2BuildDiagnostics(appData, context);
         setReport(r);
         setMsg(`Diagnostics complete — score ${r.score}/100`);
-        try { addAudit && addAudit({ action:`Developer diagnostics run — score ${r.score}/100`, user:user?.name || "Owner", page:"Developer Testing Console" }); } catch(e) {}
+        try { addAudit && addAudit({ action:`Developer diagnostics run — score ${r.score}/100`, user:user?.name || "Owner", page:"Developer Testing" }); } catch(e) {}
       };
       const runSmoke = () => {
         const r = phase2RunSmokeTests(appData, context);
         setSmoke(r);
         setReport(phase2BuildDiagnostics(appData, context));
         setMsg(r.ok ? "Smoke tests passed and checkpoint created." : "Smoke tests found an issue. Download report before continuing.");
-        try { addAudit && addAudit({ action:`Developer smoke tests ${r.ok ? "passed" : "failed"} — ${r.passed} passed / ${r.failed} failed`, user:user?.name || "Owner", page:"Developer Testing Console" }); } catch(e) {}
+        try { addAudit && addAudit({ action:`Developer smoke tests ${r.ok ? "passed" : "failed"} — ${r.passed} passed / ${r.failed} failed`, user:user?.name || "Owner", page:"Developer Testing" }); } catch(e) {}
       };
       const checkpoint = () => {
         const snap = makePhase1Snapshot ? makePhase1Snapshot("phase2_manual_rollback_checkpoint") : phase1CreateSnapshot("phase2_manual_rollback_checkpoint", appData);
@@ -9741,7 +9874,7 @@ Cancel if you want to save money.`);
       };
       const statusColor = s => s === "pass" ? C.g600 : s === "warn" ? C.amber : C.red;
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="🧪" title="Developer Testing Console" sub="Owner-only safety tools: diagnostics, rollback checkpoints, smoke tests, and health reports." right={<Row gap={8} wrap><Btn sz="sm" onClick={runDiagnostics}>Run Diagnostics</Btn><Btn sz="sm" v="soft" onClick={runSmoke}>Run Smoke Tests</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🧪" title="Developer Testing" sub="Owner-only safety tools: diagnostics, rollback checkpoints, smoke tests, and health reports." right={<Row gap={8} wrap><Btn sz="sm" onClick={runDiagnostics}>Run Diagnostics</Btn><Btn sz="sm" v="soft" onClick={runSmoke}>Run Smoke Tests</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${report.ok ? "#97d33e" : "#fb6392"}` }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:report.ok ? "#97d33e" : "#fb6392" }}>{report.score}/100</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Developer Safety Score · {report.fails} fail · {report.warns} warning(s)</div></div>
@@ -10322,7 +10455,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const save = () => {
         const next = phase61SaveConfig(draft);
         setDraft(next); setConfig && setConfig(next); setStatus && setStatus(phase61BuildStatus(next.enabled ? "not_tested" : "disabled", { config:next }));
-        try { addAudit && addAudit({ action:"Mobile Mobile AI Gateway settings saved", page:"Mobile AI Gateway", user:user?.name||"Owner" }); } catch(e) {}
+        try { addAudit && addAudit({ action:"Mobile AI Gateway settings saved", page:"Mobile AI Gateway", user:user?.name||"Owner" }); } catch(e) {}
       };
       const test = async () => {
         setBusy(true); setAnswer(""); setStatus && setStatus(phase61BuildStatus("testing", { config:draft }));
@@ -10330,7 +10463,7 @@ Answer with a practical action plan for Leaf Diary.`;
         const report = await phase61TestGatewayConnection(cfg, user);
         setTestReport(report); setAnswer(report.answer || report.error || "No answer returned.");
         setStatus && setStatus(phase61BuildStatus(report.status || (report.ok ? "online" : "offline"), { report, config:cfg }));
-        try { addAudit && addAudit({ action:`Mobile Mobile AI Gateway test ${report.ok ? "passed" : "failed"}`, details:report.ok ? report.answer : report.error, page:"Mobile AI Gateway", user:user?.name||"Owner", severity:report.ok?"info":"warning" }); } catch(e) {}
+        try { addAudit && addAudit({ action:`Mobile AI Gateway test ${report.ok ? "passed" : "failed"}`, details:report.ok ? report.answer : report.error, page:"Mobile AI Gateway", user:user?.name||"Owner", severity:report.ok?"info":"warning" }); } catch(e) {}
         setBusy(false);
       };
       const ask = async () => {
@@ -10345,7 +10478,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const activateCostSaver = () => { const next = phase61CostSaverPreset(draft); setDraft(next); const saved = phase61SaveConfig(next); setConfig && setConfig(saved); setAnswer("AI Cost Guard activated: cloud calls are manual-only, daily limit 8, monthly tracker $5, inventory payload capped at 35, owner financials redacted by default."); };
       const download = () => phase1DownloadJson(`leafdiary-phase61-ai-gateway-${today()}.json`, { appVersion:APP_VERSION, config:{ ...draft, secretToken:draft.secretToken ? "saved-token-hidden" : "" }, status, usage:phase61ReadUsage(), lastReport:testReport, generatedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", maxWidth:1080, margin:"0 auto" }}>
-        <SHdr icon="🌐" title="Mobile Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Cloud answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🌐" title="Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Cloud answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase61StatusColor(status?.status || (draft.enabled ? "not_tested" : "disabled"))}` }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Ollama model: {draft.model} · Provider: {draft.provider}</div></div>
@@ -11362,7 +11495,7 @@ ${local.summary || "Fallback completed."}`;
             { id:"phase1", icon:"🛡️", title:"App Safety", value: phase1Health?.ok ? "Healthy" : "Needs review", sub:`${APP_VERSION} · ${phase1ReadSnapshots().length} local snapshots · ${startupMode === "local-fallback" ? "Local fallback active" : "Startup normal"}`, color: phase1Health?.ok ? "#97d33e" : "#C0570A", border: phase1Health?.ok ? "rgba(151,211,62,.32)" : "rgba(192,87,10,.42)", actionLabel:"Health", onClick:downloadPhase1Health },
             { id:"phase2", icon:"🧪", title:"Developer Safety Check", value:`${phase2Report?.score || 0}/100`, sub:"Owner-only diagnostics, smoke tests, rollback checkpoints.", color: phase2Report?.ok ? "#97d33e" : "#fb6392", border: phase2Report?.ok ? "rgba(151,211,62,.32)" : "rgba(251,99,146,.42)", actionLabel:"Open", onClick:()=>navigate("devtools") },
             { id:"phase3", icon:"🧠", title:"Local AI Setup", value:`${phase3StatusLabel(phase3Status?.status || "not_tested")} · ${phase3Config?.primaryModel || "no model"}`, sub:"Connects local Ollama AI.", color: phase3StatusColor(phase3Status?.status || "not_tested"), border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("ollama") },
-            { id:"phase61", icon:"🌐", title:"Mobile Mobile AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Connects phone AI to your secure endpoint.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
+            { id:"phase61", icon:"🌐", title:"Mobile AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Connects phone AI to your secure endpoint.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
             { id:"phase71", icon:"💵", title:"AI Cost Control", value:`${phase61Config?.disableAutoGatewayCalls !== false ? "Manual cloud only" : "Auto cloud allowed"} · ${phase61Config?.maxDailyRequests || 0}/day · ${$(phase61Config?.maxMonthlyDollars || 0)} tracker`, sub:"Prevents surprise AI costs. Free/local first; cloud only when approved.", color:C.gold, border:"rgba(176,125,16,.30)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
             { id:"phase101", icon:"🧾", title:"Receipt Reader Training", value:`Default ${phase101TrainingStats(settings).defaultPotSize} · ${phase101TrainingStats(settings).activeRules} active rules`, sub:"Teaches invoice and pot-size reading. Local/free first.", color:C.amber, border:"rgba(192,87,10,.30)", actionLabel:"Open", onClick:()=>navigate("invoicetrainer") },
             { id:"phase7", icon:"🎪", title:"Smart Show Builder", value:`${settings?.phase7LastShowPlan?.ok ? `${settings.phase7LastShowPlan.plantIds?.length || 0} plants planned` : "Ready to build"}`, sub:"Builds show lists. Review first, then export normally.", color:"#fb6392", border:"rgba(251,99,146,.30)", actionLabel:"Open", onClick:()=>navigate("showbuilder") },
