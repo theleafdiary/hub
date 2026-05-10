@@ -360,7 +360,8 @@
     const { useState, useRef, useEffect, useCallback } = React;
 
     /* ═══════════════════════════════════════════════════════════
-       LEAF DIARY CRM v7 — Phase 1 Simplified Navigation
+       LEAF DIARY CRM v7 — Phase 1 Workflow Shell Patch
+       Adds 8 front-facing workflows without deleting old components
        Fresh modern palette · Bills tracker · True profit engine
        Admin panel · QR labels · Buy intelligence · Florida tax
     ═══════════════════════════════════════════════════════════ */
@@ -1151,43 +1152,45 @@
        STREAMLINED WORKSPACE NAVIGATION — mobile-first redesign
     ══════════════════════════════════════════════════════════ */
     const WORKSPACES = [
-      { id:"today", icon:"🏠", l:"Today", sub:"What needs attention now", color:"#97d33e" },
-      { id:"plants_ws", icon:"🌿", l:"Plants", sub:"Inventory, photos, labels, care", color:"#2E8A55" },
-      { id:"shows_ws", icon:"🎥", l:"Shows", sub:"Live selling + imports", color:"#fb6392" },
-      { id:"orders_ws", icon:"✅", l:"Sold", sub:"Sold shows + sold plants", color:"#68d8ff" },
-      { id:"money_ws", icon:"💵", l:"Money", sub:"Receipts, expenses, payroll", color:"#f5c542" },
-      { id:"admin_ws", icon:"⚙️", l:"Admin", sub:"Settings, users, security", color:"#b695ff" },
+      { id:"today", icon:"🏠", l:"Today", sub:"What needs attention now", color:"#97d33e", roles:["owner","manager","employee"] },
+      { id:"plants_ws", icon:"🌿", l:"Inventory", sub:"Plants, photos, labels, care", color:"#2E8A55", roles:["owner","manager","employee"] },
+      { id:"intake_ws", icon:"➕", l:"Add / Intake", sub:"Invoices, manual adds, bulk imports", color:"#97d33e", roles:["owner","manager","employee"] },
+      { id:"shows_ws", icon:"🎪", l:"Shows", sub:"Build, run, export, content", color:"#fb6392", roles:["owner","manager","employee"] },
+      { id:"orders_ws", icon:"📦", l:"Orders", sub:"Sold review, buyers, paperwork", color:"#68d8ff", roles:["owner","manager"] },
+      { id:"money_ws", icon:"💵", l:"Money", sub:"Receipts, bills, payroll, profit", color:"#f5c542", roles:["owner","manager","employee"] },
+      { id:"buy_ws", icon:"🧠", l:"Buy Smart", sub:"What to buy and stop buying", color:"#B07D10", roles:["owner","manager"] },
+      { id:"admin_ws", icon:"⚙️", l:"Settings", sub:"Owner setup, AI, data, security", color:"#b695ff", roles:["owner"] },
     ];
     const TOOL_CATALOG = [
       { id:"dash", icon:"📊", l:"Dashboard", group:"Today", roles:["owner","manager"] },
-      { id:"command", icon:"🚀", l:"Command Center", group:"Today", roles:["owner"] },
-      { id:"execai", icon:"🧠", l:"Executive AI", group:"Today", roles:["owner"] },
-      { id:"aihub", icon:"🤖", l:"AI Center", group:"Today", roles:["owner","manager","employee"] },
+      { id:"command", icon:"🚀", l:"Today Command Center", group:"Today", roles:["owner"] },
+      { id:"execai", icon:"🧠", l:"Owner AI Brief", group:"Today", roles:["owner"] },
+      { id:"aihub", icon:"🤖", l:"Leaf Diary AI", group:"Today", roles:["owner","manager","employee"] },
       { id:"dataai", icon:"💬", l:"Ask Business AI", group:"Today", roles:["owner","manager","employee"] },
       { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Today", roles:["owner"] },
-      { id:"slotprofit", icon:"📦", l:"Profit-Per-Slot", group:"Today", roles:["owner"] },
-      { id:"overnight", icon:"🌅", l:"Morning Briefing", group:"Today", roles:["owner"] },
+      { id:"slotprofit", icon:"📦", l:"What Makes Money", group:"Buy Smart", roles:["owner"] },
+      { id:"overnight", icon:"🌅", l:"Today’s Plan", group:"Today", roles:["owner"] },
       { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Today", roles:["employee"] },
       { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"manual", icon:"✏️", l:"Add Plants", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"upload", icon:"📸", l:"Upload Invoice", group:"Plants", roles:["owner","manager","employee"] },
-      { id:"invoicetrainer", icon:"🧾", l:"Purchase Intake Trainer", group:"Plants", roles:["owner"] },
+      { id:"manual", icon:"✏️", l:"Add Plants Manually", group:"Add / Intake", roles:["owner","manager","employee"] },
+      { id:"upload", icon:"📸", l:"Upload Invoice Photo", group:"Add / Intake", roles:["owner","manager","employee"] },
+      { id:"invoicetrainer", icon:"🧾", l:"Teach Receipt Reader", group:"Add / Intake", roles:["owner"] },
       { id:"labels", icon:"🏷️", l:"Labels", group:"Plants", roles:["owner","manager","employee"] },
       { id:"care", icon:"🩺", l:"Plant Care", group:"Plants", roles:["owner","manager"] },
       { id:"locations", icon:"📍", l:"Locations", group:"Plants", roles:["owner"] },
       { id:"sellthru", icon:"📊", l:"Sell-Through", group:"Plants", roles:["owner","manager"] },
-      { id:"showbuilder", icon:"🎪", l:"Show Builder", group:"Shows", roles:["owner","manager"] },
+      { id:"showbuilder", icon:"🎪", l:"Build Show", group:"Shows", roles:["owner","manager"] },
       { id:"liveshow", icon:"🎥", l:"Live Show", group:"Shows", roles:["owner","manager","employee"] },
-      { id:"showimport", icon:"📥", l:"Post-Show Import", group:"Shows", roles:["owner","manager"] },
+      { id:"showimport", icon:"📥", l:"Import Show Sales", group:"Orders", roles:["owner","manager"] },
       { id:"bundles", icon:"🧺", l:"Bundles", group:"Shows", roles:["owner","manager"] },
       { id:"discounts", icon:"🏷️", l:"Discounts", group:"Shows", roles:["owner"] },
       { id:"social", icon:"📣", l:"Social Center", group:"Marketing", roles:["owner","manager","employee"] },
       { id:"content", icon:"✨", l:"AI Content", group:"Marketing", roles:["owner","manager"] },
-      { id:"ship", icon:"✅", l:"Sold Plant Review", group:"Sold", roles:["owner","manager"] },
-      { id:"customers", icon:"👥", l:"Buyers", group:"Sold", roles:["owner","manager"] },
-      { id:"retention", icon:"💚", l:"Repeat Buyers", group:"Sold", roles:["owner","manager"] },
-      { id:"refunds", icon:"↩️", l:"Refunds", group:"Sold", roles:["owner","manager"] },
-      { id:"casd", icon:"📜", l:"State Doc Reminders", group:"Sold", roles:["owner","manager"] },
+      { id:"ship", icon:"✅", l:"Sold Review", group:"Orders", roles:["owner","manager"] },
+      { id:"customers", icon:"👥", l:"Buyers", group:"Orders", roles:["owner","manager"] },
+      { id:"retention", icon:"💚", l:"Repeat Buyers", group:"Orders", roles:["owner","manager"] },
+      { id:"refunds", icon:"↩️", l:"Refunds", group:"Orders", roles:["owner","manager"] },
+      { id:"casd", icon:"📜", l:"Shipping Paperwork", group:"Orders", roles:["owner","manager"] },
       { id:"expense", icon:"💳", l:"Expenses", group:"Money", roles:["owner"] },
       { id:"receipts", icon:"🧾", l:"Receipt Scanner", group:"Money", roles:["owner","manager","employee"] },
       { id:"bills", icon:"📅", l:"Bills", group:"Money", roles:["owner"] },
@@ -1196,33 +1199,36 @@
       { id:"commissions", icon:"🤝", l:"Commissions", group:"Money", roles:["owner"] },
       { id:"tax", icon:"🧾", l:"Tax Center", group:"Money", roles:["owner"] },
       { id:"goals", icon:"🎯", l:"Goals", group:"Money", roles:["owner"] },
-      { id:"nursery", icon:"🏪", l:"Nurseries", group:"Buying", roles:["owner","manager","employee"] },
-      { id:"pos", icon:"📋", l:"Purchase Orders", group:"Buying", roles:["owner","manager"] },
-      { id:"intel", icon:"💡", l:"Buy Intel", group:"Buying", roles:["owner","manager"] },
-      { id:"reports", icon:"📈", l:"Reports", group:"Business", roles:["owner","manager"] },
-      { id:"history", icon:"📋", l:"Past Invoices", group:"Business", roles:["owner","manager"] },
+      { id:"nursery", icon:"🏪", l:"Nursery Scores", group:"Buy Smart", roles:["owner","manager"] },
+      { id:"pos", icon:"📋", l:"Buying Lists", group:"Buy Smart", roles:["owner","manager"] },
+      { id:"intel", icon:"💡", l:"Buy Smart", group:"Buy Smart", roles:["owner","manager"] },
+      { id:"reports", icon:"📈", l:"Reports", group:"Buy Smart", roles:["owner","manager"] },
+      { id:"history", icon:"📋", l:"Receipt / Invoice Archive", group:"Add / Intake", roles:["owner","manager"] },
       { id:"audit", icon:"🔍", l:"Audit Log", group:"Admin", roles:["owner","manager"] },
-      { id:"admin", icon:"⚙️", l:"Admin Panel", group:"Admin", roles:["owner"] },
-      { id:"cleanup", icon:"🧹", l:"Data Cleanup", group:"Admin", roles:["owner"] },
-      { id:"devtools", icon:"🧪", l:"Test Console", group:"Admin", roles:["owner"] },
-      { id:"ollama", icon:"🧠", l:"Ollama AI Connector", group:"Admin", roles:["owner"] },
-      { id:"aigateway", icon:"🌐", l:"AI Gateway", group:"Admin", roles:["owner"] },
-      { id:"airouter", icon:"🧭", l:"AI Router", group:"Admin", roles:["owner"] },
+      { id:"admin", icon:"⚙️", l:"Business Settings", group:"Settings", roles:["owner"] },
+      { id:"cleanup", icon:"🧹", l:"Owner Repair Tools", group:"Settings", roles:["owner"] },
+      { id:"devtools", icon:"🧪", l:"Developer Testing", group:"Settings", roles:["owner"] },
+      { id:"ollama", icon:"🧠", l:"Local AI Setup", group:"Settings", roles:["owner"] },
+      { id:"aigateway", icon:"🌐", l:"Advanced AI Setup", group:"Settings", roles:["owner"] },
+      { id:"airouter", icon:"🧭", l:"AI Model Routing", group:"Settings", roles:["owner"] },
     ];
     const getToolsForRole = role => TOOL_CATALOG.filter(t => (t.roles || []).includes(role));
 
-    const ROOT_PAGES = ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "admin_ws"];
+    const ROOT_PAGES = ["today", "plants_ws", "intake_ws", "shows_ws", "orders_ws", "money_ws", "buy_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
-      today:"today", dash:"today", command:"today", execai:"today", aihub:"today", dataai:"today", cashflow:"today", slotprofit:"today", overnight:"today", emp_dash:"today",
-      plants_ws:"plants_ws", inv:"plants_ws", manual:"plants_ws", upload:"plants_ws", invoicetrainer:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
-      shows_ws:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", showimport:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
-      orders_ws:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
+      today:"today", dash:"today", command:"today", execai:"today", aihub:"today", dataai:"today", cashflow:"money_ws", overnight:"today", emp_dash:"today",
+      plants_ws:"plants_ws", inv:"plants_ws", labels:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
+      intake_ws:"intake_ws", manual:"intake_ws", upload:"intake_ws", invoicetrainer:"intake_ws", history:"intake_ws",
+      shows_ws:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
+      orders_ws:"orders_ws", showimport:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
-      admin_ws:"admin_ws", nursery:"admin_ws", pos:"admin_ws", intel:"admin_ws", reports:"admin_ws", history:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", ollama:"admin_ws"
+      buy_ws:"buy_ws", slotprofit:"buy_ws", nursery:"buy_ws", pos:"buy_ws", intel:"buy_ws", reports:"buy_ws",
+      admin_ws:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", ollama:"admin_ws", aigateway:"admin_ws"
     };
     const getPageLabel = (id) => (TOOL_CATALOG.find(t => t.id === id)?.l || WORKSPACES.find(w => w.id === id)?.l || id);
     const getPageIcon = (id) => (TOOL_CATALOG.find(t => t.id === id)?.icon || WORKSPACES.find(w => w.id === id)?.icon || "•");
     const getWorkspaceForPage = (id) => PAGE_TO_WORKSPACE[id] || "today";
+    const getWorkspaceMeta = (id) => WORKSPACES.find(w => w.id === id) || WORKSPACES[0];
     const isRootPage = (id) => ROOT_PAGES.includes(id);
 
     function BackBreadcrumbBar({ page, navHistory, goBack, goTo, goCrumb }) {
@@ -1305,7 +1311,7 @@
       </svg>;
       // Pink + menu is reserved for cloud / backup controls only.
       const quickAdd = [];
-      const menuGroups = ["Today","Plants","Shows","Sold","Money","Buying","Marketing","Business","Admin"]
+      const menuGroups = ["Today","Plants","Add / Intake","Shows","Orders","Money","Buy Smart","Marketing","Business","Settings"]
         .map(g => ({ group:g, items:tools.filter(t => t.group === g && (!menuSearch || (t.l + " " + t.group).toLowerCase().includes(menuSearch.toLowerCase()))) }))
         .filter(g => g.items.length);
       return <>
@@ -1425,13 +1431,13 @@
               <Row between center gap={8}><div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:24, fontWeight:900 }}>Workspaces</div><div style={{ color:"rgba(255,255,255,.66)", fontSize:12 }}>Everything is still here — now grouped so it is not overwhelming.</div></div><button onClick={onLogout} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:12, padding:"9px 12px", fontWeight:800 }}>Logout</button></Row>
               <input value={menuSearch} onChange={e=>setMenuSearch(e.target.value)} placeholder="Search any tool..." style={{ marginTop:12, width:"100%", background:"#101010", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:14, padding:"13px 14px", fontSize:16, outline:"none" }} />
             </div>
-            {!menuSearch && <div style={{ padding:12, display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{WORKSPACES.filter(w => w.id !== "admin_ws" || role === "owner").map(w => <button key={w.id} onClick={()=>openPage(w.id)} style={{ background:page===w.id?"rgba(151,211,62,.16)":"#0f0f0f", border:`1px solid ${page===w.id?w.color:"rgba(255,255,255,.12)"}`, borderRadius:18, padding:"16px 13px", color:"#fff", fontFamily:F.body, cursor:"pointer", textAlign:"left" }}><Row gap={10} center><span style={{ fontSize:29 }}>{w.icon}</span><div><div style={{ fontWeight:900, fontSize:15 }}>{w.l}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:11 }}>{w.sub}</div></div></Row></button>)}</div>}
+            {!menuSearch && <div style={{ padding:12, display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{WORKSPACES.filter(w => !(w.roles && !w.roles.includes(role))).map(w => <button key={w.id} onClick={()=>openPage(w.id)} style={{ background:page===w.id?"rgba(151,211,62,.16)":"#0f0f0f", border:`1px solid ${page===w.id?w.color:"rgba(255,255,255,.12)"}`, borderRadius:18, padding:"16px 13px", color:"#fff", fontFamily:F.body, cursor:"pointer", textAlign:"left" }}><Row gap={10} center><span style={{ fontSize:29 }}>{w.icon}</span><div><div style={{ fontWeight:900, fontSize:15 }}>{w.l}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:11 }}>{w.sub}</div></div></Row></button>)}</div>}
             <div style={{ padding:"6px 12px 16px" }}>{menuGroups.map(g => <details key={g.group} open={!!menuSearch} style={{ background:"#080808", border:"1px solid rgba(255,255,255,.1)", borderRadius:14, marginBottom:8, overflow:"hidden" }}><summary style={{ cursor:"pointer", padding:"13px 14px", fontWeight:900, color:"#fff", listStyle:"none" }}>{g.group} <span style={{ float:"right", color:"#97d33e", fontSize:12 }}>{g.items.length} tools</span></summary><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:6, padding:"0 10px 10px" }}>{g.items.map(t => <button key={t.id} onClick={()=>openPage(t.id)} style={{ background:page===t.id?"rgba(251,99,146,.18)":"rgba(255,255,255,.055)", border:`1px solid ${page===t.id?"#fb6392":"rgba(255,255,255,.1)"}`, color:"#fff", borderRadius:12, padding:"10px 9px", textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><span style={{ marginRight:7 }}>{t.icon}</span><span style={{ fontWeight:800, fontSize:12 }}>{t.l}</span></button>)}</div></details>)}</div>
             <div style={{ padding:"0 14px 14px" }}><button onClick={()=>{setMenuOpen(false); onChangePassword();}} style={{ width:"100%", background:"transparent", border:"1px solid rgba(255,255,255,.25)", borderRadius:12, padding:"11px", color:"#fff", fontWeight:800 }}>Change Password</button></div>
           </div>
         </div>}
 
-        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const active = page === id || (id === "today" && ["dash","command","execai","aihub","cashflow","slotprofit","overnight","emp_dash"].includes(page)) || (id === "plants_ws" && ["inv","manual","upload","invoicetrainer","labels","care","locations","sellthru"].includes(page)) || (id === "shows_ws" && ["showbuilder","liveshow","showimport","bundles","discounts","social","content"].includes(page)) || (id === "orders_ws" && ["ship","customers","retention","refunds","casd"].includes(page)) || (id === "money_ws" && ["expense","receipts","bills","timecard","payroll","tax","goals","commissions"].includes(page)); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
+        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const activeWorkflow = getWorkspaceForPage(page); const active = page === id || activeWorkflow === id || (id === "plants_ws" && activeWorkflow === "intake_ws") || (id === "money_ws" && activeWorkflow === "buy_ws"); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
         <style>{`body{margin:0}.pg-pad{padding:14px 14px 96px!important}.ld-workspace-card{transition:transform .12s ease, box-shadow .12s ease}.ld-workspace-card:active{transform:scale(.985)}.ld-ai-status-open{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;text-align:center!important}.ld-clean-ai-grid button{white-space:normal!important;word-break:normal!important;overflow-wrap:anywhere!important}.ld-ai-status-open *{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}@media(max-width:760px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}.ld-ai-status-open{font-size:8px!important;min-width:38px!important;padding:6px 6px!important;}}@media(max-width:380px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </>;
     }
@@ -1494,7 +1500,11 @@
           { title:"Start Here", items:[["Executive AI","execai","🧠","CEO-style decisions and simulations"],["Profit Per Slot","slotprofit","📦","Rank plants by weekly slot profit"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Plant Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
           { title:"Common Tasks", items:[["Add Plant","manual","✏️","Manual inventory entry"],["Scan Receipt","receipts","🧾","Save expense receipt"],["Import Show","showimport","📥","Whatnot/Palmstreet sales"],["Social Post","social","📣","Turn plant photos into posts"]] }
         ]},
-        plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything inventory in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
+        intake_ws:{ icon:"➕", title:"Add / Intake", sub:"One clean workflow for invoices, manual adds, existing inventory, and labels.", hero:"Buy plants → add plants → assign numbers → print labels", color:"#97d33e", kpis:[["Invoice Upload","📸","photo first"],["Manual Add","✏️","quick entry"],["Archive","📋","past invoices"],["Labels","🏷️","print next"]], sections:[
+          { title:"Add New Plants", items:[["Upload Invoice Photo","upload","📸","Use camera/photo to add nursery purchases"],["Add Plants Manually","manual","✏️","Quick entry for small buys"],["Receipt / Invoice Archive","history","📋","Review past uploads"],["Teach Receipt Reader","invoicetrainer","🧾","Owner rules for sizes and receipts"]] },
+          { title:"Finish Intake", items:[["Print Labels","labels","🏷️","Print after plant IDs are assigned"],["Open Inventory","inv","🌿","Check new plants"],["Nursery Scores","nursery","🏪","Supplier records and performance"],["Ask Leaf Diary","dataai","💬","Ask what is missing before the show"]] }
+        ]},
+        plants_ws:{ icon:"🌿", title:"Inventory", sub:"Everything plant-related in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
           { title:"Inventory Work", items:[["Inventory","inv","🌿","Search and edit all plants"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Purchase Intake Trainer","invoicetrainer","🧾","Teach invoice pot-size rules"],["Past Invoices","history","📋","Previous uploads"]] },
           { title:"Plant Tools", items:[["Labels","labels","🏷️","Print plant labels"],["Plant Care","care","🩺","Quarantine and health"],["Locations","locations","📍","Racks, trailer, rooms"],["Sell-Through","sellthru","📊","What sells fastest"]] }
         ]},
@@ -1510,7 +1520,11 @@
           { title:"Daily Money", items:[["Cash Flow","cashflow","💵","Can you spend?"],["Profit Per Slot","slotprofit","📦","Max profit from 400 weekly slots"],["Morning Briefing","overnight","🌅","Daily money and task plan"],["Expenses","expense","💳","Business spending"],["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Due dates"]] },
           { title:"Pay + Tax", items:[["Timecard","timecard","⏱️","Hours"],["Payroll","payroll","👥","Pay employees"],["Commissions","commissions","🤝","Show commissions"],["Tax Center","tax","🧾","Tax-ready totals"]] }
         ]},
-        admin_ws:{ icon:"⚙️", title:"Admin", sub:"Owner settings and security.", hero:"Control the app without cluttering daily work", color:"#b695ff", kpis:[["Users","👥","roles"],["Audit","🔍","history"],["Backups","💾","safety"],["Settings","⚙️","system"]], sections:[
+        buy_ws:{ icon:"🧠", title:"Buy Smart", sub:"Know what to buy, what to avoid, and how much you can safely spend.", hero:"Stop buying low-profit plants and use your weekly slots for winners", color:"#B07D10", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"money tied up"],["Month Sales",$(monthSales),"proof of demand"],["No Photos",noPhoto.length,"blocks selling"]], sections:[
+          { title:"Buying Decisions", items:[["What Makes Money","slotprofit","📦","Profit-per-slot and weekly capacity"],["Buy Smart","intel","💡","What to buy and stop buying"],["Nursery Scores","nursery","🏪","Which suppliers make profit"],["Buying Lists","pos","📋","Plan purchase orders"]] },
+          { title:"Proof + Reports", items:[["Reports","reports","📈","Profit and sales reports"],["Cash Flow","cashflow","💵","Safe buy budget"],["Sell-Through","sellthru","📊","What sells fastest"],["Owner AI Brief","execai","🧠","Plain-English owner decisions"]] }
+        ]},
+        admin_ws:{ icon:"⚙️", title:"Settings", sub:"Owner setup, permissions, security, AI, and data.", hero:"Hide technical tools away from daily operations", color:"#b695ff", kpis:[["Users","👥","roles"],["Audit","🔍","history"],["Backups","💾","safety"],["Settings","⚙️","system"]], sections:[
           { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Data Cleanup","cleanup","🧹","Fix duplicates/issues"],["Phase 2 Test Console","devtools","🧪","Diagnostics and safe tests"],["Ollama AI Connector","ollama","🧠","Local AI model settings"],["AI Gateway","aigateway","🌐","Mobile AI API bridge"],["AI Router","airouter","🧭","Route each AI task to the right model"],["Executive AI","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Phase 10 daily automation"],["Reports","reports","📈","Business reports"],["Profit Per Slot","slotprofit","📦","Capacity and PPS engine"]] },
           { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Purchase Intake Trainer","invoicetrainer","🧾","Invoice training rules"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
         ]}
@@ -11381,9 +11395,11 @@ ${local.summary || "Fallback completed."}`;
         <div key={page} className={`ld-page-shell ${navDir === "back" ? "ld-slide-back" : "ld-slide-forward"}`}>
           {page === "today" && <WorkspaceHome type="today" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "intake_ws" && <WorkspaceHome type="intake_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "shows_ws" && <WorkspaceHome type="shows_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "buy_ws" && CAN.seeReports(user.role) && <WorkspaceHome type="buy_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "admin_ws" && user.role === "owner" && <WorkspaceHome type="admin_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={navigate} />}
           {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
