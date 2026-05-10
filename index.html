@@ -3014,6 +3014,7 @@
 
     function Inventory({ plants, setPlants, user, addAudit, nurseries, setPage }) {
       const [search, setSearch] = useState("");
+      const [actionView, setActionView] = useState("All Plants");
       const [fs, setFs] = useState("All");
       const [fn, setFn] = useState("All");
       const [fg, setFg] = useState("All");
@@ -3188,6 +3189,96 @@
         const ageOk = fAge === "All" || (fAge === "30+" && days >= 30) || (fAge === "60+" && days >= 60) || (fAge === "fresh" && days < 30);
         return (!q || p.name.toLowerCase().includes(q) || (p.plantId || "").toLowerCase().includes(q)) && (fs === "All" || p.status === fs) && (fn === "All" || p.nurseryCode === fn) && (fg === "All" || gOf(p.name) === fg) && ageOk;
       }).sort((a, b) => { let av = a[sortF] || 0, bv = b[sortF] || 0; if (typeof av === "string") { av = av.toLowerCase(); bv = bv.toLowerCase(); } return sortD === "asc" ? av > bv ? 1 : -1 : av < bv ? 1 : -1; });
+      const inStockPlants = safeArray(plants).filter(p => String(p.status || "").trim() === "In Stock");
+      const soldPlants = safeArray(plants).filter(p => String(p.status || "").trim() === "Sold");
+      const needPhotos = inStockPlants.filter(p => !p.photoUrl && !p.photoBase64);
+      const needPrices = inStockPlants.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const needLabels = inStockPlants.filter(p => !p.labelPrinted);
+      const agingPlants = inStockPlants.filter(p => (dHeld(p.dateAdded) || 0) >= 30);
+      const readyForShowPlants = inStockPlants.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price) && p.labelPrinted !== false);
+      const problemPlants = safeArray(plants).filter(p => ["Dead", "Damaged", "Returned"].includes(p.status) || !p.name || !(p.plantId || p.plantCode) || ((+p.cost || 0) > 0 && (+p.suggestedPrice || +p.listPrice || +p.price || 0) > 0 && marg(+p.cost, +p.suggestedPrice || +p.listPrice || +p.price) < 35));
+      const inventoryViews = [
+        { id:"All Plants", icon:"🌿", label:"All Plants", count:inStockPlants.length, color:C.g600, sub:"current stock" },
+        { id:"Need Photos", icon:"📸", label:"Need Photos", count:needPhotos.length, color:C.amber, sub:"blocked from shows" },
+        { id:"Need Price", icon:"💲", label:"Need Price", count:needPrices.length, color:C.red, sub:"cannot export" },
+        { id:"Aging", icon:"⏳", label:"Aging", count:agingPlants.length, color:C.gold, sub:"30+ days" },
+        { id:"Ready For Show", icon:"🎪", label:"Ready For Show", count:readyForShowPlants.length, color:C.blue, sub:"photo + price" },
+        { id:"Problem Plants", icon:"⚠️", label:"Problem Plants", count:problemPlants.length, color:C.red, sub:"needs review" },
+        { id:"Sold / Archive", icon:"✅", label:"Sold / Archive", count:soldPlants.length, color:C.tx3, sub:"sold records" }
+      ];
+      const matchesActionView = p => {
+        const status = String(p.status || "").trim();
+        const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
+        const marginPct = ((+p.cost || 0) > 0 && price > 0) ? marg(+p.cost, price) : 100;
+        if (actionView === "All Plants") return status === "In Stock";
+        if (actionView === "Need Photos") return status === "In Stock" && !p.photoUrl && !p.photoBase64;
+        if (actionView === "Need Price") return status === "In Stock" && !price;
+        if (actionView === "Aging") return status === "In Stock" && (dHeld(p.dateAdded) || 0) >= 30;
+        if (actionView === "Ready For Show") return status === "In Stock" && (p.photoUrl || p.photoBase64) && price && p.labelPrinted !== false;
+        if (actionView === "Problem Plants") return ["Dead", "Damaged", "Returned"].includes(status) || !p.name || !(p.plantId || p.plantCode) || marginPct < 35;
+        if (actionView === "Sold / Archive") return status === "Sold";
+        return true;
+      };
+      const displayList = list.filter(matchesActionView);
+      const inventoryActionSummary = [
+        `${needPhotos.length} need photos`, `${needPrices.length} need prices`, `${needLabels.length} need labels`, `${agingPlants.length} aging`, `${readyForShowPlants.length} show-ready`
+      ].join(" · ");
+      const actionWarningFor = p => {
+        const status = String(p.status || "").trim();
+        const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
+        const days = dHeld(p.dateAdded) || 0;
+        if (status === "Sold") return { text:"Sold record", color:C.tx3, button:"View Sale", page:"ship" };
+        if (status === "Dead" || status === "Damaged") return { text:`${status} — resolve`, color:C.red, button:"Resolve", page:"care" };
+        if (!p.photoUrl && !p.photoBase64) return { text:"Missing photo", color:C.amber, button:"Add Photo", page:"detail" };
+        if (!price) return { text:"Missing price", color:C.red, button:"Set Price", page:"detail" };
+        if (!p.labelPrinted) return { text:"Needs label", color:C.blue, button:"Print Label", page:"labels" };
+        if (days >= 60) return { text:`${days} days old`, color:C.red, button:"Review Price", page:"discounts" };
+        if (days >= 45) return { text:`${days} days old`, color:C.amber, button:"Review Price", page:"discounts" };
+        return { text:"Ready", color:C.g600, button:"Add To Show", page:"showbuilder" };
+      };
+      const openPlantAction = (p, meta) => {
+        if (meta.page === "detail") return setDetail(p.id);
+        if (meta.page === "labels") return setPage("labels");
+        if (meta.page === "discounts") return setPage("discounts");
+        if (meta.page === "ship") return setPage("ship");
+        if (meta.page === "care") return setPage("care");
+        if (meta.page === "showbuilder") {
+          try {
+            const plantCode = safePlantId(p);
+            const existing = getSavedShowIds();
+            saveShowIds([...existing, plantCode]);
+            addAudit && addAudit({ action: `Added ${plantCode} to Show Builder from Inventory Action Center`, user: user.name, page:"Inventory" });
+          } catch (e) {}
+          return setPage("showbuilder");
+        }
+        setDetail(p.id);
+      };
+      const PlantActionCard = ({ p }) => {
+        const meta = actionWarningFor(p);
+        const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
+        const days = dHeld(p.dateAdded);
+        const photo = p.photoUrl || p.photoBase64 || p.imageUrl || p.image || "";
+        return <div className="ld-plant-action-card" style={{ background:C.card, border:`1px solid ${C.bd}`, borderLeft:`5px solid ${meta.color}`, borderRadius:20, padding:12, boxShadow:"0 8px 24px rgba(13,43,26,.06)" }}>
+          <Row gap={12} center>
+            <button onClick={() => setDetail(p.id)} style={{ width:62, height:62, borderRadius:16, overflow:"hidden", border:`1px solid ${C.bd}`, background:C.cardAlt, flexShrink:0, padding:0, cursor:"pointer" }}>
+              {photo ? <img src={photo} alt={p.name || "Plant"} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <div style={{ height:"100%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28 }}>🌿</div>}
+            </button>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:900, color:C.g900, fontSize:15, lineHeight:1.15 }}>{toTC(p.name || "Unnamed Plant")}</div>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:4, fontFamily:F.mono }}>{p.plantId || p.plantCode || "No ID"} · {p.potSize || "No size"}</div>
+              <Row gap={6} wrap center style={{ marginTop:6 }}>
+                {price ? <Tag text={$(price)} color={C.g600} sm /> : <Tag text="No price" color={C.red} sm />}
+                <Tag text={fDays(days)} color={(days || 0) >= 60 ? C.red : (days || 0) >= 30 ? C.amber : C.tx3} sm />
+                <Tag text={meta.text} color={meta.color} sm />
+              </Row>
+            </div>
+          </Row>
+          <Row gap={8} wrap style={{ marginTop:11 }}>
+            <Btn sz="sm" onClick={() => openPlantAction(p, meta)} style={{ flex:"1 1 130px", justifyContent:"center" }}>{meta.button}</Btn>
+            <Btn sz="sm" v="ghost" onClick={() => setDetail(p.id)} style={{ flex:"1 1 100px", justifyContent:"center" }}>Details</Btn>
+          </Row>
+        </div>;
+      };
       const upd = (id, f, v) => { setPlants(p => p.map(x => x.id === id ? { ...x, [f]: v } : x)); addAudit({ action: `Updated ${f}`, user: user.name, page: "Inventory" }); };
       const tog = f => { if (sortF === f) setSortD(d => d === "asc" ? "desc" : "asc"); else { setSortF(f); setSortD("asc"); } };
       const TH = ({ f, l }) => <th onClick={() => tog(f)} style={{ padding: "8px 10px", textAlign: "left", color: C.tx3, fontWeight: 700, fontSize: 10, letterSpacing: .4, textTransform: "uppercase", borderBottom: `1px solid ${C.bd}`, cursor: "pointer", whiteSpace: "nowrap" }}>{l}{sortF === f ? (sortD === "asc" ? " ↑" : " ↓") : ""}</th>;
@@ -3211,7 +3302,7 @@
         addAudit && addAudit({ action: `Exported Master Inventory CSV — ${list.length} plants`, user: user.name, page: 'Inventory' });
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🌿" title="Plant Inventory" sub={`${list.length} of ${plants.length} plants`} right={<Row gap={8}><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
+        <SHdr icon="🌿" title="Inventory Action Center" sub={`${displayList.length} showing · ${inventoryActionSummary}`} right={<Row gap={8}><Btn v="soft" sz="sm" onClick={() => setPage("manual")}>+ Add Plant</Btn><Btn v="outline" onClick={exportMasterInventory}>📥 Export CSV</Btn></Row>} />
 
         <Card style={{ marginBottom: 14, background: C.blueBg, border: `1px solid ${C.blue}40` }}>
           <Row between wrap center gap={10}>
@@ -3281,41 +3372,77 @@
             </div>
           ))}
         </div>}
-        <Row gap={8} wrap style={{ marginBottom: 14 }}>
-          <div style={{ flex: 1, minWidth: 200 }}><input placeholder="Search name, ID…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${C.bd}`, borderRadius: 9, fontSize: 13, fontFamily: F.body, boxSizing: "border-box", outline: "none" }} /></div>
-          {[["Status", fs, setFs, ["All", ...STATUSES]], ["Nursery", fn, setFn, ["All", ...filterNurseries]], ["Genus", fg, setFg, ["All", ...genera]], ["Age", fAge, setFAge, ["All", "fresh", "30+", "60+"]]].map(([l, v, set, opts]) => (
-            <select key={l} value={v} onChange={e => set(e.target.value)} style={{ padding: "9px 11px", border: `1.5px solid ${C.bd}`, borderRadius: 9, fontSize: 13, fontFamily: F.body, background: C.card, outline: "none" }}><option value="All">All {l}s</option>{opts.filter(o => o !== "All").map(o => <option key={o}>{o}</option>)}</select>
-          ))}
-        </Row>
-        {list.length === 0 ? <Card style={{ textAlign: "center", padding: "50px" }}><div style={{ fontSize: 36, marginBottom: 10 }}>🌿</div><h2 style={{ fontFamily: F.display, color: C.g900, fontSize: 18 }}>No plants match</h2></Card> : (
-          <div style={{ overflowX: "auto", border: `1px solid ${C.bd}`, borderRadius: 10 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead style={{ background: C.cardAlt }}><tr>
-                <TH f="name" l="Plant & ID" /><TH f="potSize" l="Pot" />
-                {isOwner && <><TH f="cost" l="Cost" /><TH f="suggestedPrice" l="Price" /><TH f="margin" l="Margin" /></>}
-                <TH f="status" l="Status" /><TH f="rack" l="Rack" /><TH f="nurseryCode" l="Nursery" /><TH f="dateAdded" l="Added" />
-                <th style={{ padding: "8px 10px", borderBottom: `1px solid ${C.bd}`, color: C.tx3, fontWeight: 700, fontSize: 10, textTransform: "uppercase" }}>Age</th>
-                <th style={{ padding: "8px 10px", borderBottom: `1px solid ${C.bd}` }}></th>
-              </tr></thead>
-              <tbody>{list.map(p => {
-                const days = dHeld(p.dateAdded);
-                const alert60 = days >= 60 && p.status === "In Stock", warn30 = days >= 30 && days < 60 && p.status === "In Stock";
-                return <tr key={p.id} style={{ borderBottom: `1px solid ${C.bdS}`, cursor: "pointer", background: alert60 ? C.redBg + "60" : warn30 ? C.amberBg + "60" : "transparent" }}
-                  onClick={() => setDetail(p.id)} onMouseEnter={e => e.currentTarget.style.background = C.g50} onMouseLeave={e => e.currentTarget.style.background = alert60 ? C.redBg + "60" : warn30 ? C.amberBg + "60" : "transparent"}>
-                  <td style={{ padding: "8px 10px", fontWeight: 600, maxWidth: 220 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toTC(p.name)} <span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500, fontWeight: 400, marginLeft: 6 }}>{p.plantId}</span></div></td>
-                  <td style={{ padding: "8px 10px", color: C.tx3 }}>{p.potSize || "—"}</td>
-                  {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{$(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
-                  <td style={{ padding: "8px 10px" }}><SBadge s={p.status} /></td>
-                  <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 11, color: C.tx3 }}>{p.rack || "—"}</td>
-                  <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{p.nurseryName || p.nurseryCode}</td>
-                  <td style={{ padding: "8px 10px", color: C.tx3, fontSize: 11 }}>{p.dateAdded}</td>
-                  <td style={{ padding: "8px 10px" }}><span style={{ fontSize: 11, fontWeight: alert60 || warn30 ? 700 : 400, color: alert60 ? C.red : warn30 ? C.amber : C.tx3 }}>{fDays(days)}</span></td>
-                  <td style={{ padding: "8px 10px" }}><Btn sz="sm" v="ghost" onClick={e => { e.stopPropagation(); setDetail(p.id); }}>View</Btn></td>
-                </tr>;
-              })}</tbody>
-            </table>
+        <Card className="ld-inventory-action-panel" style={{ marginBottom:14, padding:16, background:C.g50, border:`1px solid ${C.g200}` }}>
+          <Row between center wrap gap={10} style={{ marginBottom:12 }}>
+            <div>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20 }}>🌿 Inventory Action Center</div>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Work from queues instead of hunting through the full plant list. Tap one queue, fix the blocker, move to the next plant.</div>
+            </div>
+            <Row gap={8} wrap>
+              <Btn sz="sm" onClick={() => setPage("upload")}>📸 Upload Invoice</Btn>
+              <Btn sz="sm" v="soft" onClick={() => setPage("manual")}>+ Add Plant</Btn>
+              <Btn sz="sm" v="outline" onClick={() => setPage("labels")}>🏷️ Labels</Btn>
+            </Row>
+          </Row>
+          <div className="ld-inventory-view-pills" style={{ display:"grid", gridTemplateColumns:"repeat(7, minmax(0,1fr))", gap:8 }}>
+            {inventoryViews.map(v => <button key={v.id} onClick={() => { setActionView(v.id); if (v.id !== "Sold / Archive") setFs("All"); }} style={{ background:actionView === v.id ? "#000" : C.card, color:actionView === v.id ? "#fff" : C.tx1, border:`1.5px solid ${actionView === v.id ? v.color : C.bd}`, borderRadius:16, padding:"12px 9px", textAlign:"left", cursor:"pointer", fontFamily:F.body, minHeight:86 }}>
+              <div style={{ fontSize:22, lineHeight:1 }}>{v.icon}</div>
+              <div style={{ fontSize:11, fontWeight:900, marginTop:5, color:actionView === v.id ? v.color : C.g900 }}>{v.label}</div>
+              <div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, lineHeight:1, color:actionView === v.id ? "#97d33e" : v.color }}>{v.count}</div>
+              <div style={{ fontSize:9, color:actionView === v.id ? "rgba(255,255,255,.6)" : C.tx3, fontWeight:700 }}>{v.sub}</div>
+            </button>)}
           </div>
+        </Card>
+
+        <Row gap={8} wrap style={{ marginBottom: 14 }}>
+          <div style={{ flex: 1, minWidth: 200 }}><input placeholder="Search name, plant number, nursery…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: "100%", padding: "12px 13px", border: `1.5px solid ${C.bd}`, borderRadius: 12, fontSize: 16, fontFamily: F.body, boxSizing: "border-box", outline: "none" }} /></div>
+          <Btn v="ghost" sz="sm" onClick={() => { setSearch(""); setFs("All"); setFn("All"); setFg("All"); setFAge("All"); setActionView("All Plants"); }}>Reset</Btn>
+          <details style={{ flexBasis:"100%", background:C.card, border:`1px solid ${C.bd}`, borderRadius:14, padding:"8px 10px" }}>
+            <summary style={{ cursor:"pointer", fontWeight:900, color:C.g800, fontSize:13 }}>Advanced filters</summary>
+            <Row gap={8} wrap style={{ marginTop:10 }}>
+              {[["Status", fs, setFs, ["All", ...STATUSES]], ["Nursery", fn, setFn, ["All", ...filterNurseries]], ["Genus", fg, setFg, ["All", ...genera]], ["Age", fAge, setFAge, ["All", "fresh", "30+", "60+"]]].map(([l, v, set, opts]) => (
+                <select key={l} value={v} onChange={e => set(e.target.value)} style={{ padding: "10px 11px", border: `1.5px solid ${C.bd}`, borderRadius: 10, fontSize: 13, fontFamily: F.body, background: C.card, outline: "none" }}><option value="All">All {l}s</option>{opts.filter(o => o !== "All").map(o => <option key={o}>{o}</option>)}</select>
+              ))}
+            </Row>
+          </details>
+        </Row>
+
+        {displayList.length === 0 ? <Card style={{ textAlign: "center", padding: "50px" }}><div style={{ fontSize: 36, marginBottom: 10 }}>🌿</div><h2 style={{ fontFamily: F.display, color: C.g900, fontSize: 18 }}>No plants match this queue</h2><p style={{ color:C.tx3, margin:0 }}>Try another queue or reset filters.</p></Card> : (
+          <>
+            <div className="ld-inventory-card-list" style={{ display:"grid", gridTemplateColumns:"repeat(2, minmax(0,1fr))", gap:10, marginBottom:14 }}>
+              {displayList.slice(0, 80).map(p => <PlantActionCard key={p.id} p={p} />)}
+            </div>
+            {displayList.length > 80 && <Card style={{ marginBottom:14, background:C.goldBg, border:`1px solid ${C.gold}40` }}><b>Showing first 80 plants in this queue.</b><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Use search or advanced filters to narrow the list before editing.</div></Card>}
+            <div className="ld-inventory-desktop-table" style={{ overflowX: "auto", border: `1px solid ${C.bd}`, borderRadius: 10 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead style={{ background: C.cardAlt }}><tr>
+                  <TH f="name" l="Plant & ID" /><TH f="potSize" l="Pot" />
+                  {isOwner && <><TH f="cost" l="Cost" /><TH f="suggestedPrice" l="Price" /><TH f="margin" l="Margin" /></>}
+                  <TH f="status" l="Status" /><TH f="rack" l="Rack" /><TH f="nurseryCode" l="Nursery" /><TH f="dateAdded" l="Added" />
+                  <th style={{ padding: "8px 10px", borderBottom: `1px solid ${C.bd}`, color: C.tx3, fontWeight: 700, fontSize: 10, textTransform: "uppercase" }}>Age</th>
+                  <th style={{ padding: "8px 10px", borderBottom: `1px solid ${C.bd}` }}></th>
+                </tr></thead>
+                <tbody>{displayList.map(p => {
+                  const days = dHeld(p.dateAdded);
+                  const alert60 = days >= 60 && p.status === "In Stock", warn30 = days >= 30 && days < 60 && p.status === "In Stock";
+                  return <tr key={p.id} style={{ borderBottom: `1px solid ${C.bdS}`, cursor: "pointer", background: alert60 ? C.redBg + "60" : warn30 ? C.amberBg + "60" : "transparent" }}
+                    onClick={() => setDetail(p.id)} onMouseEnter={e => e.currentTarget.style.background = C.g50} onMouseLeave={e => e.currentTarget.style.background = alert60 ? C.redBg + "60" : warn30 ? C.amberBg + "60" : "transparent"}>
+                    <td style={{ padding: "8px 10px", fontWeight: 600, maxWidth: 220 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toTC(p.name)} <span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500, fontWeight: 400, marginLeft: 6 }}>{p.plantId}</span></div></td>
+                    <td style={{ padding: "8px 10px", color: C.tx3 }}>{p.potSize || "—"}</td>
+                    {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{$(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
+                    <td style={{ padding: "8px 10px" }}><SBadge s={p.status} /></td>
+                    <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 11, color: C.tx3 }}>{p.rack || "—"}</td>
+                    <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{p.nurseryName || p.nurseryCode}</td>
+                    <td style={{ padding: "8px 10px", color: C.tx3, fontSize: 11 }}>{p.dateAdded}</td>
+                    <td style={{ padding: "8px 10px" }}><span style={{ fontSize: 11, fontWeight: alert60 || warn30 ? 700 : 400, color: alert60 ? C.red : warn30 ? C.amber : C.tx3 }}>{fDays(days)}</span></td>
+                    <td style={{ padding: "8px 10px" }}><Btn sz="sm" v="ghost" onClick={e => { e.stopPropagation(); setDetail(p.id); }}>View</Btn></td>
+                  </tr>;
+                })}</tbody>
+              </table>
+            </div>
+          </>
         )}
+        <style>{`@media(max-width:760px){.ld-inventory-view-pills{display:flex!important;overflow-x:auto!important;-webkit-overflow-scrolling:touch;padding-bottom:4px}.ld-inventory-view-pills button{min-width:132px!important}.ld-inventory-card-list{grid-template-columns:1fr!important}.ld-inventory-desktop-table{display:none!important}.ld-plant-action-card button{min-height:44px}}@media(min-width:761px){.ld-inventory-card-list{grid-template-columns:repeat(2,minmax(0,1fr))}.ld-inventory-desktop-table{display:block}}@media(min-width:1100px){.ld-inventory-card-list{grid-template-columns:repeat(3,minmax(0,1fr))}}`}</style>
       </div>;
     }
 
