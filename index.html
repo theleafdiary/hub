@@ -2722,7 +2722,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         cacheAppliesToMatchingPlants: true
       };
       try { localStorage.setItem(phase116MarketCacheKeyForPlant(plant), JSON.stringify(payload)); } catch(e) {}
-      try { phase117SaveMarketResearchRecord(plant, payload, null, { source:"market_cache_v116" }); } catch(e) {}
       return payload;
     }
     function phase116GetSavedMarketCache(plant = {}, settings = {}) {
@@ -2745,122 +2744,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         matchingRule: result.matchingRule || "plant name + pot size + stage + variegation",
         cacheAppliesToMatchingPlants: true
       };
-    }
-    /* ══════════════════════════════════════════════════════════
-       UPDATE 117 — MARKET RESEARCH LIBRARY + SAFE PRICE APPLY
-       Every paid/usable market lookup becomes a saved research record.
-       Research data is saved separately from inventory prices. Suggested
-       price and actual/listing price are intentionally separate actions.
-    ══════════════════════════════════════════════════════════ */
-    const PHASE117_MARKET_LIBRARY_KEY = "ld_market_research_library_v117";
-    function phase117LoadMarketResearchLibrary() {
-      try {
-        const raw = localStorage.getItem(PHASE117_MARKET_LIBRARY_KEY);
-        const rows = raw ? JSON.parse(raw) : [];
-        return Array.isArray(rows) ? rows : [];
-      } catch(e) { return []; }
-    }
-    function phase117SaveMarketResearchLibrary(rows = []) {
-      const clean = safeArray(rows).filter(Boolean).slice(0, 500);
-      try { localStorage.setItem(PHASE117_MARKET_LIBRARY_KEY, JSON.stringify(clean)); } catch(e) {}
-      return clean;
-    }
-    function phase117ResearchRecordId(groupKey = "", runAt = "") {
-      return `mr-${String(groupKey || "plant").replace(/[^a-z0-9]+/gi,"-").slice(0,80)}-${String(runAt || Date.now()).replace(/[^0-9a-z]+/gi,"-")}`;
-    }
-    function phase117StripHeavyGatewayPayload(result = {}) {
-      const r = { ...safeObject(result) };
-      delete r.gatewayReport;
-      delete r.rawGatewayResponse;
-      delete r.fullPrompt;
-      delete r.prompt;
-      return r;
-    }
-    function phase117NormalizeMarketResearchRecord(plant = {}, result = {}, user = {}, opts = {}) {
-      const now = new Date().toISOString();
-      const decorated = phase116DecorateResultForGroup(plant, phase117StripHeavyGatewayPayload(result));
-      const groupKey = decorated.groupKey || phase116MarketSignature(plant);
-      const used = safeArray(decorated.usedComparables).length ? safeArray(decorated.usedComparables) : safeArray(decorated.dataSources || decorated.sources).filter(s => s.includedInMarketMedian !== false && (+s.comparableScore || 0) >= 90);
-      const rejected = safeArray(decorated.excludedComparables).length ? safeArray(decorated.excludedComparables) : safeArray(decorated.dataSources || decorated.sources).filter(s => !used.includes(s));
-      const record = {
-        id: decorated.recordId || phase117ResearchRecordId(groupKey, decorated.runAt || now),
-        groupKey,
-        plantName: decorated.plantName || plant.name || plant.botanicalName || "Plant",
-        potSize: decorated.potSize || plant.potSize || plant.size || "",
-        requestedPotSize: decorated.requestedPotSize || decorated.potSize || plant.potSize || "",
-        stage: phase110DetectPlantStage ? phase110DetectPlantStage(plant) : (plant.stage || plant.plantStage || "rooted_potted"),
-        variegationSignature: phase110VariegationSignature ? phase110VariegationSignature(plant) : "standard",
-        marketMedianPrice: +decorated.marketMedianPrice || 0,
-        suggestedPrice: +decorated.suggestedPrice || 0,
-        actualPriceCandidate: +decorated.suggestedPrice || 0,
-        confidenceScore: +decorated.confidenceScore || 0,
-        priceStatus: decorated.priceStatus || "low_confidence",
-        priceReason: decorated.priceReason || decorated.confidenceNote || "",
-        trustedComparableCount: +decorated.trustedComparableCount || +decorated.dataPointCount || used.length || 0,
-        rejectedComparableCount: +decorated.rejectedComparableCount || rejected.length || 0,
-        dataPointCount: +decorated.dataPointCount || used.length || 0,
-        usedComparables: used.slice(0, 80),
-        excludedComparables: rejected.slice(0, 80),
-        dataSources: safeArray(decorated.dataSources || decorated.sources).slice(0, 120),
-        whatnotMedian: decorated.whatnotMedian || null,
-        palmstreetMedian: decorated.palmstreetMedian || null,
-        lowestFound: +decorated.lowestFound || 0,
-        highestFound: +decorated.highestFound || 0,
-        profitFloorPrice: +decorated.profitFloorPrice || +decorated.ownerProfitFloorPrice || 0,
-        breakEvenPrice: +decorated.breakEvenPrice || 0,
-        ppsFloorPrice: +decorated.ppsFloorPrice || 0,
-        margin: +decorated.margin || 0,
-        marketPositionLabel: decorated.marketPositionLabel || "",
-        matchingRule: decorated.matchingRule || "plant name + pot size + stage + variegation",
-        appliesToMatchingPlants: true,
-        savedAt: now,
-        runAt: decorated.runAt || now,
-        searchedBy: user?.name || opts.userName || "Leaf Diary",
-        source: decorated.source || opts.source || "market_research",
-        result: decorated
-      };
-      return record;
-    }
-    function phase117ShouldSaveResearchRecord(result = {}) {
-      if (!result) return false;
-      const src = String(result.source || "").toLowerCase();
-      if (src.includes("local_preview")) return false;
-      if (src.includes("json_parse_fallback") || src.includes("gateway_exception_fallback")) return false;
-      if (result.gatewayError && !(+result.marketMedianPrice > 0)) return false;
-      const used = safeArray(result.usedComparables).length || safeArray(result.dataSources || result.sources).filter(s => s.includedInMarketMedian !== false).length;
-      return (+result.marketMedianPrice > 0) || used > 0 || (+result.suggestedPrice > 0 && !src.includes("fallback"));
-    }
-    function phase117SaveMarketResearchRecord(plant = {}, result = {}, user = {}, opts = {}) {
-      if (!phase117ShouldSaveResearchRecord(result)) return null;
-      const record = phase117NormalizeMarketResearchRecord(plant, result, user, opts);
-      const rows = phase117LoadMarketResearchLibrary();
-      const deduped = rows.filter(r => !(r.groupKey === record.groupKey && String(r.runAt || "") === String(record.runAt || "")));
-      deduped.unshift(record);
-      phase117SaveMarketResearchLibrary(deduped);
-      try { localStorage.setItem(`ld_market_research_latest_v117::${record.groupKey}`, JSON.stringify(record)); } catch(e) {}
-      return record;
-    }
-    function phase117LatestMarketResearchForPlant(plant = {}, settings = {}) {
-      const groupKey = phase116MarketSignature(plant);
-      let raw = null;
-      try { raw = localStorage.getItem(`ld_market_research_latest_v117::${groupKey}`); } catch(e) {}
-      if (raw) {
-        try {
-          const rec = JSON.parse(raw);
-          const cfg = phase83MarketPricingSettings(settings);
-          const ageHours = (Date.now() - new Date(rec.runAt || rec.savedAt || 0).getTime()) / 3600000;
-          if (Number.isFinite(ageHours) && ageHours <= cfg.cacheHours) return rec;
-        } catch(e) {}
-      }
-      return phase117LoadMarketResearchLibrary().find(r => r.groupKey === groupKey) || null;
-    }
-    function phase117ApplySuggestedPricePatch(plant = {}, price = 0, record = {}) {
-      const clean = Math.max(0, Math.round((+price || 0) * 100) / 100);
-      return { ...plant, suggestedPrice:clean, margin:marg(+plant.cost || 0, clean), marketResearch:record.result || record, marketResearchRecordId:record.id, suggestedPriceSource:"market_research_library_v117", marketPricingQueued:false, updatedAt:new Date().toISOString() };
-    }
-    function phase117ApplyActualPricePatch(plant = {}, price = 0, record = {}) {
-      const clean = Math.max(0, Math.round((+price || 0) * 100) / 100);
-      return { ...plant, actualPrice:clean, listPrice:clean, price:clean, actualPriceSource:"market_research_library_v117", actualPriceAppliedAt:new Date().toISOString(), marketResearch:record.result || record, marketResearchRecordId:record.id, updatedAt:new Date().toISOString() };
     }
     function getCachedMarketResearch(plant = {}, settings = {}) {
       const research = safeObject(plant.marketResearch);
@@ -3046,7 +2929,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       </div>;
     }
 
-    function MarketPricePanel({ plant = {}, marketResult = {}, currentPrice, onApplyPrice, onKeepPrice, onClose, compact = false, title = "Market Research Result", onSaveResearch, onApplySuggestedToThis, onApplySuggestedToMatches, onApplySaleToThis, onApplySaleToMatches }) {
+    function MarketPricePanel({ plant = {}, marketResult = {}, currentPrice, onApplyPrice, onKeepPrice, onClose, compact = false, title = "Market Research Result" }) {
       const r = safeObject(marketResult);
       const meta = phase83MarketPriceStatusMeta(r.priceStatus);
       const sources = safeArray(r.sources || r.dataSources);
@@ -3161,21 +3044,11 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           })}</div>
         </div>}
 
-        <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderLeft:`6px solid ${C.blue}`, borderRadius:16, padding:12, marginBottom:12 }}>
-          <Row between center wrap gap={8} style={{ marginBottom:8 }}>
-            <div><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>💾 Save Research / Apply Price</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35 }}>Research data is saved separately. Suggested price is a recommendation. Actual sale/list price only changes when you choose it.</div></div>
-            <Tag text={r.cacheAppliesToMatchingPlants ? "applies to matching group" : "single result"} color={C.blue} sm />
-          </Row>
-          <Row gap={8} wrap>
-            {onSaveResearch && <Btn v="soft" onClick={()=>onSaveResearch({ ...r, suggestedPrice:suggested })}>Save Research Only</Btn>}
-            {onApplySuggestedToThis && <Btn v="outline" onClick={()=>onApplySuggestedToThis({ ...r, suggestedPrice:suggested })} disabled={!suggested}>Suggested → This Plant</Btn>}
-            {(onApplySuggestedToMatches || onApplyPrice) && <Btn onClick={()=> (onApplySuggestedToMatches || onApplyPrice)({ ...r, suggestedPrice:suggested })} disabled={!suggested}>Suggested → All Matches</Btn>}
-            {onApplySaleToThis && <Btn v="gold" onClick={()=>onApplySaleToThis({ ...r, suggestedPrice:suggested })} disabled={!suggested}>Sale Price → This Plant</Btn>}
-            {onApplySaleToMatches && <Btn v="danger" onClick={()=>{ if (window.confirm(`Apply ${$(suggested)} as ACTUAL sale/list price to all matching inventory? This changes listing price, not just suggested price.`)) onApplySaleToMatches({ ...r, suggestedPrice:suggested }); }} disabled={!suggested}>Sale Price → All Matches</Btn>}
-            {onKeepPrice && <Btn v="ghost" onClick={()=>onKeepPrice(r)}>Keep My Price {existingPrice ? `— ${$(existingPrice)}` : ""}</Btn>}
-            {onClose && <Btn v="outline" onClick={onClose}>Close</Btn>}
-          </Row>
-        </div>
+        <Row gap={8} wrap>
+          {onApplyPrice && <Btn full={!compact} onClick={()=>onApplyPrice({ ...r, suggestedPrice:suggested })} disabled={!suggested}>{isRisk || isOwnerReview ? `Use Guardrail Price — ${$(suggested)}` : `Use This Price — ${$(suggested)}`}</Btn>}
+          {onKeepPrice && <Btn v="ghost" onClick={()=>onKeepPrice(r)}>Keep My Price {existingPrice ? `— ${$(existingPrice)}` : ""}</Btn>}
+          {onClose && <Btn v="outline" onClick={onClose}>Close</Btn>}
+        </Row>
       </div>;
     }
     function Phase84MarketPricePanelPreview({ settings = {}, plants = [] }) {
@@ -3265,7 +3138,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         dataSources: []
       };
     }
-    function MarketPriceButton({ plant = {}, settings = {}, allPlants = [], user = {}, label = "🔍 Research Market", compact = false, onApplyPrice, onCacheResult, onApplySuggestedToThis, onApplySaleToThis, onApplySaleToMatches, disabled = false }) {
+    function MarketPriceButton({ plant = {}, settings = {}, allPlants = [], user = {}, label = "🔍 Research Market", compact = false, onApplyPrice, onCacheResult, disabled = false }) {
       const canRun = phase85CanResearchMarket(user, settings);
       const [loading, setLoading] = useState(false);
       const [result, setResult] = useState(null);
@@ -3294,51 +3167,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           setLoading(false);
         }
       };
-      const buildPayload = (r = {}, action = "saved") => {
-        const price = Math.round((+r.suggestedPrice || 0) * 100) / 100;
-        return { ...r, savedAt:new Date().toISOString(), appliedAt: action === "saved" ? r.appliedAt : new Date().toISOString(), appliedPrice: action === "saved" ? r.appliedPrice : price, v117Action:action };
-      };
-      const saveResearchOnly = r => {
-        const payload = buildPayload(r, "research_saved_only");
-        onCacheResult && onCacheResult(payload);
-        setResult(payload);
-        setMsg("Saved market research. No suggested price or sale price was changed.");
-      };
-      const applySuggestedThis = r => {
-        const price = Math.round((+r.suggestedPrice || 0) * 100) / 100;
-        if (!price) return;
-        const payload = buildPayload(r, "suggested_this_plant");
-        onCacheResult && onCacheResult(payload);
-        onApplySuggestedToThis && onApplySuggestedToThis(price, payload);
-        setResult(payload);
-        setMsg(`Applied ${$(price)} as suggested price to this plant only.`);
-      };
       const apply = r => {
         const price = Math.round((+r.suggestedPrice || 0) * 100) / 100;
         if (!price) return;
-        const payload = buildPayload(r, "suggested_all_matches");
-        onCacheResult && onCacheResult(payload);
+        const payload = { ...r, appliedAt:new Date().toISOString(), appliedPrice:price };
         onApplyPrice && onApplyPrice(price, payload);
         setResult(payload);
-        setMsg(`Applied ${$(price)} as suggested price to all matching plants.`);
-      };
-      const applySaleThis = r => {
-        const price = Math.round((+r.suggestedPrice || 0) * 100) / 100;
-        if (!price) return;
-        const payload = buildPayload(r, "sale_price_this_plant");
-        onCacheResult && onCacheResult(payload);
-        onApplySaleToThis && onApplySaleToThis(price, payload);
-        setResult(payload);
-        setMsg(`Applied ${$(price)} as actual sale/list price to this plant only.`);
-      };
-      const applySaleMatches = r => {
-        const price = Math.round((+r.suggestedPrice || 0) * 100) / 100;
-        if (!price) return;
-        const payload = buildPayload(r, "sale_price_all_matches");
-        onCacheResult && onCacheResult(payload);
-        onApplySaleToMatches && onApplySaleToMatches(price, payload);
-        setResult(payload);
-        setMsg(`Applied ${$(price)} as actual sale/list price to all matching plants.`);
+        setMsg(`Applied ${$(price)} from Market Price panel to this matching plant group.`);
       };
       if (!canRun) return null;
       return <div style={{ marginTop:compact ? 6 : 10 }}>
@@ -3349,7 +3184,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         </Row>
         {msg && <div style={{ color:msg.includes("Add ") || msg.includes("failed") || msg.includes("unavailable") ? C.amber : C.tx3, fontSize:11, fontWeight:800, marginTop:6 }}>{msg}</div>}
         {loading && <MarketPriceLoadingPanel plant={plant} onCancel={()=>{ setLoading(false); setMsg("Market research canceled visually. If a Gateway request already started, the safe response may still finish in the background."); }} />}
-        {result && <MarketPricePanel plant={plant} marketResult={result} currentPrice={plant.suggestedPrice || plant.actualPrice || plant.price || plant.listPrice} onSaveResearch={saveResearchOnly} onApplySuggestedToThis={applySuggestedThis} onApplyPrice={apply} onApplySuggestedToMatches={apply} onApplySaleToThis={applySaleThis} onApplySaleToMatches={applySaleMatches} onKeepPrice={()=>{ setResult(null); setMsg("Kept current price."); }} onClose={()=>setResult(null)} compact={compact} title={result.source === "local_preview" ? "Market Price Preview" : result.cacheHit ? "Cached Market Research" : String(result.source || "").includes("fallback") ? "Market Research Fallback" : "Market Research Result"} />}
+        {result && <MarketPricePanel plant={plant} marketResult={result} currentPrice={plant.suggestedPrice || plant.price || plant.listPrice} onApplyPrice={apply} onKeepPrice={()=>{ setResult(null); setMsg("Kept current price."); }} onClose={()=>setResult(null)} compact={compact} title={result.source === "local_preview" ? "Market Price Preview" : result.cacheHit ? "Cached Market Research" : String(result.source || "").includes("fallback") ? "Market Research Fallback" : "Market Research Result"} />}
       </div>;
     }
 
@@ -3360,7 +3195,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        Opens the existing MarketPriceButton inside a modal so inventory rows
        do not expand or break mobile layout. Owner/manager only.
     ══════════════════════════════════════════════════════════ */
-    function MarketPriceMiniButton({ plant = {}, settings = {}, allPlants = [], user = {}, onApplyPrice, onCacheResult, onApplySuggestedToThis, onApplySaleToThis, onApplySaleToMatches, disabled = false, title = "Inventory Market Price" }) {
+    function MarketPriceMiniButton({ plant = {}, settings = {}, allPlants = [], user = {}, onApplyPrice, onCacheResult, disabled = false, title = "Inventory Market Price" }) {
       const canRun = phase85CanResearchMarket(user, settings);
       const [open, setOpen] = useState(false);
       const cached = getCachedMarketResearch(plant, settings);
@@ -3384,9 +3219,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             compact={false}
             disabled={disabled}
             onApplyPrice={(price, payload) => { onApplyPrice && onApplyPrice(price, payload); }}
-            onApplySuggestedToThis={(price, payload) => { onApplySuggestedToThis && onApplySuggestedToThis(price, payload); }}
-            onApplySaleToThis={(price, payload) => { onApplySaleToThis && onApplySaleToThis(price, payload); }}
-            onApplySaleToMatches={(price, payload) => { onApplySaleToMatches && onApplySaleToMatches(price, payload); }}
             onCacheResult={(payload) => { onCacheResult && onCacheResult(payload); }}
           />
         </Modal>}
@@ -8906,51 +8738,24 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const cacheMarketResearchForInventoryPlant = (plant, payload = {}) => {
         if (!plant || !payload) return;
         const saved = phase116DecorateResultForGroup(plant, payload);
-        const record = phase117SaveMarketResearchRecord(plant, saved, user, { source:"inventory_save_research_only" });
         phase116SaveMarketCacheForPlant(plant, saved);
         setPlants(prev => safeArray(prev).map(x => phase116PlantsMatchMarketSignature(x, plant)
-          ? { ...x, marketResearch:saved, marketResearchRecordId:record?.id || x.marketResearchRecordId, marketPricingQueued:false, updatedAt:new Date().toISOString() }
+          ? { ...x, marketResearch:saved, marketPricingQueued:false, updatedAt:new Date().toISOString() }
           : x));
-      };
-      const applyMarketResearchSuggestedToSinglePlant = (plant, price, payload = {}) => {
-        const clean = Math.max(0, Math.round((+price || 0) * 100) / 100);
-        if (!plant || !clean) return;
-        const saved = phase116DecorateResultForGroup(plant, { ...safeObject(payload), suggestedPrice:clean, appliedAt:payload.appliedAt || new Date().toISOString(), appliedPrice:clean });
-        const record = phase117SaveMarketResearchRecord(plant, saved, user, { source:"inventory_apply_suggested_single" });
-        phase116SaveMarketCacheForPlant(plant, saved);
-        setPlants(prev => safeArray(prev).map(x => x.id === plant.id ? phase117ApplySuggestedPricePatch(x, clean, record || { result:saved }) : x));
-        addAudit && addAudit({ action:`Applied suggested market price ${$(clean)} to ${plant.name || plant.plantId || plant.id}`, user:user.name, page:"Inventory" });
       };
       const applyMarketResearchToInventoryPlant = (plant, price, payload = {}) => {
         const clean = Math.max(0, Math.round((+price || 0) * 100) / 100);
         if (!plant || !clean) return;
         const saved = phase116DecorateResultForGroup(plant, { ...safeObject(payload), suggestedPrice:clean, appliedAt:payload.appliedAt || new Date().toISOString(), appliedPrice:clean });
-        const record = phase117SaveMarketResearchRecord(plant, saved, user, { source:"inventory_apply_suggested_matches" });
         phase116SaveMarketCacheForPlant(plant, saved);
         let applied = 0;
         setPlants(prev => safeArray(prev).map(x => {
           if (!phase116PlantsMatchMarketSignature(x, plant)) return x;
           applied += 1;
-          return phase117ApplySuggestedPricePatch(x, clean, record || { result:saved });
+          return { ...x, suggestedPrice:clean, margin:marg(+x.cost || 0, clean), marketResearch:saved, suggestedPriceSource:"market_research_matching_group", marketPricingQueued:false, updatedAt:new Date().toISOString() };
         }));
-        addAudit && addAudit({ action:`Applied suggested market price ${$(clean)} to ${applied} matching plants for ${plant.name || plant.plantId || plant.id}`, user:user.name, page:"Inventory" });
-        ldEmitNextStep({ icon:"🔍", title:"Suggested price applied to matches", body:`${applied} matching plant(s) updated to suggested price ${$(clean)}. Actual sale/list price was not changed.`, cta:"Open Inventory", page:"inv", color:C.g600 });
-      };
-      const applyMarketResearchSalePriceToInventoryPlant = (plant, price, payload = {}, scope = "matches") => {
-        const clean = Math.max(0, Math.round((+price || 0) * 100) / 100);
-        if (!plant || !clean) return;
-        const saved = phase116DecorateResultForGroup(plant, { ...safeObject(payload), suggestedPrice:clean, appliedAt:payload.appliedAt || new Date().toISOString(), appliedPrice:clean });
-        const record = phase117SaveMarketResearchRecord(plant, saved, user, { source:`inventory_apply_actual_${scope}` });
-        phase116SaveMarketCacheForPlant(plant, saved);
-        let applied = 0;
-        setPlants(prev => safeArray(prev).map(x => {
-          const hit = scope === "single" ? x.id === plant.id : phase116PlantsMatchMarketSignature(x, plant);
-          if (!hit) return x;
-          applied += 1;
-          return phase117ApplyActualPricePatch(x, clean, record || { result:saved });
-        }));
-        addAudit && addAudit({ action:`Applied actual/list sale price ${$(clean)} to ${applied} ${scope === "single" ? "plant" : "matching plants"} for ${plant.name || plant.plantId || plant.id}`, user:user.name, page:"Inventory" });
-        ldEmitNextStep({ icon:"🏷️", title:"Actual sale price applied", body:`${applied} plant(s) now have actual/list price ${$(clean)}. Suggested price remains a separate recommendation.`, cta:"Open Inventory", page:"inv", color:C.gold });
+        addAudit && addAudit({ action:`Applied market research price ${$(clean)} to all matching plants for ${plant.name || plant.plantId || plant.id}`, user:user.name, page:"Inventory" });
+        ldEmitNextStep({ icon:"🔍", title:"Market price applied to matches", body:`${plant.name || plant.plantId || "Plant"} and matching inventory were updated to ${$(clean)} from saved Market Pricing.`, cta:"Open Inventory", page:"inv", color:C.g600 });
       };
 
       const markPlantStagedFromSwipe = (plant) => {
@@ -8989,7 +8794,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               <Row gap={6} wrap center style={{ marginTop:6 }}>
                 {canInlineEditInventory ? <Row gap={5} center wrap={false} style={{ display:"inline-flex" }}>
                   <InlineEdit value={price || ""} type="number" format={v => (+v ? $(v) : "No price")} parse={v => Math.max(0, Math.round((+v || 0) * 100) / 100)} onSave={v => inlineSavePlantField(p, "suggestedPrice", v)} ariaLabel="Edit suggested price" />
-                  <MarketPriceMiniButton plant={p} settings={settings} allPlants={plants} user={user} title="Card Market Research" onApplyPrice={(price, payload)=>applyMarketResearchToInventoryPlant(p, price, payload)} onApplySuggestedToThis={(price, payload)=>applyMarketResearchSuggestedToSinglePlant(p, price, payload)} onApplySaleToThis={(price, payload)=>applyMarketResearchSalePriceToInventoryPlant(p, price, payload, "single")} onApplySaleToMatches={(price, payload)=>applyMarketResearchSalePriceToInventoryPlant(p, price, payload, "matches")} onCacheResult={(payload)=>cacheMarketResearchForInventoryPlant(p, payload)} />
+                  <MarketPriceMiniButton plant={p} settings={settings} allPlants={plants} user={user} title="Card Market Research" onApplyPrice={(price, payload)=>applyMarketResearchToInventoryPlant(p, price, payload)} onCacheResult={(payload)=>cacheMarketResearchForInventoryPlant(p, payload)} />
                 </Row> : (price ? <Tag text={$(price)} color={C.g600} sm /> : <Tag text="No price" color={C.red} sm />)}
                 <Tag text={fDays(days)} color={(days || 0) >= 60 ? C.red : (days || 0) >= 30 ? C.amber : C.tx3} sm />
                 {canInlineEditInventory ? <InlineEdit value={p.status || "In Stock"} options={STATUSES} format={v => v || "In Stock"} onSave={v => inlineSavePlantField(p, "status", v)} ariaLabel="Edit status" /> : <Tag text={meta.text} color={meta.color} sm />}
@@ -9210,7 +9015,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
                     {bulkMode && <td style={{ padding:"8px 10px" }}><button onClick={e => { e.stopPropagation(); togglePlantSelection(p.id); }} style={{ width:28, height:28, borderRadius:10, border:`2px solid ${selected ? C.g600 : C.bd}`, background:selected ? C.g600 : C.card, color:selected ? "#fff" : C.tx3, fontWeight:900, cursor:"pointer" }}>{selected ? "✓" : ""}</button></td>}
                     <td style={{ padding: "8px 10px", fontWeight: 600, maxWidth: 220 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toTC(p.name)} <span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500, fontWeight: 400, marginLeft: 6 }}>{p.plantId}</span></div></td>
                     <td style={{ padding: "8px 10px", color: C.tx3 }}>{canInlineEditInventory ? <InlineEdit value={p.potSize || ""} options={["", ...POT_SIZES]} format={v => v || "—"} onSave={v => inlineSavePlantField(p, "potSize", v)} ariaLabel="Edit pot size" /> : (p.potSize || "—")}</td>
-                    {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{canInlineEditInventory ? <Row gap={5} center wrap={false} style={{ display:"inline-flex" }}><InlineEdit value={+p.suggestedPrice || ""} type="number" format={v => (+v ? $(v) : "No price")} parse={v => Math.max(0, Math.round((+v || 0) * 100) / 100)} onSave={v => inlineSavePlantField(p, "suggestedPrice", v)} ariaLabel="Edit suggested price" /><MarketPriceMiniButton plant={p} settings={settings} allPlants={plants} user={user} title="Row Market Research" onApplyPrice={(price, payload)=>applyMarketResearchToInventoryPlant(p, price, payload)} onApplySuggestedToThis={(price, payload)=>applyMarketResearchSuggestedToSinglePlant(p, price, payload)} onApplySaleToThis={(price, payload)=>applyMarketResearchSalePriceToInventoryPlant(p, price, payload, "single")} onApplySaleToMatches={(price, payload)=>applyMarketResearchSalePriceToInventoryPlant(p, price, payload, "matches")} onCacheResult={(payload)=>cacheMarketResearchForInventoryPlant(p, payload)} /></Row> : $(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
+                    {isOwner && <><td style={{ padding: "8px 10px" }}>{$(p.cost)}</td><td style={{ padding: "8px 10px", fontWeight: 600, color: C.g600 }}>{canInlineEditInventory ? <Row gap={5} center wrap={false} style={{ display:"inline-flex" }}><InlineEdit value={+p.suggestedPrice || ""} type="number" format={v => (+v ? $(v) : "No price")} parse={v => Math.max(0, Math.round((+v || 0) * 100) / 100)} onSave={v => inlineSavePlantField(p, "suggestedPrice", v)} ariaLabel="Edit suggested price" /><MarketPriceMiniButton plant={p} settings={settings} allPlants={plants} user={user} title="Row Market Research" onApplyPrice={(price, payload)=>applyMarketResearchToInventoryPlant(p, price, payload)} onCacheResult={(payload)=>cacheMarketResearchForInventoryPlant(p, payload)} /></Row> : $(p.suggestedPrice)}</td><td style={{ padding: "8px 10px" }}><MBadge m={p.margin} /></td></>}
                     <td style={{ padding: "8px 10px" }}>{canInlineEditInventory ? <InlineEdit value={p.status || "In Stock"} options={STATUSES} format={v => v || "In Stock"} onSave={v => inlineSavePlantField(p, "status", v)} ariaLabel="Edit status" /> : <SBadge s={p.status} />}{(String(p.status || "") === AUCTION_STATUS || p.auctionEndsAt) && <div style={{ fontSize:10, color:p.auctionEndsAt && auctionMsLeft({ endsAt:p.auctionEndsAt }) > 0 ? C.purple : C.amber, fontWeight:900, marginTop:3 }}>{p.auctionEndsAt && auctionMsLeft({ endsAt:p.auctionEndsAt }) > 0 ? `Ends ${auctionCountdownParts({ endsAt:p.auctionEndsAt }).h}h ${auctionCountdownParts({ endsAt:p.auctionEndsAt }).m}m` : "Needs close"}</div>}</td>
                     <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 11, color: C.tx3 }}>{p.rack || "—"}</td>
                     <td style={{ padding: "8px 10px", fontFamily: F.mono, fontSize: 10, color: C.tx3 }}>{p.nurseryName || p.nurseryCode}</td>
@@ -13777,71 +13582,6 @@ Cancel keeps this local/free.`);
        BUY SMART WORKFLOW — profit/buying command center
        Safe wrapper: uses existing inventory/sales/nursery data only.
     ══════════════════════════════════════════════════════════ */
-    function Phase117MarketResearchLibrary({ plants = [], setPlants, settings = {}, user = {}, setPage }) {
-      const canManage = user?.role === "owner" || user?.role === "manager";
-      const [refreshKey, setRefreshKey] = useState(0);
-      const [query, setQuery] = useState("");
-      const rows = phase117LoadMarketResearchLibrary();
-      const filtered = rows.filter(r => {
-        const q = query.trim().toLowerCase();
-        if (!q) return true;
-        return `${r.plantName || ""} ${r.potSize || ""} ${r.stage || ""} ${r.variegationSignature || ""}`.toLowerCase().includes(q);
-      });
-      const latestByGroup = Object.values(filtered.reduce((m,r)=>{
-        if (!m[r.groupKey] || String(r.runAt || r.savedAt || "") > String(m[r.groupKey].runAt || m[r.groupKey].savedAt || "")) m[r.groupKey] = r;
-        return m;
-      }, {})).sort((a,b)=>String(b.runAt || b.savedAt || "").localeCompare(String(a.runAt || a.savedAt || "")));
-      const matchingCount = rec => safeArray(plants).filter(p => phase116MarketSignature(p) === rec.groupKey).length;
-      const applyRecord = (rec, mode = "suggested", scope = "matches") => {
-        if (!canManage) return;
-        const price = +rec.suggestedPrice || +rec.actualPriceCandidate || 0;
-        if (!price) return alert("This research record does not have a usable suggested price.");
-        const matches = safeArray(plants).filter(p => phase116MarketSignature(p) === rec.groupKey);
-        const ids = new Set((scope === "single" ? matches.slice(0,1) : matches).map(p => p.id));
-        if (!ids.size) return alert("No matching inventory found for this saved research.");
-        if (mode === "actual" && !window.confirm(`Apply ${$(price)} as ACTUAL sale/list price to ${ids.size} matching plant(s)? Suggested price will stay separate.`)) return;
-        setPlants(prev => safeArray(prev).map(p => {
-          if (!ids.has(p.id)) return p;
-          return mode === "actual" ? phase117ApplyActualPricePatch(p, price, rec) : phase117ApplySuggestedPricePatch(p, price, rec);
-        }));
-        setRefreshKey(x=>x+1);
-      };
-      const removeRecord = rec => {
-        if (!canManage || !window.confirm("Remove this saved market research record from the library? This will not change plant prices.")) return;
-        phase117SaveMarketResearchLibrary(phase117LoadMarketResearchLibrary().filter(r => r.id !== rec.id));
-        setRefreshKey(x=>x+1);
-      };
-      return <Card style={{ borderTop:`5px solid ${C.blue}` }} key={refreshKey}>
-        <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-          <div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>📚 Market Research Library</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45 }}>Every usable paid lookup is saved here. Research data is separate from suggested price and actual sale/list price.</div></div>
-          <Row gap={7} wrap><Tag text={`${latestByGroup.length} plant groups`} color={latestByGroup.length ? C.blue : C.tx3} /><Tag text={`${rows.length} saved lookup(s)`} color={rows.length ? C.g600 : C.tx3} /></Row>
-        </Row>
-        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search saved market research..." style={{ width:"100%", border:`1px solid ${C.bd}`, borderRadius:14, padding:"12px 13px", fontSize:14, marginBottom:12 }} />
-        {!latestByGroup.length ? <div style={{ textAlign:"center", color:C.tx3, padding:34 }}><div style={{ fontSize:38 }}>🔍</div><h3 style={{ fontFamily:F.display, color:C.g900 }}>No saved market research yet</h3><p>Run a market lookup from Inventory or Batch Market Pricing. Usable results will save here automatically.</p><Btn onClick={()=>setPage("inv")}>Open Inventory</Btn></div> : <div style={{ display:"grid", gap:10 }}>
-          {latestByGroup.slice(0,80).map(rec => {
-            const matches = matchingCount(rec);
-            const trusted = +rec.trustedComparableCount || safeArray(rec.usedComparables).length || 0;
-            const rejected = +rec.rejectedComparableCount || safeArray(rec.excludedComparables).length || 0;
-            const safe = ["competitive","at_floor"].includes(String(rec.priceStatus || "")) && (+rec.confidenceScore || 0) >= 35;
-            return <div key={rec.id || rec.groupKey} style={{ background:C.cardAlt, border:`1px solid ${safe ? C.g300 : C.amber}66`, borderLeft:`6px solid ${safe ? C.g600 : C.amber}`, borderRadius:16, padding:12 }}>
-              <Row between center wrap gap={10}>
-                <div style={{ minWidth:0, flex:1 }}><div style={{ fontWeight:950, color:C.g900, fontSize:16 }}>{rec.plantName || "Plant"}</div><div style={{ color:C.tx3, fontSize:12 }}>{rec.potSize || "No size"} · {String(rec.stage || "stage?").replace(/_/g," ")} · {rec.variegationSignature || "standard"} · checked {phase84FormatLastChecked(rec.runAt || rec.savedAt)}</div></div>
-                <Row gap={6} wrap><Tag text={`Market ${rec.marketMedianPrice ? $(rec.marketMedianPrice) : "—"}`} color={C.blue} sm /><Tag text={`Suggested ${rec.suggestedPrice ? $(rec.suggestedPrice) : "—"}`} color={C.g600} sm /><Tag text={`${trusted} used / ${rejected} rejected`} color={trusted >= 5 ? C.g600 : C.amber} sm /><Tag text={`${matches} inventory match(es)`} color={matches ? C.purple : C.tx3} sm /></Row>
-              </Row>
-              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.4, marginTop:8 }}>{rec.priceReason || rec.confidenceNote || "Saved market research record."}</div>
-              <Row gap={7} wrap style={{ marginTop:10 }}>
-                <Btn sz="sm" v="soft" onClick={()=>applyRecord(rec,"suggested","matches")} disabled={!matches || !rec.suggestedPrice}>Apply Suggested to Matches</Btn>
-                <Btn sz="sm" v="gold" onClick={()=>applyRecord(rec,"actual","matches")} disabled={!matches || !rec.suggestedPrice}>Apply Sale Price to Matches</Btn>
-                <Btn sz="sm" v="outline" onClick={()=>setPage("inv")}>Open Inventory</Btn>
-                <Btn sz="sm" v="ghost" onClick={()=>removeRecord(rec)}>Remove</Btn>
-              </Row>
-              {!!safeArray(rec.usedComparables).length && <details style={{ marginTop:9 }}><summary style={{ color:C.g800, fontWeight:950, cursor:"pointer", fontSize:12 }}>View used marketplace comps</summary><div style={{ display:"grid", gap:5, marginTop:8 }}>{safeArray(rec.usedComparables).slice(0,8).map((s,i)=><div key={i} style={{ fontSize:12, color:C.tx2, borderTop:i?`1px solid ${C.bdS}`:0, paddingTop:i?6:0 }}><b>{s.platform || "Web"}</b> · {s.priceUSD ? $(s.priceUSD) : "price?"} · {s.title || s.host || "Listing"}{s.url && <a href={s.url} target="_blank" rel="noreferrer" style={{ color:C.blue, marginLeft:6 }}>open ↗</a>}</div>)}</div></details>}
-            </div>;
-          })}
-        </div>}
-      </Card>;
-    }
-
     function BuySmartWorkflow({ plants = [], setPlants, nurseries = [], expenses = [], bills = [], timecards = [], settings = {}, user, setPage }) {
       const [tab, setTab] = useState("whatbuy");
       const canSeeMoney = user?.role === "owner" || user?.role === "manager";
@@ -14018,7 +13758,6 @@ Cancel keeps this local/free.`);
         <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch", display:"flex", gap:8, marginBottom:14, paddingBottom:4 }}>
           <TabBtn id="aiplan">🧠 AI Buy Plan</TabBtn>
           <TabBtn id="marketbulk">💲 Bulk Market Pricing</TabBtn>
-          <TabBtn id="researchlib">📚 Research Library</TabBtn>
           <TabBtn id="whatbuy">✅ What To Buy</TabBtn>
           <TabBtn id="avoid">🚫 What Not To Buy</TabBtn>
           <TabBtn id="nurseries">🏪 Nursery Scores</TabBtn>
@@ -14043,8 +13782,6 @@ Cancel keeps this local/free.`);
 
         {tab === "marketbulk" && <Phase88BulkMarketPricingTool plants={plants} setPlants={setPlants} settings={settings} user={user} setPage={setPage} />}
 
-        {tab === "researchlib" && <Phase117MarketResearchLibrary plants={plants} setPlants={setPlants} settings={settings} user={user} setPage={setPage} />}
-
         {tab === "whatbuy" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
           {buyMore.length ? buyMore.map(g => <GenusCard key={g.genus} g={g} />) : <Card style={{ gridColumn:"1/-1", textAlign:"center", padding:40 }}><div style={{ fontSize:38 }}>🌱</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>Not enough proven winners yet</h2><p style={{ color:C.tx3 }}>Import more sold show data so Buy Smart can rank what actually makes money.</p><Btn onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Card>}
         </div>}
@@ -14068,7 +13805,7 @@ Cancel keeps this local/free.`);
         {tab === "risk" && <Card><Row between wrap center gap={8} style={{ marginBottom:12 }}><div><h2 style={{ fontFamily:F.display, color:C.g900, margin:0 }}>⏳ Inventory Risk</h2><p style={{ margin:"3px 0 0", color:C.tx3, fontSize:12 }}>Plants tying up money, sitting too long, or below target profit.</p></div><Btn v="outline" onClick={()=>setPage("discounts")}>Open Discounts</Btn></Row>{stockRisk.length ? <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{stockRisk.map(r => <Card key={r.plant.id || r.plant.plantId || r.plant.name} style={{ background:C.cardAlt, padding:13 }}><Row gap={10} center><div style={{ width:46, height:46, borderRadius:14, background:C.g100, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0 }}>{(r.plant.photoUrl || r.plant.photoBase64) ? <img src={r.plant.photoUrl || r.plant.photoBase64} alt={r.plant.name || r.plant.plantId || "Plant photo"} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : "🌿"}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900 }}>{r.plant.name || "Plant"}</div><div style={{ fontSize:11, color:C.tx3 }}>{r.plant.plantId || r.plant.plantCode || "No ID"} · {r.held} days · {canSeeMoney ? `${$(r.cost)} cost / ${$(r.price)} price` : "financials hidden"}</div></div><Tag text={r.pps.rating} color={r.pps.color} sm /></Row><Row gap={7} wrap style={{ marginTop:10 }}><Tag text={r.margin ? `${r.margin}% margin` : "No price"} color={r.margin >= 55 ? C.g600 : r.margin >= 40 ? C.gold : C.red} sm />{r.held >= 45 && <Tag text="Aging" color={C.amber} sm />}{r.pps.rating === "D" && <Tag text="Low PPS" color={C.red} sm />}<Btn sz="sm" v="outline" onClick={()=>setPage("inv")}>Review</Btn></Row></Card>)}</div> : <div style={{ textAlign:"center", padding:36, color:C.tx3 }}>No major in-stock buying risk found.</div>}</Card>}
 
         {tab === "tools" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          {[ ["💲","Bulk Market Pricing","Research and apply market prices in a safe owner/manager queue.","marketbulk"], ["📚","Market Research Library","Review saved source data and apply suggested or actual prices safely.","researchlib"], ["📦","What Makes Money","Profit-per-slot, capacity, and plant ranking.","slotprofit"], ["💡","Old Buy Smart Report","Detailed genus score report.","intel"], ["🏪","Nursery Records","Supplier contacts and supplier history.","nursery"], ["📋","Buying Lists","Purchase orders and wish lists.","pos"], ["📈","Reports","Full business reporting.","reports"], ["💵","Money Command Center","Cash pulse and safe spend.","money_ws"] ].map(([icon,title,body,page]) => <button key={page} onClick={()=>{ if (["marketbulk","researchlib"].includes(page)) setTab(page); else setPage(page); }} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:18, padding:"16px 14px", textAlign:"left", fontFamily:F.body, cursor:"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}><Row gap={12} center><div style={{ width:46, height:46, borderRadius:15, background:C.goldBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:25 }}>{icon}</div><div><div style={{ fontWeight:900, color:C.g900 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{body}</div></div></Row></button>)}
+          {[ ["💲","Bulk Market Pricing","Research and apply market prices in a safe owner/manager queue.","marketbulk"], ["📦","What Makes Money","Profit-per-slot, capacity, and plant ranking.","slotprofit"], ["💡","Old Buy Smart Report","Detailed genus score report.","intel"], ["🏪","Nursery Records","Supplier contacts and supplier history.","nursery"], ["📋","Buying Lists","Purchase orders and wish lists.","pos"], ["📈","Reports","Full business reporting.","reports"], ["💵","Money Command Center","Cash pulse and safe spend.","money_ws"] ].map(([icon,title,body,page]) => <button key={page} onClick={()=>setPage(page)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:18, padding:"16px 14px", textAlign:"left", fontFamily:F.body, cursor:"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}><Row gap={12} center><div style={{ width:46, height:46, borderRadius:15, background:C.goldBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:25 }}>{icon}</div><div><div style={{ fontWeight:900, color:C.g900 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{body}</div></div></Row></button>)}
         </div>}
 
         <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(4,1fr)"],div[style*="grid-template-columns:1fr 1fr"],div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important;} .ld-page table{font-size:11px!important}}`}</style>
