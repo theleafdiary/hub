@@ -1673,6 +1673,12 @@
   <div id="root"></div>
   <script type="text/babel">
     /* V106 STEP 1 CLEANUP: removed appended patcher UI, preserved working AI gateway, fixed Local AI model display, disabled heavy archive popup. */
+    /* UPDATE 107 AI CONTROL CENTER CONSOLIDATION
+       - Makes AI Doctor / Control Center the main setup screen.
+       - Hides advanced Local/Gateway/Routing screens from normal navigation while preserving routes.
+       - Keeps the working leaf-diary-ai-gateway endpoint and gpt-oss:20b model locked.
+    */
+
     /* UPDATE 103 AI CENTER STABILITY PATCH
        - Prevents stale browser/runtime references to lowercase instock from white-screening the app.
        - Keeps AI Center related-page navigation inside safe routes.
@@ -4565,12 +4571,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"quickstart", icon:"🧭", l:"Quick Start Guide", group:"Settings", roles:["owner","manager","employee"] },
       { id:"workflowcoach", icon:"🧩", l:"Next Step Coach", group:"Today", roles:["owner","manager","employee"] },
       { id:"employeeboard", icon:"✅", l:"Employee Task Board", group:"Today", roles:["owner","manager","employee"] },
-      { id:"ollama", icon:"🧠", l:"Local AI Setup", group:"Settings", roles:["owner"] },
-      { id:"ollamadoctor", icon:"🩺", l:"Ollama Connection Doctor", group:"Settings", roles:["owner"] },
-      { id:"aigateway", icon:"🌐", l:"Advanced AI Setup", group:"Settings", roles:["owner"] },
-      { id:"airouter", icon:"🧭", l:"AI Model Routing", group:"Settings", roles:["owner"] },
+      { id:"ollama", icon:"🧠", l:"Advanced Local AI Settings", group:"Settings", roles:["owner"], hidden:true },
+      { id:"ollamadoctor", icon:"🩺", l:"AI Doctor / Control Center", group:"Settings", roles:["owner"] },
+      { id:"aigateway", icon:"🌐", l:"Advanced Gateway Settings", group:"Settings", roles:["owner"], hidden:true },
+      { id:"airouter", icon:"🧭", l:"Advanced AI Model Routing", group:"Settings", roles:["owner"], hidden:true },
     ];
-    const getToolsForRole = role => TOOL_CATALOG.filter(t => (t.roles || []).includes(role));
+    const getToolsForRole = role => TOOL_CATALOG.filter(t => (t.roles || []).includes(role) && !t.hidden);
 
     const ROOT_PAGES = ["today", "plants_ws", "intake_ws", "shows_ws", "orders_ws", "money_ws", "buy_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
@@ -13863,13 +13869,10 @@ Cancel keeps this local/free.`);
         </div>}
 
         {tab === "ai" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          <SettingsCard icon="🤖" title="Leaf Diary AI" body="Simple AI tools for daily plans, show building, buying advice, and business questions." page="aihub" button="Open AI" color="#97d33e" />
-          <SettingsCard icon="🌐" title="Advanced AI Setup" body={`Mobile gateway, cloud model, API endpoint, and cost controls. Cost guard: ${costGuardOn ? "on" : "manual"}.`} page="aigateway" button="AI Setup" color={C.blue} />
-          <SettingsCard icon="🧭" title="AI Model Routing" body="Choose which AI model handles each task. Owner-only because bad routing can create cost or reliability issues." page="airouter" button="Open Routing" color={C.purple} />
-          <SettingsCard icon="🩺" title="Ollama Doctor" body="One-click MacBook local AI test and fix screen. Use this if local Ollama says CORS, offline, or 0 models." page="ollamadoctor" button="Open Doctor" color="#97d33e" />
-          <SettingsCard icon="🧠" title="Local AI Setup" body="Ollama / local AI model settings. Keep this hidden from normal users." page="ollama" button="Local AI" color={C.g600} />
-          <SettingsCard icon="💵" title="AI Cost Control" body={`${aiDailyLimit}/day limit. Free/local first where possible. Cloud should stay manual unless owner approves.`} page="aigateway" button="Cost Settings" color={C.gold} />
-          <SettingsCard icon="💬" title="Ask Leaf Diary AI" body="User-friendly question screen for the business data copilot." page="dataai" button="Ask AI" color="#fb6392" />
+          <SettingsCard icon="🩺" title="AI Doctor / Control Center" body={`Main AI command screen. Gateway: ${phase61ReadConfig().enabled ? "connected" : "off"} · Model: ${phase61ReadConfig().model || LEAF_AI_WORKING_GATEWAY_MODEL} · Cost guard: ${costGuardOn ? "on" : "manual"}.`} page="ollamadoctor" button="Open AI Doctor" color="#97d33e" />
+          <SettingsCard icon="💬" title="Ask Leaf Diary AI" body="User-friendly business data copilot. Use this to ask questions after Doctor shows the gateway is connected." page="dataai" button="Ask AI" color="#fb6392" />
+          <SettingsCard icon="🔍" title="AI Market Pricing" body="Research Market buttons now live inside Manual Entry and Inventory. Owner/manager click only; no automatic paid calls." page="inv" button="Open Inventory" color={C.blue} />
+          <SettingsCard icon="🟣" title="Palmstreet Auction Manager" body="Auction picks, active timers, close-as-sold, and no-sale return are inside the Shows workspace." page="shows_ws" button="Open Auctions" color={C.purple} />
         </div>}
 
         {tab === "security" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
@@ -20471,7 +20474,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const gatewayReadyForStatus = !!(gatewayCfgForStatus.enabled && gatewayCfgForStatus.endpointUrl && gatewayCfgForStatus.useOnDesktop !== false);
       const displayStatus = draft.connectionMode === "gateway" && gatewayReadyForStatus ? "gateway" : (status?.status || (draft.enabled ? "not_tested" : "disabled"));
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="🧠" title="Local AI Setup" sub="Connect Leaf Diary to local Ollama AI without replacing working AI features." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Settings</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Ollama</Btn><Btn sz="sm" v="outline" onClick={()=>setPage && setPage("ollamadoctor")}>Doctor</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🧠" title="Advanced Local AI Settings" sub="Advanced MacBook Ollama setup. Most users should use AI Doctor / Control Center first." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Settings</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Ollama</Btn><Btn sz="sm" v="outline" onClick={()=>setPage && setPage("ollamadoctor")}>Doctor</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase3StatusColor(displayStatus)}` }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase3StatusColor(displayStatus) }}>Ollama {phase3StatusLabel(displayStatus)}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>{displayStatus === "gateway" ? <>Gateway endpoint: {gatewayCfgForStatus.endpointUrl} · Model: {gatewayCfgForStatus.model || draft.primaryModel}</> : <>Desktop URL: {draft.baseUrl} · Mobile/LAN URL: {draft.mobileBaseUrl || "not set"} · Primary model: {draft.primaryModel}</>}</div></div>
@@ -20793,11 +20796,22 @@ Answer with a practical action plan for Leaf Diary.`;
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
         <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:`2px solid ${statusColor}`, boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
           <Row between center wrap gap={12}>
-            <div style={{ minWidth:0 }}><div style={{ fontSize:42 }}>🩺</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900 }}>Ollama Connection Doctor</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>One screen to find why local AI is not connected. No business data or AI routing is changed.</div></div>
-            <Row gap={8} wrap><button onClick={runDoctor} disabled={busy} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:busy?"not-allowed":"pointer", opacity:busy ? .6 : 1 }}>{busy ? "Testing..." : "Run Doctor"}</button><button onClick={()=>setPage && setPage("ollama")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Local AI Setup</button><button onClick={()=>setPage && setPage("aigateway")} style={{ background:"rgba(126,231,255,.16)", color:"#fff", border:"1px solid rgba(126,231,255,.42)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Mobile Gateway</button><button onClick={forceDesktopDevice} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Force MacBook</button></Row>
+            <div style={{ minWidth:0 }}><div style={{ fontSize:42 }}>🩺</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900 }}>AI Doctor / Control Center</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>One main screen for mobile Gateway, MacBook Ollama, cost guard, model routing, and market-pricing readiness. Working gateway settings stay locked.</div></div>
+            <Row gap={8} wrap><button onClick={runDoctor} disabled={busy} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:busy?"not-allowed":"pointer", opacity:busy ? .6 : 1 }}>{busy ? "Testing..." : "Run Doctor"}</button><button onClick={()=>setPage && setPage("dataai")} style={{ background:"#fb6392", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Ask AI</button><button onClick={()=>setPage && setPage("aigateway")} style={{ background:"rgba(126,231,255,.16)", color:"#fff", border:"1px solid rgba(126,231,255,.42)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Advanced Gateway</button><button onClick={()=>setPage && setPage("ollama")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Advanced Local</button><button onClick={()=>setPage && setPage("airouter")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Routing</button><button onClick={forceDesktopDevice} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Force MacBook</button></Row>
           </Row>
           <div style={{ marginTop:14, background:"rgba(255,255,255,.08)", border:`1px solid ${statusColor}66`, borderRadius:16, padding:"12px 13px" }}><div style={{ color:statusColor, fontWeight:900, fontFamily:F.display, fontSize:20 }}>{currentStatus.title}</div><div style={{ color:"rgba(255,255,255,.78)", fontSize:12, lineHeight:1.45, marginTop:4 }}>{currentStatus.fix}</div>{note && <div style={{ marginTop:8, color:"#97d33e", fontWeight:800, fontSize:12 }}>{note}</div>}</div>
         </div>
+
+        <Card style={{ marginBottom:14, background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:950 }}>✅ AI Screen Consolidation</div>
+              <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5, marginTop:4 }}>This is now the main AI control screen. Advanced Gateway, Local Ollama, and Routing screens are still available from the buttons above, but they are hidden from normal Settings navigation so the app feels cleaner.</div>
+              <div style={{ color:C.tx3, fontSize:12, marginTop:6 }}>Next build step: finish Smart Market Pricing web-search output through the existing Gateway pricing route and keep Palmstreet Auction Manager inside Shows.</div>
+            </div>
+            <Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setPage && setPage("inv")}>Open Inventory Pricing</Btn><Btn sz="sm" v="outline" onClick={()=>setPage && setPage("shows_ws")}>Open Auctions</Btn></Row>
+          </Row>
+        </Card>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <KPI label="Device" value={device.isMobile ? "Phone" : "Desktop"} sub={device.browser} color={device.isMobile ? C.blue : C.g600} />
