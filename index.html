@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V113R</title>
+  <title>LEAF DIARY - BUSINESS HUB · V119R-SAFE</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -1672,6 +1672,8 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
+    /* V119R-SAFE WHATNOT FULL TRACKING MATCH - rebuilt on working index (59). Adds paste/import Whatnot shipment data + full tracking review without touching home screen. */
+    /* V120R CUSTOMER ROW LABEL PHOTO - adds a Take Tracking Photo button on each Whatnot shipment/customer row so tracking can be captured and saved to that exact box. */
     /* V112R USPS SHIPPING LABEL SCAN BOOST - improves USPS/FedEx/UPS live camera sprint detection with native BarcodeDetector fallback and USPS 420-prefix cleanup. */
     /* V111R MENU SHORTCUT - adds clear Scan Shipping Labels menu/page shortcut; keeps V110R sprint scanner, Whatnot state-doc grouping, and home screen untouched. */
     /* V110R SHIPPING LABEL SPRINT SCANNER - adds MacBook/iPhone camera sprint scanning for shipping labels; keeps Whatnot state docs grouped and Palmstreet ignored for auto docs. */
@@ -1704,12 +1706,12 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V114R",
-      name: "Shipping Label Sprint Barcode Engine",
+      id: "V119R-SAFE",
+      name: "Whatnot Shipment Data + Full Tracking Match",
       date: "2026-05-11",
-      base: "V112R USPS scan boost + V108R release gate",
-      safety: "Order Fulfillment / Scan Shipping Labels scanner engine only; home screen logic untouched",
-      nextPhase: "V114R: secure tracking API webhook/backend after label matching is stable"
+      base: "index (59).html stable backup",
+      safety: "Order Fulfillment / Scan Shipping Labels add-on only; home screen logic untouched",
+      nextPhase: "Test this version before adding any more scanner changes"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -16804,6 +16806,86 @@ Cancel keeps this page local/free.`);
       return { score, reason: reasons.join(", ") || "No strong match" };
     }
 
+    /* V119R-SAFE — Whatnot shipment-data parser
+       This stays outside the home screen. It parses pasted/exported Whatnot shipment text so tracking labels can be
+       matched to the exact shipment box/plants, then full tracking numbers can be filled from label scans/photos.
+    */
+    function ldExtractPlantCodeFromName(name = "") {
+      const s = String(name || "").trim();
+      const matches = s.match(/\b(?:[A-Z]{1,4}|PC|CF|B|C|P|R|Z|E)[-\s]?\d{1,5}\b/gi) || [];
+      return matches.length ? matches[0].toUpperCase().replace(/\s+/g, "-") : "";
+    }
+    function ldWhatnotTrackingParts(display = "") {
+      const raw = String(display || "").toUpperCase().trim();
+      const m = raw.match(/([0-9A-Z]{3,})\s*\.\.\.\s*([0-9A-Z]{3,})/);
+      if (!m) return { prefix:"", suffix:"", display:raw };
+      return { prefix: ldNormalizeTrackingNumber(m[1]), suffix: ldNormalizeTrackingNumber(m[2]), display:raw };
+    }
+    function ldTrackingMatchesWhatnotDisplay(full = "", display = "") {
+      const f = ldNormalizeTrackingNumber(full);
+      const p = ldWhatnotTrackingParts(display);
+      if (!f || (!p.prefix && !p.suffix)) return false;
+      if (p.prefix && p.suffix && f.startsWith(p.prefix) && f.endsWith(p.suffix)) return true;
+      if (p.suffix && f.endsWith(p.suffix) && f.length >= 12) return true;
+      return false;
+    }
+    function ldInferCarrierFromWhatnotService(service = "", tracking = "") {
+      const s = String(service || "").toLowerCase();
+      if (s.includes("usps")) return "USPS";
+      if (s.includes("ups")) return "UPS";
+      if (s.includes("fedex") || s.includes("fed ex")) return "FedEx";
+      return ldInferCarrierFromTracking(tracking);
+    }
+    function ldParseWhatnotShipmentData(text = "") {
+      const lines = String(text || "").replace(/\r/g, "\n").split("\n").map(x => x.trim()).filter(Boolean);
+      const isStart = (idx) => {
+        const line = lines[idx] || "";
+        const next = lines.slice(idx + 1, idx + 8).join("\n");
+        if (!line || /^(Collapse|New|Shipping|Item|Items \(Bundled\)|Video Receipt)$/i.test(line)) return false;
+        if (/^Order #/i.test(line) || /^USPS|^UPS|^FedEx/i.test(line)) return false;
+        if (/\d/.test(line) && !/[a-z]/i.test(line)) return false;
+        return /Collapse/i.test(next) && /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}\b/i.test(next);
+      };
+      const starts = [];
+      for (let i = 0; i < lines.length; i++) if (isStart(i)) starts.push(i);
+      const shipments = [];
+      for (let s = 0; s < starts.length; s++) {
+        const start = starts[s];
+        const end = starts[s + 1] || lines.length;
+        const block = lines.slice(start, end);
+        const raw = block.join("\n");
+        const customer = block[0] || "Unknown";
+        const dateLine = (raw.match(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}\b/i) || [""])[0];
+        const trackingShort = (raw.match(/[0-9A-Z]{4,}\s*\.\.\.\s*[0-9A-Z]{3,}/i) || [""])[0];
+        const serviceMatch = raw.match(/\b(USPS\s+Priority|USPS[^\n]*|UPS[^\n]*|FedEx[^\n]*)/i);
+        const service = serviceMatch ? serviceMatch[1].trim() : "";
+        let itemCount = 0;
+        const dateIdx = block.findIndex(x => x === dateLine);
+        if (dateIdx >= 0) {
+          for (let i = dateIdx + 1; i < Math.min(block.length, dateIdx + 6); i++) {
+            if (/^\d+$/.test(block[i])) { itemCount = parseInt(block[i], 10) || 0; break; }
+          }
+        }
+        const items = [];
+        for (let i = 0; i < block.length; i++) {
+          const m = block[i].match(/^Order\s+#(\d+)/i);
+          if (!m) continue;
+          let name = "";
+          for (let j = i - 1; j >= Math.max(0, i - 6); j--) {
+            const cand = block[j] || "";
+            if (!cand || /^(Learn More|This shipment|Item|Items \(Bundled\)|Shipping|USPS|UPS|FedEx|Video Receipt)$/i.test(cand)) continue;
+            if (/^\$|^\d+\s*(lb|oz)?$/i.test(cand)) continue;
+            name = cand; break;
+          }
+          const code = ldExtractPlantCodeFromName(name);
+          items.push({ name, code, orderNumber:m[1] });
+        }
+        const key = [customer, dateLine, trackingShort || uid()].join("|");
+        shipments.push({ id: uid(), key, customer, date:dateLine, itemCount:itemCount || items.length, service, trackingShort, carrier: ldInferCarrierFromWhatnotService(service, trackingShort), items, rawText:raw, fullTracking:"", status:"Needs Full Tracking", matchedPlantIds:[], savedAt:"" });
+      }
+      return shipments;
+    }
+
     function PackingShippingCenter({ plants, setPlants, user, addAudit, labelScanMode = false }) {
       const [selected, setSelected] = useState({});
       const [view, setView] = useState("open");
@@ -16823,6 +16905,11 @@ Cancel keeps this page local/free.`);
       const [labelScanActive, setLabelScanActive] = useState(false);
       const [labelSprintActive, setLabelSprintActive] = useState(false);
       const [labelSprintLog, setLabelSprintLog] = useState([]);
+      const [whatnotShipmentText, setWhatnotShipmentText] = useState("");
+      const [whatnotShipmentRows, setWhatnotShipmentRows] = useState(() => { try { return safeArray(JSON.parse(localStorage.getItem("ld_whatnot_shipment_rows") || "[]")).slice(0, 100); } catch(e) { return []; } });
+      const [whatnotShipmentStatus, setWhatnotShipmentStatus] = useState("");
+      const whatnotShipmentPhotoInputRef = useRef(null);
+      const whatnotShipmentPhotoTargetRef = useRef("");
       const scanVideoRef = useRef(null);
       const scanReaderRef = useRef(null);
       const nativeLabelScanTimerRef = useRef(null);
@@ -16833,6 +16920,7 @@ Cancel keeps this page local/free.`);
       const labelLastScanRef = useRef({ value:"", at:0 });
       const labelOcrBusyRef = useRef(false);
       useEffect(() => { try { localStorage.setItem("ld_shipping_label_imports", JSON.stringify(safeArray(labelImportRows).slice(0, 120))); } catch(e) {} }, [labelImportRows]);
+      useEffect(() => { try { localStorage.setItem("ld_whatnot_shipment_rows", JSON.stringify(safeArray(whatnotShipmentRows).slice(0, 120))); } catch(e) {} }, [whatnotShipmentRows]);
       const orders = groupSalesIntoOrders(plants);
       const getOrderPlants = (order) => plants.filter(p => order.plants.some(x => x.id === p.id));
       const orderFulfillment = (order) => {
@@ -16980,6 +17068,124 @@ Cancel keeps this page local/free.`);
         addLabelRows(rows);
         setManualTrackingText("");
         setLabelImportStatus(`Added ${rows.length} manual tracking number(s).`);
+      };
+      const matchWhatnotItemToPlant = (item, customer = "") => {
+        const code = ldNormalizeTrackingNumber(item?.code || ldExtractPlantCodeFromName(item?.name || ""));
+        const orderNo = String(item?.orderNumber || "").trim();
+        const customerLoose = ldLooseLabelText(customer);
+        const candidates = safeArray(plants).filter(p => p.status === "Sold" || p.orderNumber || p.soldDate || p.platform);
+        const scored = candidates.map(p => {
+          let score = 0;
+          const pCode = ldNormalizeTrackingNumber(p.plantId || p.plantCode || "");
+          const pOrder = String(p.orderNumber || p.orderNo || p.whatnotOrderId || "").trim();
+          const pCustomer = ldLooseLabelText(p.customerUsername || p.customerName || p.buyerName || p.recipientName || "");
+          const pName = ldLooseLabelText(p.rawProductVariant || p.name || "");
+          const itemName = ldLooseLabelText(item?.name || "");
+          if (orderNo && pOrder && orderNo === pOrder) score += 120;
+          if (code && pCode && code === pCode) score += 90;
+          if (customerLoose && pCustomer && (pCustomer.includes(customerLoose) || customerLoose.includes(pCustomer))) score += 35;
+          if (itemName && pName && (pName.includes(itemName.slice(0, 18)) || itemName.includes(pName.slice(0, 18)))) score += 18;
+          return { p, score };
+        }).filter(x => x.score >= 80).sort((a,b) => b.score - a.score);
+        return scored[0]?.p || null;
+      };
+      const importWhatnotShipmentData = () => {
+        const parsed = ldParseWhatnotShipmentData(whatnotShipmentText);
+        if (!parsed.length) { setWhatnotShipmentStatus("No Whatnot shipment blocks found. Paste the Shipments page text that includes customer, Shipping, tracking display, and bundled items."); return; }
+        const rows = parsed.map(sh => {
+          const matchedPlantIds = [];
+          safeArray(sh.items).forEach(item => {
+            const plant = matchWhatnotItemToPlant(item, sh.customer);
+            if (plant?.id && !matchedPlantIds.includes(plant.id)) matchedPlantIds.push(plant.id);
+          });
+          return { ...sh, matchedPlantIds, status: sh.trackingShort ? "Needs Full Tracking" : "Needs Tracking Display" };
+        });
+        setWhatnotShipmentRows(rows);
+        setWhatnotShipmentStatus(`Imported ${rows.length} Whatnot shipment box(es). Next: upload/scan label photos or paste full tracking numbers, then click Auto Match Full Tracking.`);
+      };
+      const availableFullTrackingRows = () => safeArray(labelImportRows).filter(r => r.trackingNumber && !String(r.trackingNumber).includes("...")).map(r => ({ trackingNumber:r.trackingNumber, carrier:r.carrier || ldInferCarrierFromTracking(r.trackingNumber), rawText:r.rawText || r.ocrText || "", fileName:r.fileName || "Label" }));
+      const autoMatchWhatnotFullTracking = () => {
+        const fullRows = availableFullTrackingRows();
+        if (!fullRows.length) { setWhatnotShipmentStatus("No full tracking numbers found yet. Upload label photos/PDFs, scan labels, or paste full tracking numbers first."); return; }
+        setWhatnotShipmentRows(prev => safeArray(prev).map(sh => {
+          if (sh.fullTracking) return sh;
+          let match = fullRows.find(r => ldTrackingMatchesWhatnotDisplay(r.trackingNumber, sh.trackingShort));
+          if (!match) {
+            const cust = ldLooseLabelText(sh.customer);
+            match = fullRows.find(r => cust && ldLooseLabelText(`${r.rawText || ""} ${r.fileName || ""}`).includes(cust));
+          }
+          if (!match) return { ...sh, status:"Needs Full Tracking" };
+          return { ...sh, fullTracking:match.trackingNumber, carrier:match.carrier || sh.carrier, status:"Ready to Save", matchedFrom:match.fileName || "label scan" };
+        }));
+        setWhatnotShipmentStatus("Auto-match finished. Review each customer/box, then save ready tracking.");
+      };
+      const updateWhatnotShipmentRow = (id, patch) => setWhatnotShipmentRows(prev => safeArray(prev).map(r => r.id === id ? { ...r, ...patch } : r));
+      const saveWhatnotFullTracking = () => {
+        const rows = safeArray(whatnotShipmentRows).filter(r => r.fullTracking && !String(r.status || "").includes("Saved"));
+        if (!rows.length) return alert("No ready Whatnot shipments with full tracking to save.");
+        const now = new Date().toISOString();
+        const rowByPlant = {};
+        rows.forEach(row => safeArray(row.matchedPlantIds).forEach(id => { rowByPlant[id] = row; }));
+        setPlants(prev => safeArray(prev).map(p => {
+          const row = rowByPlant[p.id];
+          if (!row) return p;
+          return { ...p, trackingNumber:row.fullTracking, carrier:row.carrier || ldInferCarrierFromTracking(row.fullTracking), fulfillmentStatus:"Shipped", shipmentStatus:"Shipped", shippedDate:today(), whatnotShipmentTrackingShort:row.trackingShort || "", whatnotShipmentCustomer:row.customer || "", shippingLabelImportedAt:now, shippingLabelFileName:"Whatnot Shipment Data + Full Tracking", trackingStatus:"Imported / Tracking Pending", fulfillmentUpdatedAt:now };
+        }));
+        setWhatnotShipmentRows(prev => safeArray(prev).map(r => rows.some(x => x.id === r.id) ? { ...r, status:"Saved / Shipped", savedAt:now } : r));
+        addAudit?.(`Whatnot shipment tracking saved for ${rows.length} shipment box(es) and marked matched plants shipped`);
+        setWhatnotShipmentStatus(`Saved ${rows.length} Whatnot shipment box(es). Matched plants were marked shipped.`);
+      };
+      const clearWhatnotShipmentRows = () => { setWhatnotShipmentRows([]); setWhatnotShipmentText(""); setWhatnotShipmentStatus("Cleared Whatnot shipment review."); };
+      const openWhatnotShipmentLabelPhoto = (shipmentId) => {
+        whatnotShipmentPhotoTargetRef.current = shipmentId || "";
+        if (!shipmentId) return setWhatnotShipmentStatus("Choose a customer/shipment row before taking a label photo.");
+        try {
+          if (whatnotShipmentPhotoInputRef.current) whatnotShipmentPhotoInputRef.current.click();
+          else setWhatnotShipmentStatus("Label photo input was not ready. Refresh and try again.");
+        } catch (e) { setWhatnotShipmentStatus("Could not open camera/photo picker: " + (e?.message || String(e))); }
+      };
+      const handleWhatnotShipmentLabelPhoto = async (ev) => {
+        const file = (ev?.target?.files || [])[0];
+        const targetId = whatnotShipmentPhotoTargetRef.current;
+        if (!file || !targetId) { try { ev.target.value = ""; } catch(e) {} return; }
+        const target = safeArray(whatnotShipmentRows).find(r => r.id === targetId);
+        if (!target) { setWhatnotShipmentStatus("That Whatnot shipment row is no longer available. Import the Whatnot data again if needed."); try { ev.target.value = ""; } catch(e) {} return; }
+        setWhatnotShipmentStatus(`Reading label photo for ${target.customer || "this customer"}...`);
+        try {
+          const detectorFormats = ["code_128", "code_39", "pdf417", "qr_code", "data_matrix", "itf", "ean_13", "upc_a"];
+          let rawBarcode = "";
+          if ((file.type || "").startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/i.test(file.name || "")) {
+            try { rawBarcode = await ldDecodeBarcodeFromImageFile(file, detectorFormats); } catch(e) { rawBarcode = ""; }
+          }
+          let text = "";
+          try { text = await ldReadShippingLabelFileText(file); } catch(e) { text = file.name || "Label photo"; }
+          const combined = `${file.name || "Label photo"}\n${rawBarcode || ""}\n${text || ""}`;
+          const foundRows = buildLabelRowsFromText(combined, `Photo for ${target.customer || "Whatnot shipment"}`);
+          let match = safeArray(foundRows).find(r => r.trackingNumber && ldTrackingMatchesWhatnotDisplay(r.trackingNumber, target.trackingShort));
+          if (!match) {
+            const cust = ldLooseLabelText(target.customer || "");
+            match = safeArray(foundRows).find(r => r.trackingNumber && cust && ldLooseLabelText(`${r.rawText || ""} ${r.ocrText || ""} ${r.fileName || ""}`).includes(cust));
+          }
+          if (!match && foundRows.length === 1) match = foundRows[0];
+          if (!match && rawBarcode) {
+            const tracking = ldCanonicalTrackingNumber(rawBarcode);
+            if (tracking) match = { id:uid(), trackingNumber:tracking, carrier:ldInferCarrierFromTracking(tracking), rawText:combined, fileName:file.name || "Label photo", status:"Ready to Apply" };
+          }
+          if (!match?.trackingNumber) {
+            setWhatnotShipmentStatus(`Could not read a full tracking number from the photo for ${target.customer || "this customer"}. Try a closer photo of the barcode or paste the tracking number in the row.`);
+            return;
+          }
+          const fullTracking = ldCanonicalTrackingNumber(match.trackingNumber);
+          const carrier = match.carrier || ldInferCarrierFromTracking(fullTracking) || target.carrier;
+          updateWhatnotShipmentRow(targetId, { fullTracking, carrier, status:"Ready to Save", matchedFrom:`Label photo: ${file.name || "camera photo"}` });
+          addLabelRows([{ ...match, trackingNumber:fullTracking, carrier, matchedOrderId:"", status:"Ready to Apply", fileName:`Photo for ${target.customer || "Whatnot shipment"}`, matchReason:"Captured from customer row label photo" }]);
+          setWhatnotShipmentStatus(`✅ Added ${carrier || "tracking"} ${fullTracking} to ${target.customer || "this shipment"}. Review the row, then click Save Full Tracking + Mark Shipped.`);
+        } catch (e) {
+          setWhatnotShipmentStatus("Label photo read failed: " + (e?.message || String(e)) + ". Try another photo or paste the tracking number.");
+        } finally {
+          try { ev.target.value = ""; } catch(e) {}
+          whatnotShipmentPhotoTargetRef.current = "";
+        }
       };
       const captureShippingLabelCustomerOcr = async () => {
         if (labelOcrBusyRef.current) return "";
@@ -17307,6 +17513,28 @@ Cancel keeps this page local/free.`);
               <Inp label="Paste Tracking Numbers" value={manualTrackingText} onChange={setManualTrackingText} placeholder="Paste USPS / UPS / FedEx tracking numbers here..." />
               <Row gap={8} wrap style={{ marginTop:8 }}><Btn sz="sm" onClick={addManualTracking}>Add Manual Tracking</Btn><Btn sz="sm" v={labelScanActive && !labelSprintActive ? "danger" : "soft"} onClick={labelScanActive && !labelSprintActive ? stopLabelScanner : () => startLabelScanner(false)}>{labelScanActive && !labelSprintActive ? "Stop One Scan" : "Scan One Label"}</Btn><Btn sz="sm" v={labelSprintActive ? "danger" : "fill"} onClick={labelSprintActive ? stopLabelScanner : () => startLabelScanner(true)}>{labelSprintActive ? "Stop Sprint" : "Start Shipping Label Sprint"}</Btn><Btn sz="sm" v="soft" disabled={!labelScanActive || labelOcrBusy} onClick={readCustomerNameFromCamera}>{labelOcrBusy ? "Reading Name…" : "Read Customer Name"}</Btn><Btn sz="sm" v="ghost" onClick={clearAppliedLabelRows}>Clear Applied</Btn></Row>
             </div>
+          </div>
+          <div style={{ marginTop:12, background:C.goldBg, border:`1px solid ${C.gold}66`, borderRadius:16, padding:12 }}>
+            <Row between center wrap gap={8}>
+              <div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18 }}>📦 Whatnot Shipment Data + Full Tracking Match</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Best workflow: paste/upload Whatnot shipment data first, then scan/upload labels to get the full tracking number. The app matches the full tracking back to the exact customer box and plants before you save.</div></div>
+              <Tag text="V119R-SAFE" color={C.gold} />
+            </Row>
+            <textarea value={whatnotShipmentText} onChange={e=>setWhatnotShipmentText(e.target.value)} placeholder="Paste Whatnot shipment page text here..." style={{ width:"100%", minHeight:110, marginTop:10, padding:10, borderRadius:12, border:`1px solid ${C.bd}`, fontFamily:F.body, fontSize:13 }} />
+            <input ref={whatnotShipmentPhotoInputRef} type="file" accept="image/*,application/pdf" capture="environment" onChange={handleWhatnotShipmentLabelPhoto} style={{ display:"none" }} />
+            <Row gap={8} wrap style={{ marginTop:8 }}><Btn sz="sm" onClick={importWhatnotShipmentData}>Import Pasted Whatnot Data</Btn><Btn sz="sm" v="soft" onClick={autoMatchWhatnotFullTracking}>Auto Match Full Tracking</Btn><Btn sz="sm" v="fill" onClick={saveWhatnotFullTracking}>Save Full Tracking + Mark Shipped</Btn><Btn sz="sm" v="ghost" onClick={clearWhatnotShipmentRows}>Clear Whatnot Review</Btn></Row>
+            {whatnotShipmentStatus && <div style={{ marginTop:8, background:C.card, border:`1px solid ${C.bdS}`, borderRadius:10, padding:8, fontSize:12, color:C.tx2 }}>{whatnotShipmentStatus}</div>}
+            {safeArray(whatnotShipmentRows).length > 0 && <div style={{ display:"grid", gap:8, marginTop:10 }}>
+              {safeArray(whatnotShipmentRows).slice(0,40).map(sh => {
+                const saved = String(sh.status || "").includes("Saved");
+                const ready = !!sh.fullTracking && !saved;
+                return <div key={sh.id} style={{ background:C.card, border:`1px solid ${ready ? C.g300 : saved ? C.g200 : C.bd}`, borderLeft:`5px solid ${ready ? C.g600 : saved ? C.g500 : C.amber}`, borderRadius:12, padding:10 }}>
+                  <Row between wrap gap={8}><div><button type="button" onClick={() => openWhatnotShipmentLabelPhoto(sh.id)} title="Take/upload a label photo for this customer" style={{ background:"transparent", border:0, padding:0, margin:0, color:C.g900, fontWeight:900, fontFamily:F.body, fontSize:14, cursor:"pointer", textAlign:"left", textDecoration:"underline" }}>{sh.customer || "Unknown customer"}</button><div style={{ fontSize:11, color:C.tx3 }}>{sh.date || ""} · {sh.service || sh.carrier || "Shipping"} · Whatnot shows: <b>{sh.trackingShort || "no short tracking"}</b></div>{sh.matchedFrom && <div style={{ fontSize:10, color:C.g600, fontWeight:900, marginTop:3 }}>{sh.matchedFrom}</div>}</div><Row gap={6} wrap center><Btn sz="sm" v="soft" onClick={() => openWhatnotShipmentLabelPhoto(sh.id)}>📷 Take Tracking Photo</Btn><Tag sm text={sh.status || "Needs Full Tracking"} color={saved ? C.g600 : ready ? C.blue : C.amber} /></Row></Row>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:8 }}><Inp label="Full Tracking Number" value={sh.fullTracking || ""} onChange={v=>updateWhatnotShipmentRow(sh.id,{ fullTracking:ldCanonicalTrackingNumber(v), carrier:ldInferCarrierFromTracking(v), status:v ? "Ready to Save" : "Needs Full Tracking" })} placeholder="Paste or scan full USPS/UPS/FedEx tracking" /><Sel label="Use Scanned Tracking" value={sh.fullTracking || ""} onChange={v=>updateWhatnotShipmentRow(sh.id,{ fullTracking:v, carrier:ldInferCarrierFromTracking(v), status:v ? "Ready to Save" : "Needs Full Tracking" })} options={[{v:"",l:"Choose full tracking from scans/photos"}, ...availableFullTrackingRows().map(r=>({ v:r.trackingNumber, l:`${r.carrier || "Carrier"} · ${r.trackingNumber}`}))]} /></div>
+                  <div style={{ marginTop:8, fontSize:12, color:C.tx2 }}><b>{safeArray(sh.items).length || sh.itemCount || 0} plant(s) in this shipment:</b> {safeArray(sh.items).map(x => `${x.code ? x.code + " · " : ""}${x.name || "Plant"}${x.orderNumber ? " (#" + x.orderNumber + ")" : ""}`).join(" | ")}</div>
+                  <div style={{ marginTop:5, fontSize:11, color: safeArray(sh.matchedPlantIds).length ? C.g700 : C.amber, fontWeight:800 }}>Matched plants in app: {safeArray(sh.matchedPlantIds).length} {safeArray(sh.matchedPlantIds).length ? "✅" : "⚠️ Review plant/order numbers before saving"}</div>
+                </div>;
+              })}
+            </div>}
           </div>
           {labelScanActive && <div style={{ marginTop:12, background:"#000", border:`2px solid ${labelSprintActive ? "#97d33e" : C.g300}`, borderRadius:18, padding:10 }}><video ref={scanVideoRef} style={{ width:"100%", maxHeight:360, borderRadius:14, background:"#000" }} muted playsInline /><div style={{ color:"#97d33e", fontSize:12, fontWeight:900, marginTop:8 }}>{labelSprintActive ? "Sprint active with USPS scan boost + customer OCR: hold the full label steady. Barcode reads tracking; OCR reads customer name/address if the order match is unclear. Duplicate scans are ignored." : "Point the camera at the shipping label barcode/tracking number. If it scans but does not match, tap Read Customer Name while the full label is visible."}</div>{labelOcrBusy && <div style={{ marginTop:8, color:"#fff", background:"rgba(151,211,62,.16)", border:"1px solid rgba(151,211,62,.35)", borderRadius:10, padding:8, fontSize:12, fontWeight:900 }}>Reading customer name/address from label… keep it steady.</div>}</div>}
           {safeArray(labelSprintLog).length > 0 && <div style={{ marginTop:10, display:"grid", gap:6 }}><div style={{ fontWeight:900, color:C.g900, fontSize:12 }}>Shipping Label Sprint Log</div>{safeArray(labelSprintLog).slice(0,8).map(x => <div key={x.id} style={{ background:x.status === "Shipped" ? C.g50 : C.amberBg, border:`1px solid ${x.status === "Shipped" ? C.g200 : C.gold}66`, borderRadius:10, padding:"7px 9px", fontSize:11, color:C.tx2 }}><b>{x.status === "Shipped" ? "✅" : "⚠️"} {x.carrier} {x.trackingNumber}</b> · {x.status}{x.orderId ? ` · ${x.orderId}` : " · needs review"}<div style={{ color:C.tx3 }}>{x.at} · {x.reason}</div></div>)}</div>}
