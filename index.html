@@ -1704,11 +1704,11 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V113R",
-      name: "Shipping Label Customer OCR Match",
+      id: "V114R",
+      name: "Shipping Label Sprint Barcode Engine",
       date: "2026-05-11",
       base: "V112R USPS scan boost + V108R release gate",
-      safety: "Order Fulfillment / Scan Shipping Labels only; home screen logic untouched",
+      safety: "Order Fulfillment / Scan Shipping Labels scanner engine only; home screen logic untouched",
       nextPhase: "V114R: secure tracking API webhook/backend after label matching is stable"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
@@ -16826,6 +16826,9 @@ Cancel keeps this page local/free.`);
       const scanVideoRef = useRef(null);
       const scanReaderRef = useRef(null);
       const nativeLabelScanTimerRef = useRef(null);
+      const labelFrameScanTimerRef = useRef(null);
+      const labelFrameScanBusyRef = useRef(false);
+      const labelLastOcrAttemptRef = useRef(0);
       const labelSprintSeenRef = useRef(new Set());
       const labelLastScanRef = useRef({ value:"", at:0 });
       const labelOcrBusyRef = useRef(false);
@@ -17049,7 +17052,7 @@ Cancel keeps this page local/free.`);
       const processDetectedShippingLabelText = (text, sprintMode = false, sourceName = "Camera Scan") => {
         const rows = buildLabelRowsFromText(text, sourceName);
         if (!rows.length) return false;
-        const row = rows[0];
+        const row = safeArray(rows).slice().sort((a,b) => ((b.matchedOrderId ? 1000 : 0) + (+b.matchConfidence || 0)) - ((a.matchedOrderId ? 1000 : 0) + (+a.matchConfidence || 0)))[0];
         const key = row.trackingNumber;
         const nowMs = Date.now();
         if (!key) return false;
@@ -17087,10 +17090,73 @@ Cancel keeps this page local/free.`);
         stopLabelScanner();
         return true;
       };
+      const makeShippingVideoFrameCanvas = () => {
+        const video = scanVideoRef.current;
+        if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null;
+        const maxW = 1800;
+        const scale = Math.min(1, maxW / Math.max(1, video.videoWidth));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(320, Math.round(video.videoWidth * scale));
+        canvas.height = Math.max(240, Math.round(video.videoHeight * scale));
+        const ctx = canvas.getContext("2d", { willReadFrequently:true });
+        try { ctx.drawImage(video, 0, 0, canvas.width, canvas.height); return canvas; } catch(e) { return null; }
+      };
+      const shippingLabelCanvasVariants = (base) => {
+        const variants = [];
+        const add = (name, canvas) => { if (canvas && canvas.width > 80 && canvas.height > 40) variants.push({ name, canvas }); };
+        add("full frame", base);
+        add("high contrast", ldHighContrastCanvas(base));
+        add("center zoom", ldCropCanvas(base, .05, .10, .90, .80));
+        add("middle barcode band", ldCropCanvas(base, .02, .25, .96, .50));
+        add("top label area", ldCropCanvas(base, .02, .02, .96, .55));
+        add("bottom label area", ldCropCanvas(base, .02, .45, .96, .53));
+        add("left label area", ldCropCanvas(base, .00, .00, .68, 1));
+        add("right label area", ldCropCanvas(base, .32, .00, .68, 1));
+        add("rotated right", ldRotateCanvas(base, 90));
+        add("rotated left", ldRotateCanvas(base, -90));
+        return variants;
+      };
+      const decodeShippingLabelCanvas = async (canvas) => {
+        if (!canvas) return "";
+        const detectorFormats = ["code_128", "code_39", "pdf417", "qr_code", "data_matrix", "itf", "ean_13", "upc_a"].filter(Boolean);
+        const variants = shippingLabelCanvasVariants(canvas);
+        for (const v of variants) { try { const raw = await ldDecodeCanvasNative(v.canvas, detectorFormats); if (raw) return raw; } catch(e) {} }
+        for (const v of variants) { try { const raw = await ldDecodeCanvasZxing(v.canvas); if (raw) return raw; } catch(e) {} }
+        for (const v of variants) { try { const raw = await ldDecodeCanvasQuagga(v.canvas); if (raw) return raw; } catch(e) {} }
+        return "";
+      };
+      const tryShippingFrameDecodeOnce = async (sprintMode = false) => {
+        if (labelFrameScanBusyRef.current) return false;
+        const video = scanVideoRef.current;
+        if (!labelScanActive || !video || video.readyState < 2 || video.videoWidth < 80) return false;
+        labelFrameScanBusyRef.current = true;
+        try {
+          const canvas = makeShippingVideoFrameCanvas();
+          if (!canvas) return false;
+          const raw = await decodeShippingLabelCanvas(canvas);
+          if (raw && processDetectedShippingLabelText(raw, sprintMode, sprintMode ? "Shipping Label Sprint Frame" : "Shipping Label Frame")) return true;
+          const now = Date.now();
+          if (sprintMode && now - labelLastOcrAttemptRef.current > 8500 && !labelOcrBusyRef.current) {
+            labelLastOcrAttemptRef.current = now;
+            try {
+              const ocrText = await ldOcrShippingLabelImage(canvas.toDataURL("image/png", .92));
+              if (ocrText) {
+                setLabelOcrPreview(String(ocrText || "").slice(0, 1000));
+                return processDetectedShippingLabelText(ocrText, sprintMode, "Shipping Label Sprint OCR Frame");
+              }
+            } catch(e) {}
+          }
+          return false;
+        } finally { labelFrameScanBusyRef.current = false; }
+      };
+      const startShippingFrameScanLoop = (sprintMode = false) => {
+        try { if (labelFrameScanTimerRef.current) clearInterval(labelFrameScanTimerRef.current); } catch(e) {}
+        labelFrameScanTimerRef.current = setInterval(() => { tryShippingFrameDecodeOnce(sprintMode); }, sprintMode ? 950 : 1400);
+      };
       const startNativeLabelScanBoost = (sprintMode = false) => {
         try {
           if (!window.BarcodeDetector || !scanVideoRef.current) return false;
-          const formats = ["code_128", "code_39", "pdf417", "qr_code", "data_matrix", "itf"];
+          const formats = ["code_128", "code_39", "pdf417", "qr_code", "data_matrix", "itf", "ean_13", "upc_a"];
           const detector = new window.BarcodeDetector({ formats });
           if (nativeLabelScanTimerRef.current) clearInterval(nativeLabelScanTimerRef.current);
           nativeLabelScanTimerRef.current = setInterval(async () => {
@@ -17099,50 +17165,58 @@ Cancel keeps this page local/free.`);
               if (!video || video.readyState < 2 || video.videoWidth < 80) return;
               const codes = await detector.detect(video);
               for (const code of safeArray(codes)) {
-                const raw = code?.rawValue || code?.rawText || "";
+                const raw = code?.rawValue || code?.rawText || code?.displayValue || "";
                 if (raw && processDetectedShippingLabelText(raw, sprintMode, "Native Camera Scan")) return;
               }
             } catch(e) {}
-          }, 450);
+          }, 350);
           return true;
         } catch(e) { return false; }
       };
       const startLabelScanner = async (sprintMode = false) => {
-        if (!window.ZXing || !window.ZXing.BrowserMultiFormatReader) { setLabelImportStatus("Scanner library is not loaded. Use batch upload or manual paste."); return; }
         if (!navigator.mediaDevices?.getUserMedia) { setLabelImportStatus("Camera access is not available. Open Leaf Diary over HTTPS and allow camera permission."); return; }
         setLabelScanActive(true);
         setLabelSprintActive(!!sprintMode);
         if (sprintMode) {
           labelSprintSeenRef.current = new Set();
           labelLastScanRef.current = { value:"", at:0 };
+          labelLastOcrAttemptRef.current = 0;
           setLabelSprintLog([]);
         }
-        setLabelImportStatus(sprintMode ? "Starting Shipping Label Sprint. Hold each packed box label up to the camera. If the barcode scans but the order is not known, Leaf Diary will read the printed customer name/address and retry the match." : "Starting one-label camera scanner. If needed, Leaf Diary can read the printed customer name/address from the camera too.");
+        setLabelImportStatus(sprintMode ? "Starting Shipping Label Sprint. This now uses the same proven barcode engine as Plant Photo Sprint plus auto frame decode. Hold each USPS/UPS/FedEx label steady; matched orders are marked shipped automatically." : "Starting one-label camera scanner. Hold the shipping barcode steady, or use the full-label frame reader if the barcode is dense.");
         setTimeout(async () => {
           try {
-            const reader = new window.ZXing.BrowserMultiFormatReader();
-            scanReaderRef.current = reader;
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const cams = devices.filter(d => d.kind === "videoinput");
-            const preferred = cams.find(d => /back|rear|environment/i.test(d.label)) || cams.find(d => /facetime|camera|webcam|front/i.test(d.label)) || cams[0];
-            await reader.decodeFromVideoDevice(preferred?.deviceId || null, scanVideoRef.current, (result, err) => {
-              if (!result) return;
-              const text = result.getText ? result.getText() : String(result || "");
-              processDetectedShippingLabelText(text, sprintMode, sprintMode ? "Camera Sprint" : "Camera Scan");
-            });
+            if (!scanVideoRef.current) throw new Error("Camera preview is not ready yet. Tap Start Shipping Label Sprint again.");
+            let reader = ldMakeZxingReader();
+            if (!reader && window.ZXing && window.ZXing.BrowserMultiFormatReader) reader = new window.ZXing.BrowserMultiFormatReader();
+            if (!reader && !window.BarcodeDetector) throw new Error("No barcode reader is loaded. Use Batch Upload or Manual Tracking Paste.");
+            if (reader) {
+              scanReaderRef.current = reader;
+              await ldStartZxingLiveScanner(reader, scanVideoRef.current, text => processDetectedShippingLabelText(text, sprintMode, sprintMode ? "Shipping Label Sprint" : "Shipping Label Scan"));
+            } else {
+              const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1920 }, height:{ ideal:1080 } }, audio:false });
+              scanVideoRef.current.srcObject = stream;
+              await scanVideoRef.current.play();
+            }
             const nativeBoost = startNativeLabelScanBoost(sprintMode);
-            if (nativeBoost) setLabelImportStatus(sprintMode ? "Shipping Label Sprint is running with USPS scan boost + customer OCR. Hold each USPS/UPS/FedEx label steady. If tracking scans but the order is unclear, the app reads the printed customer name/address." : "Camera scanner is running with USPS scan boost + customer OCR. Hold the barcode steady; tap Read Customer Name if it needs help matching.");
+            startShippingFrameScanLoop(sprintMode);
+            setLabelImportStatus(sprintMode ? "✅ Shipping Label Sprint is running. Hold the whole label 6–12 inches from the camera, pause until it beeps/logs, then hold up the next box. It will match customer/order, carrier, tracking number, and mark shipped." : "✅ Shipping label scanner is running. Hold the label steady; if barcode is hard to read, the frame reader will try snapshots automatically.");
+            if (!nativeBoost && !reader) setLabelImportStatus("Scanner is running in frame-scan mode only. Hold the label very steady for 1–2 seconds.");
           } catch (e) {
             setLabelImportStatus("Camera scan failed: " + (e?.message || String(e)));
             setLabelScanActive(false);
             setLabelSprintActive(false);
+            try { if (labelFrameScanTimerRef.current) clearInterval(labelFrameScanTimerRef.current); } catch(_) {}
           }
-        }, 120);
+        }, 140);
       };
       const stopLabelScanner = () => {
         try { scanReaderRef.current?.reset?.(); } catch(e) {}
         try { if (nativeLabelScanTimerRef.current) clearInterval(nativeLabelScanTimerRef.current); } catch(e) {}
+        try { if (labelFrameScanTimerRef.current) clearInterval(labelFrameScanTimerRef.current); } catch(e) {}
         nativeLabelScanTimerRef.current = null;
+        labelFrameScanTimerRef.current = null;
+        labelFrameScanBusyRef.current = false;
         scanReaderRef.current = null;
         setLabelScanActive(false);
         setLabelSprintActive(false);
@@ -17215,7 +17289,7 @@ Cancel keeps this page local/free.`);
           <Row between wrap gap={10}>
             <div>
               <h3 style={{ margin: 0, fontFamily: F.display, color: C.g900 }}>{labelScanMode ? "📷 Scan Shipping Labels" : "🚚 Shipping Label Import + Tracking"}</h3>
-              <p style={{ margin: "4px 0 0", color: C.tx3, fontSize: 12 }}>Upload labels in batch, paste tracking, scan one label, or use Shipping Label Sprint with the MacBook/iPhone camera. V113R can read printed customer name/address from the label to auto-match the order before marking it shipped.</p>
+              <p style={{ margin: "4px 0 0", color: C.tx3, fontSize: 12 }}>Upload labels in batch, paste tracking, scan one label, or use Shipping Label Sprint with the MacBook/iPhone camera. V114R uses the proven plant barcode sprint engine plus full-label frame decoding/OCR to auto-match customer/order, carrier, and tracking before marking shipped.</p>
             </div>
             <Tag text="V113R" color={C.blue} />
           </Row>
@@ -17227,7 +17301,7 @@ Cancel keeps this page local/free.`);
                   <input type="file" multiple accept="application/pdf,image/*,.txt,.csv" onChange={handleShippingLabelFiles} style={{ padding:10, border:`1px solid ${C.bd}`, borderRadius:12, background:C.card }} />
                 </label>
               </Row>
-              <div style={{ fontSize:11, color:C.tx3, marginTop:8, lineHeight:1.45 }}>Best: upload label PDFs downloaded from Whatnot/Palmstreet. For packed boxes, use Shipping Label Sprint on MacBook or iPhone. If tracking scans but customer match is weak, the app reads the printed customer name/address from the label.</div>
+              <div style={{ fontSize:11, color:C.tx3, marginTop:8, lineHeight:1.45 }}>Best: upload label PDFs downloaded from Whatnot/Palmstreet. For packed boxes, use Shipping Label Sprint on MacBook or iPhone. If the barcode is dense, the app also snaps frames like the plant photo scanner, then reads customer name/address to auto-match.</div>
             </div>
             <div style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:12 }}>
               <Inp label="Paste Tracking Numbers" value={manualTrackingText} onChange={setManualTrackingText} placeholder="Paste USPS / UPS / FedEx tracking numbers here..." />
