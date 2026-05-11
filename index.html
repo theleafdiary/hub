@@ -2194,13 +2194,76 @@
       const trusted = sources.filter(s => s.includedInMarketMedian !== false && ["exact","close"].includes(s.potSizeMatchQuality)).length;
       return { exact, close, trusted, excluded, total:sources.length, requestedPotSize: result.requestedPotSize || result.potSize || "" };
     }
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 112 — STRICT COMPARABLE MATCH GUARD
+       Prevents TC/seedling/cutting/corm/size/variegation mismatches from
+       becoming trusted market prices. Used for rare/high-dollar plants.
+    ══════════════════════════════════════════════════════════ */
+    function phase112NormText(value = "") {
+      return String(value || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    }
+    const PHASE112_VARIEGATION_TERMS = ["variegated","variegata","albo","aurea","mint","sport","marble","caramel","carmel","half moon","sectoral","high color","white","pink","yellow","cream","ghost","thai constellation","constellation","white princess","white wizard","white knight","pink princess"];
+    const PHASE112_NON_POTTED = [
+      { stage:"tissue culture", re:/\b(tissue\s*culture|tc\b|in\s*vitro|agar|flask|culture\s*cup|culture\s*jar)\b/i },
+      { stage:"seedling", re:/\b(seedling|seedlings|seed\s*grown|starter\s*plant|starter|plug|plugs|liner|liners|baby\s*plant)\b/i },
+      { stage:"cutting", re:/\b(cutting|cuttings|unrooted|fresh\s*cut|top\s*cut|mid\s*cut|wet\s*stick|node|nodes|chonk)\b/i },
+      { stage:"corm/bulb", re:/\b(corm|corms|bulb|bulbs|rhizome|tuber)\b/i },
+      { stage:"bare root", re:/\b(bare\s*root|bareroot|bare-root)\b/i }
+    ];
+    function phase112RequiredVariegationTerms(plantName = "", raw = {}) {
+      const hay = phase112NormText([plantName, raw.plantName, raw.marketNotes, JSON.stringify(raw.matchRequirements || {})].filter(Boolean).join(" "));
+      return PHASE112_VARIEGATION_TERMS.filter(term => hay.includes(phase112NormText(term))).filter((term, idx, arr) => arr.findIndex(t => phase112NormText(t) === phase112NormText(term)) === idx);
+    }
+    function phase112DetectStage(text = "") {
+      for (const pat of PHASE112_NON_POTTED) if (pat.re.test(String(text || ""))) return pat.stage;
+      if (/\b(rooted|established|potted|pot|container|nursery\s*pot|grower\s*pot|houseplant)\b/i.test(String(text || ""))) return "rooted potted plant";
+      return "unknown";
+    }
+    function phase112PlantKeywordScore(plantName = "", text = "") {
+      const stop = new Set(["plant","plants","rare","variegated","variegata","houseplant","live","rooted","potted","pot","inch","in"]);
+      const words = phase112NormText(plantName).split(" ").filter(w => w.length >= 3 && !stop.has(w));
+      if (!words.length) return { score:70, missing:[] };
+      const hay = phase112NormText(text);
+      const matched = words.filter(w => hay.includes(w));
+      const missing = words.filter(w => !hay.includes(w));
+      return { score: Math.round((matched.length / words.length) * 100), missing };
+    }
+    function phase112ComparableCheck({ raw = {}, source = {}, title = "", observedPotSize = "", requestedPotSize = "" } = {}) {
+      const plantName = raw.plantName || raw.requestedPlantName || "";
+      const evidence = [title, source.description, source.evidence, source.matchEvidence, source.url, source.platform].filter(Boolean).join(" ");
+      const pot = phase92PotSizeMatch(requestedPotSize, observedPotSize, source);
+      const requestedStage = raw.matchRequirements?.requiredStage || source.requestedStage || "rooted potted plant";
+      const observedStage = source.observedStage || phase112DetectStage(evidence);
+      const varTerms = safeArray(raw.matchRequirements?.requiredVariegationTerms).length ? safeArray(raw.matchRequirements?.requiredVariegationTerms) : phase112RequiredVariegationTerms(plantName, raw);
+      const hay = phase112NormText(evidence);
+      const matchedVars = varTerms.filter(t => hay.includes(phase112NormText(t)));
+      const primaryVars = varTerms.filter(t => !/^(white|pink|yellow|cream|high color)$/i.test(t));
+      const varOk = !varTerms.length || (primaryVars.length ? matchedVars.some(t => primaryVars.map(phase112NormText).includes(phase112NormText(t))) : matchedVars.length > 0);
+      const nameScore = phase112PlantKeywordScore(plantName, evidence);
+      let score = 100;
+      const reasons = [];
+      if (pot.quality === "exact") {}
+      else if (pot.quality === "close") { score -= 20; reasons.push(`close pot size (${pot.observed} vs ${pot.requested})`); }
+      else if (pot.quality === "unknown") { score -= 45; reasons.push("listing pot size not proven"); }
+      else { score -= 80; reasons.push(`pot size mismatch (${pot.observed} vs ${pot.requested})`); }
+      const prohibited = requestedStage === "rooted potted plant" && !["rooted potted plant","unknown"].includes(observedStage);
+      if (prohibited) { score -= 90; reasons.push(`${observedStage} listing, not same stage as rooted potted plant`); }
+      else if (observedStage === "unknown") { score -= 18; reasons.push("growth stage not proven"); }
+      if (varTerms.length && !varOk) { score -= 70; reasons.push(`required variegation/cultivar not proven (${varTerms.join(", ")})`); }
+      if (nameScore.score < 70) { score -= 35; reasons.push(`weak plant/cultivar match; missing ${nameScore.missing.slice(0,4).join(", ")}`); }
+      score = Math.max(0, Math.min(100, Math.round(+source.comparableScore || score)));
+      const included = source.includedInMarketMedian === true || (score >= 90 && pot.quality === "exact" && !prohibited && observedStage !== "unknown" && varOk && nameScore.score >= 70);
+      return { comparableScore:score, included, excludeReason: included ? "" : (source.excludeReason || reasons.join("; ") || "Not strict enough for trusted comparable"), observedStage, requestedStage, varTerms, variegationMatch: varTerms.length ? (varOk ? "match" : "missing") : "not_required", pot };
+    }
     function phase83NormalizeMarketData(raw = {}) {
       const requestedPotSize = raw.requestedPotSize || raw.plantPotSize || raw.potSize || "";
       const sources = safeArray(raw.dataSources || raw.sources).map((s, idx) => {
         const title = String(s.title || s.listingTitle || s.name || "").slice(0, 180);
         const url = String(s.url || s.link || "").slice(0, 420);
-        const observedPotSize = String(s.observedPotSize || s.sourcePotSize || s.potSize || s.size || s.containerSize || phase92ExtractPotSize(`${title} ${s.description || ""}`) || "").slice(0, 60);
-        const match = phase92PotSizeMatch(requestedPotSize, observedPotSize, s);
+        const observedPotSize = String(s.observedPotSize || s.sourcePotSize || s.potSize || s.size || s.containerSize || phase92ExtractPotSize(`${title} ${s.description || ""} ${s.evidence || ""}`) || "").slice(0, 60);
+        const strict = phase112ComparableCheck({ raw, source:s, title, observedPotSize, requestedPotSize });
+        const match = strict.pot;
         return {
           platform: String(s.platform || s.source || "Web").slice(0, 42),
           priceUSD: Math.round(phase83CleanPrice(s.priceUSD ?? s.price ?? s.amount) * 100) / 100,
@@ -2209,16 +2272,23 @@
           url,
           title,
           host: phase92SourceUrlHost(url),
-          observedPotSize,
+          observedPotSize: observedPotSize || s.observedPotSize || "not proven",
           requestedPotSize,
+          observedStage: s.observedStage || strict.observedStage,
+          requestedStage: s.requestedStage || strict.requestedStage,
+          stageMatch: s.stageMatch || (strict.observedStage === strict.requestedStage ? "match" : strict.observedStage === "unknown" ? "unknown" : "excluded"),
+          variegationRequired: safeArray(s.variegationRequired).length ? safeArray(s.variegationRequired) : strict.varTerms,
+          variegationMatch: s.variegationMatch || strict.variegationMatch,
+          comparableScore: strict.comparableScore,
+          excludeReason: strict.excludeReason,
           potSizeMatchQuality: match.quality,
           potSizeMatchLabel: match.label,
           potSizeMatchIncluded: !!match.included,
-          includedInMarketMedian: !!match.included,
-          matchEvidence: String(s.evidence || s.matchEvidence || "").slice(0, 220)
+          includedInMarketMedian: !!strict.included,
+          matchEvidence: String(s.evidence || s.matchEvidence || strict.excludeReason || "").slice(0, 260)
         };
       }).filter(s => s.priceUSD > 0);
-      const trustedSources = sources.filter(s => s.includedInMarketMedian !== false && ["exact","close"].includes(s.potSizeMatchQuality));
+      const trustedSources = sources.filter(s => s.includedInMarketMedian === true && (+s.comparableScore || 0) >= 90 && s.potSizeMatchQuality === "exact");
       const whatnot = trustedSources.filter(s => /whatnot/i.test(s.platform)).map(s=>s.priceUSD);
       const palmstreet = trustedSources.filter(s => /palmstreet/i.test(s.platform)).map(s=>s.priceUSD);
       const prices = trustedSources.map(s=>s.priceUSD);
@@ -2236,7 +2306,18 @@
         dataSources: sources,
         allSourceCount: sources.length,
         dataPointCount: trustedCount,
+        trustedComparableCount: trustedCount,
+        excludedComparableCount: sources.length - trustedCount,
         excludedByPotSizeCount: sources.length - trustedCount,
+        usedComparables: trustedSources,
+        excludedComparables: sources.filter(s => !trustedSources.includes(s)),
+        matchRequirements: raw.matchRequirements || {
+          requiredPotSize: requestedPotSize,
+          requiredStage: "rooted potted plant",
+          requiresVariegationMatch: phase112RequiredVariegationTerms(raw.plantName || "", raw).length > 0,
+          requiredVariegationTerms: phase112RequiredVariegationTerms(raw.plantName || "", raw),
+          excludedStages: ["tissue culture", "seedling", "cutting", "corm/bulb", "bare root"]
+        },
         marketMedianPrice: Math.round((phase83Median(prices) || 0) * 100) / 100,
         whatnotMedian: whatnot.length ? Math.round(phase83Median(whatnot) * 100) / 100 : null,
         palmstreetMedian: palmstreet.length ? Math.round(phase83Median(palmstreet) * 100) / 100 : null,
@@ -2245,7 +2326,7 @@
         allListingsLowestFound: Math.round(((allPrices.length ? Math.min(...allPrices) : 0) || 0) * 100) / 100,
         allListingsHighestFound: Math.round(((allPrices.length ? Math.max(...allPrices) : 0) || 0) * 100) / 100,
         confidenceScore: Math.max(0, Math.min(100, adjustedConfidence)),
-        confidenceNote: raw.confidenceNote || (trustedCount >= 20 ? `Strong pot-size-matched sample: ${trustedCount} listings found.` : trustedCount >= 5 ? `Limited pot-size-matched sample: ${trustedCount} listings found.` : `Low confidence: only ${trustedCount} pot-size-matched listing(s). ${sources.length - trustedCount} listing(s) were excluded for size mismatch/unknown size.`),
+        confidenceNote: raw.confidenceNote || (trustedCount >= 20 ? `Strong strict-comparable sample: ${trustedCount} trusted listing(s) found.` : trustedCount >= 5 ? `Limited strict-comparable sample: ${trustedCount} trusted listing(s) found.` : `Low confidence: only ${trustedCount} trusted comparable(s). ${sources.length - trustedCount} listing(s) were excluded for pot size, stage, variegation, or weak match.`),
         dataAge: raw.dataAge || "mixed",
         marketNotes: raw.marketNotes || "",
         potSizeMatchSummary: { ...phase92PotSizeSummary({ dataSources:sources, potSize:requestedPotSize }), rawDataPointCount:rawCount }
@@ -2271,13 +2352,13 @@ ${altName ? `- Alternate spelling/search: ${altName}
 - Our cost: $${cost}
 - Our minimum margin target: ${minMargin}%
 
-STRICT POT SIZE RULES:
-- Match the SAME pot/container size whenever possible: ${potNorm}.
-- Search exact-size phrases first, for example '${name} ${potNorm}', '${name} ${potNorm} pot', and '${name} ${potNorm} plant'.
-- Do NOT mix 2 inch, 3 inch, 4 inch, 6 inch, starter plug, node cutting, bare-root, gallon, or mature specimen prices into the marketMedianPrice unless they are the same or a clearly close match.
-- Every source must include observedPotSize and potSizeMatch: exact, close, mismatch, or unknown.
-- marketMedianPrice, whatnotMedian, palmstreetMedian, lowestFound, and highestFound must be calculated from exact/close pot-size matches only.
-- Still include mismatch/unknown-size listings in dataSources for transparency, but mark them potSizeMatch: mismatch or unknown. Those are excluded from the median.
+STRICT COMPARABLE RULES — DO NOT BREAK THESE:
+- Match the SAME pot/container size: ${potNorm}. A 6 inch pot is not comparable to tissue culture, seedlings, plugs, nodes, corms, cuttings, or a 2/3/4 inch starter.
+- Default required stage is rooted potted plant. Exclude tissue culture, TC, seedlings, starter plugs, liners, corms, bulbs, nodes, wet sticks, cuttings, unrooted cuttings, and bare-root listings unless the plant being priced is that exact format.
+- If the plant name includes variegation/cultivar terms like variegated, albo, aurea, mint, pink, white, thai constellation, caramel/carmel marble, sport, half moon, or sectoral, the comparable listing must prove the same term/cultivar. Non-variegated listings are excluded.
+- Every source must include observedPotSize, observedStage, variegationMatch, comparableScore 0-100, includedInMarketMedian true/false, and excludeReason if excluded.
+- marketMedianPrice, whatnotMedian, palmstreetMedian, lowestFound, and highestFound must be calculated from trusted comparables only: exact pot size + same stage + same variegation/cultivar + comparableScore >= 90.
+- Still include rejected listings in dataSources/excludedComparables for transparency, but excluded listings must not affect the median.
 
 RESEARCH INSTRUCTIONS:
 Search these sources in this order:
@@ -2307,11 +2388,26 @@ RETURN FORMAT — return ONLY this JSON object, no other text:
       "listingDate": "${isoDate}",
       "observedPotSize": "${String(potNorm).replace(/"/g, '\"')}",
       "potSizeMatch": "exact",
+      "observedStage": "rooted potted plant",
+      "variegationMatch": "match or not_required",
+      "comparableScore": 95,
+      "includedInMarketMedian": true,
+      "excludeReason": "",
       "url": "https://source-url-if-available",
-      "evidence": "title or listing text showing this is the same size"
+      "evidence": "title or listing text showing this is the same size, stage, and variegation"
     }
   ],
+  "matchRequirements": {
+    "requiredPotSize": "${String(potNorm).replace(/"/g, '\"')}",
+    "requiredStage": "rooted potted plant",
+    "requiresVariegationMatch": false,
+    "requiredVariegationTerms": [],
+    "excludedStages": ["tissue culture", "seedling", "cutting", "corm/bulb", "bare root"]
+  },
+  "usedComparables": [],
+  "excludedComparables": [],
   "dataPointCount": 0,
+  "trustedComparableCount": 0,
   "marketMedianPrice": 0,
   "whatnotMedian": null,
   "palmstreetMedian": null,
@@ -2371,10 +2467,14 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         preferSoldPrices:true,
         maxListingAgeDays:90,
         strictPotSize:true,
-        excludeTerms:["seed", "seeds", "corm", "node", "cutting", "unrooted", "tissue culture", "tc", "damaged", "diseased"],
+        exactComparableRequired:true,
+        requiredStage:"rooted potted plant",
+        requireExactPotSize:true,
+        requireVariegationMatch:true,
+        excludeTerms:["seed", "seeds", "seedling", "starter", "plug", "liner", "corm", "bulb", "node", "wet stick", "cutting", "unrooted", "bare root", "tissue culture", "tc", "agar", "flask", "damaged", "diseased"],
         sources:["Whatnot", "Palmstreet", "Etsy", "eBay", "General Web"],
         queries,
-        instructions:"Use Tavily/web search before answering. Return JSON only. Do not invent prices. If search is unavailable, return dataSources: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and marketNotes explaining WEB_SEARCH_NOT_AVAILABLE."
+        instructions:"Use Tavily/web search before answering. Return JSON only. Do not invent prices. Use ONLY exact comparable listings for the median: same pot size, rooted potted plant stage, same plant/cultivar, same variegation if any. Exclude tissue culture, seedlings, plugs, corms, nodes, cuttings, unrooted and bare-root listings from median. If no trusted comparables exist, return usedComparables: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and explain the rejected listings."
       };
     }
 
@@ -2658,9 +2758,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             const q = s.potSizeMatchQuality || "unknown";
             const mColor = q === "exact" ? C.g600 : q === "close" ? C.amber : C.red;
             return <div key={i} style={{ borderTop:i ? `1px solid ${C.bdS}` : 0, paddingTop:i ? 8 : 0, color:C.tx2, fontSize:12 }}>
-              <Row between center gap={8} wrap><div style={{ fontWeight:950 }}><b>{s.platform || "Web"}</b> · {$(s.priceUSD)} · {s.type || "asking"}</div><Tag text={s.includedInMarketMedian === false ? `Excluded: ${s.potSizeMatchLabel || q}` : `${s.potSizeMatchLabel || q}`} color={mColor} sm /></Row>
+              <Row between center gap={8} wrap><div style={{ fontWeight:950 }}><b>{s.platform || "Web"}</b> · {$(s.priceUSD)} · {s.type || "asking"}</div><Row gap={5} wrap><Tag text={s.includedInMarketMedian === false ? `Excluded: ${s.potSizeMatchLabel || q}` : `${s.potSizeMatchLabel || q}`} color={mColor} sm /><Tag text={`Score ${s.comparableScore ?? "—"}`} color={(+s.comparableScore || 0) >= 90 ? C.g600 : C.red} sm /></Row></Row>
               <div style={{ marginTop:3, color:C.tx3 }}>{s.title || s.host || "Marketplace listing"} · {s.listingDate || "date unknown"}</div>
-              <div style={{ marginTop:3, color:C.tx3 }}>Requested: <b>{s.requestedPotSize || r.requestedPotSize || r.potSize || "—"}</b> · Listing size: <b>{s.observedPotSize || "not proven"}</b>{s.matchEvidence ? ` · ${s.matchEvidence}` : ""}</div>
+              <div style={{ marginTop:3, color:C.tx3 }}>Requested: <b>{s.requestedPotSize || r.requestedPotSize || r.potSize || "—"}</b> · Listing size: <b>{s.observedPotSize || "not proven"}</b> · Stage: <b>{s.observedStage || "not proven"}</b> · Variegation: <b>{s.variegationMatch || "not_required"}</b></div>
+              {(s.excludeReason || s.matchEvidence) && <div style={{ marginTop:3, color:s.includedInMarketMedian === false ? C.red : C.tx3 }}>{s.excludeReason || s.matchEvidence}</div>}
               {s.url && <a href={s.url} target="_blank" rel="noreferrer" style={{ display:"inline-block", marginTop:4, color:C.blue, fontWeight:900, textDecoration:"none" }}>Open source ↗</a>}
             </div>;
           })}</div>
@@ -7299,7 +7400,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             ctr++; const cost = +p.costPerPlant || 0, sp = sprice(cost);
             const potGuess = phase101InferPotSize(p, selN.code, settings);
             const intakeNotes = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
-            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true };
+            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, marketPricingQueued:true, suggestedPriceSource:"formula_pending_market" };
           }));
           setRows(mapped); setStep("review");
         } catch (e) { setErr("Scan failed: " + e.message); setStep("preview"); }
@@ -7520,7 +7621,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPot(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
               cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
               status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDate(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
-              platform: "", rack: "", shelf: "", notes: "Imported current inventory; kept original plant number.", labelPrinted: true, addedBy: user.name, importedExistingInventory: true
+              platform: "", rack: "", shelf: "", notes: "Imported current inventory; kept original plant number.", labelPrinted: true, addedBy: user.name, importedExistingInventory: true, marketPricingQueued:true, suggestedPriceSource:"imported_price_or_formula_pending_market"
             });
           });
           setBulkRows(mapped);
@@ -12951,7 +13052,7 @@ Cancel keeps this local/free.`);
       if (!canRun) return <Card style={{ borderLeft:`5px solid ${C.amber}`, background:C.goldBg }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>💲 Batch Market Pricing</div><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:4 }}>Owner/manager tool only. Employees cannot run market research or apply batch prices.</div></Card>;
       return <Card style={{ border:`2px solid ${C.g300}`, borderRadius:22, padding:16, background:C.card }}>
         <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Batch Market Pricing Manager</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Built for 400 plants/week: groups duplicate plant + pot size, uses 14-day cache first, and only spends AI on unique groups that still need live market research.</div></div>
+          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Batch Market Pricing Manager</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Built for 400 plants/week: groups duplicate plant + pot size, uses 14-day cache first, and only spends AI on unique groups. V112 only trusts exact-size, same-stage, same-variegation comparables.</div></div>
           <Row gap={7} wrap><Tag text={`${stats.inStock} plants`} color={C.g600} /><Tag text={`${stats.uniqueGroups} unique groups`} color={C.blue} /><Tag text={`${stats.cachedGroups} cached`} color={C.gold} /><Tag text={`Market ${usage.dailyMarketCalls}/${usage.dailyMarketLimit} today`} color={usage.dailyMarketLimit && usage.dailyMarketCalls >= usage.dailyMarketLimit ? C.red : C.g600} /></Row>
         </Row>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:12 }}>
