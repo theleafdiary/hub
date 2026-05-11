@@ -1706,14 +1706,39 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V125R",
-      name: "Settings / AI / Advanced Cleanup + Ask AI Search Help",
+      id: "V127R",
+      name: "Stability QA + What Changed Today Log",
       date: "2026-05-11",
-      base: "V124R Shows workflow consolidation on index (59).html stable backup",
-      safety: "Navigation/search/settings cleanup only; home screen, auth, pricing, orders logic, and shipping docs untouched",
-      nextPhase: "Stabilize and test MacBook + iPhone before adding new business features"
+      base: "V126R Team Sync + Change Safety on index (59).html stable backup",
+      safety: "Adds local change log and QA review only; home screen, auth, pricing, orders logic, and shipping docs untouched",
+      nextPhase: "Test MacBook + iPhone, then decide the next business workflow"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
+
+    /* V127R STABILITY QA + WHAT CHANGED TODAY LOG
+       Local-only activity log for safer team use. It records important app actions without changing business logic.
+    */
+    const LD_CHANGE_LOG_KEY = "ld_change_log_v127";
+    function ldNowIso() { try { return new Date().toISOString(); } catch(e) { return String(Date.now()); } }
+    function ldReadChangeLog() {
+      try {
+        const rows = JSON.parse(localStorage.getItem(LD_CHANGE_LOG_KEY) || "[]");
+        return Array.isArray(rows) ? rows : [];
+      } catch(e) { return []; }
+    }
+    function ldAddChangeLog(type, message, meta = {}) {
+      try {
+        const rows = ldReadChangeLog();
+        const row = { id: (typeof uid === "function" ? uid() : Math.random().toString(36).slice(2,9)), at: ldNowIso(), type: type || "note", message: String(message || "Change logged"), meta: (meta && typeof meta === "object" && !Array.isArray(meta)) ? meta : {} };
+        rows.unshift(row);
+        localStorage.setItem(LD_CHANGE_LOG_KEY, JSON.stringify(rows.slice(0, 250)));
+        return row;
+      } catch(e) { return null; }
+    }
+    function ldClearChangeLog() {
+      try { localStorage.setItem(LD_CHANGE_LOG_KEY, "[]"); } catch(e) {}
+    }
+    try { window.ldAddChangeLog = ldAddChangeLog; window.ldReadChangeLog = ldReadChangeLog; } catch(e) {}
 
     /* ═══════════════════════════════════════════════════════════
        LEAF DIARY CRM v7 — Update 42 Photo Sprint Entry Points
@@ -4531,6 +4556,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"accessibility", icon:"♿", l:"Accessibility Check", group:"Settings", roles:["owner","manager"] },
       { id:"darkmode", icon:"🌙", l:"Theme Mode", group:"Settings", roles:["owner","manager","employee"] },
       { id:"teamsync", icon:"☁️", l:"Team Sync + Change Safety", group:"Settings", roles:["owner"] },
+      { id:"changelog", icon:"🧾", l:"What Changed Today", group:"Settings", roles:["owner","manager"] },
       { id:"phase2qa", icon:"🧪", l:"Phase 2 Final QA", group:"Settings", roles:["owner","manager"] },
       { id:"onboarding", icon:"🎓", l:"Onboarding Checklist", group:"Today", roles:["owner","manager","employee"] },
       { id:"nextsteps", icon:"➡️", l:"Next-Step Suggestions", group:"Today", roles:["owner","manager","employee"] },
@@ -4631,7 +4657,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       orders_ws:"orders_ws", packorders:"orders_ws", shiplabels:"orders_ws", showimport:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
       buy_ws:"money_ws", slotprofit:"money_ws", nursery:"money_ws", pos:"money_ws", intel:"money_ws", reports:"money_ws",
-      admin_ws:"admin_ws", teamsync:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", releasecenter:"admin_ws", quickstart:"admin_ws", phase2qa:"admin_ws", ollama:"admin_ws", ollamadoctor:"admin_ws", aigateway:"admin_ws"
+      admin_ws:"admin_ws", teamsync:"admin_ws", changelog:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", releasecenter:"admin_ws", quickstart:"admin_ws", phase2qa:"admin_ws", ollama:"admin_ws", ollamadoctor:"admin_ws", aigateway:"admin_ws"
     };
     const getPageLabel = (id) => (TOOL_CATALOG.find(t => t.id === id)?.l || WORKSPACES.find(w => w.id === id)?.l || id);
     const getPageIcon = (id) => (TOOL_CATALOG.find(t => t.id === id)?.icon || WORKSPACES.find(w => w.id === id)?.icon || "•");
@@ -4995,6 +5021,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         { test:/money|receipt|expense|bill|payroll|timecard|commission|cash flow|tax|goal|profit/i, page: ownerOnly ? "money_ws" : "timecard", title: ownerOnly ? "Money" : "Money → Timecard", icon:"💵", why: ownerOnly ? "Receipts, bills, payroll, commissions, cash flow, and tax tools are in Money." : "Employees usually only need Timecard. Financial tools are owner protected.", steps: ownerOnly ? ["Open Money.","Pick Receipts, Bills, Payroll, Cash Flow, or Reports."] : ["Open Money.","Choose Timecard.","Clock in or out."] },
         { test:/ai|ollama|gateway|doctor|model|cost guard|ask business|ask leaf|assistant/i, page: ownerOnly ? "admin_ws" : "dataai", title: ownerOnly ? "Settings → AI" : "Ask Leaf Diary AI", icon:"🤖", why: ownerOnly ? "AI setup, local Ollama, gateway, and cost controls are under Settings → AI/Advanced." : "Team members can use the simple Ask Leaf Diary AI helper; setup is owner-only.", steps: ownerOnly ? ["Open Settings.","Choose AI / Search Help.","Use AI Doctor only when troubleshooting."] : ["Open Ask Leaf Diary AI.","Ask the business question in plain English."] },
         { test:/save|cloud|sync|backup|restore|supabase|other phone|other device|overwrite|lost data|data/i, page: ownerOnly ? "teamsync" : "quickstart", title: ownerOnly ? "Settings → Team Sync + Change Safety" : "Ask owner: Cloud / Backup", icon:"☁️", why:"Leaf Diary saves on the current device immediately, then cloud/team sync depends on the cloud settings. Other devices may need refresh or Load From Cloud.", steps:["Save happens locally first on the device you are using.","If Team Sync / Supabase is enabled, cloud save normally happens after a short delay or when you click Save Changes.","Another phone/computer usually needs refresh or Load From Cloud to see changes.","Two people editing the same plant/order can overwrite each other; finish one workflow before another person edits the same record."] },
+        { test:/what changed|changed today|activity log|who changed|recent changes|mistake|audit|history|log/i, page: ownerOnly ? "changelog" : "quickstart", title: ownerOnly ? "Settings → What Changed Today" : "Ask owner: What Changed Today", icon:"🧾", why:"The What Changed Today page shows recent safety notes, sync actions, imports, and manual notes so the team can review what happened before closing the app.", steps:["Open Settings → What Changed Today.","Check Ready / Warning / Critical rows.","Add a team note after big jobs like shipment imports, show imports, backups, or price changes."] },
         { test:/setting|user|employee|permission|role|password|advanced|developer|release|health|app check|debug/i, page: ownerOnly ? "admin_ws" : "quickstart", title: ownerOnly ? "Settings → Advanced Owner Tools" : "Quick Start Guide", icon:"⚙️", why: ownerOnly ? "Owner-only setup, users, backup, AI, app health, and advanced repair tools live in Settings." : "Settings are owner-only, so team members should use the Quick Start guide or ask an owner.", steps: ownerOnly ? ["Open Settings.","Use the simple tabs first.","Only open Advanced when troubleshooting."] : ["Open Quick Start Guide.","Use the info button on the current page."] },
         { test:/help|how|where|find|confused|lost|what page|where do i|how do i/i, page:"quickstart", title:"Quick Start Guide + page info button", icon:"🧭", why:"If you are not sure where to click, use Quick Start or the green info button in the header.", steps:["Click the green i button on any page.","Read the steps for that page.","Use the buttons inside the help card to jump to the right workflow."] },
       ];
@@ -5715,7 +5742,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Proof + Reports", items:[["Reports","reports","📈","Profit and sales reports"],["Cash Flow","cashflow","💵","Safe buy budget"],["Sell-Through","sellthru","📊","What sells fastest"],["Owner AI Brief","execai","🧠","Plain-English owner decisions"]] }
         ]},
         admin_ws:{ icon:"⚙️", title:"Settings", sub:"Owner setup, users, AI, backup, and advanced tools.", hero:"Daily users should not live here — this is for setup and rescue", color:"#b695ff", kpis:[["Users","👥","roles"],["Backups","💾","safety"],["AI","🩺","doctor"],["Advanced","🧪","hidden"]], sections:[
-          { title:"Core Setup", items:[["Team Sync + Change Safety","teamsync","☁️","Save, load, backup, and prevent overwrites"],["Business Settings","admin","⚙️","Users, roles, footer, fees, and setup"],["AI Doctor / Control Center","ollamadoctor","🩺","One AI setup screen"],["Backup / Release Center","releasecenter","🚀","Export backup and pre-upload checklist"],["App Checkup","appcheck","✅","Find broken data before live use"]] },
+          { title:"Core Setup", items:[["Team Sync + Change Safety","teamsync","☁️","Save, load, backup, and prevent overwrites"],["What Changed Today","changelog","🧾","Review recent saves, imports, sync actions, and team notes"],["Business Settings","admin","⚙️","Users, roles, footer, fees, and setup"],["AI Doctor / Control Center","ollamadoctor","🩺","One AI setup screen"],["Backup / Release Center","releasecenter","🚀","Export backup and pre-upload checklist"],["App Checkup","appcheck","✅","Find broken data before live use"]] },
           { title:"Advanced Owner Tools", items:[["Owner Repair Tools","cleanup","🧹","Fix duplicates and storage issues"],["Audit Log","audit","🔍","Security and activity"],["Developer Testing","devtools","🧪","Diagnostics and test buttons"],["Quick Start Guide","quickstart","🧭","Training and guide"]] }
         ]},
       }[type || "today"];
@@ -14252,6 +14279,85 @@ Cancel keeps this local/free.`);
        Owner-only clear workflow for cloud save/load, backups, and overwrite prevention.
        This is guidance + existing safe actions only; it does not change sync engine logic.
     ══════════════════════════════════════════════════════════ */
+
+    function ChangeSafetyLogCenter({ user, setPage, onBackup, onSnapshot, onHealth, onSave, onLoad }) {
+      const [rows, setRows] = useState(() => ldReadChangeLog());
+      const [note, setNote] = useState("");
+      const refresh = () => setRows(ldReadChangeLog());
+      useEffect(() => { refresh(); }, []);
+      const addNote = () => {
+        const clean = String(note || "").trim();
+        if (!clean) return;
+        ldAddChangeLog("team_note", clean, { by: user?.name || user?.email || user?.role || "team" });
+        setNote("");
+        refresh();
+      };
+      const exportLog = () => {
+        try {
+          const blob = new Blob([JSON.stringify(ldReadChangeLog(), null, 2)], { type:"application/json" });
+          downloadBlob(blob, `leaf-diary-change-log-${today()}.json`);
+        } catch(e) { alert("Could not export change log: " + (e?.message || e)); }
+      };
+      const clearLog = () => {
+        if (!window.confirm("Clear the local What Changed Today log on this device? This does not delete inventory, orders, or cloud data.")) return;
+        ldClearChangeLog();
+        refresh();
+      };
+      const typeColor = (t) => {
+        const x = String(t || "").toLowerCase();
+        if (/error|fail|critical|conflict/.test(x)) return C.red;
+        if (/import|shipping|tracking|save|sync|backup|snapshot/.test(x)) return C.g600;
+        if (/warning|review|safe/.test(x)) return C.amber;
+        return C.blue;
+      };
+      const rowsToday = rows.filter(r => String(r?.at || "").slice(0,10) === today());
+      const counts = {
+        today: rowsToday.length,
+        saves: rows.filter(r => /save|sync|backup|snapshot/i.test(r?.type || r?.message || "")).length,
+        reviews: rows.filter(r => /review|warning|error|conflict|fail/i.test(r?.type || r?.message || "")).length,
+      };
+      const quickAction = (label, type, fn) => async () => {
+        ldAddChangeLog(type, label, { by: user?.role || "team", page:"changelog" });
+        refresh();
+        if (fn) await fn();
+        refresh();
+      };
+      return <div className="ld-page page-scroll-safe" style={{ padding:"18px", background:C.bg }}>
+        <div style={{ background:"linear-gradient(135deg,#050505,#0D2B1A)", color:"#fff", borderRadius:28, padding:22, marginBottom:14, border:"1px solid rgba(151,211,62,.34)" }}>
+          <Row between center wrap gap={12}>
+            <div><div style={{ fontSize:38 }}>🧾</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:950, marginTop:4 }}>What Changed Today</div><div style={{ color:"rgba(255,255,255,.76)", fontSize:13, marginTop:5, lineHeight:1.45 }}>Review recent saves, imports, sync actions, backups, and team notes before the app is closed. This helps prevent overwrites and catches mistakes fast.</div></div>
+            <Row gap={8} wrap><Btn v="gold" onClick={quickAction("Safety snapshot created from What Changed Today", "snapshot", onSnapshot)}>Safety Snapshot</Btn><Btn v="soft" onClick={quickAction("Full backup exported from What Changed Today", "backup", onBackup)}>Export Backup</Btn></Row>
+          </Row>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10, marginBottom:12 }}>
+          <KPI label="Logged Today" value={counts.today} sub="actions and notes" color={C.g600} />
+          <KPI label="Save / Sync Notes" value={counts.saves} sub="backup, save, sync" color={C.blue} />
+          <KPI label="Needs Review" value={counts.reviews} sub="warnings or conflict words" color={counts.reviews ? C.amber : C.g600} />
+        </div>
+        <Card style={{ marginBottom:12, borderLeft:`6px solid ${C.g600}` }}>
+          <Row between center wrap gap={10}>
+            <div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:950, fontSize:22 }}>Quick Safety Actions</div><div style={{ color:C.tx3, fontSize:13, marginTop:4 }}>Use these after imports, shipping, pricing, or team sync work.</div></div>
+            <Row gap={8} wrap><Btn sz="sm" onClick={quickAction("Saved changes from What Changed Today", "save", onSave)}>Save Changes</Btn><Btn sz="sm" v="soft" onClick={quickAction("Loaded cloud data from What Changed Today", "load", onLoad)}>Load From Cloud</Btn><Btn sz="sm" v="outline" onClick={quickAction("Health report downloaded from What Changed Today", "health_report", onHealth)}>Health Report</Btn></Row>
+          </Row>
+        </Card>
+        <Card style={{ marginBottom:12 }}>
+          <div style={{ fontFamily:F.display, color:C.g900, fontWeight:950, fontSize:20, marginBottom:8 }}>Add Team Note</div>
+          <div style={{ color:C.tx3, fontSize:13, marginBottom:8 }}>Example: Imported Whatnot labels, fixed Brittany tracking, exported backup, Malasia finished packing, or do not edit Orders until sync loads on iPhone.</div>
+          <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Type what changed or what the team needs to know..." style={{ width:"100%", minHeight:88, border:`1px solid ${C.bd}`, borderRadius:14, padding:12, fontFamily:F.body, fontSize:14 }} />
+          <Row gap={8} wrap style={{ marginTop:10 }}><Btn onClick={addNote}>Add Note</Btn><Btn v="soft" onClick={refresh}>Refresh Log</Btn><Btn v="outline" onClick={exportLog}>Export Log</Btn><Btn v="danger" onClick={clearLog}>Clear Local Log</Btn></Row>
+        </Card>
+        <Card>
+          <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:950, fontSize:20 }}>Recent Activity</div><div style={{ color:C.tx3, fontSize:12 }}>Newest first. Stored locally on this device.</div></div><Tag text={`${rows.length} total`} color={C.blue} /></Row>
+          {!rows.length ? <div style={{ color:C.tx3, fontSize:14, padding:16, background:C.cardAlt, borderRadius:14 }}>No changes logged yet. Add a note after the next import, save, or backup.</div> : <div style={{ display:"grid", gap:8 }}>
+            {rows.slice(0,80).map(r => <div key={r.id || r.at} style={{ border:`1px solid ${C.bd}`, borderLeft:`6px solid ${typeColor(r.type)}`, borderRadius:14, padding:11, background:C.card }}>
+              <Row between center gap={10}><div style={{ minWidth:0 }}><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>{r.message || r.type || "Logged action"}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3 }}>{new Date(r.at || Date.now()).toLocaleString()} · {r.type || "note"}{r.meta?.by ? ` · ${r.meta.by}` : ""}</div></div><Tag text={r.type || "note"} color={typeColor(r.type)} sm /></Row>
+            </div>)}
+          </div>}
+        </Card>
+        <Card style={{ marginTop:12, background:C.g50, border:`1px solid ${C.g200}` }}><div style={{ fontSize:13, color:C.tx2, lineHeight:1.5 }}><b>Important:</b> This log helps your team know what happened today. It does not replace Export Backup, and it does not prevent a true conflict if two people edit the same order at the same time.</div></Card>
+      </div>;
+    }
+
     function TeamSyncSafetyCenter({ cloudStatus = "", cloudMsg = "", pendingSyncCount = 0, cloudSafeMode = false, teamSafeSync = false, syncConflict = false, onSave, onLoad, onBackup, onSnapshot, onHealth, onTestCloud, onToggleTeamSync, onToggleSafeMode, onForceSave, setPage, user }) {
       const status = String(cloudStatus || "unknown");
       const statusColor = status === "synced" ? C.g600 : status === "safe" ? C.blue : status === "syncing" || status === "loading" ? C.gold : C.amber;
@@ -24237,6 +24343,7 @@ ${local.summary || "Fallback completed."}`;
             <button onClick={() => loadFromCloud({ force:true })} style={{ background:"rgba(255,255,255,.08)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>⬇️ Load</button>
             <button onClick={exportBackup} style={{ background:"rgba(255,255,255,.08)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>📥 Backup</button>
             {user?.role === "owner" && <button onClick={() => navigate("teamsync")} style={{ background:"rgba(104,216,255,.12)", color:"#68d8ff", border:"1px solid rgba(104,216,255,.35)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>☁️ Sync Help</button>}
+            {user?.role === "owner" && <button onClick={() => navigate("changelog")} style={{ background:"rgba(151,211,62,.12)", color:"#97d33e", border:"1px solid rgba(151,211,62,.35)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>🧾 Changes</button>}
             <span style={{ fontSize: 10, color: "rgba(255,255,255,.5)", fontWeight: 700 }}>Local saves now · cloud needs sync/refresh</span>
             <input ref={backupRef} type="file" accept=".json" style={{ display: "none" }} onChange={e => importBackup(e.target.files[0])} />
           </div>
@@ -24259,6 +24366,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "money_ws" && <MoneyCommandCenter plants={plants} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} timecards={timecards} setTimecards={setTimecards} receipts={expenseReceipts} setReceipts={setExpenseReceipts} users={users} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
           {page === "admin_ws" && user.role === "owner" && <SettingsWorkflow users={users} settings={settings} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} auditLog={auditLog} user={user} setPage={navigate} cloudStatus={cloudStatus} cloudMsg={cloudMsg} />}
+          {page === "changelog" && (user.role === "owner" || user.role === "manager") && <ChangeSafetyLogCenter user={user} setPage={navigate} onSave={() => flushTeamSync({ force:false })} onLoad={() => loadFromCloud({ force:true })} onBackup={exportBackup} onSnapshot={() => makePhase1Snapshot("manual_from_change_log")} onHealth={downloadPhase1Health} />}
           {page === "teamsync" && user.role === "owner" && <TeamSyncSafetyCenter user={user} cloudStatus={cloudStatus} cloudMsg={cloudMsg} pendingSyncCount={pendingSyncCount} cloudSafeMode={cloudSafeMode} teamSafeSync={teamSafeSync} syncConflict={syncConflict} onSave={() => flushTeamSync({ force:false })} onLoad={() => loadFromCloud({ force:true })} onBackup={exportBackup} onSnapshot={() => makePhase1Snapshot("manual_from_team_sync_center")} onHealth={downloadPhase1Health} onTestCloud={async () => { try { setCloudStatus("loading"); setCloudMsg("Testing Supabase connection..."); await cloudRequest("plants?select=id&limit=1", { method: "GET" }); setCloudStatus("synced"); setCloudMsg("Supabase test passed"); alert("Supabase test passed. Cloud connection is working."); } catch (err) { const msg = err && err.message ? err.message : String(err); setCloudStatus("offline"); setCloudMsg("Supabase test failed: " + msg); alert("Supabase test failed: " + msg); } }} onToggleTeamSync={() => setTeamSafeSync(!teamSafeSync)} onToggleSafeMode={() => setCloudSafeMode(!cloudSafeMode)} onForceSave={() => saveAllToCloud({ force:true })} setPage={navigate} />}
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={navigate} />}
           {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
