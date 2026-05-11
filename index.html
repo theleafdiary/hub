@@ -1672,6 +1672,8 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
+    /* V112R USPS SHIPPING LABEL SCAN BOOST - improves USPS/FedEx/UPS live camera sprint detection with native BarcodeDetector fallback and USPS 420-prefix cleanup. */
+    /* V111R MENU SHORTCUT - adds clear Scan Shipping Labels menu/page shortcut; keeps V110R sprint scanner, Whatnot state-doc grouping, and home screen untouched. */
     /* V110R SHIPPING LABEL SPRINT SCANNER - adds MacBook/iPhone camera sprint scanning for shipping labels; keeps Whatnot state docs grouped and Palmstreet ignored for auto docs. */
     /* V106 STEP 1 CLEANUP: removed appended patcher UI, preserved working AI gateway, fixed Local AI model display, disabled heavy archive popup. */
     /* UPDATE 107 AI CONTROL CENTER CONSOLIDATION
@@ -1703,7 +1705,7 @@
       date: "2026-05-11",
       base: "index (55) + Whatnot Shipping State Docs grouped fix",
       safety: "Order Fulfillment page only; home screen logic untouched",
-      nextPhase: "V110R: tracking API webhook/backend after label import is stable"
+      nextPhase: "V113R: tracking API webhook/backend after label scanning is stable"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -4557,6 +4559,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"showprep", icon:"🧺", l:"Show Prep Pull List", group:"Shows", roles:["owner","manager","employee"] },
       { id:"showdragdrop", icon:"🎯", l:"Drag-and-Drop Show Builder", group:"Shows", roles:["owner","manager"] },
       { id:"packorders", icon:"📦", l:"Order Packing Board", group:"Orders", roles:["owner","manager","employee"] },
+      { id:"shiplabels", icon:"📷", l:"Scan Shipping Labels", group:"Orders", roles:["owner","manager","employee"] },
       { id:"liveshow", icon:"🎥", l:"Live Show", group:"Shows", roles:["owner","manager","employee"] },
       { id:"showimport", icon:"📥", l:"Import Show Sales", group:"Orders", roles:["owner","manager"] },
       { id:"bundles", icon:"🧺", l:"Bundles", group:"Shows", roles:["owner","manager"] },
@@ -4604,7 +4607,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       plants_ws:"plants_ws", inv:"plants_ws", savedfilters:"plants_ws", inlineedit:"plants_ws", bulkactions:"plants_ws", swipegestures:"plants_ws", labels:"plants_ws", labelife:"plants_ws", barcodeqa:"plants_ws", scanlabel:"plants_ws", photosprint:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
       intake_ws:"intake_ws", manual:"intake_ws", upload:"intake_ws", invoicetrainer:"intake_ws", history:"intake_ws",
       shows_ws:"shows_ws", showprep:"shows_ws", showdragdrop:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
-      orders_ws:"orders_ws", packorders:"orders_ws", showimport:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
+      orders_ws:"orders_ws", packorders:"orders_ws", shiplabels:"orders_ws", showimport:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
       buy_ws:"buy_ws", slotprofit:"buy_ws", nursery:"buy_ws", pos:"buy_ws", intel:"buy_ws", reports:"buy_ws",
       admin_ws:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", releasecenter:"admin_ws", quickstart:"admin_ws", phase2qa:"admin_ws", ollama:"admin_ws", ollamadoctor:"admin_ws", aigateway:"admin_ws"
@@ -4669,14 +4672,17 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         ["🎪", "Shows", "Build, prep, run, and import shows.", "shows_ws", "#fb6392"],
         ["🧺", "Show Prep Pull List", "Pull plants and staging tasks for the next live show.", "showprep", C.gold],
         ["📦", "Order Packing Board", "Pack sold orders, paperwork, heat packs, and platform-ready checks.", "packorders", C.blue],
+        ["📷", "Scan Shipping Labels", "Open shipping label camera sprint and tracking import.", "shiplabels", C.blue],
         ["📦", "Orders", "Review sold plants, buyers, and paperwork.", "orders_ws", "#68d8ff"],
         ["✅", "Employee Board", "See the simple employee daily board.", "employeeboard", "#fb6392"],
         ["🧺", "Show Prep Pull List", "Pull plants, photos, labels, and stage the live table.", "showprep", C.gold],
-        ["📦", "Order Packing Board", "Pack sold orders and check paperwork before shipping.", "packorders", C.blue]
+        ["📦", "Order Packing Board", "Pack sold orders and check paperwork before shipping.", "packorders", C.blue],
+        ["📷", "Scan Shipping Labels", "Camera sprint for USPS, UPS, and FedEx tracking labels.", "shiplabels", C.blue]
       ] : [
         ["✅", "Employee Task Board", "Clock in, photos, labels, receipts, show prep, clock out.", "employeeboard", "#fb6392"],
         ["🧺", "Show Prep Pull List", "Pull plants, take photos, print labels, and stage the live table.", "showprep", C.gold],
         ["📦", "Order Packing Board", "Pack sold orders and follow the checklist.", "packorders", C.blue],
+        ["📷", "Scan Shipping Labels", "Hold each box label to the camera and mark shipped.", "shiplabels", C.blue],
         ["🧩", "Next Step Coach", "Simple instructions for what to tap next.", "workflowcoach", C.blue],
         ["📸", "Upload Invoice", "Add a purchase photo when asked.", "upload", C.g600],
         ["🌿", "Inventory", "Find plants that need photos or labels.", "plants_ws", C.g600],
@@ -5428,7 +5434,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const open = id => canOpen(id) && setPage(id);
       const pack = {
         today:{ icon:"🏠", title:"Today", sub:"Your simple daily operating screen.", hero:"What needs attention now", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["Sold Groups",readyOrders.length,"from platforms"],["No Photos",noPhoto.length,"fix before show"],["Month Sales",$(monthSales),"sold this month"]], sections:[
-          { title:"Start Here", items:[["Role Launcher","rolelauncher","🚦","Open the correct daily board for owner, manager, or employee"],["Keyboard Shortcuts","keyboardshortcuts","⌨️","Use Ctrl/Command+K, G shortcuts, and the help overlay"],["Data Visualization","datacharts","📊","Charts for revenue, profit, plants, cash flow, and goals"],["Accessibility Check","accessibility","♿","Focus, contrast, screen reader labels, and touch target scan"],["Theme Mode","darkmode","🌙","Toggle light or dark mode for comfort on this device"],["Phase 2 Final QA","phase2qa","🧪","Test every Phase 2 feature and regression before live upload"],["Next-Step Suggestions","nextsteps","➡️","Preview and test the green helper cards shown after saves/actions"],["Onboarding Checklist","onboarding","🎓","First-time checklist for owners, managers, and employees"],["Final Release Center","releasecenter","🚀","Owner-only final checklist before uploading a new live version"],["Fast Photo Sprint","photosprint","⚡","Scan barcode labels, take photos, and move to the next plant"],["Show Prep Pull List","showprep","🧺","Pull plants, fix photos/labels, and stage the live table"],["Order Packing Board","packorders","📦","Pack sold orders, check paperwork, and mark local packing steps"],["Owner Daily Board","ownerboard","👑","One owner screen for priorities, cash, show prep, delegation, and risk"],["Manager Daily Board","managerboard","🧑‍💼","Operations board for photos, labels, show prep, orders, receipts, and team tasks"],["Owner AI Brief","execai","🧠","CEO-style decisions and simulations"],["What Makes Money","slotprofit","📦","Rank plants by weekly slot profit"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Today Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
+          { title:"Start Here", items:[["Role Launcher","rolelauncher","🚦","Open the correct daily board for owner, manager, or employee"],["Keyboard Shortcuts","keyboardshortcuts","⌨️","Use Ctrl/Command+K, G shortcuts, and the help overlay"],["Data Visualization","datacharts","📊","Charts for revenue, profit, plants, cash flow, and goals"],["Accessibility Check","accessibility","♿","Focus, contrast, screen reader labels, and touch target scan"],["Theme Mode","darkmode","🌙","Toggle light or dark mode for comfort on this device"],["Phase 2 Final QA","phase2qa","🧪","Test every Phase 2 feature and regression before live upload"],["Next-Step Suggestions","nextsteps","➡️","Preview and test the green helper cards shown after saves/actions"],["Onboarding Checklist","onboarding","🎓","First-time checklist for owners, managers, and employees"],["Final Release Center","releasecenter","🚀","Owner-only final checklist before uploading a new live version"],["Fast Photo Sprint","photosprint","⚡","Scan barcode labels, take photos, and move to the next plant"],["Show Prep Pull List","showprep","🧺","Pull plants, fix photos/labels, and stage the live table"],["Order Packing Board","packorders","📦","Pack sold orders, check paperwork, and mark local packing steps"],["Scan Shipping Labels","shiplabels","📷","Camera sprint to scan packed box labels and mark shipped"],["Owner Daily Board","ownerboard","👑","One owner screen for priorities, cash, show prep, delegation, and risk"],["Manager Daily Board","managerboard","🧑‍💼","Operations board for photos, labels, show prep, orders, receipts, and team tasks"],["Owner AI Brief","execai","🧠","CEO-style decisions and simulations"],["What Makes Money","slotprofit","📦","Rank plants by weekly slot profit"],["Morning Briefing","overnight","🌅","Daily task queue + what to do first"],["Today Command Center","command","🚀","Owner alerts and AI summary"],["AI Center","aihub","🤖","Ask the app what to do next"],["Sold Review","ship","✅","Review sold plants only"],["Upload Invoice","upload","📸","Add new inventory"]] },
           { title:"Common Tasks", items:[["Add Plant","manual","✏️","Manual inventory entry"],["Scan Receipt","receipts","🧾","Save expense receipt"],["Import Show","showimport","📥","Whatnot/Palmstreet sales"],["Social Post","social","📣","Turn plant photos into posts"]] }
         ]},
         intake_ws:{ icon:"➕", title:"Add / Intake", sub:"One clean workflow for invoices, manual adds, existing inventory, and labels.", hero:"Buy plants → add plants → assign numbers → print labels", color:"#97d33e", kpis:[["Invoice Upload","📸","photo first"],["Manual Add","✏️","quick entry"],["Archive","📋","past invoices"],["Labels","🏷️","print next"]], sections:[
@@ -5444,7 +5450,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Sell More", items:[["Discounts","discounts","🏷️","Clear slow plants"],["Social Center","social","📣","Create posts from plant photos"],["AI Content","content","✨","Captions and descriptions"],["Buy Smart","intel","💡","What to buy next"]] }
         ]},
         orders_ws:{ icon:"✅", title:"Sold Shows", sub:"Sold plants, buyer usernames, commissions and import review. Shipping docs are Whatnot-only; Palmstreet shipping stays in Palmstreet.", hero:"Review what sold without building shipping into the CRM", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Reminders",casdCerts.length,"archived"],["Refunds","↩️","manage"]], sections:[
-          { title:"Sold Review", items:[["Sold Review","ship","✅","Review sold plants only"],["Import Show Sales","showimport","📥","Upload Palmstreet/Whatnot sales"],["Buyers","customers","👥","Buyer usernames and history"],["Refunds","refunds","↩️","Track issues"]] },
+          { title:"Sold Review", items:[["Sold Review","ship","✅","Review sold plants only"],["Scan Shipping Labels","shiplabels","📷","Camera sprint + batch tracking import"],["Import Show Sales","showimport","📥","Upload Palmstreet/Whatnot sales"],["Buyers","customers","👥","Buyer usernames and history"],["Refunds","refunds","↩️","Track issues"]] },
           { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["Shipping State Docs","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
         ]},
         money_ws:{ icon:"💵", title:"Money", sub:"Cash pulse, receipts, bills, payroll, profit, and taxes.", hero:"Can Leaf Diary spend money this week?", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
@@ -16645,29 +16651,50 @@ Cancel keeps this page local/free.`);
     function ldNormalizeTrackingNumber(v) {
       return String(v || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
     }
+    function ldCanonicalTrackingNumber(raw) {
+      const clean = ldNormalizeTrackingNumber(raw);
+      if (!clean) return "";
+      // USPS shipping-label barcodes often scan as 420 + ZIP + the real 9xxxxxxxx tracking number.
+      // Store the real tracking number so it matches what customers see on USPS tracking pages.
+      const digits = clean.replace(/\D/g, "");
+      if (/^420\d{5,9}9\d{18,36}$/.test(digits)) {
+        for (let zipLen = 9; zipLen >= 5; zipLen--) {
+          const tail = digits.slice(3 + zipLen);
+          if (/^9\d{18,35}$/.test(tail)) return tail;
+        }
+      }
+      return clean;
+    }
     function ldInferCarrierFromTracking(raw) {
-      const n = ldNormalizeTrackingNumber(raw);
+      const n = ldCanonicalTrackingNumber(raw);
       if (/^1Z[0-9A-Z]{16}$/.test(n)) return "UPS";
       if (/^[A-Z]{2}\d{9}US$/.test(n)) return "USPS";
-      if (/^420\d{5,9}9\d{18,30}$/.test(n)) return "USPS";
-      if (/^9\d{19,33}$/.test(n)) return "USPS";
+      if (/^9\d{18,35}$/.test(n)) return "USPS";
       if (/^(\d{12}|\d{15}|\d{20}|\d{22})$/.test(n)) return "FedEx";
       return "Unknown";
     }
     function ldExtractTrackingNumbersFromText(text = "") {
       const found = [];
       const add = (raw, source = "text") => {
-        const clean = ldNormalizeTrackingNumber(raw);
+        const clean = ldCanonicalTrackingNumber(raw);
         if (!clean || clean.length < 10) return;
         const carrier = ldInferCarrierFromTracking(clean);
         if (carrier === "Unknown" && !/^1Z/i.test(clean)) return;
         if (!found.some(x => x.trackingNumber === clean)) found.push({ trackingNumber: clean, carrier, source });
       };
-      String(text || "").replace(/\b1Z[0-9A-Z\s-]{16,24}\b/gi, m => { add(m, "ups"); return m; });
-      String(text || "").replace(/\b[A-Z]{2}\s?\d{3}\s?\d{3}\s?\d{3}\s?US\b/gi, m => { add(m, "usps-intl"); return m; });
-      String(text || "").replace(/\b(?:\d[\s-]?){12,34}\b/g, m => {
+      const body = String(text || "");
+      body.replace(/\b1Z[0-9A-Z\s-]{16,28}\b/gi, m => { add(m, "ups"); return m; });
+      body.replace(/\b[A-Z]{2}\s?\d{3}\s?\d{3}\s?\d{3}\s?US\b/gi, m => { add(m, "usps-intl"); return m; });
+      // Read long numeric strings from USPS/FedEx labels, including USPS 420+ZIP routing prefixes.
+      body.replace(/(?:\d[\s-]?){12,60}/g, m => {
         const digits = m.replace(/\D/g, "");
         if ([12,15,20,22].includes(digits.length) || digits.length >= 20) add(digits, "digits");
+        if (digits.startsWith("420")) {
+          for (let zipLen = 9; zipLen >= 5; zipLen--) {
+            const tail = digits.slice(3 + zipLen);
+            if (/^9\d{18,35}$/.test(tail)) add(tail, "usps-420-tail");
+          }
+        }
         return m;
       });
       return found;
@@ -16722,7 +16749,7 @@ Cancel keeps this page local/free.`);
       return { score, reason: reasons.join(", ") || "No strong match" };
     }
 
-    function PackingShippingCenter({ plants, setPlants, user, addAudit }) {
+    function PackingShippingCenter({ plants, setPlants, user, addAudit, labelScanMode = false }) {
       const [selected, setSelected] = useState({});
       const [view, setView] = useState("open");
       const [bulkStatus, setBulkStatus] = useState("Packed");
@@ -16741,6 +16768,7 @@ Cancel keeps this page local/free.`);
       const [labelSprintLog, setLabelSprintLog] = useState([]);
       const scanVideoRef = useRef(null);
       const scanReaderRef = useRef(null);
+      const nativeLabelScanTimerRef = useRef(null);
       const labelSprintSeenRef = useRef(new Set());
       const labelLastScanRef = useRef({ value:"", at:0 });
       useEffect(() => { try { localStorage.setItem("ld_shipping_label_imports", JSON.stringify(safeArray(labelImportRows).slice(0, 120))); } catch(e) {} }, [labelImportRows]);
@@ -16892,6 +16920,55 @@ Cancel keeps this page local/free.`);
         setManualTrackingText("");
         setLabelImportStatus(`Added ${rows.length} manual tracking number(s).`);
       };
+      const processDetectedShippingLabelText = (text, sprintMode = false, sourceName = "Camera Scan") => {
+        const rows = buildLabelRowsFromText(text, sourceName);
+        if (!rows.length) return false;
+        const row = rows[0];
+        const key = row.trackingNumber;
+        const nowMs = Date.now();
+        if (!key) return false;
+        if (labelLastScanRef.current.value === key && nowMs - labelLastScanRef.current.at < 2500) return true;
+        labelLastScanRef.current = { value:key, at:nowMs };
+        if (sprintMode) {
+          if (labelSprintSeenRef.current.has(key)) {
+            setLabelImportStatus(`Duplicate ignored: ${row.carrier} ${key}. Hold up the next box label.`);
+            return true;
+          }
+          labelSprintSeenRef.current.add(key);
+          const applied = row.matchedOrderId ? applyTrackingRowInstant(row, "Shipping Label Sprint") : false;
+          const nextRow = { ...row, status: applied ? "Applied / Shipped" : "Sprint Needs Review", appliedAt: applied ? new Date().toISOString() : "" };
+          addLabelRows([nextRow]);
+          playSprintBeep(applied);
+          try { if (navigator.vibrate) navigator.vibrate(applied ? 40 : [40,40,40]); } catch(e) {}
+          setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:key, carrier:row.carrier, orderId:row.matchedOrderId || "", status:applied ? "Shipped" : "Needs Review", reason:row.matchReason || "No confident match" }, ...safeArray(prev)].slice(0, 30));
+          setLabelImportStatus(applied ? `✅ Sprint scanned ${row.carrier} ${key} and marked the matched order shipped. Hold up the next box label.` : `⚠️ Sprint scanned ${row.carrier} ${key}, but no confident order match was found. It was added to Review Matched Labels. Hold up the next box label.`);
+          return true;
+        }
+        addLabelRows(rows);
+        setLabelImportStatus(`Scanned ${row.carrier} ${row.trackingNumber}. Review match and apply.`);
+        stopLabelScanner();
+        return true;
+      };
+      const startNativeLabelScanBoost = (sprintMode = false) => {
+        try {
+          if (!window.BarcodeDetector || !scanVideoRef.current) return false;
+          const formats = ["code_128", "code_39", "pdf417", "qr_code", "data_matrix", "itf"];
+          const detector = new window.BarcodeDetector({ formats });
+          if (nativeLabelScanTimerRef.current) clearInterval(nativeLabelScanTimerRef.current);
+          nativeLabelScanTimerRef.current = setInterval(async () => {
+            try {
+              const video = scanVideoRef.current;
+              if (!video || video.readyState < 2 || video.videoWidth < 80) return;
+              const codes = await detector.detect(video);
+              for (const code of safeArray(codes)) {
+                const raw = code?.rawValue || code?.rawText || "";
+                if (raw && processDetectedShippingLabelText(raw, sprintMode, "Native Camera Scan")) return;
+              }
+            } catch(e) {}
+          }, 450);
+          return true;
+        } catch(e) { return false; }
+      };
       const startLabelScanner = async (sprintMode = false) => {
         if (!window.ZXing || !window.ZXing.BrowserMultiFormatReader) { setLabelImportStatus("Scanner library is not loaded. Use batch upload or manual paste."); return; }
         if (!navigator.mediaDevices?.getUserMedia) { setLabelImportStatus("Camera access is not available. Open Leaf Diary over HTTPS and allow camera permission."); return; }
@@ -16913,33 +16990,10 @@ Cancel keeps this page local/free.`);
             await reader.decodeFromVideoDevice(preferred?.deviceId || null, scanVideoRef.current, (result, err) => {
               if (!result) return;
               const text = result.getText ? result.getText() : String(result || "");
-              const rows = buildLabelRowsFromText(text, sprintMode ? "Camera Sprint" : "Camera Scan");
-              if (!rows.length) return;
-              const row = rows[0];
-              const key = row.trackingNumber;
-              const nowMs = Date.now();
-              if (!key) return;
-              if (labelLastScanRef.current.value === key && nowMs - labelLastScanRef.current.at < 2500) return;
-              labelLastScanRef.current = { value:key, at:nowMs };
-              if (sprintMode) {
-                if (labelSprintSeenRef.current.has(key)) {
-                  setLabelImportStatus(`Duplicate ignored: ${row.carrier} ${key}. Hold up the next box label.`);
-                  return;
-                }
-                labelSprintSeenRef.current.add(key);
-                const applied = row.matchedOrderId ? applyTrackingRowInstant(row, "Shipping Label Sprint") : false;
-                const nextRow = { ...row, status: applied ? "Applied / Shipped" : "Sprint Needs Review", appliedAt: applied ? new Date().toISOString() : "" };
-                addLabelRows([nextRow]);
-                playSprintBeep(applied);
-                try { if (navigator.vibrate) navigator.vibrate(applied ? 40 : [40,40,40]); } catch(e) {}
-                setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:key, carrier:row.carrier, orderId:row.matchedOrderId || "", status:applied ? "Shipped" : "Needs Review", reason:row.matchReason || "No confident match" }, ...safeArray(prev)].slice(0, 30));
-                setLabelImportStatus(applied ? `✅ Sprint scanned ${row.carrier} ${key} and marked the matched order shipped. Hold up the next box label.` : `⚠️ Sprint scanned ${row.carrier} ${key}, but no confident order match was found. It was added to Review Matched Labels. Hold up the next box label.`);
-                return;
-              }
-              addLabelRows(rows);
-              setLabelImportStatus(`Scanned ${row.carrier} ${row.trackingNumber}. Review match and apply.`);
-              stopLabelScanner();
+              processDetectedShippingLabelText(text, sprintMode, sprintMode ? "Camera Sprint" : "Camera Scan");
             });
+            const nativeBoost = startNativeLabelScanBoost(sprintMode);
+            if (nativeBoost) setLabelImportStatus(sprintMode ? "Shipping Label Sprint is running with USPS scan boost. Hold each USPS/UPS/FedEx barcode steady, close to the camera, until it beeps/checks." : "Camera scanner is running with USPS scan boost. Hold the label barcode steady and close to the camera.");
           } catch (e) {
             setLabelImportStatus("Camera scan failed: " + (e?.message || String(e)));
             setLabelScanActive(false);
@@ -16949,6 +17003,8 @@ Cancel keeps this page local/free.`);
       };
       const stopLabelScanner = () => {
         try { scanReaderRef.current?.reset?.(); } catch(e) {}
+        try { if (nativeLabelScanTimerRef.current) clearInterval(nativeLabelScanTimerRef.current); } catch(e) {}
+        nativeLabelScanTimerRef.current = null;
         scanReaderRef.current = null;
         setLabelScanActive(false);
         setLabelSprintActive(false);
@@ -17011,7 +17067,7 @@ Cancel keeps this page local/free.`);
         docs: orders.filter(needsStateDoc).length
       };
       return <div className="ld-page page-scroll-safe" style={{ padding: "14px 14px 130px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="📦" title="Order Fulfillment" sub="Bulk pack sold orders from Palmstreet and Whatnot. Import shipping labels, add tracking, mark shipped, pull plants, print slips, and check paperwork." right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={exportFulfillmentCsv}>Export Queue CSV</Btn><Btn sz="sm" onClick={() => setOrdersSelected(visibleOrders, true)}>Select Visible</Btn></Row>} />
+        <SHdr icon={labelScanMode ? "📷" : "📦"} title={labelScanMode ? "Scan Shipping Labels" : "Order Fulfillment"} sub={labelScanMode ? "Use the camera sprint, batch label upload, or manual paste to add tracking and mark orders shipped." : "Bulk pack sold orders from Palmstreet and Whatnot. Import shipping labels, add tracking, mark shipped, pull plants, print slips, and check paperwork."} right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={exportFulfillmentCsv}>Export Queue CSV</Btn><Btn sz="sm" onClick={() => setOrdersSelected(visibleOrders, true)}>Select Visible</Btn></Row>} />
         <Card style={{ marginBottom: 12, background: C.g50, border: `1px solid ${C.g200}` }}>
           <Row wrap gap={8}>
             {[["open", `Open ${counts.open}`], ["packed", `Packed ${counts.packed}`], ["ready", `Ready ${counts.ready}`], ["docs", `Needs Docs ${counts.docs}`], ["shipped", `Done ${counts.shipped}`], ["all", "All Orders"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} style={{ padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${view === id ? C.g700 : C.bd}`, background: view === id ? C.g700 : C.card, color: view === id ? "#fff" : C.tx2, fontWeight: 800, fontFamily: F.body, cursor: "pointer", fontSize: 12 }}>{label}</button>)}
@@ -17020,7 +17076,7 @@ Cancel keeps this page local/free.`);
         <Card style={{ marginBottom: 14, borderTop: `4px solid ${C.blue}` }}>
           <Row between wrap gap={10}>
             <div>
-              <h3 style={{ margin: 0, fontFamily: F.display, color: C.g900 }}>🚚 Shipping Label Import + Tracking</h3>
+              <h3 style={{ margin: 0, fontFamily: F.display, color: C.g900 }}>{labelScanMode ? "📷 Scan Shipping Labels" : "🚚 Shipping Label Import + Tracking"}</h3>
               <p style={{ margin: "4px 0 0", color: C.tx3, fontSize: 12 }}>Upload labels in batch, paste tracking, scan one label, or use Shipping Label Sprint with the MacBook/iPhone camera. High-confidence sprint scans mark the matched order shipped automatically.</p>
             </div>
             <Tag text="V110R" color={C.blue} />
@@ -17040,7 +17096,7 @@ Cancel keeps this page local/free.`);
               <Row gap={8} wrap style={{ marginTop:8 }}><Btn sz="sm" onClick={addManualTracking}>Add Manual Tracking</Btn><Btn sz="sm" v={labelScanActive && !labelSprintActive ? "danger" : "soft"} onClick={labelScanActive && !labelSprintActive ? stopLabelScanner : () => startLabelScanner(false)}>{labelScanActive && !labelSprintActive ? "Stop One Scan" : "Scan One Label"}</Btn><Btn sz="sm" v={labelSprintActive ? "danger" : "fill"} onClick={labelSprintActive ? stopLabelScanner : () => startLabelScanner(true)}>{labelSprintActive ? "Stop Sprint" : "Start Shipping Label Sprint"}</Btn><Btn sz="sm" v="ghost" onClick={clearAppliedLabelRows}>Clear Applied</Btn></Row>
             </div>
           </div>
-          {labelScanActive && <div style={{ marginTop:12, background:"#000", border:`2px solid ${labelSprintActive ? "#97d33e" : C.g300}`, borderRadius:18, padding:10 }}><video ref={scanVideoRef} style={{ width:"100%", maxHeight:360, borderRadius:14, background:"#000" }} muted playsInline /><div style={{ color:"#97d33e", fontSize:12, fontWeight:900, marginTop:8 }}>{labelSprintActive ? "Sprint active: hold up one packed box label until it beeps/checks, then move to the next box. Duplicate scans are ignored." : "Point the camera at the shipping label barcode/tracking number."}</div></div>}
+          {labelScanActive && <div style={{ marginTop:12, background:"#000", border:`2px solid ${labelSprintActive ? "#97d33e" : C.g300}`, borderRadius:18, padding:10 }}><video ref={scanVideoRef} style={{ width:"100%", maxHeight:360, borderRadius:14, background:"#000" }} muted playsInline /><div style={{ color:"#97d33e", fontSize:12, fontWeight:900, marginTop:8 }}>{labelSprintActive ? "Sprint active with USPS scan boost: hold the barcode 6–12 inches from the camera, steady and well lit, until it beeps/checks. Duplicate scans are ignored." : "Point the camera at the shipping label barcode/tracking number. USPS labels may need to be held close and steady for 1–2 seconds."}</div></div>}
           {safeArray(labelSprintLog).length > 0 && <div style={{ marginTop:10, display:"grid", gap:6 }}><div style={{ fontWeight:900, color:C.g900, fontSize:12 }}>Shipping Label Sprint Log</div>{safeArray(labelSprintLog).slice(0,8).map(x => <div key={x.id} style={{ background:x.status === "Shipped" ? C.g50 : C.amberBg, border:`1px solid ${x.status === "Shipped" ? C.g200 : C.gold}66`, borderRadius:10, padding:"7px 9px", fontSize:11, color:C.tx2 }}><b>{x.status === "Shipped" ? "✅" : "⚠️"} {x.carrier} {x.trackingNumber}</b> · {x.status}{x.orderId ? ` · ${x.orderId}` : " · needs review"}<div style={{ color:C.tx3 }}>{x.at} · {x.reason}</div></div>)}</div>}
           {labelImportStatus && <div style={{ marginTop:10, background:C.blueBg, border:`1px solid rgba(26,95,154,.25)`, borderRadius:12, padding:10, color:C.tx2, fontSize:12, whiteSpace:"pre-wrap" }}>{labelImportStatus}</div>}
           {safeArray(labelImportRows).length > 0 && <div style={{ marginTop:12 }}>
@@ -23249,6 +23305,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "slotprofit" && user.role === "owner" && <Phase11ProfitSlotEngine appData={buildCurrentAppData()} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "overnight" && user.role === "owner" && <Phase10MorningBriefing appData={buildCurrentAppData()} user={user} settings={settings} setSettings={setSettings} addAudit={addAudit} setPage={navigate} />}
           {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
+          {page === "shiplabels" && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} labelScanMode={true} />}
           {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
           {page === "pos" && CAN.seeReports(user.role) && <PurchaseOrders purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} user={user} addAudit={addAudit} />}
           {page === "refunds" && CAN.seeReports(user.role) && <RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
