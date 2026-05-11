@@ -2834,147 +2834,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         canAffordLookup: estimatedCost <= (+marketCfg.maxCostPerLookup || .01)
       };
     }
-
-    /* ══════════════════════════════════════════════════════════
-       UPDATE 95 — SAFE MARKET GATEWAY PAYLOAD REBUILD
-       Rebuilt from Update 92 because Update 93 caused site issues.
-       This patch keeps the existing app flow but sends structured plant data
-       to the Worker when route === pricing, so the Update 94 Worker can run
-       real marketplace search. No new pages, no router changes, no export edits.
-    ══════════════════════════════════════════════════════════ */
-    function phase95MarketSearchQueries(plant = {}) {
-      const name = String(plant.name || plant.botanicalName || "Unknown Plant").trim() || "Unknown Plant";
-      const pot = phase92NormalizePotSize(plant.potSize || plant.size || plant.containerSize || '4 inch').label || '4 inch';
-      const year = new Date().getFullYear();
-      const altName = /carmel marble/i.test(name) ? name.replace(/carmel/ig, "Caramel") : /caramel marble/i.test(name) ? name.replace(/caramel/ig, "Carmel") : "";
-      const names = [name, altName].filter(Boolean);
-      const queries = [];
-      names.forEach(n => {
-        queries.push(`${n} ${pot} Palmstreet`);
-        queries.push(`${n} ${pot} Whatnot sold`);
-        queries.push(`${n} ${pot} Etsy plant`);
-        queries.push(`${n} ${pot} eBay sold plant`);
-        queries.push(`buy ${n} ${pot} online ${year} price`);
-      });
-      return [...new Set(queries)].slice(0, 10);
-    }
-    function phase95MarketGatewayPlant(plant = {}) {
-      const pot = phase92NormalizePotSize(plant.potSize || plant.size || plant.containerSize || '4 inch').label || '4 inch';
-      return {
-        plantId: phase83SafePlantPriceId(plant),
-        name: String(plant.name || plant.botanicalName || "Unknown Plant").trim() || "Unknown Plant",
-        potSize: pot,
-        rawPotSize: plant.potSize || plant.size || plant.containerSize || "",
-        requiredPotSize: pot,
-        cost: +plant.cost || 0,
-        currentPrice: +plant.suggestedPrice || +plant.listPrice || +plant.price || 0
-      };
-    }
-
-
-    /* ══════════════════════════════════════════════════════════
-       UPDATE 97 — DIRECT FAST MARKET POST
-       The normal phase61 Gateway wrapper still works for business AI, but
-       market pricing now calls the Worker connector directly. This avoids
-       the older wrapper timeout/path that was showing browser "Failed to fetch".
-       No new pages, no export changes, no barcode/SKU changes.
-    ══════════════════════════════════════════════════════════ */
-    function phase97BuildFastMarketPayload(plant = {}, user = {}, settings = {}) {
-      const marketPlant = phase95MarketGatewayPlant(plant);
-      return {
-        app:"Leaf Diary Business Hub",
-        appVersion:APP_VERSION,
-        mode:"market_pricing_sources_v93",
-        route:"pricing",
-        task:"market_price_lookup",
-        schemaVersion:"market_pricing_json_v97_direct",
-        requireWebSearch:true,
-        returnJsonOnly:true,
-        user:{ role:user?.role || "employee", name:user?.name || "Leaf Diary User" },
-        plant:marketPlant,
-        searchQueries:phase95MarketSearchQueries(plant).slice(0, 4),
-        pricingRules:{
-          potSizeMustMatch:true,
-          includeMismatchForTransparency:true,
-          medianUsesOnly:"exact_or_close_pot_size_matches",
-          doNotInventPrices:true,
-          fastMarketMode:true
-        },
-        requiredFields:["dataSources","marketMedianPrice","priceUSD","url","observedPotSize","potSizeMatch"]
-      };
-    }
-    function phase97ExtractMarketPayload(data = {}) {
-      if (data?.marketPricing && typeof data.marketPricing === "object") return data.marketPricing;
-      const answer = data?.answer || data?.output || data?.raw || "";
-      const parsed = phase86ExtractMarketJson(answer);
-      if (parsed?.marketPricing && typeof parsed.marketPricing === "object") return parsed.marketPricing;
-      if (parsed && (safeArray(parsed.dataSources || parsed.sources).length || "marketMedianPrice" in parsed)) return parsed;
-      return null;
-    }
-    async function phase97CallFastMarketWorker({ plant = {}, settings = {}, allPlants = [], user = {}, cfg = {} }) {
-      const endpoint = phase61NormalizeUrl((cfg && cfg.endpointUrl) || LEAF_AI_WORKING_ENDPOINT);
-      const token = String((cfg && cfg.secretToken) || LEAF_AI_WORKING_TOKEN || "").trim();
-      const payload = {
-        ...phase97BuildFastMarketPayload(plant, user, settings),
-        // Update 98: token is also sent inside the body so the Worker can avoid custom auth headers.
-        // This lets the browser make a simple text/plain POST and bypasses CORS preflight issues.
-        leafDiaryToken: token,
-        authToken: token,
-        transportMode: "simple_text_plain_post_v98"
-      };
-      const started = Date.now();
-      const timeoutMs = Math.max(45000, +cfg.timeoutMs || 90000);
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        const res = await fetch(`${endpoint}?market=v98-simple&ts=${Date.now()}`, {
-          method:"POST",
-          mode:"cors",
-          credentials:"omit",
-          cache:"no-store",
-          signal:controller.signal,
-          // Safelisted Content-Type only. No custom token header and no Accept header.
-          // This avoids OPTIONS/preflight failures on some browser/site setups.
-          headers:{ "Content-Type":"text/plain;charset=UTF-8" },
-          body:JSON.stringify(payload)
-        });
-        const text = await res.text();
-        let data = null;
-        try { data = text ? JSON.parse(text) : null; } catch(e) { data = { raw:text }; }
-        if (!res.ok || !data?.ok) {
-          throw new Error(data?.error || `${res.status} ${res.statusText}: ${String(text).slice(0, 260)}`);
-        }
-        const marketJson = phase97ExtractMarketPayload(data);
-        if (!marketJson) {
-          throw new Error(`Worker answered but no marketPricing/dataSources JSON was found. Preview: ${String(text).slice(0, 500)}`);
-        }
-        const priced = calcAIMarketPrice(plant, marketJson, settings, allPlants);
-        return {
-          ...priced,
-          source:"simple_post_fast_market_worker_v98",
-          runAt:new Date().toISOString(),
-          gatewayProvider:data.provider || data.searchProvider || "tavily-fast-market",
-          gatewayModel:data.model || cfg.model || LEAF_AI_WORKING_GATEWAY_MODEL,
-          gatewayMs:Date.now() - started,
-          fastMarketMode:!!(data.fastMarketMode || marketJson.fastMarketMode),
-          rawSearchResultCount:data.rawSearchResultCount || marketJson.rawSearchResultCount || null,
-          searchQueries:data.searchQueries || marketJson.searchQueries || payload.searchQueries,
-          searchErrors:data.searchErrors || marketJson.searchErrors || []
-        };
-      } catch(e) {
-        const message = e?.name === "AbortError" ? `Direct market Worker timed out after ${Math.round(timeoutMs/1000)} seconds.` : (e?.message || String(e));
-        return {
-          ...phase83BuildFallbackMarketResult(plant, settings, allPlants, `Direct simple-post market Worker failed: ${message} Using internal sales history.`),
-          source:"simple_post_fast_market_worker_failed_v98",
-          gatewayError:message,
-          gatewayAnswerPreview:`Endpoint: ${endpoint}\nMode: simple text/plain market POST v98\nError: ${message}\nWorker must be Update 98 or newer so it can read leafDiaryToken/authToken from the request body. If GET works but this fails, check that the HTML app is using Update 98 and the Worker is using Update 98.`,
-          gatewayMs:Date.now() - started
-        };
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-
     async function runMarketPriceResearch(plant = {}, settings = {}, allPlants = [], user = {}, opts = {}) {
       const normalizedPlant = { ...plant, cost:+plant.cost || 0, suggestedPrice:+plant.suggestedPrice || +plant.listPrice || +plant.price || 0 };
       const { marketCfg, gatewayCfg, estimatedCost, canAffordLookup } = phase86BuildGatewayPricingConfig(settings);
@@ -2987,8 +2846,32 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       if (cached) return { ...cached, source:cached.source || "cached_market_research", cacheHit:true };
       if (!canAffordLookup) return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Cost guard blocked lookup. Estimated ${$(estimatedCost)} is above max ${$(marketCfg.maxCostPerLookup)}.`), source:"cost_guard_fallback", gatewayError:"per_lookup_cost_guard" };
       if (typeof phase61ShouldUseGateway === "function" && !phase61ShouldUseGateway(gatewayCfg)) return { ...phase85BuildLocalMarketPreview(normalizedPlant, settings, allPlants), source:"gateway_disabled_fallback", priceReason:"Gateway is disabled or missing endpoint. Local profit-safe preview used instead." };
-      // Update 97: market pricing uses the direct fast Worker connector instead of the generic business-AI wrapper.
-      return await phase97CallFastMarketWorker({ plant:normalizedPlant, settings, allPlants, user, cfg:gatewayCfg });
+      const prompt = buildMarketPricePrompt(normalizedPlant, settings);
+      const routeDef = { label:"Market Price Research", task:"market_price_lookup", financials:"owner_manager", requireWebSearch:true };
+      try {
+        const report = await phase61CallGateway({
+          question:prompt,
+          route:"pricing",
+          routeDef,
+          appData:{ plants:[], expenses:[], bills:[], timecards:[], expenseReceipts:[] },
+          user,
+          model:gatewayCfg.model,
+          extraPrompt:`Context: research only this plant. Cost ${$(normalizedPlant.cost)}. Minimum margin ${marketCfg.minMarginPct}%. Return JSON only.`,
+          cfg:gatewayCfg
+        });
+        if (!report?.ok) {
+          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Gateway market research failed: ${report?.error || "No online response"}. Using internal sales history.`), source:"gateway_fallback", gatewayError:report?.error || "gateway_failed", gatewayAnswerPreview:String(report?.answer || report?.output || report?.error || "").slice(0,900), gatewayReport:report };
+        }
+        const answerText = report.answer || report.output || "";
+        const marketJson = phase86ExtractMarketJson(answerText);
+        if (!marketJson || !(+marketJson.marketMedianPrice > 0 || safeArray(marketJson.dataSources || marketJson.sources).length)) {
+          return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, "Gateway returned non-JSON or no usable market prices. This usually means the pricing Gateway/model does not have live web search enabled. Using internal sales history."), source:"json_parse_fallback", gatewayError:"invalid_market_json_or_no_web_sources", gatewayAnswerPreview:String(answerText || report.error || "No Gateway answer text returned.").slice(0,900), gatewayReport:report };
+        }
+        const priced = calcAIMarketPrice(normalizedPlant, marketJson, settings, allPlants);
+        return { ...priced, source:"gateway_market_research", runAt:new Date().toISOString(), gatewayProvider:report.provider || gatewayCfg.provider, gatewayModel:report.model || gatewayCfg.model, gatewayMs:report.ms || null, estimatedCostPerLookup:estimatedCost, cacheHit:false };
+      } catch(e) {
+        return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Market research error: ${e?.message || e}. Using internal sales history.`), source:"gateway_exception_fallback", gatewayError:e?.message || String(e) };
+      }
     }
     function phase86BuildMarketGatewaySelfChecks({ settings = {}, user = {} } = {}) {
       const owner = { role:"owner", name:"QA Owner" };
@@ -21191,23 +21074,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
       const limitedInventory = inStock.slice(0, cfg.sendInventoryLimit || 80).map(p => ({ plantId:p.plantId || p.plantCode || "", name:p.name || "Plant", potSize:p.potSize || "", status:p.status || "", dateAdded:p.dateAdded || "", daysHeld:dHeld(p.dateAdded), suggestedPrice: owner && cfg.allowOwnerFinancialsToGateway ? (+p.suggestedPrice || 0) : undefined, cost: owner && cfg.allowOwnerFinancialsToGateway ? (+p.cost || 0) : undefined, margin: owner && cfg.allowOwnerFinancialsToGateway ? (+p.margin || marg(+p.cost||0,+p.suggestedPrice||0)) : undefined, nurseryName:p.nurseryName || p.nursery || p.supplier || "", needsPhoto: !(p.photoUrl || p.photoBase64), labelPrinted: !!p.labelPrinted }));
       const safeSummary = { role:user?.role || "employee", route, routeLabel:routeDef?.label || route, counts:{ inStock:inStock.length, sold30:sold30.length, noPhoto, aging45, aging60, receipts:safeArray(appData.expenseReceipts).length, billsOpen:bills.filter(b=>b.status!=="Paid").length }, ownerFinancialsSent: !!(owner && cfg.allowOwnerFinancialsToGateway), financials: owner && cfg.allowOwnerFinancialsToGateway ? { revenue30, inventoryCost:invCost, inventoryValue:invValue, billsDue14:due14, expense30:expenses.filter(e=>dateInLast(e.date || e.createdAt,30)).reduce((s,e)=>s+(+e.amount||0),0), payroll30:timecards.filter(t=>dateInLast(t.date || t.createdAt,30)).reduce((s,t)=>s+(+t.totalPay||0),0) } : "restricted", inventory:limitedInventory, hotGenera:Object.values(sold30.reduce((m,p)=>{ const g=gOf(p.name); m[g]=m[g]||{genus:g,count:0,revenue:0}; m[g].count++; m[g].revenue += (+p.salePrice||+p.suggestedPrice||0); return m; },{})).sort((a,b)=>b.count-a.count).slice(0,8) };
-      const marketPlant = route === "pricing" ? safeObject(routeDef?.marketPricingPlant || routeDef?.plant) : {};
-      const marketPayload = route === "pricing" && marketPlant.name ? {
-        mode:"market_pricing_sources_v93",
-        schemaVersion: routeDef?.schemaVersion || "market_pricing_json_v95",
-        requireWebSearch:true,
-        returnJsonOnly:true,
-        plant: marketPlant,
-        searchQueries: safeArray(routeDef?.searchQueries),
-        pricingRules:{
-          potSizeMustMatch:true,
-          includeMismatchForTransparency:true,
-          medianUsesOnly:"exact_or_close_pot_size_matches",
-          doNotInventPrices:true
-        },
-        requiredFields:["dataSources","marketMedianPrice","priceUSD","url","observedPotSize","potSizeMatch"]
-      } : {};
-      return { app:"Leaf Diary Business Hub", appVersion:APP_VERSION, provider:cfg.provider, model:model || cfg.model, route, task:routeDef?.task || route, question:String(question || ""), extraPrompt:String(extraPrompt || ""), user:{ role:user?.role || "employee", name:user?.name || "Leaf Diary User" }, mobile:phase3IsMobileDevice(), safeSummary, ...marketPayload };
+      return { app:"Leaf Diary Business Hub", appVersion:APP_VERSION, provider:cfg.provider, model:model || cfg.model, route, task:routeDef?.task || route, question:String(question || ""), extraPrompt:String(extraPrompt || ""), user:{ role:user?.role || "employee", name:user?.name || "Leaf Diary User" }, mobile:phase3IsMobileDevice(), safeSummary };
     }
     async function phase61CallGateway({ question = "", route = "executive", routeDef = {}, appData = {}, user = {}, model = "", extraPrompt = "", cfg = phase61ReadConfig() }) {
       if (!phase61ShouldUseGateway(cfg)) throw new Error("Mobile AI Gateway is disabled or endpoint is not configured.");
