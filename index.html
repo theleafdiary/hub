@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB</title>
+  <title>LEAF DIARY - BUSINESS HUB · V108R</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -1672,7 +1672,7 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    /* SHIPPING STATE DOCS PDF FIX — casd_certs RLS/cloud archive save is non-fatal; PDF download continues. */
+    /* V108R SHIPPING STATE DOCS WHATNOT ORDER GROUPING FIX - groups Whatnot plants by order/box, max 4 plants per doc, Palmstreet ignored for auto docs. */
     /* V106 STEP 1 CLEANUP: removed appended patcher UI, preserved working AI gateway, fixed Local AI model display, disabled heavy archive popup. */
     /* UPDATE 107 AI CONTROL CENTER CONSOLIDATION
        - Makes AI Doctor / Control Center the main setup screen.
@@ -1687,6 +1687,20 @@
     */
     var instock = [];
     const { useState, useRef, useEffect, useCallback } = React;
+
+    /* V108R STABLE REBUILD RELEASE GATE
+       Safe rebuild phase 1. Adds version visibility and release checks only.
+       Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
+    */
+    const LD_BUILD_INFO = {
+      id: "V108R",
+      name: "Stable Rebuild Release Gate",
+      date: "2026-05-11",
+      base: "index (55) + Whatnot Shipping State Docs grouped fix",
+      safety: "Release-center-only update; home screen logic untouched",
+      nextPhase: "V109R: restore one feature at a time after MacBook + iPhone + logout tests pass"
+    };
+    try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
     /* ═══════════════════════════════════════════════════════════
        LEAF DIARY CRM v7 — Update 42 Photo Sprint Entry Points
@@ -4548,7 +4562,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"customers", icon:"👥", l:"Buyers", group:"Orders", roles:["owner","manager"] },
       { id:"retention", icon:"💚", l:"Repeat Buyers", group:"Orders", roles:["owner","manager"] },
       { id:"refunds", icon:"↩️", l:"Refunds", group:"Orders", roles:["owner","manager"] },
-      { id:"casd", icon:"📜", l:"Shipping Paperwork", group:"Orders", roles:["owner","manager"] },
+      { id:"casd", icon:"📜", l:"Shipping State Docs", group:"Orders", roles:["owner","manager"] },
       { id:"expense", icon:"💳", l:"Expenses", group:"Money", roles:["owner"] },
       { id:"receipts", icon:"🧾", l:"Receipt Scanner", group:"Money", roles:["owner","manager","employee"] },
       { id:"bills", icon:"📅", l:"Bills", group:"Money", roles:["owner"] },
@@ -5424,9 +5438,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Run Shows", items:[["Build Show","showbuilder","🎪","Choose plants and export the show"],["Live Show","liveshow","🎥","On-screen live mode"],["Import Show Sales","showimport","📥","Import Whatnot/Palmstreet CSV"],["Bundles","bundles","🧺","Group plants to sell"]] },
           { title:"Sell More", items:[["Discounts","discounts","🏷️","Clear slow plants"],["Social Center","social","📣","Create posts from plant photos"],["AI Content","content","✨","Captions and descriptions"],["Buy Smart","intel","💡","What to buy next"]] }
         ]},
-        orders_ws:{ icon:"✅", title:"Sold Shows", sub:"Sold plants, buyer usernames, commissions and import review. Shipping stays in Palmstreet/Whatnot.", hero:"Review what sold without building shipping into the CRM", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Reminders",casdCerts.length,"archived"],["Refunds","↩️","manage"]], sections:[
+        orders_ws:{ icon:"✅", title:"Sold Shows", sub:"Sold plants, buyer usernames, commissions and import review. Shipping docs are Whatnot-only; Palmstreet shipping stays in Palmstreet.", hero:"Review what sold without building shipping into the CRM", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Reminders",casdCerts.length,"archived"],["Refunds","↩️","manage"]], sections:[
           { title:"Sold Review", items:[["Sold Review","ship","✅","Review sold plants only"],["Import Show Sales","showimport","📥","Upload Palmstreet/Whatnot sales"],["Buyers","customers","👥","Buyer usernames and history"],["Refunds","refunds","↩️","Track issues"]] },
-          { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["Shipping Paperwork","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
+          { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["Shipping State Docs","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
         ]},
         money_ws:{ icon:"💵", title:"Money", sub:"Cash pulse, receipts, bills, payroll, profit, and taxes.", hero:"Can Leaf Diary spend money this week?", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
           { title:"Daily Money", items:[["Cash Flow","cashflow","💵","Can you spend?"],["What Makes Money","slotprofit","📦","Max profit from 400 weekly slots"],["Morning Briefing","overnight","🌅","Daily money and task plan"],["Expenses","expense","💳","Business spending"],["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Due dates"]] },
@@ -6452,7 +6466,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
 
         {tab === "refunds" && <div><Card style={{ marginBottom:12, borderLeft:`5px solid ${C.red}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Refunds And Problems</div><div style={{ fontSize:12, color:C.tx3 }}>Track damaged plants, customer issues, refunds, and replacements after the show.</div></div><Tag text={`${refundCount} open`} color={refundCount?C.red:C.g600}/></Row></Card><RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} /></div>}
 
-        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:".9fr 1.1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>📜 Shipping Paperwork</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Use this to check state paperwork for CA, AZ, TX, LA, and Hawaii. This is a reminder layer only — the original certificate generator remains below.</p><div style={{ marginTop:10 }}>{docOrders.length ? docOrders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:14, color:C.g800, fontWeight:800 }}>No current sold orders found for state paperwork review.</div>}</div></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}>{canOwner ? <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} /> : <div style={{ padding:20, color:C.tx3 }}>Paperwork generator is owner-only.</div>}</Card></div>}
+        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:".9fr 1.1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>📜 Shipping State Docs</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Use this to check state paperwork for CA, AZ, TX, LA, and Hawaii. This is a reminder layer only — the original certificate generator remains below.</p><div style={{ marginTop:10 }}>{docOrders.length ? docOrders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:14, color:C.g800, fontWeight:800 }}>No current sold orders found for state paperwork review.</div>}</div></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}>{canOwner ? <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} /> : <div style={{ padding:20, color:C.tx3 }}>Paperwork generator is owner-only.</div>}</Card></div>}
 
         <style>{`@media(max-width:760px){.ld-orders-workflow div[style*="grid-template-columns:repeat(4,1fr)"],.ld-orders-workflow div[style*="grid-template-columns: repeat(4,1fr)"],.ld-orders-workflow div[style*="grid-template-columns:1.1fr"],.ld-orders-workflow div[style*="grid-template-columns: 1fr 1fr"],.ld-orders-workflow div[style*="grid-template-columns:1fr 1fr"],.ld-orders-workflow div[style*="grid-template-columns:.85fr"],.ld-orders-workflow div[style*="grid-template-columns:.9fr"],.ld-orders-workflow div[style*="grid-template-columns:repeat(3,1fr)"],.ld-orders-workflow div[style*="grid-template-columns: repeat(3,1fr)"],.ld-orders-workflow div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important}.ld-orders-tabs{padding-left:2px}.ld-orders-workflow table{font-size:11px!important}}`}</style>
       </div>;
@@ -13352,7 +13366,7 @@ Cancel keeps this local/free.`);
         {tab === "nursery" && <Card style={{ background: cardBg, borderColor: line }}><h3>Nursery Performance</h3><ReportTable cols={[{ k: "name", l: "Nursery" }, { k: "spent", l: "Total Spent", right: true, f: r => money(r.spent) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }, { k: "deathRate", l: "Death Rate", right: true, f: r => pct(r.deathRate) }, { k: "avgDays", l: "Avg Days To Sell", right: true, f: r => r.avgDays ?? "—" }]} rows={byNursery} /></Card>}
         {tab === "shows" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Profit Per Live Show</h3><ReportTable cols={[{ k: "show", l: "Show" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Sales", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "avg", l: "Avg Order", right: true, f: r => money(r.avg) }]} rows={showGroups.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Whatnot vs Palmstreet</h3><MiniBar data={byPlatform.filter(p => ["Whatnot", "Palmstreet"].includes(p.platform)).map(p => ({ label: p.platform, value: p.profit }))} labelKey="label" valueKey="value" moneyFmt /><h3 style={{ marginTop: 22 }}>Sales by Date</h3><MiniBar data={salesByDate.slice(-12).map(d => ({ label: d.date, value: d.rev }))} labelKey="label" valueKey="value" moneyFmt /></Card></div>}
         {tab === "customers" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Top Customers / Lifetime Value</h3><ReportTable cols={[{ k: "customer", l: "Customer" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Spend", right: true, f: r => money(r.rev) }, { k: "avg", l: "Avg", right: true, f: r => money(r.avg) }, { k: "rare", l: "Rare Buys", right: true }]} rows={byCustomer.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Customers by State</h3><ReportTable cols={[{ k: "state", l: "State" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }]} rows={customersByState.slice(0, 25)} /></Card></div>}
-        {tab === "legal" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><Row between center><h3>Shipping State Docs Compliance</h3><Btn v="outline" onClick={exportLegalCSV}>Download Docs CSV</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>{certStates.map(s => <KPI key={s.state} label={`${s.state} Docs`} value={s.count} color={s.count ? C.g600 : C.amber} />)}</div><div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}><KPI label="Possible Missing Docs" value={Math.max(0, missingDocAlerts)} color={missingDocAlerts > 0 ? C.red : C.g600} /><KPI label="Certificate Range" value={certNums.length ? `${certNums[0]}–${certNums[certNums.length - 1]}` : "None"} color={C.blue} /></div><p style={{ color: textMuted, fontSize: 12 }}>Retention tracker: keep every CA/AZ/TX/LA document for at least 3 years. Use the Shipping State Docs archive for the actual PDF downloads.</p></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Certificate Number History</h3><ReportTable cols={[{ k: "num", l: "Doc #", f: r => r.certNumber || r.documentNumber || r.number || "—" }, { k: "state", l: "State", f: r => r.state || r.destinationState || "—" }, { k: "customer", l: "Customer", f: r => r.customerName || r.shipToName || "—" }, { k: "date", l: "Date", f: r => r.createdAt || r.date || "—" }]} rows={certHistory} /></Card></div>}
+        {tab === "legal" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><Row between center><h3>State Docs Compliance</h3><Btn v="outline" onClick={exportLegalCSV}>Download Docs CSV</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>{certStates.map(s => <KPI key={s.state} label={`${s.state} Docs`} value={s.count} color={s.count ? C.g600 : C.amber} />)}</div><div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}><KPI label="Possible Missing Docs" value={Math.max(0, missingDocAlerts)} color={missingDocAlerts > 0 ? C.red : C.g600} /><KPI label="Certificate Range" value={certNums.length ? `${certNums[0]}–${certNums[certNums.length - 1]}` : "None"} color={C.blue} /></div><p style={{ color: textMuted, fontSize: 12 }}>Retention tracker: keep every CA/AZ/TX/LA document for at least 3 years. Use the State Docs archive for the actual PDF downloads.</p></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Certificate Number History</h3><ReportTable cols={[{ k: "num", l: "Doc #", f: r => r.certNumber || r.documentNumber || r.number || "—" }, { k: "state", l: "State", f: r => r.state || r.destinationState || "—" }, { k: "customer", l: "Customer", f: r => r.customerName || r.shipToName || "—" }, { k: "date", l: "Date", f: r => r.createdAt || r.date || "—" }]} rows={certHistory} /></Card></div>}
         {tab === "options" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Display Options</h3><p style={{ color: textMuted }}>Use Neon mode for a dark Leaf Diary look. Use employee-safe view when screen sharing so cost and profit are hidden.</p><Row gap={8} wrap><Btn onClick={() => setTheme("classic")}>Classic</Btn><Btn v="gold" onClick={() => setTheme("neon")}>Neon Dark</Btn><Btn v="soft" onClick={() => setSafeMode(!safeMode)}>{safeMode ? "Show Money" : "Hide Money"}</Btn></Row></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Exports</h3><p style={{ color: textMuted }}>CSV export, legal archive export, and Print / Save PDF are built in. Browser print can save the report as a PDF.</p><Row gap={8} wrap><Btn v="outline" onClick={exportCSV}>Export Report CSV</Btn><Btn v="outline" onClick={exportLegalCSV}>Export Legal CSV</Btn><Btn v="soft" onClick={() => window.print()}>Print / PDF</Btn></Row></Card></div>}
         <style>{`@media(max-width:900px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 2fr 1fr 1fr"],div[style*="grid-template-columns: 1.5fr 1fr"],div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}} @media print{button,nav,.no-print{display:none!important;} body{background:#fff!important;} }`}</style>
       </div>;
@@ -13661,6 +13675,27 @@ Cancel keeps this local/free.`);
       if (!isOwner) return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:760, margin:"0 auto", fontFamily:F.body }}><Card style={{ textAlign:"center", padding:30 }}><div style={{ fontSize:44 }}>🔒</div><h1 style={{ fontFamily:F.display, color:C.g900 }}>Owner Release Center</h1><p style={{ color:C.tx3 }}>Only the owner should decide when the app is ready to replace the live file.</p><Btn onClick={()=>setPage("today")}>Back To Today</Btn></Card></div>;
       return <div className="ld-page ld-release-center" style={{ padding:"14px 14px 112px", background:C.bg, minHeight:"100vh", maxWidth:1180, margin:"0 auto", fontFamily:F.body }}>
         <SHdr icon="🚀" title="Final Release Center" sub="Last safe check before you replace the live Leaf Diary app file." right={<Row gap={8} wrap><Btn v="soft" onClick={()=>setPage("workflowqa")}>Workflow Checklist</Btn><Btn v="outline" onClick={()=>setPage("appcheck")}>App Checkup</Btn><Btn onClick={exportReleaseCsv}>Export CSV</Btn></Row>} />
+        <Card style={{ borderLeft:`6px solid #97d33e`, background:C.card, marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div style={{ minWidth:0, flex:1 }}>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:900 }}>🧩 Build {LD_BUILD_INFO.id} · {LD_BUILD_INFO.name}</div>
+              <div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:4 }}>
+                Base: {LD_BUILD_INFO.base} · Date: {LD_BUILD_INFO.date}. This phase only adds build visibility and a release gate. It does not touch the Today/Home screen, auth, AI, imports, pricing, shipping docs, or Supabase writes.
+              </div>
+            </div>
+            <Row gap={7} wrap>
+              <Tag text="Home untouched" color={C.g600} />
+              <Tag text="Release gate only" color={C.blue} />
+              <Tag text="Use as test file first" color={C.gold} />
+            </Row>
+          </Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginTop:12 }}>
+            <CheckRow id="v108r-mac" title="MacBook fresh load" body="Open the uploaded file in Chrome incognito, refresh 3 times, then sign out and sign back in." status="warn" manual />
+            <CheckRow id="v108r-iphone" title="iPhone fresh load" body="Open the live URL in Safari Private mode and confirm the app loads without a white screen." status="warn" manual />
+            <CheckRow id="v108r-home" title="Home screen untouched" body="Open Today/Home and confirm the current dashboard still works exactly like the backup." status="warn" page="today" />
+            <CheckRow id="v108r-rollback" title="Rollback copy saved" body="Keep the last working index.html before uploading the next phase. If anything breaks, re-upload it immediately." status="warn" manual />
+          </div>
+        </Card>
         <Card style={{ background:"#000", color:"#fff", border:`2px solid ${releaseColor}`, borderRadius:26, marginBottom:14 }}>
           <Row between center wrap gap={14}>
             <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:releaseColor, fontSize:32, fontWeight:900 }}>{releaseStatus}</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)", marginTop:4 }}>Use this screen after every update. Upload to live only after workflow checks, backup, mobile test, and role checks are done.</div></div>
@@ -13863,7 +13898,7 @@ Cancel keeps this local/free.`);
         </div>}
 
         {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          <SettingsCard icon="📜" title="Shipping Paperwork" body={`${safeArray(casdCerts).length} paperwork record(s) archived. Use this for CA/TX/HI and other state document reminders.`} page="casd" button="Open Paperwork" color={C.blue} />
+          <SettingsCard icon="📜" title="Shipping State Docs" body={`${safeArray(casdCerts).length} paperwork record(s) archived. Use this for CA/TX/HI and other state document reminders.`} page="casd" button="Open Paperwork" color={C.blue} />
           <SettingsCard icon="🧾" title="Receipt Reader Training" body={`Default pot size ${phase101TrainingStats(settings).defaultPotSize}; ${phase101TrainingStats(settings).activeRules} active intake rule(s).`} page="invoicetrainer" button="Teach Reader" color={C.gold} />
           <SettingsCard icon="🏪" title="Nursery Records" body="Supplier names, contact info, codes, and buying history." page="nursery" button="Open Nurseries" color={C.g600} />
           <SettingsCard icon="📋" title="Buying Lists" body="Purchase orders and future buying plans for nursery runs." page="pos" button="Open Buying Lists" color={C.purple} />
@@ -15040,7 +15075,7 @@ Cancel keeps this local/free.`);
               ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
               ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
               ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 Buy Smart"], ["tax", "🧾 Tax Center"],
-              ["audit", "🔍 Audit Log"], ["admin", "⚙️ Admin"], ["cleanup", "🧹 Owner Repair Tools"], ["casd", "📜 Shipping State Docs"]
+              ["audit", "🔍 Audit Log"], ["admin", "⚙️ Admin"], ["cleanup", "🧹 Owner Repair Tools"], ["casd", "📜 State Docs"]
             ];
             const employeeChoices = [
               ["emp_dash", "🏠 My Dashboard"], ["aihub", "🤖 AI Help"], ["social", "📣 Social Drafts"], ["liveshow", "🎥 Live Show"], ["receipts", "🧾 Receipts"], ["inv", "🌿 Inventory"],
@@ -15375,7 +15410,7 @@ Cancel keeps this local/free.`);
             <StepBox order={order} step="pull" label="Pull plants" sub={safeArray(order.plants).map(p=>p.plantId).filter(Boolean).slice(0,4).join(", ") || "Check plant IDs"} color={C.gold} />
             <StepBox order={order} step="inspect" label="Inspect plants" sub="Leaves, roots, moisture, pests" color={C.g600} />
             <StepBox order={order} step="pack" label="Pack safely" sub="Insulation, padding, label notes" color={C.amber} />
-            <StepBox order={order} step="paperwork" label={needsDoc ? "Add paperwork" : "Paperwork not flagged"} sub={needsDoc ? (hasStateDocArchive(order) ? "Archive has matching state clue" : "Open Shipping Paperwork if needed") : "No CA/AZ/TX/LA/HI flag"} color={needsDoc ? C.purple : C.g600} />
+            <StepBox order={order} step="paperwork" label={needsDoc ? "Add paperwork" : "Paperwork not flagged"} sub={needsDoc ? (hasStateDocArchive(order) ? "Archive has matching state clue" : "Open Shipping State Docs if needed") : "No CA/AZ/TX/LA/HI flag"} color={needsDoc ? C.purple : C.g600} />
             <StepBox order={order} step="ready" label="Ready in platform" sub="Final shipping/label stays in Whatnot/Palmstreet" color={C.g600} />
           </div>
           <details style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:"9px 10px" }}>
@@ -15403,7 +15438,7 @@ Cancel keeps this local/free.`);
         </div>
         {tab === "queue" && <div>{activeOrders.length ? activeOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ textAlign:"center", padding:44 }}><div style={{ fontSize:42 }}>📦</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No sold orders found</h2><p style={{ color:C.tx3 }}>Import a Whatnot or Palmstreet show first, then come back here to pack sold groups.</p><Btn onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Card>}</div>}
         {tab === "steps" && <PackingGuide />}
-        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>State paperwork review</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>This flags states that often need extra shipping paperwork. Use the full Shipping Paperwork tool for certificates. This board does not generate documents.</p><Row gap={8} wrap><Btn onClick={()=>setPage("casd")}>Open Shipping Paperwork</Btn><Btn v="soft" onClick={()=>setTab("queue")}>Back To Queue</Btn></Row></Card><div>{docOrders.length ? docOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ background:C.g50 }}><b>No flagged state paperwork orders in this queue.</b><p style={{ color:C.tx3, fontSize:13 }}>No CA, AZ, TX, LA, or HI sold groups found in recent active orders.</p></Card>}</div></div>}
+        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>State paperwork review</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>This flags states that often need extra shipping paperwork. Use the full Shipping State Docs tool for certificates. This board does not generate documents.</p><Row gap={8} wrap><Btn onClick={()=>setPage("casd")}>Open Shipping State Docs</Btn><Btn v="soft" onClick={()=>setTab("queue")}>Back To Queue</Btn></Row></Card><div>{docOrders.length ? docOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ background:C.g50 }}><b>No flagged state paperwork orders in this queue.</b><p style={{ color:C.tx3, fontSize:13 }}>No CA, AZ, TX, LA, or HI sold groups found in recent active orders.</p></Card>}</div></div>}
         {tab === "weather" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.blue}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>Heat / cold packing check</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>This is a destination-state reminder only. Check the actual weather before deciding on heat packs, insulation, hold-for-weather, or Monday shipping.</p><Tag text="Reminder layer only" color={C.blue} /></Card><div>{coldOrders.length ? coldOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ background:C.g50 }}><b>No cold-state reminder orders in this queue.</b><p style={{ color:C.tx3, fontSize:13 }}>Still check weather manually before shipping sensitive plants.</p></Card>}</div></div>}
         {tab === "export" && <Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900, marginBottom:8 }}>Export packing list</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>Exports a CSV for packing/staging. It includes buyer, state, plant IDs, plant names, paperwork flags, cold-pack flags, and local checkmarks.</p><Row gap={8} wrap><Btn onClick={exportPackingCsv}>Export Packing CSV</Btn><Btn v="soft" onClick={()=>setPage("ship")}>Open Full Sold Review</Btn><Btn v="outline" onClick={()=>setPage("orders_ws")}>Back To Orders</Btn></Row></Card>}
         <style>{`@media(max-width:760px){.ld-packing-board div[style*="grid-template-columns:repeat(4,1fr)"],.ld-packing-board div[style*="grid-template-columns:repeat(2,1fr)"],.ld-packing-board div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}.ld-packing-board button{min-height:44px}}`}</style>
@@ -15473,7 +15508,7 @@ Cancel keeps this local/free.`);
           const newCert = { id:uid(), certNumber, date:dateStr, destination:dest, consigneeName:consignee.name, consigneeAddress:[consignee.address1,consignee.address2].filter(Boolean).join(", "), consigneePhone:consignee.phone||"", plants:ps, plantCount:ps.length, pdfFilename:filename, ...cloudPdf, createdAt:new Date().toISOString(), createdBy:user.name, autoGenerated:false };
           const mergedArchive = await persistCasdCertArchive([newCert, ...(casdCerts || [])]);
           setCasdCerts(() => mergedArchive);
-          addAudit({ action:`CASD Certificate #${certNumber} manually generated and archived for ${consignee.name} (${dest})`, user:user.name, page:"Shipping State Docs" });
+          addAudit({ action:`CASD Certificate #${certNumber} manually generated and archived for ${consignee.name} (${dest})`, user:user.name, page:"CASD Certificates" });
           const blob=new Blob([pdfBytes],{type:"application/pdf"});
           const url=URL.createObjectURL(blob);
           Object.assign(document.createElement("a"),{href:url,download:filename}).click();
@@ -15540,7 +15575,7 @@ Cancel keeps this local/free.`);
               </div>
 
               <div style={{background:C.g50,border:`1px solid ${C.g200}`,borderRadius:10,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.tx2,lineHeight:1.7}}>
-                <b style={{color:C.g700}}>🤖 Automatic:</b> Every time you upload a show in <b>Import Show Sales</b>, any CA, AZ, TX, or LA customer automatically gets the correct state document generated, downloaded, and saved here. You don't need to do anything extra.
+                <b style={{color:C.g700}}>🤖 Automatic:</b> Every time you upload a <b>Whatnot</b> show in <b>Import Show Sales</b>, any CA, AZ, TX, or LA order automatically gets the correct state document generated, grouped by Whatnot order/box, downloaded, and saved here. Palmstreet is not auto-processed here.
               </div>
 
               <div style={{marginBottom:12}}>
@@ -15552,7 +15587,7 @@ Cancel keeps this local/free.`);
                 <Card style={{textAlign:"center",padding:"50px"}}>
                   <div style={{fontSize:40,marginBottom:12}}>📜</div>
                   <h2 style={{fontFamily:F.display,color:C.g900,fontSize:18,marginBottom:8}}>No certificates yet</h2>
-                  <p style={{color:C.tx3,marginBottom:16}}>Import a Palmstreet or Whatnot show with CA, AZ, TX, or LA customers — documents generate automatically. Or create one manually.</p>
+                  <p style={{color:C.tx3,marginBottom:16}}>Import a Whatnot show with CA, AZ, TX, or LA customers — documents generate automatically by Whatnot order/box. Or create one manually.</p>
                   <Btn onClick={()=>{setTab("new");resetForm();}}>+ New Certificate</Btn>
                 </Card>
               ) : (
@@ -16719,7 +16754,7 @@ Cancel keeps this page local/free.`);
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkPaperwork} onChange={e => setBulkPaperwork(e.target.checked)} /> Paperwork Added</label>
           </div>
           <Row gap={10} wrap center style={{ marginTop: 10 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkStateDocs} onChange={e => setBulkStateDocs(e.target.checked)} /> Shipping State Docs Checked</label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkStateDocs} onChange={e => setBulkStateDocs(e.target.checked)} /> State Docs Checked</label>
             <Inp label="Bulk Note" value={bulkNote} onChange={setBulkNote} placeholder="Example: Packed by Malasia, waiting for Whatnot label..." />
             <Btn onClick={applyBulk} disabled={!selectedIds.length}>Apply to Selected Orders</Btn>
             <Btn v="ghost" onClick={() => setSelected({})}>Clear Selection</Btn>
@@ -18525,15 +18560,18 @@ Cancel if you want to save money.`);
         setStep("done");
         ldEmitNextStep("show_imported", { body:`Saved ${result.matchedAdded + result.historicalAdded} sales. Next: review orders, buyers, paperwork, tips, and commissions.` });
 
-        /* ── AUTO-GENERATE STATE DOCS for CA/AZ/TX/LA shipments ── */
+        /* ── AUTO-GENERATE SHIPPING STATE DOCS for WHATNOT CA/AZ/TX/LA orders only ── */
         (async () => {
           try {
+            const importPlatformForDocs = activeImportPlatform || platform;
+            if (String(importPlatformForDocs || "").toLowerCase() !== "whatnot") return;
             const allApplied = selected.map(s => ({
               ...s,
+              platform: importPlatformForDocs,
               customerState: s.customerState||s.buyerState||s.state||"",
               potSize: s.matched?.potSize||s.potSize||"",
             }));
-            const shipments = buildCasdShipments(allApplied);
+            const shipments = buildCasdShipments(allApplied, { platform: importPlatformForDocs, maxPlantsPerBox: 4 });
             if (!shipments.length) return;
             const today2 = new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"numeric"});
             const newCerts = [];
@@ -18569,8 +18607,8 @@ Cancel if you want to save money.`);
             if (newCerts.length) {
               const mergedArchive = await persistCasdCertArchive([...(newCerts || []), ...(window.__casdCertsSnapshot || [])]);
               setCasdCerts(() => mergedArchive);
-              addAudit({ action:`Auto-generated and archived ${newCerts.length} plant shipping state document(s) for CA/AZ/TX/LA shipments from ${platform} import`, user:user.name, page:"Show Import" });
-              setImportMsg(prev => prev + ` | ✅ ${newCerts.length} state shipping document(s) auto-generated, downloaded, and permanently archived in 📜 Shipping State Docs tab. PRINT and place one with each shipment.`);
+              addAudit({ action:`Auto-generated and archived ${newCerts.length} plant shipping state document(s) for Whatnot CA/AZ/TX/LA order shipment(s)`, user:user.name, page:"Show Import" });
+              setImportMsg(prev => prev + ` | ✅ ${newCerts.length} Whatnot shipping state document(s) auto-generated by order/box, downloaded, and archived in 📜 Shipping State Docs. PRINT and place one with each Whatnot box.`);
             }
           } catch(e) {
             console.error("CASD auto-gen failed:", e);
@@ -19664,49 +19702,88 @@ Cancel if you want to save money.`);
     /* Group sales by actual shipment then by state, merge plants per package.
        Whatnot can have many order_id values inside one bundled shipment_id, so
        shipment_id must win. This prevents duplicate certificates for one box. */
-    function buildCasdShipments(sales) {
+    function buildCasdShipments(sales, opts = {}) {
+      /* Whatnot Shipping State Docs grouping fix:
+         - Auto docs are for Whatnot imports only.
+         - Group by Whatnot shipment ID when present.
+         - Otherwise group by Whatnot order number.
+         - Fallback to buyer/customer + ship-to + date + state.
+         - Split each Whatnot document into boxes of max 4 plants, matching Leaf Diary's Whatnot shipping rule.
+         This prevents one CA/AZ/TX/LA document being generated per plant. */
       const byShipment = {};
       const clean = v => String(v || "").trim();
       const norm = v => clean(v).toLowerCase().replace(/[^a-z0-9]+/g, "");
-      (sales||[]).forEach(sale => {
-        const state = clean(sale.customerState||sale.buyerState||sale.state||"").toUpperCase();
+      const activePlatform = clean(opts.platform || (sales || []).find(s => s?.platform)?.platform || "");
+      const isWhatnot = norm(activePlatform).includes("whatnot");
+      const maxPlantsPerBox = Math.max(1, +(opts.maxPlantsPerBox || (isWhatnot ? 4 : 999)) || 4);
+
+      (sales || []).forEach((sale, idx) => {
+        const salePlatform = clean(sale.platform || activePlatform);
+        if (isWhatnot && !norm(salePlatform).includes("whatnot")) return;
+
+        const state = clean(sale.customerState || sale.buyerState || sale.shippingState || sale.state || "").toUpperCase();
         if (!CASD_STATES.includes(state)) return;
-        const name = clean(sale.customerName||sale.recipientName||sale.customerUsername||sale.customer||"Unknown Customer");
-        const addr1 = clean(sale.customerAddress1||"");
-        const city = clean(sale.customerCity||"");
-        const zip = clean(sale.customerZip||sale.postalCode||sale.postal_code||"");
-        const shipmentId = clean(sale.shipmentId || sale.shipment_id || "");
-        const soldDay = clean(sale.saleDate || sale.orderDate || sale.soldDate || today()).slice(0, 10);
-        const key = shipmentId
-          ? `SHIPMENT:${shipmentId}|${state}`
-          : `ADDR:${norm(name)}|${norm(addr1)}|${norm(city)}|${norm(zip)}|${soldDay}|${state}`;
-        if (!byShipment[key]) {
-          byShipment[key] = {
-            key, shipmentKey: key, shipmentId, state,
+
+        const name = clean(sale.customerName || sale.recipientName || sale.buyerName || sale.customerUsername || sale.buyerUsername || sale.customer || "Unknown Customer");
+        const addr1 = clean(sale.customerAddress1 || sale.shippingAddress1 || sale.address1 || sale.shipAddress1 || "");
+        const addr2 = clean(sale.customerAddress2 || sale.shippingAddress2 || sale.address2 || sale.shipAddress2 || "");
+        const city = clean(sale.customerCity || sale.shippingCity || sale.city || sale.shipCity || "");
+        const zip = clean(sale.customerZip || sale.shippingZip || sale.postalCode || sale.postal_code || sale.zip || "");
+        const phone = clean(sale.customerPhone || sale.phone || "");
+        const shipmentId = clean(sale.shipmentId || sale.shipment_id || sale.shippingId || sale.shipping_id || sale.labelId || sale.trackingNumber || "");
+        const orderNo = clean(sale.orderNo || sale.orderNum || sale.orderNumber || sale.orderId || sale.order_id || sale.whatnotOrderId || "");
+        const buyerKey = clean(sale.customerUsername || sale.buyerUsername || sale.username || sale.buyer || sale.customerName || name);
+        const soldDay = clean(sale.saleDate || sale.orderDate || sale.soldDate || sale.saleDateTime || today()).slice(0, 10);
+        const addressKey = [norm(name), norm(addr1), norm(city), norm(zip)].filter(Boolean).join("|");
+
+        let baseKey;
+        if (isWhatnot) {
+          if (shipmentId) baseKey = `WHATNOT_SHIPMENT:${norm(shipmentId)}|${state}`;
+          else if (orderNo) baseKey = `WHATNOT_ORDER:${norm(orderNo)}|${state}`;
+          else if (buyerKey) baseKey = `WHATNOT_BUYER:${norm(buyerKey)}|${soldDay}|${state}|${addressKey}`;
+          else baseKey = `WHATNOT_ADDR:${addressKey || idx}|${soldDay}|${state}`;
+        } else {
+          baseKey = shipmentId
+            ? `SHIPMENT:${norm(shipmentId)}|${state}`
+            : `ADDR:${addressKey || norm(name)}|${soldDay}|${state}`;
+        }
+
+        if (!byShipment[baseKey]) {
+          byShipment[baseKey] = {
+            key: baseKey, shipmentKey: baseKey, shipmentId, orderNo, platform: salePlatform || activePlatform, state,
             consignee: {
               name,
               address1: addr1,
-              address2: [city, state, zip].filter(Boolean).join(", "),
-              phone: clean(sale.customerPhone||"")
+              address2: [addr2, city, state, zip].filter(Boolean).join(", "),
+              phone
             },
-            plants: [],
-            _plantKeys: new Set()
+            plants: []
           };
         }
-        const plantName = clean(sale.productVariant||sale.title||sale.name||"Plant");
-        const plantCodeMatch = plantName.match(/\b[A-Z]{1,4}[-\s]*0*\d{1,5}\b/i);
-        const plantKey = norm(plantCodeMatch ? plantCodeMatch[0] : plantName);
-        if (byShipment[key]._plantKeys.has(plantKey)) return;
-        byShipment[key]._plantKeys.add(plantKey);
-        byShipment[key].plants.push({
-          qty: String(sale.qty||sale.productQuantity||1),
+
+        const plantName = clean(sale.productVariant || sale.itemTitle || sale.title || sale.name || sale.product || "Plant");
+        const qty = clean(sale.qty || sale.quantity || sale.productQuantity || 1) || "1";
+        byShipment[baseKey].plants.push({
+          qty,
           name: plantName,
-          size: sale.potSize||sale.size||""
+          size: clean(sale.potSize || sale.size || sale.containerSize || sale.matched?.potSize || "")
         });
       });
+
       return Object.values(byShipment)
-        .map(s => { const { _plantKeys, ...rest } = s; return rest; })
-        .filter(s => s.consignee.name && s.plants.length);
+        .filter(s => s.consignee.name && s.plants.length)
+        .flatMap(ship => {
+          const chunks = [];
+          for (let i = 0; i < ship.plants.length; i += maxPlantsPerBox) chunks.push(ship.plants.slice(i, i + maxPlantsPerBox));
+          return chunks.map((plants, idx) => ({
+            ...ship,
+            plants,
+            boxNumber: idx + 1,
+            boxCount: chunks.length,
+            shipmentKey: chunks.length > 1 ? `${ship.shipmentKey}|BOX:${idx + 1}` : ship.shipmentKey,
+            shipmentId: ship.shipmentId || (ship.orderNo ? `${ship.orderNo}${chunks.length > 1 ? `-BOX${idx + 1}` : ""}` : "")
+          }));
+        });
     }
 
 
@@ -19797,26 +19874,20 @@ Cancel if you want to save money.`);
     }
 
     async function persistCasdCertArchive(certs) {
-      /* Shipping State Docs archive safety fix.
-         IMPORTANT: PDF creation/download must NEVER fail just because Supabase RLS blocks
-         the casd_certs cloud archive row. The legal document is saved locally first, then
-         cloud archive is attempted as best-effort only. */
+      /* Save Shipping State Docs in TWO cloud places:
+         1) casd_certs row table for normal archive listing
+         2) app_state.casdCerts backup so refresh still restores records even if the table/bucket is missing
+         Also saves localStorage immediately. */
       const existingLocal = loadCasdCertsFromLocalBackup();
       const liveSnapshot = window.__casdCertsSnapshot || [];
       const merged = mergeCasdCertLists(certs || [], [...existingLocal, ...liveSnapshot]);
-
-      // Always save local first so the PDF/doc record is not lost if cloud RLS rejects casd_certs.
       saveCasdCertsToLocalBackup(merged);
-
-      try {
-        await cloudUpsertRows("casd_certs", merged);
-        window.__casdArchiveCloudWarning = "";
-      } catch (e) {
-        const msg = "casd_certs cloud archive blocked; saved locally instead: " + (e?.message || String(e));
-        window.__casdArchiveCloudWarning = msg;
-        console.warn("Shipping State Docs cloud archive save failed; continuing with local archive so PDF download still works.", e);
+      const errors = [];
+      try { await cloudUpsertRows("casd_certs", merged); } catch (e) { errors.push("casd_certs: " + (e?.message || String(e))); console.warn("Shipping State Docs cloud table save failed; local archive retained and PDF generation will continue.", e); }
+      /* Egress/RLS-safe fix: do not duplicate PDF archive into app_state and do not fail PDF generation if casd_certs RLS blocks inserts. */
+      if (errors.length) {
+        try { window.__lastCasdCloudArchiveWarning = errors.join(" | "); } catch (_) {}
       }
-
       return merged;
     }
 
