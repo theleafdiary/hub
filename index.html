@@ -2111,6 +2111,8 @@
       const discountPctBelowMarket = discountRaw > 1 ? discountRaw / 100 : discountRaw;
       const minMarginRaw = saved.minMarginPct ?? 55;
       const minMarginPct = minMarginRaw > 1 ? minMarginRaw : minMarginRaw * 100;
+      const profitFloor = safeObject(saved.profitFloor);
+      const marketPosition = safeObject(saved.marketPosition);
       return {
         enabled: saved.enabled !== false,
         discountPctBelowMarket: Math.min(.10, Math.max(.05, +discountPctBelowMarket || .07)),
@@ -2124,7 +2126,23 @@
         batchRateLimit: +saved.batchRateLimit || 1000,
         ownerApprovalRequired: saved.ownerApprovalRequired !== false,
         allowManagerResearch: saved.allowManagerResearch !== false,
-        noNewPricingPage: true
+        noNewPricingPage: true,
+        // V113 — Smart Profit Floor + Market Positioning. These defaults keep pricing profitable
+        // without forcing every plant too high above real market comparables.
+        smartProfitFloorEnabled: profitFloor.enabled !== false,
+        lowCostProfitUnder5: +profitFloor.lowCostProfitUnder5 || 10,
+        lowCostProfitUnder10: +profitFloor.lowCostProfitUnder10 || 12,
+        midCostProfitUnder25: +profitFloor.midCostProfitUnder25 || 14,
+        midCostProfitUnder50: +profitFloor.midCostProfitUnder50 || 16,
+        highCostMinMarginPct: Math.min(70, Math.max(35, +profitFloor.highCostMinMarginPct || 45)),
+        highCostOwnerReviewAt: +profitFloor.highCostOwnerReviewAt || 100,
+        ownerReviewPriceAboveMarketPct: Math.min(.35, Math.max(.05, +profitFloor.ownerReviewPriceAboveMarketPct || .10)),
+        commonMarketMultiplier: +marketPosition.commonMultiplier || .95,
+        normalMarketMultiplier: +marketPosition.normalMultiplier || .97,
+        slowMarketMultiplier: +marketPosition.slowMultiplier || .92,
+        rareMarketMultiplier: +marketPosition.rareMultiplier || 1.00,
+        premiumMarketMultiplier: +marketPosition.premiumMultiplier || 1.03,
+        maxNonPremiumAboveMarketPct: Math.min(.25, Math.max(.05, +marketPosition.maxNonPremiumAboveMarketPct || .10)),
       };
     }
     function phase83SafePlantPriceId(plant = {}) {
@@ -2340,6 +2358,8 @@
       const name = plant.name || plant.botanicalName || 'Unknown Plant';
       const altName = /carmel marble/i.test(name) ? String(name).replace(/carmel/ig, "Caramel") : /caramel marble/i.test(name) ? String(name).replace(/caramel/ig, "Carmel") : "";
       const minMargin = Math.round(cfg.minMarginPct);
+      const floorPreview = phase113SmartProfitFloor(plant, settings);
+      const positionPreview = phase113MarketPositioning(plant, { marketMedianPrice:0 }, settings);
       const isoDate = today();
       return `You are a rare plant market pricing analyst for Leaf Diary, a Florida-based plant reseller that sells live on Palmstreet and Whatnot.
 
@@ -2351,6 +2371,8 @@ ${altName ? `- Alternate spelling/search: ${altName}
 ` : ""}- Required pot size: ${potNorm}
 - Our cost: $${cost}
 - Our minimum margin target: ${minMargin}%
+- Leaf Diary profit floor guard: ${floorPreview.label}; minimum floor ${$(floorPreview.floorPrice)}
+- Market positioning hint: ${positionPreview.label} (${Math.round((positionPreview.multiplier || .97) * 100)}% of trusted median target)
 
 STRICT COMPARABLE RULES — DO NOT BREAK THESE:
 - Match the SAME pot/container size: ${potNorm}. A 6 inch pot is not comparable to tissue culture, seedlings, plugs, nodes, corms, cuttings, or a 2/3/4 inch starter.
@@ -2478,6 +2500,96 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       };
     }
 
+    
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 113 — SMART PROFIT FLOOR + MARKET POSITIONING
+       Uses real market comparables when available, but protects Leaf Diary
+       from too-low prices with cost-band profit floors and owner-review guards.
+    ══════════════════════════════════════════════════════════ */
+    function phase113RoundSmartPrice(value = 0) {
+      const n = +value || 0;
+      if (n <= 0) return 0;
+      if (n < 20) return Math.ceil(n);
+      if (n < 250) return Math.ceil(n / 5) * 5;
+      return Math.ceil(n / 10) * 10;
+    }
+    function phase113PlantText(plant = {}, marketData = {}) {
+      return `${plant.name || ""} ${plant.botanicalName || ""} ${plant.variegation || ""} ${plant.notes || ""} ${marketData.plantName || ""} ${marketData.marketNotes || ""}`.toLowerCase();
+    }
+    function phase113PlantSignals(plant = {}, marketData = {}) {
+      const text = phase113PlantText(plant, marketData);
+      const cost = +plant.cost || 0;
+      const median = +marketData.marketMedianPrice || 0;
+      const held = dHeld(plant.dateAdded) || 0;
+      const varTerms = ["variegated","variegata","albo","aurea","mint","thai constellation","white princess","white wizard","pink princess","pink variegated","sport","half moon","sectoral","marble","caramel marble","carmel marble","high color","galaxy","tricolor"];
+      const rareTerms = ["rare","mint","aurea","albo","caramel marble","carmel marble","spiritus","billietiae variegated","joepii","red anderson","black velvet pink","pink variegated","thai constellation","monstera albo"];
+      const commonTerms = ["pothos","golden pothos","marble queen","neon pothos","zz plant","snake plant","peace lily","monstera deliciosa","heartleaf","philodendron brasil","syngonium podophyllum","spider plant"];
+      const isVariegated = varTerms.some(t => text.includes(t));
+      const isRare = isVariegated || rareTerms.some(t => text.includes(t)) || cost >= 75 || median >= 125;
+      const isCommon = !isRare && commonTerms.some(t => text.includes(t));
+      const isSlowOrOverstock = held >= 45 || String(plant.status || "").toLowerCase().includes("clearance") || String(plant.pricingStrategy || "").toLowerCase().includes("slow");
+      const isPremium = isRare || isVariegated || cost >= 100 || median >= 175;
+      return { isVariegated, isRare, isCommon, isSlowOrOverstock, isPremium, heldDays:held, text };
+    }
+    function phase113SmartProfitFloor(plant = {}, settings = {}) {
+      const cfg = phase83MarketPricingSettings(settings);
+      const cost = +plant.cost || 0;
+      if (!(cost > 0)) return { floorPrice:0, rawFloorPrice:0, minProfit:0, costBand:"no_cost", label:"No cost entered", ownerReviewRequired:false, targetMarginPct:0 };
+      let rawFloor = 0, minProfit = 0, costBand = "", label = "", targetMarginPct = 0, ownerReviewRequired = false;
+      if (cost < 5) { minProfit = +cfg.lowCostProfitUnder5 || 10; rawFloor = cost + minProfit; costBand = "under_5"; label = `Cost under $5 — minimum ${$(minProfit)} profit`; }
+      else if (cost < 10) { minProfit = +cfg.lowCostProfitUnder10 || 12; rawFloor = cost + minProfit; costBand = "under_10"; label = `Cost $5-$10 — minimum ${$(minProfit)} profit`; }
+      else if (cost < 25) { minProfit = +cfg.midCostProfitUnder25 || 14; rawFloor = cost + minProfit; costBand = "under_25"; label = `Cost $10-$25 — minimum ${$(minProfit)} profit`; }
+      else if (cost < 50) { minProfit = +cfg.midCostProfitUnder50 || 16; rawFloor = cost + minProfit; costBand = "under_50"; label = `Cost $25-$50 — minimum ${$(minProfit)} profit`; }
+      else if (cost < (+cfg.highCostOwnerReviewAt || 100)) {
+        targetMarginPct = +cfg.highCostMinMarginPct || 45;
+        rawFloor = cost / Math.max(.30, 1 - (targetMarginPct / 100));
+        minProfit = rawFloor - cost;
+        costBand = "under_100";
+        label = `Cost $50-$100 — ${Math.round(targetMarginPct)}% minimum margin guard`;
+      } else {
+        targetMarginPct = Math.max(35, Math.min(55, +cfg.highCostMinMarginPct || 45));
+        rawFloor = cost / Math.max(.30, 1 - (targetMarginPct / 100));
+        minProfit = rawFloor - cost;
+        costBand = "owner_review_100_plus";
+        ownerReviewRequired = cfg.ownerApprovalRequired !== false;
+        label = `Cost $100+ — owner review required before auto-apply`;
+      }
+      const floorPrice = phase113RoundSmartPrice(rawFloor);
+      return { floorPrice, rawFloorPrice:Math.round(rawFloor * 100) / 100, minProfit:Math.round(minProfit * 100) / 100, costBand, label, ownerReviewRequired, targetMarginPct };
+    }
+    function phase113MarketPositioning(plant = {}, marketData = {}, settings = {}) {
+      const cfg = phase83MarketPricingSettings(settings);
+      const signals = phase113PlantSignals(plant, marketData);
+      let type = "normal", label = "Normal plant", multiplier = +cfg.normalMarketMultiplier || .97, reason = "Price a little below trusted market to stay competitive.";
+      if (signals.isSlowOrOverstock) { type = "slow_overstock"; label = "Slow / overstock"; multiplier = +cfg.slowMarketMultiplier || .92; reason = "Move it faster by pricing 7-10% below trusted market."; }
+      else if (signals.isPremium) { type = signals.isVariegated ? "premium_variegated" : "premium_rare"; label = signals.isVariegated ? "Premium / variegated" : "Rare / premium"; multiplier = +cfg.premiumMarketMultiplier || 1.03; reason = "Premium plants can price at or slightly above trusted market if the match is exact."; }
+      else if (signals.isRare) { type = "rare"; label = "Rare"; multiplier = +cfg.rareMarketMultiplier || 1.00; reason = "Rare plants should not be automatically undercut below market."; }
+      else if (signals.isCommon) { type = "common"; label = "Common"; multiplier = +cfg.commonMarketMultiplier || .95; reason = "Common plants sell better a little below market."; }
+      return { type, label, multiplier, reason, signals };
+    }
+    function phase113BuildPricingDecision({ plant = {}, marketData = {}, settings = {}, ppsPrice = 0, breakEven = 0 } = {}) {
+      const cfg = phase83MarketPricingSettings(settings);
+      const median = +marketData.marketMedianPrice || 0;
+      const floor = phase113SmartProfitFloor(plant, settings);
+      const position = phase113MarketPositioning(plant, marketData, settings);
+      const profitFloorPrice = +floor.floorPrice || 0;
+      const internalFloor = phase113RoundSmartPrice(Math.max(+ppsPrice || 0, +breakEven || 0, profitFloorPrice));
+      const marketTargetRaw = median ? median * (+position.multiplier || .97) : 0;
+      const marketTarget = phase113RoundSmartPrice(marketTargetRaw);
+      const maxNonPremiumAboveMarket = median ? phase113RoundSmartPrice(median * (1 + (+cfg.maxNonPremiumAboveMarketPct || .10))) : 0;
+      const floorAboveMarketPct = median && internalFloor ? Math.round(((internalFloor - median) / median) * 100) : 0;
+      return { floor, position, profitFloorPrice, internalFloor, marketTarget, marketTargetRaw:Math.round(marketTargetRaw * 100) / 100, maxNonPremiumAboveMarket, floorAboveMarketPct };
+    }
+    function phase113SafeAutoApplyAllowed(result = {}) {
+      const status = String(result.priceStatus || "");
+      if (!["competitive", "at_floor"].includes(status)) return false;
+      if (result.ownerReviewRequired === true) return false;
+      if ((+result.trustedComparableCount || +result.dataPointCount || 0) < 5) return false;
+      if ((+result.confidenceScore || 0) < 35) return false;
+      if (+result.suggestedPrice < (+result.profitFloorPrice || 0)) return false;
+      return true;
+    }
+
     function calcAIMarketPrice(plant = {}, marketDataRaw = {}, settings = {}, allPlants = []) {
       const cfg = phase83MarketPricingSettings(settings);
       const marketData = phase83NormalizeMarketData(marketDataRaw);
@@ -2487,30 +2599,46 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const feePct = ((+phase11Settings(settings).platformFees?.defaultPercent || 10) / 100);
       const shipping = +phase11Settings(settings).avgShippingCost || 8;
       const breakEven = Math.ceil((cost + shipping) / Math.max(.5, 1 - feePct));
-      const marketTarget = median ? Math.round(median * (1 - cfg.discountPctBelowMarket) * 100) / 100 : 0;
-      let finalPrice = 0, priceReason = "", priceStatus = "low_confidence";
       const potSummary = phase92PotSizeSummary(marketData);
       const lowConfidence = !median || marketData.dataPointCount < 5 || marketData.confidenceScore < 35 || potSummary.trusted < 5;
+      const decision = phase113BuildPricingDecision({ plant, marketData, settings, ppsPrice, breakEven });
+      const { floor, position, profitFloorPrice, internalFloor, marketTarget, maxNonPremiumAboveMarket, floorAboveMarketPct } = decision;
+      let finalPrice = 0, priceReason = "", priceStatus = "low_confidence", finalPriceBasis = "";
       if (lowConfidence) {
-        finalPrice = Math.max(ppsPrice, breakEven);
-        priceStatus = "low_confidence";
-        priceReason = `Limited market data (${marketData.dataPointCount || 0} listings, confidence ${marketData.confidenceScore || 0}/100) — using internal PPS/history floor.`;
-      } else if (marketTarget >= ppsPrice) {
+        finalPrice = internalFloor;
+        priceStatus = floor.ownerReviewRequired ? "owner_review" : "low_confidence";
+        finalPriceBasis = "profit_floor_low_confidence";
+        priceReason = `Limited trusted market data (${marketData.dataPointCount || 0} exact comparable(s), confidence ${marketData.confidenceScore || 0}/100) — using Leaf Diary profit floor ${$(profitFloorPrice)} plus break-even/PPS guard.`;
+      } else if (floor.ownerReviewRequired) {
+        finalPrice = Math.max(internalFloor, Math.min(marketTarget || internalFloor, median ? phase113RoundSmartPrice(median * 1.05) : internalFloor));
+        priceStatus = "owner_review";
+        finalPriceBasis = "owner_review_high_cost";
+        priceReason = `High-cost plant: ${floor.label}. Market median ${$(median)}. Suggested guardrail ${$(finalPrice)}, but do not auto-apply without owner review.`;
+      } else if (internalFloor <= marketTarget) {
         finalPrice = marketTarget;
         priceStatus = "competitive";
-        priceReason = `Market median ${$(median)} — priced ${Math.round(cfg.discountPctBelowMarket * 100)}% below at ${$(finalPrice)}.`;
-      } else if (ppsPrice > marketTarget && ppsPrice <= median) {
-        finalPrice = ppsPrice;
+        finalPriceBasis = "market_position_target";
+        const deltaPct = Math.round(((marketTarget - median) / median) * 100);
+        priceReason = `${position.label}: trusted market median ${$(median)} → target ${deltaPct > 0 ? "+" : ""}${deltaPct}% (${$(finalPrice)}). Profit floor ${$(profitFloorPrice)} protected.`;
+      } else if (median && internalFloor <= median) {
+        finalPrice = internalFloor;
         priceStatus = "at_floor";
-        priceReason = `Market median is ${$(median)} but PPS floor is ${$(ppsPrice)} — pricing at profit floor while staying at market.`;
+        finalPriceBasis = "profit_floor_inside_market";
+        priceReason = `Trusted market median is ${$(median)}, but Leaf Diary profit floor/PPS requires ${$(internalFloor)}. Pricing at floor while still within market.`;
       } else {
-        finalPrice = breakEven;
+        finalPrice = internalFloor;
         priceStatus = "margin_risk";
-        priceReason = `MARGIN RISK: market median is ${$(median)}, but your PPS floor is ${$(ppsPrice)}. Do not price below break-even ${$(breakEven)}.`;
+        finalPriceBasis = "profit_floor_above_market";
+        priceReason = `MARGIN RISK: trusted market median is ${$(median)}, but your safe floor is ${$(internalFloor)} (${floorAboveMarketPct > 0 ? "+" : ""}${floorAboveMarketPct}% vs market). Do not auto-apply; owner review needed.`;
       }
-      finalPrice = Math.round((+finalPrice || 0) * 100) / 100;
+      if (median && !position.signals?.isPremium && maxNonPremiumAboveMarket && finalPrice > maxNonPremiumAboveMarket && priceStatus !== "margin_risk") {
+        priceStatus = "margin_risk";
+        finalPriceBasis = "too_far_above_market_guard";
+        priceReason = `Owner review: suggested floor ${$(finalPrice)} is more than ${Math.round((+cfg.maxNonPremiumAboveMarketPct || .10) * 100)}% above trusted market ${$(median)} for a non-premium plant.`;
+      }
+      finalPrice = phase113RoundSmartPrice(+finalPrice || 0);
       const finalMargin = finalPrice > 0 ? Math.round(((finalPrice - cost) / finalPrice) * 100) : 0;
-      return {
+      const result = {
         ...marketData,
         suggestedPrice: finalPrice,
         margin: finalMargin,
@@ -2522,9 +2650,23 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         breakEvenPrice: breakEven,
         ppsFloorPrice: ppsPrice,
         marketTarget,
+        marketTargetRaw: decision.marketTargetRaw,
         discountPctBelowMarket: cfg.discountPctBelowMarket,
         minMarginPct: cfg.minMarginPct,
-        source: "market_pricing_engine_v83",
+        profitFloorPrice,
+        ownerProfitFloorPrice: profitFloorPrice,
+        ownerProfitFloor: floor,
+        smartProfitFloorLabel: floor.label,
+        smartProfitMinProfit: floor.minProfit,
+        marketPosition: position.type,
+        marketPositionLabel: position.label,
+        marketPositionMultiplier: position.multiplier,
+        marketPositionReason: position.reason,
+        finalPriceBasis,
+        ownerReviewRequired: floor.ownerReviewRequired || priceStatus === "owner_review" || priceStatus === "margin_risk",
+        maxNonPremiumAboveMarket,
+        floorAboveMarketPct,
+        source: "market_pricing_engine_v113",
         runAt: new Date().toISOString(),
         appliedAt: null,
         appliedPrice: null,
@@ -2536,6 +2678,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         excludedByPotSizeCount: marketData.excludedByPotSizeCount || potSummary.excluded,
         potSizeMatchSummary: marketData.potSizeMatchSummary || potSummary
       };
+      result.safeAutoApplyAllowed = phase113SafeAutoApplyAllowed(result);
+      return result;
     }
     function getCachedMarketResearch(plant = {}, settings = {}) {
       const research = safeObject(plant.marketResearch);
@@ -2549,6 +2693,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const s = String(status || "").toLowerCase();
       if (s === "competitive") return { label:"Competitive", icon:"✅", color:C.g600, bg:C.g50 };
       if (s === "at_floor") return { label:"At Profit Floor", icon:"⚠️", color:C.amber, bg:C.amberBg };
+      if (s === "owner_review") return { label:"Owner Review", icon:"👑", color:C.purple, bg:C.purpleBg };
       if (s === "margin_risk") return { label:"Margin Risk", icon:"🚨", color:C.red, bg:C.redBg };
       if (s === "fallback") return { label:"Fallback", icon:"🧮", color:C.tx3, bg:C.cardAlt };
       return { label:"Low Confidence", icon:"🟡", color:C.tx3, bg:C.cardAlt };
@@ -2646,10 +2791,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const minMargin = +result.minMarginPct || 55;
       const breakEven = +result.breakEvenPrice || 0;
       const pps = +result.ppsFloorPrice || 0;
+      const profitFloor = +result.profitFloorPrice || +result.ownerProfitFloorPrice || 0;
       return [
-        { label:`Margin ${margin}%`, pass: margin >= minMargin, detail:`minimum ${Math.round(minMargin)}%` },
+        { label:`Margin ${margin}%`, pass: margin >= minMargin || ["at_floor","competitive","owner_review"].includes(String(result.priceStatus || "")), detail:`minimum ${Math.round(minMargin)}% target` },
         { label:`Above break-even ${$(breakEven)}`, pass: suggested >= breakEven && breakEven > 0, detail:suggested >= breakEven ? "protected" : "below break-even" },
         { label:`PPS floor ${$(pps)}`, pass: suggested >= pps || result.priceStatus === "margin_risk", detail:suggested >= pps ? "target protected" : "market is below target" },
+        { label:`Leaf Diary floor ${$(profitFloor)}`, pass: !profitFloor || suggested >= profitFloor || result.priceStatus === "margin_risk", detail:result.smartProfitFloorLabel || "cost-band profit floor" },
       ];
     }
     function MarketPriceLoadingPanel({ plant = {}, onCancel }) {
@@ -2684,13 +2831,16 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const existingPrice = +currentPrice || +plant.suggestedPrice || +plant.listPrice || +plant.price || 0;
       const status = String(r.priceStatus || "low_confidence");
       const isRisk = status === "margin_risk";
+      const isOwnerReview = status === "owner_review" || r.ownerReviewRequired === true;
       const isLow = status === "low_confidence" || status === "fallback";
       const diag = phase91BuildMarketResearchDiagnosis(r);
       const mainMessage = isRisk
-        ? `Market only supports about ${$(median)}. Protect break-even at ${$(r.breakEvenPrice)} before listing.`
-        : isLow
-          ? `Limited market data. Use this as a guardrail, not an automatic decision.`
-          : r.priceReason || `Suggested price based on market median ${$(median)}.`;
+        ? `Market only supports about ${$(median)}. Protect the Leaf Diary floor ${$(r.profitFloorPrice || r.ownerProfitFloorPrice || r.breakEvenPrice)} before listing.`
+        : isOwnerReview
+          ? `Owner review required. This price protects profit, but should not auto-apply because cost/market risk is high.`
+          : isLow
+            ? `Limited market data. Use this as a guardrail, not an automatic decision.`
+            : r.priceReason || `Suggested price based on market median ${$(median)}.`;
       const potSummary = phase92PotSizeSummary(r);
       const potMatchColor = potSummary.trusted >= 10 ? C.g600 : potSummary.trusted >= 5 ? C.amber : C.red;
       return <div style={{ background:meta.bg, border:`2px solid ${meta.color}`, borderRadius:20, padding:compact ? 13 : 16, marginTop:10, boxShadow:"0 10px 28px rgba(13,43,26,.07)" }}>
@@ -2722,7 +2872,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
 
         <div style={{ background:C.card, border:`2px solid ${meta.color}`, borderRadius:18, padding:14, marginBottom:12 }}>
           <Row between center wrap gap={10}>
-            <div><div style={{ fontSize:10, fontWeight:950, color:C.tx3, letterSpacing:.6, textTransform:"uppercase" }}>{isRisk ? "Protected Price" : "Our Suggested Price"}</div><div style={{ fontFamily:F.display, fontSize:40, lineHeight:1, color:meta.color, fontWeight:950 }}>{suggested ? $(suggested) : "No Price"}</div><div style={{ color:C.tx3, fontSize:12, marginTop:5 }}>Margin: {+r.margin || 0}% · Break-even: {$(r.breakEvenPrice)} · PPS floor: {$(r.ppsFloorPrice)}</div></div>
+            <div><div style={{ fontSize:10, fontWeight:950, color:C.tx3, letterSpacing:.6, textTransform:"uppercase" }}>{isRisk || isOwnerReview ? "Protected Guardrail Price" : "Our Suggested Price"}</div><div style={{ fontFamily:F.display, fontSize:40, lineHeight:1, color:meta.color, fontWeight:950 }}>{suggested ? $(suggested) : "No Price"}</div><div style={{ color:C.tx3, fontSize:12, marginTop:5 }}>Margin: {+r.margin || 0}% · Break-even: {$(r.breakEvenPrice)} · PPS floor: {$(r.ppsFloorPrice)} · Leaf floor: {$(r.profitFloorPrice || r.ownerProfitFloorPrice || 0)}</div></div>
             <Tag text={meta.label} color={meta.color} />
           </Row>
           <div style={{ color:C.tx2, fontSize:13, lineHeight:1.45, marginTop:10, fontWeight:750 }}>{mainMessage}</div>
@@ -2740,9 +2890,23 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           </details>}
         </div>}
 
+        <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderLeft:`6px solid ${isOwnerReview ? C.purple : C.g600}`, borderRadius:16, padding:12, marginBottom:12 }}>
+          <Row between center wrap gap={8} style={{ marginBottom:8 }}>
+            <div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>💚 Smart Profit Floor + Market Position</div>
+            <Tag text={r.marketPositionLabel || "Normal"} color={isOwnerReview ? C.purple : C.g600} sm />
+          </Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+            <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:"9px 10px" }}><div style={{ color:C.tx3, fontSize:10, fontWeight:900, textTransform:"uppercase" }}>Leaf Floor</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:950 }}>{$(r.profitFloorPrice || r.ownerProfitFloorPrice || 0)}</div></div>
+            <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:"9px 10px" }}><div style={{ color:C.tx3, fontSize:10, fontWeight:900, textTransform:"uppercase" }}>Market Target</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:950 }}>{r.marketTarget ? $(r.marketTarget) : "—"}</div></div>
+            <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:"9px 10px" }}><div style={{ color:C.tx3, fontSize:10, fontWeight:900, textTransform:"uppercase" }}>Price Basis</div><div style={{ color:C.tx2, fontSize:12, fontWeight:900, lineHeight:1.25 }}>{String(r.finalPriceBasis || "market").replace(/_/g," ")}</div></div>
+          </div>
+          <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, fontWeight:750, marginTop:9 }}>{r.smartProfitFloorLabel || "Profit floor active."} {r.marketPositionReason || ""}</div>
+          {isOwnerReview && <div style={{ marginTop:8, color:C.purple, fontSize:12, fontWeight:950 }}>👑 Owner review required before auto-applying this price.</div>}
+        </div>
+
         <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:12 }}>
           <div style={{ fontWeight:950, color:C.g900, fontSize:14, marginBottom:8 }}>🛡️ Profit Guard</div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8 }}>
             {checks.map((c,i)=><div key={i} style={{ background:c.pass ? C.g50 : C.redBg, border:`1px solid ${c.pass ? C.g200 : C.red}44`, borderRadius:12, padding:"9px 10px" }}><div style={{ color:c.pass ? C.g600 : C.red, fontWeight:950, fontSize:12 }}>{c.pass ? "✅" : "⚠️"} {c.label}</div><div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{c.detail}</div></div>)}
           </div>
         </div>
@@ -2768,7 +2932,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         </div>}
 
         <Row gap={8} wrap>
-          {onApplyPrice && <Btn full={!compact} onClick={()=>onApplyPrice({ ...r, suggestedPrice:suggested })} disabled={!suggested}>{isRisk ? `Use Protected Price — ${$(suggested)}` : `Use This Price — ${$(suggested)}`}</Btn>}
+          {onApplyPrice && <Btn full={!compact} onClick={()=>onApplyPrice({ ...r, suggestedPrice:suggested })} disabled={!suggested}>{isRisk || isOwnerReview ? `Use Guardrail Price — ${$(suggested)}` : `Use This Price — ${$(suggested)}`}</Btn>}
           {onKeepPrice && <Btn v="ghost" onClick={()=>onKeepPrice(r)}>Keep My Price {existingPrice ? `— ${$(existingPrice)}` : ""}</Btn>}
           {onClose && <Btn v="outline" onClick={onClose}>Close</Btn>}
         </Row>
@@ -12760,6 +12924,7 @@ Cancel keeps this local/free.`);
       };
     }
     function phase88IsSafeBulkApply(result = {}) {
+      if (typeof phase113SafeAutoApplyAllowed === "function") return phase113SafeAutoApplyAllowed(result);
       return ["competitive", "at_floor"].includes(String(result.priceStatus || ""));
     }
     function phase88BuildBulkPricingSelfChecks({ plants = [], settings = {}, user = {} } = {}) {
@@ -13052,7 +13217,7 @@ Cancel keeps this local/free.`);
       if (!canRun) return <Card style={{ borderLeft:`5px solid ${C.amber}`, background:C.goldBg }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>💲 Batch Market Pricing</div><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:4 }}>Owner/manager tool only. Employees cannot run market research or apply batch prices.</div></Card>;
       return <Card style={{ border:`2px solid ${C.g300}`, borderRadius:22, padding:16, background:C.card }}>
         <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Batch Market Pricing Manager</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Built for 400 plants/week: groups duplicate plant + pot size, uses 14-day cache first, and only spends AI on unique groups. V112 only trusts exact-size, same-stage, same-variegation comparables.</div></div>
+          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Batch Market Pricing Manager</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Built for 400 plants/week: groups duplicate plant + pot size, uses 14-day cache first, and only spends AI on unique groups. V113 adds Smart Profit Floor + market positioning so prices are not too low or too high.</div></div>
           <Row gap={7} wrap><Tag text={`${stats.inStock} plants`} color={C.g600} /><Tag text={`${stats.uniqueGroups} unique groups`} color={C.blue} /><Tag text={`${stats.cachedGroups} cached`} color={C.gold} /><Tag text={`Market ${usage.dailyMarketCalls}/${usage.dailyMarketLimit} today`} color={usage.dailyMarketLimit && usage.dailyMarketCalls >= usage.dailyMarketLimit ? C.red : C.g600} /></Row>
         </Row>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:12 }}>
@@ -13089,7 +13254,7 @@ Cancel keeps this local/free.`);
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>{phase110GroupLabel(g)}</div>
                   <div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{g.count} plant(s) · highest cost {$(g.highestCost)} · {g.noPriceCount} no price · {g.lowMarginCount} low margin</div>
-                  {res ? <div style={{ marginTop:8 }}><Row gap={6} wrap center><Tag text={res.cacheHit || g.cached ? "cache" : "researched"} color={res.cacheHit || g.cached ? C.blue : C.g600} sm /><Tag text={phase83MarketPriceStatusMeta(res.priceStatus).label} color={color} sm /><Tag text={res.suggestedPrice ? $(res.suggestedPrice) : "no price"} color={color} sm /></Row><div style={{ color:C.tx3, fontSize:11, marginTop:5 }}>{res.priceReason || res.confidenceNote || "Review result before applying."}</div></div> : <div style={{ marginTop:8 }}><Tag text="Needs lookup" color={C.tx3} sm /></div>}
+                  {res ? <div style={{ marginTop:8 }}><Row gap={6} wrap center><Tag text={res.cacheHit || g.cached ? "cache" : "researched"} color={res.cacheHit || g.cached ? C.blue : C.g600} sm /><Tag text={phase83MarketPriceStatusMeta(res.priceStatus).label} color={color} sm /><Tag text={res.suggestedPrice ? $(res.suggestedPrice) : "no price"} color={color} sm />{res.profitFloorPrice && <Tag text={`floor ${$(res.profitFloorPrice)}`} color={C.g600} sm />}{res.ownerReviewRequired && <Tag text="owner review" color={C.purple} sm />}</Row><div style={{ color:C.tx3, fontSize:11, marginTop:5 }}>{res.priceReason || res.confidenceNote || "Review result before applying."}</div></div> : <div style={{ marginTop:8 }}><Tag text="Needs lookup" color={C.tx3} sm /></div>}
                 </div>
               </Row>
             </Card>;
