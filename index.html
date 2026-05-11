@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V123R</title>
+  <title>LEAF DIARY - BUSINESS HUB · V125R</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -1706,12 +1706,12 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V123R",
-      name: "Plants Workflow Consolidation + Page Help",
+      id: "V125R",
+      name: "Settings / AI / Advanced Cleanup + Ask AI Search Help",
       date: "2026-05-11",
-      base: "V122R Ship Orders + built-in help on index (59).html stable backup",
-      safety: "Plants workflow shell only; old tools preserved; home screen, auth, AI, pricing, orders, and shipping docs untouched",
-      nextPhase: "V124R: Shows workflow consolidation after V123R passes MacBook + iPhone tests"
+      base: "V124R Shows workflow consolidation on index (59).html stable backup",
+      safety: "Navigation/search/settings cleanup only; home screen, auth, pricing, orders logic, and shipping docs untouched",
+      nextPhase: "Stabilize and test MacBook + iPhone before adding new business features"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -3543,14 +3543,14 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         { id:"print_label", icon:"🏷️", title:"Print a label", body:"Mark at least one plant label printed or use the Labels page.", done:anyLabel, page:"labels", cta:"Labels" },
         { id:"take_photo", icon:"⚡", title:"Take a photo with barcode", body:"Use Fast Photo Sprint: scan the label, take the photo, then go to the next plant.", done:anyPhoto, page:"photosprint", cta:"Photo Sprint" },
         { id:"clock_in", icon:"⏱️", title:"Clock in for your shift", body:"Create your first timecard entry.", done:anyTimecard, page:"timecard", cta:"Timecard" },
-        { id:"build_show", icon:"🎪", title:"Build your first show", body:"Get at least 5 plants into the Show Builder list.", done:showCount >= 5, page:"showbuilder", cta:"Build Show" }
+        { id:"build_show", icon:"🎪", title:"Build your first show", body:"Get at least 5 plants into the show workflow.", done:showCount >= 5, page:"shows_ws", cta:"Run a Show" }
       ];
       const ownerSteps = [
         { id:"add_nursery", icon:"🏪", title:"Confirm a nursery / supplier", body:"Make sure the app has at least one nursery or supplier source.", done:hasNursery, page:"nursery", cta:"Nurseries" },
         { id:"set_goal", icon:"🎯", title:"Set a profit or revenue goal", body:"Add a monthly or annual goal so the app can track progress.", done:ownerGoalSet, page:"goals", cta:"Goals" },
         { id:"upload_invoice", icon:"📸", title:"Upload or import first purchase", body:"Upload an invoice/photo or import current inventory.", done:hasInvoice || anyPlant, page:"intake_ws", cta:"Add / Intake" },
         { id:"owner_ai", icon:"🧠", title:"Run your owner daily check", body:"Open Today’s Plan or Owner AI Brief and review the business suggestions.", done:ownerAiRan, page:"overnight", cta:"Daily Check", manual:true },
-        { id:"build_show", icon:"🎪", title:"Build your first show", body:"Get at least 5 plants into the Show Builder list.", done:showCount >= 5, page:"showbuilder", cta:"Build Show" }
+        { id:"build_show", icon:"🎪", title:"Build your first show", body:"Get at least 5 plants into the show workflow.", done:showCount >= 5, page:"shows_ws", cta:"Run a Show" }
       ];
       const steps = role === "owner" ? ownerSteps : employeeSteps;
       const computedSteps = steps.map(s => ({ ...s, done: !!s.done || !!manual[s.id] }));
@@ -4530,6 +4530,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"datacharts", icon:"📊", l:"Data Visualization", group:"Buy Smart", roles:["owner","manager"] },
       { id:"accessibility", icon:"♿", l:"Accessibility Check", group:"Settings", roles:["owner","manager"] },
       { id:"darkmode", icon:"🌙", l:"Theme Mode", group:"Settings", roles:["owner","manager","employee"] },
+      { id:"teamsync", icon:"☁️", l:"Team Sync + Change Safety", group:"Settings", roles:["owner"] },
       { id:"phase2qa", icon:"🧪", l:"Phase 2 Final QA", group:"Settings", roles:["owner","manager"] },
       { id:"onboarding", icon:"🎓", l:"Onboarding Checklist", group:"Today", roles:["owner","manager","employee"] },
       { id:"nextsteps", icon:"➡️", l:"Next-Step Suggestions", group:"Today", roles:["owner","manager","employee"] },
@@ -4560,6 +4561,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"care", icon:"🩺", l:"Plant Care", group:"Plants", roles:["owner","manager"] },
       { id:"locations", icon:"📍", l:"Locations", group:"Plants", roles:["owner"] },
       { id:"sellthru", icon:"📊", l:"Sell-Through", group:"Plants", roles:["owner","manager"] },
+      { id:"runshow", icon:"🎪", l:"Run a Show", group:"Shows", roles:["owner","manager","employee"] },
+      { id:"showcommand", icon:"🧭", l:"Advanced Show Center", group:"Shows", roles:["owner","manager"] },
       { id:"showbuilder", icon:"🎪", l:"Build Show", group:"Shows", roles:["owner","manager"] },
       { id:"showprep", icon:"🧺", l:"Show Prep Pull List", group:"Shows", roles:["owner","manager","employee"] },
       { id:"showdragdrop", icon:"🎯", l:"Drag-and-Drop Show Builder", group:"Shows", roles:["owner","manager"] },
@@ -4608,12 +4611,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     const LD_V121_SIMPLE_GROUPS = [
       { group:"Today", ids:["rolelauncher","employeeboard","workflowcoach","ownerboard","managerboard","photosprint","showprep","packorders","shiplabels"] },
       { group:"Plants", ids:["plantcapture","inv"] },
-      { group:"Shows", ids:["showbuilder","showprep","liveshow","showimport","discounts","bundles"] },
+      { group:"Shows", ids:["runshow","showprep"] },
       { group:"Orders", ids:["showimport","ship","packorders","shiplabels","casd","refunds","customers","retention"] },
       { group:"Money", ids:["receipts","timecard","bills","cashflow","expense","payroll","commissions","tax","goals"] },
-      { group:"Settings", ids:["admin","ollamadoctor","quickstart","appcheck","releasecenter","cleanup"] },
+      { group:"Settings", ids:["teamsync","admin","ollamadoctor","quickstart","appcheck","releasecenter","cleanup"] },
     ];
-    const LD_V121_ADVANCED_IDS = new Set(["keyboardshortcuts","datacharts","accessibility","phase2qa","nextsteps","onboarding","command","execai","aihub","dataai","slotprofit","overnight","inlineedit","bulkactions","swipegestures","invoicetrainer","labelife","locations","sellthru","showdragdrop","social","content","nursery","pos","intel","reports","history","audit","devtools","workflowqa","ollama","aigateway","airouter"]);
+    const LD_V121_ADVANCED_IDS = new Set(["keyboardshortcuts","datacharts","accessibility","phase2qa","nextsteps","onboarding","command","execai","aihub","dataai","slotprofit","overnight","inlineedit","bulkactions","swipegestures","invoicetrainer","labelife","locations","sellthru","showcommand","showbuilder","liveshow","showimport","discounts","bundles","showdragdrop","social","content","nursery","pos","intel","reports","history","audit","devtools","workflowqa","ollama","aigateway","airouter"]);
     const LD_V121_SIMPLE_IDS = new Set(LD_V121_SIMPLE_GROUPS.flatMap(g => g.ids));
     const ldV121ReadSimpleMode = () => { try { return localStorage.getItem(LD_SIMPLE_MODE_KEY) !== "off"; } catch(e) { return true; } };
     const ldV121WriteSimpleMode = v => { try { localStorage.setItem(LD_SIMPLE_MODE_KEY, v ? "on" : "off"); } catch(e) {} };
@@ -4624,11 +4627,11 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       today:"today", dash:"today", rolelauncher:"today", keyboardshortcuts:"today", datacharts:"money_ws", accessibility:"admin_ws", darkmode:"admin_ws", nextsteps:"today", onboarding:"today", command:"today", ownerboard:"today", managerboard:"today", execai:"today", aihub:"today", dataai:"today", workflowcoach:"today", employeeboard:"today", cashflow:"money_ws", overnight:"today", emp_dash:"today",
       plants_ws:"plants_ws", inv:"plants_ws", savedfilters:"plants_ws", inlineedit:"plants_ws", bulkactions:"plants_ws", swipegestures:"plants_ws", labels:"plants_ws", labelife:"plants_ws", barcodeqa:"plants_ws", scanlabel:"plants_ws", photosprint:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
       intake_ws:"plants_ws", manual:"plants_ws", upload:"plants_ws", invoicetrainer:"plants_ws", history:"plants_ws",
-      shows_ws:"shows_ws", showprep:"shows_ws", showdragdrop:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
+      shows_ws:"shows_ws", runshow:"shows_ws", showcommand:"shows_ws", showprep:"shows_ws", showdragdrop:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
       orders_ws:"orders_ws", packorders:"orders_ws", shiplabels:"orders_ws", showimport:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
       buy_ws:"money_ws", slotprofit:"money_ws", nursery:"money_ws", pos:"money_ws", intel:"money_ws", reports:"money_ws",
-      admin_ws:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", releasecenter:"admin_ws", quickstart:"admin_ws", phase2qa:"admin_ws", ollama:"admin_ws", ollamadoctor:"admin_ws", aigateway:"admin_ws"
+      admin_ws:"admin_ws", teamsync:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", releasecenter:"admin_ws", quickstart:"admin_ws", phase2qa:"admin_ws", ollama:"admin_ws", ollamadoctor:"admin_ws", aigateway:"admin_ws"
     };
     const getPageLabel = (id) => (TOOL_CATALOG.find(t => t.id === id)?.l || WORKSPACES.find(w => w.id === id)?.l || id);
     const getPageIcon = (id) => (TOOL_CATALOG.find(t => t.id === id)?.icon || WORKSPACES.find(w => w.id === id)?.icon || "•");
@@ -4687,7 +4690,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         ["🧩", "Next Step Coach", "Operations checklist for today.", "workflowcoach", C.blue],
         ["🌿", "Inventory", "Fix plant photos, labels, and missing data.", "plants_ws", C.g600],
         ["⚡", "Photo Sprint", "Scan barcode labels and add plant photos fast.", "photosprint", C.g600],
-        ["🎪", "Shows", "Build, prep, run, and import shows.", "shows_ws", "#fb6392"],
+        ["🎪", "Run a Show", "Build, prep, export, live, and import results in one workflow.", "shows_ws", "#fb6392"],
         ["🧺", "Show Prep Pull List", "Pull plants and staging tasks for the next live show.", "showprep", C.gold],
         ["📦", "Order Packing Board", "Pack sold orders, paperwork, heat packs, and platform-ready checks.", "packorders", C.blue],
         ["📷", "Scan Shipping Labels", "Open shipping label camera sprint and tracking import.", "shiplabels", C.blue],
@@ -4854,10 +4857,24 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       },
       shows_ws: {
         icon:"🎪", title:"Shows", role:"Owner / Manager",
-        purpose:"Everything before and during a live show: build the lineup, pull plants, fix export problems, export CSV, and import results.",
-        steps:["Build the show list.","Fix export guard problems like missing photos, price, or description.","Use Pull List to stage plants physically.","Export the show CSV to Whatnot or Palmstreet.","After the show, import sales results."],
-        tips:["Auction tools belong inside Shows as Auction Mode, not as a separate daily workflow.","Import Results should happen right after the show ends."],
-        go:[{label:"Build Show", page:"showbuilder"},{label:"Pull List", page:"showprep"},{label:"Import Results", page:"showimport"}]
+        purpose:"Everything before and during a live show. In Simple Mode, start with Run a Show instead of hunting through separate show tools.",
+        steps:["Open Run a Show.","Build the show list from photo-ready plants.","Fix blockers: missing photos, labels, prices, and descriptions.","Pull and stage the plants.","Export to Whatnot/Palmstreet.","Run the live show, then import the sales results."],
+        tips:["Old show tools still exist in Advanced Mode, but daily work should start with Run a Show.","Auction Manager belongs inside Shows, not a separate app."],
+        go:[{label:"Run a Show", page:"runshow"},{label:"Pull List", page:"showprep"},{label:"Advanced Show Center", page:"showcommand"}]
+      },
+      runshow: {
+        icon:"🎪", title:"Run a Show", role:"Owner / Manager / Employee pull-list support",
+        purpose:"One simple show workflow page: build, fix, pull, export, live mode, import results, and auction mode.",
+        steps:["Step 1: Build the show or auto-build from show-ready plants.","Step 2: Fix blockers before export.","Step 3: Pull and stage the plants.","Step 4: Export the show CSV to Whatnot/Palmstreet.","Step 5: Go live.","Step 6: Import show sales and review orders."],
+        tips:["Use this page instead of separate Build Show, Pull List, Live Mode, and Import pages.","Employees can start with Pull List from this workflow without seeing advanced owner tools."],
+        go:[{label:"Open Run a Show", page:"runshow"},{label:"Show Prep", page:"showprep"},{label:"Import Results", page:"showimport"}]
+      },
+      showcommand: {
+        icon:"🧭", title:"Advanced Show Center", role:"Owner / Manager",
+        purpose:"Advanced show dashboard with auction manager, AI show planning, social/content tools, and deeper show controls.",
+        steps:["Use only after the simple Run a Show workflow is not enough.","Open Auction Manager from the advanced tabs.","Use AI content/social tools after the show workflow is stable."],
+        tips:["This is intentionally behind Advanced Mode to keep daily work simple."],
+        go:[{label:"Run a Show", page:"runshow"},{label:"Advanced Center", page:"showcommand"}]
       },
       orders_ws: {
         icon:"📦", title:"Orders", role:"Owner / Manager / Employee packing tasks",
@@ -4873,10 +4890,17 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         tips:["Employees should only see Timecard and task-level receipt tools.","Owners should update bank balance for safe buy decisions."],
         go:[{label:"Receipts", page:"receipts"},{label:"Timecard", page:"timecard"},{label:"Cash Flow", page:"cashflow"}]
       },
+      teamsync: {
+        icon:"☁️", title:"Team Sync + Change Safety", role:"Owner",
+        purpose:"One clear page for save/load/backup decisions, team sync status, and overwrite prevention. Use this before major imports, shipping updates, or switching devices.",
+        steps:["Check Cloud Status and Pending Sync first.","Tap Save Changes before another team member opens the same order or plant.","Tap Load From Cloud on the other device when you need the newest changes.","Export Backup before imports, shipping batches, restores, or uploading a new HTML version.","Use Owner Force Save only when you are sure this device has the correct data."],
+        tips:["Local save is immediate on the device you are using.","Other phones/computers may not see changes until they refresh or Load From Cloud.","Two people editing the same plant/order at the same time can overwrite each other.","When in doubt: Backup → Save → Load on other device."],
+        go:[{label:"Open Team Sync", page:"teamsync"},{label:"App Checkup", page:"appcheck"},{label:"Release Center", page:"releasecenter"}]
+      },
       admin_ws: {
         icon:"⚙️", title:"Settings", role:"Owner",
-        purpose:"Owner setup, users, AI settings, backup, app health, release checks, and advanced tools.",
-        steps:["Export a full backup before uploading a new HTML version.","Use App Checkup if data looks wrong.","Keep AI/Gateway/Ollama tools under Advanced unless troubleshooting.","Use Release Center before any live upload."],
+        purpose:"Owner setup, users, cloud/backup, AI settings, app health, release checks, and advanced tools without cluttering employee workflows.",
+        steps:["Use Cloud + Backup to save, load, backup, and restore data.","Use AI / Search Help for Ask AI, Doctor, and cost control.","Keep Advanced closed unless troubleshooting.","Export a full backup before uploading a new HTML version."],
         tips:["Do not clear browser data unless you have exported a backup.","Advanced tools should not be part of daily employee workflows."],
         go:[{label:"Backup / Settings", page:"admin"},{label:"App Checkup", page:"appcheck"},{label:"Release Center", page:"releasecenter"}]
       },
@@ -4918,7 +4942,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     };
     const LD_HELP_ALIASES = {
       inv:"plants_ws", manual:"plantcapture", upload:"plantcapture", labels:"plantcapture", scanlabel:"plantcapture", photosprint:"plantcapture", barcodeqa:"plantcapture", care:"plants_ws", savedfilters:"plants_ws",
-      showbuilder:"shows_ws", showprep:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws",
+      showbuilder:"runshow", showprep:"runshow", liveshow:"runshow", showimport:"runshow", runshow:"runshow", showcommand:"showcommand", bundles:"runshow", discounts:"runshow",
       ship:"orders_ws", packorders:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws",
       receipts:"money_ws", expense:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws", cashflow:"money_ws",
       admin:"admin_ws", appcheck:"admin_ws", releasecenter:"admin_ws", ollamadoctor:"admin_ws", aihub:"today", dataai:"today", rolelauncher:"today", employeeboard:"today", ownerboard:"today", managerboard:"today"
@@ -4952,6 +4976,41 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       </div>;
     }
 
+
+    /* ══════════════════════════════════════════════════════════
+       V125R — ASK AI SEARCH HELP
+       Free built-in app guide. It does not call paid AI. It turns
+       plain-English questions into the right Leaf Diary page/workflow.
+    ══════════════════════════════════════════════════════════ */
+    function ldV125AppSearchAnswer(query = "", role = "employee") {
+      const raw = String(query || "").trim();
+      const q = raw.toLowerCase();
+      const ownerOnly = role === "owner";
+      const managerPlus = role === "owner" || role === "manager";
+      const rules = [
+        { test:/ship|shipping|tracking|label|package|box|whatnot|palmstreet|state doc|state paper|customer order|sold order|pack/i, page:"orders_ws", title:"Orders → Ship Orders", icon:"📦", why:"This is where you import sales, build boxes, create state docs, add tracking, and mark shipped.", steps:["Open Orders.","Choose Ship Orders.","Use the step cards in order: Import Sales → Pack Boxes → State Docs → Add Tracking → Mark Shipped."] },
+        { test:/add plant|new plant|intake|invoice|nursery|bulk import|csv|plant capture|plant photo|photo sprint|barcode|plant label|print label|scan plant/i, page:"plantcapture", title:"Plants → Plant Capture", icon:"🌿", why:"This combines adding plants, printing labels, scanning plant barcodes, and Photo Sprint into one simple workflow.", steps:["Open Plants.","Choose Plant Capture.","Start with Add Plants, then Print Labels, then Photo Sprint."] },
+        { test:/inventory|stock|find plant|plant list|missing photo|missing price|plant status|in stock/i, page:"plants_ws", title:"Plants → Manage Inventory", icon:"🪴", why:"Inventory problems, plant search, missing photos, missing prices, and plant status all live under Plants.", steps:["Open Plants.","Use Manage Inventory or Plant Capture depending on the job.","Use search/filter to find the plant."] },
+        { test:/show|whatnot show|palmstreet show|export|pull list|go live|auction|discount|show builder|import results/i, page:"shows_ws", title:"Shows → Run a Show", icon:"🎪", why:"This is the simple live-show workflow: build, fix blockers, pull, export, live, and import results.", steps:["Open Shows.","Choose Run a Show.","Follow the numbered cards from Build Show through Import Results."] },
+        { test:/money|receipt|expense|bill|payroll|timecard|commission|cash flow|tax|goal|profit/i, page: ownerOnly ? "money_ws" : "timecard", title: ownerOnly ? "Money" : "Money → Timecard", icon:"💵", why: ownerOnly ? "Receipts, bills, payroll, commissions, cash flow, and tax tools are in Money." : "Employees usually only need Timecard. Financial tools are owner protected.", steps: ownerOnly ? ["Open Money.","Pick Receipts, Bills, Payroll, Cash Flow, or Reports."] : ["Open Money.","Choose Timecard.","Clock in or out."] },
+        { test:/ai|ollama|gateway|doctor|model|cost guard|ask business|ask leaf|assistant/i, page: ownerOnly ? "admin_ws" : "dataai", title: ownerOnly ? "Settings → AI" : "Ask Leaf Diary AI", icon:"🤖", why: ownerOnly ? "AI setup, local Ollama, gateway, and cost controls are under Settings → AI/Advanced." : "Team members can use the simple Ask Leaf Diary AI helper; setup is owner-only.", steps: ownerOnly ? ["Open Settings.","Choose AI / Search Help.","Use AI Doctor only when troubleshooting."] : ["Open Ask Leaf Diary AI.","Ask the business question in plain English."] },
+        { test:/save|cloud|sync|backup|restore|supabase|other phone|other device|overwrite|lost data|data/i, page: ownerOnly ? "teamsync" : "quickstart", title: ownerOnly ? "Settings → Team Sync + Change Safety" : "Ask owner: Cloud / Backup", icon:"☁️", why:"Leaf Diary saves on the current device immediately, then cloud/team sync depends on the cloud settings. Other devices may need refresh or Load From Cloud.", steps:["Save happens locally first on the device you are using.","If Team Sync / Supabase is enabled, cloud save normally happens after a short delay or when you click Save Changes.","Another phone/computer usually needs refresh or Load From Cloud to see changes.","Two people editing the same plant/order can overwrite each other; finish one workflow before another person edits the same record."] },
+        { test:/setting|user|employee|permission|role|password|advanced|developer|release|health|app check|debug/i, page: ownerOnly ? "admin_ws" : "quickstart", title: ownerOnly ? "Settings → Advanced Owner Tools" : "Quick Start Guide", icon:"⚙️", why: ownerOnly ? "Owner-only setup, users, backup, AI, app health, and advanced repair tools live in Settings." : "Settings are owner-only, so team members should use the Quick Start guide or ask an owner.", steps: ownerOnly ? ["Open Settings.","Use the simple tabs first.","Only open Advanced when troubleshooting."] : ["Open Quick Start Guide.","Use the info button on the current page."] },
+        { test:/help|how|where|find|confused|lost|what page|where do i|how do i/i, page:"quickstart", title:"Quick Start Guide + page info button", icon:"🧭", why:"If you are not sure where to click, use Quick Start or the green info button in the header.", steps:["Click the green i button on any page.","Read the steps for that page.","Use the buttons inside the help card to jump to the right workflow."] },
+      ];
+      const hit = rules.find(r => r.test.test(q)) || rules[rules.length - 1];
+      return {
+        query: raw,
+        page: hit.page,
+        title: hit.title,
+        icon: hit.icon,
+        why: hit.why,
+        steps: hit.steps || [],
+        role,
+        canOpen: !(/^admin_ws$/.test(hit.page) && !ownerOnly) && !(/^money_ws$/.test(hit.page) && !managerPlus)
+      };
+    }
+
     function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {}, cloudControls = {}, themeMode = "light", onToggleTheme }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const [addOpen, setAddOpen] = useState(false);
@@ -4960,6 +5019,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const [menuSearch, setMenuSearch] = useState("");
       const [headerSearch, setHeaderSearch] = useState("");
       const [headerSearchOpen, setHeaderSearchOpen] = useState(false);
+      const [appSearchHelp, setAppSearchHelp] = useState(null);
       const headerSearchRef = useRef(null);
       const headerSearchInputRef = useRef(null);
       const role = user?.role || "employee";
@@ -5033,13 +5093,18 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {[10,18,26,34,42].map((x,i)=><rect key={"t"+i} x={x} y="5" width="3" height="7" rx="1.5" fill="#97d33e"/>)}
         {[10,18,26,34,42].map((x,i)=><rect key={"b"+i} x={x} y="52" width="3" height="7" rx="1.5" fill="#97d33e"/>)}
       </svg>;
-      // Pink + menu is reserved for cloud / backup controls only.
+      // Cloud controls are shown in the header strip and owner AI menu.
       const quickAdd = [];
       const toolMatchesSearch = t => !menuSearch || (t.l + " " + t.group + " " + t.id).toLowerCase().includes(menuSearch.toLowerCase());
       const menuGroups = (simpleMode && !menuSearch)
         ? LD_V121_SIMPLE_GROUPS.map(g => ({ group:g.group, items:g.ids.map(id => tools.find(t => t.id === id)).filter(Boolean).filter(toolMatchesSearch) })).filter(g => g.items.length)
         : ["Today","Plants","Shows","Orders","Money","Settings","Marketing","Buy Smart","Add / Intake","Business"].map(g => ({ group:g, items:tools.filter(t => t.group === g && toolMatchesSearch(t)) })).filter(g => g.items.length);
       const headerSearchAliases = {
+        dataai: "ask ai ask leaf diary helper business copilot how do i where find page app help",
+        quickstart: "help training guide how to use app where do i find confused lost",
+        admin_ws: "settings cloud backup sync users ai advanced owner tools",
+        runshow: "run a show show workflow build show pull plants export whatnot palmstreet live show import results auction mode",
+        showcommand: "advanced show center old shows command center auction manager social ai content live import",
         plantcapture: "plant capture plant workflow add plants labels photo sprint scan barcode print label missing photos missing labels inventory intake",
         ollamadoctor: "ollama doctor ollama connection doctor local ai doctor local ai setup macbook ai macbook ollama cors origin blocked test ollama run doctor desktop preset llama model models",
         ollama: "ollama local ai setup local ai connector macbook ollama desktop ollama llama3 llama3.1 model test ollama",
@@ -5055,17 +5120,29 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         return [...allowedWorkspaces, ...toolItems].filter(item => { if (!item?.id || seen.has(item.id)) return false; seen.add(item.id); return true; });
       })();
       const headerSearchResults = (() => {
-        const q = headerSearch.trim().toLowerCase();
+        const typed = headerSearch.trim();
+        const q = typed.toLowerCase();
         if (!q) return [];
         const terms = q.split(/\s+/).filter(Boolean);
-        return headerSearchItems
+        const matches = headerSearchItems
           .filter(item => {
             const hay = `${item.title} ${item.sub} ${item.group} ${item.id} ${item.keywords || ""}`.toLowerCase();
             return terms.every(term => hay.includes(term));
           })
-          .slice(0, 10);
+          .slice(0, 9);
+        const guide = ldV125AppSearchAnswer(typed, role);
+        const askItem = { id:"__ask_app_help__", icon:"🤖", title:`Ask AI: ${typed}`, sub:`Suggested page: ${guide.title}`, group:"App Help", askQuery:typed };
+        return [askItem, ...matches.filter(m => m.id !== guide.page)].slice(0, 10);
       })();
       const openHeaderSearchResult = id => {
+        if (id === "__ask_app_help__") {
+          const answer = ldV125AppSearchAnswer(headerSearch, role);
+          setAppSearchHelp(answer);
+          setHeaderSearchOpen(false);
+          setHeaderSearch("");
+          try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(e) {}
+          return;
+        }
         setHeaderSearchOpen(false);
         setHeaderSearch("");
         try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(e) {}
@@ -5095,13 +5172,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           </button>
           <div className="ld-header-search" ref={headerSearchRef}>
             <span className="ld-header-search-icon">⌕</span>
-            <input ref={headerSearchInputRef} className="ld-header-search-input" value={headerSearch} onChange={e=>{ setHeaderSearch(e.target.value); setHeaderSearchOpen(!!e.target.value.trim()); }} onFocus={()=>{ if (headerSearch.trim()) setHeaderSearchOpen(true); }} onKeyDown={headerSearchKeyDown} placeholder="Search app..." aria-label="Search Leaf Diary pages and tools" />
+            <input ref={headerSearchInputRef} className="ld-header-search-input" value={headerSearch} onChange={e=>{ setHeaderSearch(e.target.value); setHeaderSearchOpen(!!e.target.value.trim()); }} onFocus={()=>{ if (headerSearch.trim()) setHeaderSearchOpen(true); }} onKeyDown={headerSearchKeyDown} placeholder="Search or ask AI..." aria-label="Search Leaf Diary pages, tools, and app help" />
             {headerSearch && <button className="ld-header-search-clear" onMouseDown={e=>e.preventDefault()} onClick={()=>{ setHeaderSearch(""); setHeaderSearchOpen(false); try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(err) {} }} aria-label="Clear search">×</button>}
             {headerSearchOpen && headerSearch.trim() && <div className="ld-header-search-results">
               {headerSearchResults.length ? headerSearchResults.map(item => <button key={item.id} className="ld-header-search-result" onMouseDown={e=>{ e.preventDefault(); openHeaderSearchResult(item.id); }} onClick={()=>openHeaderSearchResult(item.id)}>
                 <span style={{ fontSize:22, width:28, textAlign:"center", flexShrink:0 }}>{item.icon || "•"}</span>
                 <span style={{ minWidth:0 }}><span className="ld-header-search-result-title">{item.title}</span><span className="ld-header-search-result-sub">{item.sub || item.group}</span></span>
-              </button>) : <div className="ld-header-search-help">No matching tools found. Try photo, barcode, inventory, receipt, show, timecard, or ollama.</div>}
+              </button>) : <div className="ld-header-search-help">Type what you need, then choose Ask AI for a suggested page.</div>}
             </div>}
           </div>
           <Row gap={7} center style={{ flexShrink:0 }}>
@@ -5112,6 +5189,18 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             <button onClick={()=>{ setMenuOpen(p=>!p); setHeaderSearchOpen(false); }} aria-label="Open navigation menu" style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
           </Row>
         </div>
+
+        {appSearchHelp && <div style={{ position:"fixed", inset:0, zIndex:735, background:"rgba(0,0,0,.58)", display:"flex", alignItems:"flex-start", justifyContent:"center", padding:"72px 12px 16px" }} onClick={()=>setAppSearchHelp(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{ width:"min(620px,100%)", background:C.card, color:C.tx1, border:`2px solid ${C.g600}`, borderRadius:24, boxShadow:"0 28px 80px rgba(0,0,0,.55)", overflow:"hidden", fontFamily:F.body }}>
+            <div style={{ background:"#000", color:"#fff", padding:"17px 16px" }}><Row between center gap={10}><div><div style={{ fontSize:32 }}>{appSearchHelp.icon || "🤖"}</div><div style={{ fontFamily:F.display, fontSize:24, color:"#97d33e", fontWeight:950 }}>Ask AI found a page</div><div style={{ color:"rgba(255,255,255,.65)", fontSize:12, marginTop:3 }}>Question: {appSearchHelp.query || "Where do I go?"}</div></div><button onClick={()=>setAppSearchHelp(null)} style={{ background:"rgba(255,255,255,.12)", border:"1px solid rgba(255,255,255,.2)", color:"#fff", borderRadius:12, padding:"8px 11px", cursor:"pointer", fontWeight:900 }}>×</button></Row></div>
+            <div style={{ padding:16 }}>
+              <Card style={{ borderLeft:`6px solid ${C.g600}`, marginBottom:12 }}><div style={{ fontSize:12, color:C.tx3, fontWeight:950, textTransform:"uppercase", letterSpacing:.7 }}>Best place to go</div><div style={{ fontFamily:F.display, fontSize:24, color:C.g900, fontWeight:950, marginTop:3 }}>{appSearchHelp.title}</div><div style={{ color:C.tx3, fontSize:13, lineHeight:1.45, marginTop:6 }}>{appSearchHelp.why}</div></Card>
+              <div style={{ display:"grid", gap:8, marginBottom:14 }}>{safeArray(appSearchHelp.steps).map((step,i)=><div key={i} style={{ display:"flex", gap:9, alignItems:"flex-start", background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:10 }}><div style={{ width:25, height:25, borderRadius:999, background:"#000", color:"#97d33e", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, flexShrink:0 }}>{i+1}</div><div style={{ color:C.tx2, fontSize:13, lineHeight:1.35, fontWeight:750 }}>{step}</div></div>)}</div>
+              <Row gap={8} wrap><Btn onClick={()=>{ const pg = appSearchHelp.page || "quickstart"; setAppSearchHelp(null); openPage(pg); }}>{appSearchHelp.canOpen === false ? "Open safe guide" : "Open suggested page"}</Btn><Btn v="soft" onClick={()=>{ setAppSearchHelp(null); setPageHelpOpen(true); }}>Open page help</Btn><Btn v="outline" onClick={()=>setAppSearchHelp(null)}>Close</Btn></Row>
+              <div style={{ marginTop:12, color:C.tx3, fontSize:11, lineHeight:1.35 }}>This is a free built-in app guide. It does not spend AI credits and does not call the cloud gateway.</div>
+            </div>
+          </div>
+        </div>}
 
         {aiMenuOpen && <div style={{ position:"fixed", inset:0, zIndex:720, background:"rgba(0,0,0,.38)" }} onClick={()=>setAiMenuOpen(false)}>
           <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:55, right:8, width:"min(430px, calc(100vw - 16px))", maxHeight:"calc(100dvh - 82px)", overflowY:"auto", WebkitOverflowScrolling:"touch", background:"#050505", color:"#fff", border:"1px solid rgba(151,211,62,.42)", borderRadius:20, boxShadow:"0 24px 70px rgba(0,0,0,.58)", padding:"14px 14px 16px" }}>
@@ -5607,9 +5696,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"2. Advanced Plant Tools", items:[["Upload Invoice Photo","upload","📸","Add nursery purchases from photo"],["Add Plants Manually","manual","✏️","Quick one-plant entry"],["Fast Photo Sprint","photosprint","⚡","Scan barcode → take photo → next plant"],["Labels","labels","🏷️","Print labels for new plants"]] },
           { title:"3. Fix Problems", items:[["Scan Label + Add Photo","scanlabel","📷","Open a plant by barcode"],["Barcode QA + Backfill","barcodeqa","✅","Fix missing/duplicate barcodes"],["Saved Views","savedfilters","🔖","One-tap inventory filters"],["Plant Care","care","🩺","Quarantine and health notes"]] }
         ]},
-        shows_ws:{ icon:"🎪", title:"Shows", sub:"Everything before and during a live show.", hero:"Build show → fix export problems → pull plants → export → import results", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Need Photos",noPhoto.length,"before export"]], sections:[
-          { title:"1. Build + Prep", items:[["Build Show","showbuilder","🎪","Choose plants and export the show"],["Show Prep Pull List","showprep","🧺","Physically pull and stage plants"],["Discounts","discounts","🏷️","Clear slow plants"],["Bundles","bundles","🧺","Group plants to sell"]] },
-          { title:"2. Go Live + Finish", items:[["Live Show","liveshow","🎥","On-screen live mode"],["Import Show Sales","showimport","📥","Bring results into Orders"],["Social Center","social","📣","Promote show content"],["AI Content","content","✨","Captions and descriptions"]] }
+        shows_ws:{ icon:"🎪", title:"Shows", sub:"Everything before and during a live show.", hero:"Use Run a Show first: build → fix → pull → export → live → import results", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Need Photos",noPhoto.length,"before export"]], sections:[
+          { title:"1. Simple Show Workflow", items:[["Run a Show","runshow","🎪","One simple page for build, prep, export, live, auction mode, and import results"],["Show Prep Pull List","showprep","🧺","Physically pull and stage plants"]] },
+          { title:"2. Advanced Show Tools", items:[["Advanced Show Center","showcommand","🧭","Full show dashboard with auction manager and extra tabs"],["Build Show","showbuilder","🎪","Detailed show builder"],["Live Show","liveshow","🎥","On-screen live mode"],["Import Show Sales","showimport","📥","Bring results into Orders"]] },
+          { title:"3. Growth Tools", items:[["Discounts","discounts","🏷️","Clear slow plants"],["Bundles","bundles","🧺","Group plants to sell"],["Social Center","social","📣","Promote show content"],["AI Content","content","✨","Captions and descriptions"]] }
         ]},
         orders_ws:{ icon:"📦", title:"Orders", sub:"One workflow for everything after a sale.", hero:"Import sales → pack boxes → state docs → tracking → shipped", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Docs",casdCerts.length,"archived"],["Refunds","↩️","issues"]], sections:[
           { title:"1. Import + Review", items:[["Import Show Sales","showimport","📥","Upload Whatnot/Palmstreet sold CSV"],["Sold Review","ship","✅","Confirm buyer, employee, tips, and commissions"],["Buyers","customers","👥","Open buyer history"],["Repeat Buyers","retention","💚","VIP and repeat customer follow-up"]] },
@@ -5625,7 +5715,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Proof + Reports", items:[["Reports","reports","📈","Profit and sales reports"],["Cash Flow","cashflow","💵","Safe buy budget"],["Sell-Through","sellthru","📊","What sells fastest"],["Owner AI Brief","execai","🧠","Plain-English owner decisions"]] }
         ]},
         admin_ws:{ icon:"⚙️", title:"Settings", sub:"Owner setup, users, AI, backup, and advanced tools.", hero:"Daily users should not live here — this is for setup and rescue", color:"#b695ff", kpis:[["Users","👥","roles"],["Backups","💾","safety"],["AI","🩺","doctor"],["Advanced","🧪","hidden"]], sections:[
-          { title:"Core Setup", items:[["Business Settings","admin","⚙️","Users, roles, footer, fees, and setup"],["AI Doctor / Control Center","ollamadoctor","🩺","One AI setup screen"],["Backup / Release Center","releasecenter","🚀","Export backup and pre-upload checklist"],["App Checkup","appcheck","✅","Find broken data before live use"]] },
+          { title:"Core Setup", items:[["Team Sync + Change Safety","teamsync","☁️","Save, load, backup, and prevent overwrites"],["Business Settings","admin","⚙️","Users, roles, footer, fees, and setup"],["AI Doctor / Control Center","ollamadoctor","🩺","One AI setup screen"],["Backup / Release Center","releasecenter","🚀","Export backup and pre-upload checklist"],["App Checkup","appcheck","✅","Find broken data before live use"]] },
           { title:"Advanced Owner Tools", items:[["Owner Repair Tools","cleanup","🧹","Fix duplicates and storage issues"],["Audit Log","audit","🔍","Security and activity"],["Developer Testing","devtools","🧪","Diagnostics and test buttons"],["Quick Start Guide","quickstart","🧭","Training and guide"]] }
         ]},
       }[type || "today"];
@@ -6309,6 +6399,87 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        Bundles, Discounts, Social Center and AI Content tools.
        No database, Supabase schema, export, or import logic changes.
     ══════════════════════════════════════════════════════════ */
+
+    /* ══════════════════════════════════════════════════════════
+       V124R — RUN A SHOW WORKFLOW
+       One simple show workflow: build, fix blockers, pull plants,
+       export, go live, import results. Advanced tools are preserved.
+    ══════════════════════════════════════════════════════════ */
+    function RunShowWorkflow({ plants = [], setPlants, user, addAudit, settings = {}, setSettings, setPage }) {
+      const role = user?.role || "employee";
+      const canManage = role === "owner" || role === "manager";
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
+      const showCart = inStock.filter(p => p.showBuilder || p.inShow || p.addedToShow || p.showDraft);
+      const photoReady = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price));
+      const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
+      const noLabel = inStock.filter(p => !p.labelPrinted && !p.labelPrintedAt && !p.barcodePrintedAt);
+      const aging45 = inStock.filter(p => (dHeld(p.dateAdded) || 0) >= 45);
+      const premium = photoReady.filter(p => (+p.suggestedPrice || +p.listPrice || +p.price || 0) >= 50).sort((a,b)=>(+b.suggestedPrice||+b.listPrice||+b.price||0)-(+a.suggestedPrice||+a.listPrice||+a.price||0));
+      const sold7 = sold.filter(p => dateInLast(plantSaleDate(p), 7));
+      const showValue = (showCart.length ? showCart : photoReady.slice(0,60)).reduce((sum,p)=>sum+(+p.suggestedPrice || +p.listPrice || +p.price || 0),0);
+      const auctionSummary = (() => { try { return phase77BuildAuctionSummary({ plants, settings }); } catch(e) { return { active:[], overdue:[], endingSoon:[], slotsLeft:0 }; } })();
+      const blockers = [
+        { label:"Need Photos", value:noPhoto.length, page:"photosprint", color:noPhoto.length ? C.blue : C.g600, body:"Photo Sprint before export." },
+        { label:"Need Prices", value:noPrice.length, page:"inv", color:noPrice.length ? C.red : C.g600, body:"Set prices before show." },
+        { label:"Need Labels", value:noLabel.length, page:"labels", color:noLabel.length ? C.gold : C.g600, body:"Print labels before pulling." },
+        { label:"Aging 45+", value:aging45.length, page:"discounts", color:aging45.length ? C.amber : C.g600, body:"Move old plants into cash." }
+      ];
+      const quickBuild = () => {
+        if (!canManage) { setPage("showprep"); return; }
+        try {
+          const plan = phase7BuildShowPlan({ plants, platform:settings?.lastShowPlatform || "Whatnot", showType:"Balanced Profit Show", targetCount:60, targetRevenue:0, brief:"V124R Run a Show auto build" });
+          if (plan?.ok) {
+            const ids = new Set(plan.plantIds || []);
+            setPlants(prev => safeArray(prev).map(p => ids.has(p.id) || ids.has(p.plantId) || ids.has(p.plantCode) ? { ...p, showBuilder:true, showPlatform:settings?.lastShowPlatform || "Whatnot", showAddedAt:new Date().toISOString() } : p));
+            addAudit && addAudit({ action:`Run a Show auto-built ${ids.size} plants`, user:user?.name || "User", page:"Run a Show", details:"V124R simple show workflow" });
+          } else alert("Auto-build needs more plants with photos and prices. Use Photo Sprint and pricing first.");
+        } catch(e) { alert("Auto-build failed safely: " + (e?.message || e)); }
+      };
+      const Step = ({ n, icon, title, body, primary, page, color="#fb6392", alt, altPage }) => <Card style={{ borderLeft:`6px solid ${color}`, padding:16 }}>
+        <Row between center wrap gap={10}>
+          <div style={{ minWidth:0 }}><div style={{ fontSize:12, color:C.tx3, fontWeight:950, textTransform:"uppercase", letterSpacing:.7 }}>Step {n}</div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:950, lineHeight:1.08 }}>{icon} {title}</div><div style={{ fontSize:13, color:C.tx3, lineHeight:1.42, marginTop:5 }}>{body}</div></div>
+          <Row gap={8} wrap>{altPage && <Btn v="soft" sz="sm" onClick={()=> altPage === "auto" ? quickBuild() : setPage(altPage)}>{alt}</Btn>}<Btn sz="sm" onClick={()=> page === "auto" ? quickBuild() : setPage(page)}>{primary}</Btn></Row>
+        </Row>
+      </Card>;
+      const PlantLine = ({ p, idx }) => <div style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:10 }}>
+        <Row gap={9} center><div style={{ width:28, height:28, borderRadius:999, background:"#000", color:"#97d33e", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, fontSize:12 }}>{idx+1}</div><div style={{ flex:1, minWidth:0 }}><div style={{ fontWeight:950, color:C.g900, fontSize:13 }}>{p.plantId || p.plantCode || "Plant"} · {p.name || "Unnamed"}</div><div style={{ color:C.tx3, fontSize:11 }}>{p.potSize || ""} · {$(+p.suggestedPrice || +p.listPrice || +p.price || 0)}</div></div></Row>
+      </div>;
+      return <div className="ld-page ld-run-show" style={{ padding:"14px 14px 120px", background:C.bg, minHeight:"100vh", maxWidth:1180, margin:"0 auto" }}>
+        <Card style={{ background:"#000", color:"#fff", border:`2px solid #fb6392`, borderRadius:26, padding:18, marginBottom:12 }}>
+          <Row between center wrap gap={12}>
+            <div><div style={{ fontSize:40 }}>🎪</div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:950, color:"#fb6392", lineHeight:1 }}>Run a Show</div><div style={{ color:"rgba(255,255,255,.75)", fontSize:13, marginTop:5, maxWidth:720 }}>One simple workflow for Whatnot/Palmstreet: build, fix, pull, export, go live, then import results.</div></div>
+            <Row gap={8} wrap>{canManage && <Btn onClick={quickBuild}>🧠 Auto Build</Btn>}<Btn v="soft" onClick={()=>setPage("showprep")}>🧺 Pull List</Btn><Btn v="outline" onClick={()=>setPage("showcommand")}>Advanced</Btn></Row>
+          </Row>
+        </Card>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:12 }}>
+          <KPI label="Show Cart" value={showCart.length} sub="selected" color="#fb6392" />
+          <KPI label="Show Ready" value={photoReady.length} sub="photo + price" color={photoReady.length >= 30 ? C.g600 : C.amber} />
+          <KPI label="Est. Show Value" value={$(showValue)} sub="current list" color={C.gold} />
+          <KPI label="Sold 7 Days" value={sold7.length} sub="recent" color={C.blue} />
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.05fr) minmax(0,.95fr)", gap:12 }}>
+          <div style={{ display:"grid", gap:10 }}>
+            <Step n="1" icon="🎪" title="Build Show" body="Choose plants manually or auto-build from plants that already have photos and prices." primary={canManage ? "Build / Edit" : "View Pull List"} page={canManage ? "showbuilder" : "showprep"} alt={canManage ? "Auto Build" : null} altPage={canManage ? "auto" : null} color="#fb6392" />
+            <Step n="2" icon="🛡️" title="Fix Export Problems" body="Fix missing photos, missing labels, and missing prices before exporting to Whatnot or Palmstreet." primary="Fix Problems" page="plantcapture" alt="Inventory" altPage="inv" color={C.amber} />
+            <Step n="3" icon="🧺" title="Pull + Stage" body="Use the pull list to physically pull plants from racks/shelves and stage the live table." primary="Open Pull List" page="showprep" color={C.gold} />
+            <Step n="4" icon="📤" title="Export + Go Live" body="Export your show CSV, upload it to the platform, then use live mode or the platform app during the show." primary="Export Tool" page="showbuilder" alt="Live Mode" altPage="liveshow" color={C.g600} />
+            <Step n="5" icon="📥" title="Import Results" body="After the show, import Whatnot/Palmstreet sales so sold plants, customers, tips, and commissions are recorded." primary="Import Sales" page="showimport" alt="Orders" altPage="orders_ws" color={C.blue} />
+          </div>
+          <div style={{ display:"grid", gap:12 }}>
+            <Card style={{ borderTop:`5px solid ${blockers.some(b=>b.value)?C.amber:C.g600}` }}>
+              <div style={{ fontFamily:F.display, fontSize:20, fontWeight:950, color:C.g900 }}>Show Readiness</div><div style={{ color:C.tx3, fontSize:12, marginTop:3 }}>Fix these before exporting.</div>
+              <div style={{ display:"grid", gap:8, marginTop:12 }}>{blockers.map(b => <button key={b.label} onClick={()=>setPage(b.page)} style={{ background:C.cardAlt, border:`1px solid ${b.color}55`, borderLeft:`5px solid ${b.color}`, borderRadius:15, padding:11, textAlign:"left", cursor:"pointer", fontFamily:F.body }}><Row between center gap={8}><div><div style={{ fontWeight:950, color:C.g900 }}>{b.label}</div><div style={{ fontSize:11, color:C.tx3 }}>{b.body}</div></div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:950, color:b.color }}>{b.value}</div></Row></button>)}</div>
+            </Card>
+            <Card><Row between center wrap gap={8} style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:950, color:C.g900 }}>Current Show Preview</div><div style={{ color:C.tx3, fontSize:12 }}>{showCart.length ? "Plants currently selected for the show." : "No cart yet — showing best premium-ready plants."}</div></div><Btn sz="sm" v="soft" onClick={()=>setPage("showbuilder")}>Open Builder</Btn></Row><div style={{ display:"grid", gap:7 }}>{(showCart.length ? showCart : premium.slice(0,8)).slice(0,8).map((p,i)=><PlantLine key={(p.id||p.plantId||p.name)+i} p={p} idx={i}/>) || null}{!(showCart.length || premium.length) && <div style={{ padding:18, border:`1px dashed ${C.bd}`, borderRadius:16, color:C.tx3, fontSize:13 }}>No show-ready plants yet. Start with Plant Capture to add photos and prices.</div>}</div></Card>
+            <Card style={{ background:C.cardAlt }}><div style={{ fontFamily:F.display, fontSize:19, fontWeight:950, color:C.g900 }}>Auction Mode</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:4 }}>{auctionSummary.active.length} active · {auctionSummary.overdue.length} need close · {auctionSummary.slotsLeft}/{typeof AUCTION_DAILY_LIMIT !== "undefined" ? AUCTION_DAILY_LIMIT : 10} slots left.</div><Row gap={8} wrap style={{ marginTop:10 }}><Btn sz="sm" v="soft" onClick={()=>setPage("showcommand")}>Open Auction Manager</Btn><Btn sz="sm" v="outline" onClick={()=>setPage("discounts")}>Discounts</Btn></Row></Card>
+          </div>
+        </div>
+        <style>{`@media(max-width:760px){.ld-run-show div[style*="grid-template-columns:repeat(4,1fr)"],.ld-run-show div[style*="grid-template-columns:minmax(0,1.05fr)"]{grid-template-columns:1fr!important}.ld-run-show button{min-height:46px}}`}</style>
+      </div>;
+    }
+
     function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = {}, setSettings, users = [], phase3Config, phase4Routes, setPage }) {
       const [tab, setTab] = useState("overview");
       const [platform, setPlatform] = useState(settings?.lastShowPlatform || "Whatnot");
@@ -14074,6 +14245,73 @@ Cancel keeps this local/free.`);
        SETTINGS WORKFLOW — owner-friendly admin cleanup
        Presentation layer only. Keeps existing AdminPanel / Audit / AI tools.
     ══════════════════════════════════════════════════════════ */
+
+
+    /* ══════════════════════════════════════════════════════════
+       V126R — TEAM SYNC + CHANGE SAFETY CENTER
+       Owner-only clear workflow for cloud save/load, backups, and overwrite prevention.
+       This is guidance + existing safe actions only; it does not change sync engine logic.
+    ══════════════════════════════════════════════════════════ */
+    function TeamSyncSafetyCenter({ cloudStatus = "", cloudMsg = "", pendingSyncCount = 0, cloudSafeMode = false, teamSafeSync = false, syncConflict = false, onSave, onLoad, onBackup, onSnapshot, onHealth, onTestCloud, onToggleTeamSync, onToggleSafeMode, onForceSave, setPage, user }) {
+      const status = String(cloudStatus || "unknown");
+      const statusColor = status === "synced" ? C.g600 : status === "safe" ? C.blue : status === "syncing" || status === "loading" ? C.gold : C.amber;
+      const statusLabel = status === "synced" ? "Cloud synced" : status === "safe" ? "Safe Mode / local only" : status === "syncing" ? "Syncing" : status === "loading" ? "Loading" : "Needs check";
+      const risky = !!pendingSyncCount || !!syncConflict || status === "offline";
+      const ruleCards = [
+        ["1", "Before another device works", "Tap Save Changes on this device, then Load From Cloud on the other phone/computer."],
+        ["2", "Before big imports", "Export Backup first. Then import sales, shipment data, receipts, or inventory."],
+        ["3", "Before replacing index.html", "Backup + App Checkup + Release Center. Do not upload a new HTML while pending sync is not zero."],
+        ["4", "If two people edit the same record", "The last saved version can win. Assign one person per plant/order/customer at a time."]
+      ];
+      return <div className="ld-page" style={{ padding:"16px 14px 116px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
+        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #68d8ff", boxShadow:"0 14px 44px rgba(0,0,0,.2)", marginBottom:14 }}>
+          <Row between center wrap gap={12}>
+            <div><div style={{ fontSize:40 }}>☁️</div><div style={{ fontFamily:F.display, fontSize:30, color:"#68d8ff", fontWeight:950, marginTop:4 }}>Team Sync + Change Safety</div><div style={{ color:"rgba(255,255,255,.74)", fontSize:13, marginTop:4, lineHeight:1.45 }}>Use this page when you need to know if changes are saved, when another phone will see them, and how to avoid overwriting team data.</div></div>
+            <Row gap={8} wrap><button onClick={onSave} style={{ background:"#97d33e", color:"#000", border:0, borderRadius:999, padding:"12px 15px", fontWeight:950, cursor:"pointer" }}>💾 Save Changes</button><button onClick={onLoad} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>⬇️ Load From Cloud</button><button onClick={onBackup} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📥 Backup</button></Row>
+          </Row>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:12 }}>
+          <KPI label="Cloud Status" value={statusLabel} sub={cloudMsg ? String(cloudMsg).slice(0,54) : "Current sync state"} color={statusColor} />
+          <KPI label="Pending Sync" value={pendingSyncCount || 0} sub="changed records waiting" color={pendingSyncCount ? C.gold : C.g600} />
+          <KPI label="Team Sync" value={teamSafeSync ? "ON" : "OFF"} sub={teamSafeSync ? "changed records queue" : "manual save only"} color={teamSafeSync ? C.g600 : C.amber} />
+          <KPI label="Conflict Risk" value={risky ? "Check" : "Low"} sub={syncConflict ? "merge/conflict warning" : "one editor per record"} color={risky ? C.red : C.g600} />
+        </div>
+
+        <Card style={{ borderLeft:`6px solid ${risky ? C.red : C.g600}`, marginBottom:12 }}>
+          <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:23, fontWeight:950, color:C.g900 }}>{risky ? "Save/check before the team continues" : "Safe to continue"}</div><div style={{ color:C.tx3, fontSize:13, marginTop:4, lineHeight:1.5 }}>Local save happens immediately on the device being used. Cloud/team sync is separate. Other devices normally need Refresh or Load From Cloud to see the newest data.</div></div><Tag text={risky ? "Review needed" : "OK"} color={risky ? C.red : C.g600} /></Row>
+        </Card>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1.05fr .95fr", gap:12, marginBottom:12 }}>
+          <Card>
+            <div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:950, marginBottom:10 }}>Simple team rule</div>
+            <div style={{ display:"grid", gap:9 }}>{ruleCards.map(([num,title,body]) => <div key={num} style={{ display:"grid", gridTemplateColumns:"38px 1fr", gap:10, alignItems:"start", padding:10, border:`1px solid ${C.bdS}`, borderRadius:14, background:C.cardAlt }}><div style={{ width:34, height:34, borderRadius:999, background:C.g600, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950 }}>{num}</div><div><div style={{ fontWeight:950, color:C.g900 }}>{title}</div><div style={{ fontSize:12, color:C.tx3, lineHeight:1.4, marginTop:2 }}>{body}</div></div></div>)}</div>
+          </Card>
+          <Card>
+            <div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:950, marginBottom:10 }}>Actions</div>
+            <div style={{ display:"grid", gap:8 }}>
+              <Btn onClick={onSave}>💾 Save Changes Now</Btn>
+              <Btn v="soft" onClick={onLoad}>⬇️ Load Latest From Cloud</Btn>
+              <Btn v="soft" onClick={onBackup}>📥 Export Full Backup</Btn>
+              <Btn v="outline" onClick={onSnapshot}>🧯 Safety Snapshot</Btn>
+              <Btn v="outline" onClick={onHealth}>🩺 Download Health Report</Btn>
+              <Btn v="outline" onClick={onTestCloud}>🧪 Test Supabase Cloud</Btn>
+              <Row gap={8} wrap><Btn sz="sm" v="soft" onClick={onToggleTeamSync}>{teamSafeSync ? "👥 Turn Team Sync OFF" : "👥 Turn Team Sync ON"}</Btn><Btn sz="sm" v="soft" onClick={onToggleSafeMode}>{cloudSafeMode ? "🛡️ Turn Safe Mode OFF" : "🛡️ Safe Mode / Local Only"}</Btn></Row>
+              <Btn v="danger" onClick={onForceSave}>⚠️ Owner Force Save</Btn>
+            </div>
+          </Card>
+        </div>
+
+        <Card style={{ background:C.g50, border:`1px solid ${C.g200}`, marginBottom:12 }}>
+          <div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:950, marginBottom:6 }}>When will the phone see laptop changes?</div>
+          <div style={{ color:C.tx2, fontSize:13, lineHeight:1.55 }}>After you save on the laptop and the cloud sync completes, the phone should refresh or tap <b>Load From Cloud</b>. Do not assume another device sees the change instantly. For shipping, receipts, show imports, and inventory edits, finish one workflow, save, then have the other device load.</div>
+        </Card>
+
+        <Row gap={8} wrap><Btn onClick={()=>setPage("admin_ws")}>Back to Settings</Btn><Btn v="soft" onClick={()=>setPage("appcheck")}>Open App Checkup</Btn><Btn v="soft" onClick={()=>setPage("releasecenter")}>Open Release Center</Btn></Row>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns:1.05fr .95fr"]{grid-template-columns:1fr!important;}}`}</style>
+      </div>;
+    }
+
     function SettingsWorkflow({ users = [], settings = {}, plants = [], expenses = [], bills = [], timecards = [], receipts = [], casdCerts = [], auditLog = [], user, setPage, cloudStatus = "", cloudMsg = "" }) {
       const [tab, setTab] = useState("account");
       const isOwner = user?.role === "owner";
@@ -14097,11 +14335,11 @@ Cancel keeps this local/free.`);
       const tabs = [
         { id:"account", icon:"🏢", label:"Account", sub:"Business profile and app basics" },
         { id:"team", icon:"👥", label:"Team", sub:"Employees, roles, permissions" },
-        { id:"data", icon:"💾", label:"Data", sub:"Backups, cleanup, import history" },
+        { id:"data", icon:"☁️", label:"Cloud + Backup", sub:"Sync, backups, restore, cleanup" },
         { id:"paperwork", icon:"📜", label:"Paperwork", sub:"Certifications and state docs" },
-        { id:"ai", icon:"🧠", label:"AI Setup", sub:"AI tools and cost control" },
+        { id:"ai", icon:"🤖", label:"AI / Search Help", sub:"Ask AI, Doctor, cost control" },
         { id:"security", icon:"🔍", label:"Security", sub:"Audit log and login history" },
-        { id:"developer", icon:"🧪", label:"Developer Tools", sub:"Testing and repair tools" },
+        { id:"developer", icon:"🔒", label:"Advanced", sub:"Developer, repair, old tools" },
       ];
       const open = id => setPage(id);
       const SettingsCard = ({ icon, title, body, button, page, color = C.g600, locked, children }) => <Card style={{ padding:16, borderLeft:`5px solid ${color}`, opacity:locked ? .55 : 1 }}>
@@ -14130,7 +14368,7 @@ Cancel keeps this local/free.`);
             <div>
               <div style={{ fontSize:42, lineHeight:1 }}>⚙️</div>
               <div style={{ fontFamily:F.display, fontSize:30, color:"#b695ff", fontWeight:900, marginTop:5 }}>Settings</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Owner-only controls for account, team, data, paperwork, AI, security, and developer tools.</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Owner-only controls are grouped into simple sections. Daily users should not need Advanced.</div>
             </div>
             <Row gap={8} wrap>
               <button onClick={()=>open("releasecenter")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🚀 Final Check</button>
@@ -14141,7 +14379,7 @@ Cancel keeps this local/free.`);
             </Row>
           </Row>
           <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
-            Technical tools are still here, but they are hidden behind clear owner sections so employees and daily users are not confused.
+            Daily work should happen in Today, Plants, Shows, Orders, and Money. Settings now keeps cloud, AI, backup, and advanced repair tools separated so the team is not confused.
           </div>
         </div>
 
@@ -14183,6 +14421,9 @@ Cancel keeps this local/free.`);
         </div>}
 
         {tab === "data" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
+          <Card style={{ gridColumn:"1 / -1", borderLeft:`6px solid ${cloudStatus === "synced" ? C.g600 : C.blue}` }}>
+            <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:950 }}>☁️ How Cloud Save Works</div><div style={{ color:C.tx3, fontSize:13, lineHeight:1.45, marginTop:5 }}>Changes save on the device immediately. If Team Sync/Supabase is enabled, they upload shortly after or when you tap Save Changes. Other phones/computers usually need refresh or Load From Cloud to see the latest version. Two people editing the same plant/order at the same time can overwrite each other, so finish one workflow before someone else edits the same record.</div></div><Tag text={cloudWord} color={cloudStatus === "synced" ? C.g600 : C.amber} /></Row>
+          </Card>
           <SettingsCard icon="💾" title="Backup / Restore" body="Use the black + owner menu for backup and restore. This section keeps the main app cleaner." page="admin" button="Open Data Settings" color={C.blue} />
           <SettingsCard icon="🧹" title="Owner Repair Tools" body={`${duplicateGroups.length} duplicate Plant ID group(s), ${missingPrice.length} missing prices, ${missingPhoto.length} missing photos. Fix data problems before imports and exports.`} page="cleanup" button="Open Repair Tools" color={(duplicateGroups.length || missingPrice.length || missingPhoto.length) ? C.amber : C.g600} />
           <SettingsCard icon="📋" title="Receipt / Invoice Archive" body="View past invoices and receipts so purchases stay traceable." page="history" button="Open Archive" color={C.g600} />
@@ -23984,15 +24225,19 @@ ${local.summary || "Fallback completed."}`;
         <BackBreadcrumbBar page={page} navHistory={navHistory} goBack={goBack} goTo={navigate} goCrumb={goCrumb} />
         <NextStepBanner nextStep={nextStep} setPage={navigate} onDismiss={() => setNextStep(null)} />
 
-        {/* Cloud sync indicator strip — compact status only. Controls moved into pink + menu. */}
-        <div style={{ background: "#000", padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", borderTop:"1px solid rgba(151,211,62,.22)", borderBottom:"1px solid rgba(151,211,62,.22)" }}>
-          <div title={cloudMsg} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: cloudDot }} />
-            <span style={{ fontSize: 11, color: "rgba(255,255,255,.72)", fontWeight: 600 }}>{cloudLabel}</span>
+        {/* V125R Cloud sync strip — visible daily controls, no old pink + menu reference. */}
+        <div style={{ background: "#000", padding: "7px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", borderTop:"1px solid rgba(151,211,62,.22)", borderBottom:"1px solid rgba(151,211,62,.22)" }}>
+          <div title={cloudMsg} style={{ display: "flex", alignItems: "center", gap: 6, minWidth:0 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: cloudDot, flexShrink:0 }} />
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,.72)", fontWeight: 700, lineHeight:1.25 }}>{cloudLabel}</span>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             {saveMsg && <span style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{saveMsg}</span>}
-            <span style={{ fontSize: 11, color: "rgba(255,255,255,.55)", fontWeight: 700 }}>Cloud controls are in the pink + menu</span>
+            <button onClick={() => flushTeamSync({ force:false })} style={{ background:"rgba(151,211,62,.18)", color:"#97d33e", border:"1px solid rgba(151,211,62,.42)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>💾 Save</button>
+            <button onClick={() => loadFromCloud({ force:true })} style={{ background:"rgba(255,255,255,.08)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>⬇️ Load</button>
+            <button onClick={exportBackup} style={{ background:"rgba(255,255,255,.08)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>📥 Backup</button>
+            {user?.role === "owner" && <button onClick={() => navigate("teamsync")} style={{ background:"rgba(104,216,255,.12)", color:"#68d8ff", border:"1px solid rgba(104,216,255,.35)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>☁️ Sync Help</button>}
+            <span style={{ fontSize: 10, color: "rgba(255,255,255,.5)", fontWeight: 700 }}>Local saves now · cloud needs sync/refresh</span>
             <input ref={backupRef} type="file" accept=".json" style={{ display: "none" }} onChange={e => importBackup(e.target.files[0])} />
           </div>
         </div>
@@ -24005,13 +24250,16 @@ ${local.summary || "Fallback completed."}`;
           {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "plantcapture" && <PlantCaptureWorkflow plants={plants} user={user} setPage={navigate} />}
           {page === "intake_ws" && <IntakeWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} setNurseries={setNurseries} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
-          {page === "shows_ws" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
+          {page === "shows_ws" && <RunShowWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
+          {page === "runshow" && <RunShowWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
+          {page === "showcommand" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
           {page === "showprep" && <ShowPrepPullList plants={plants} user={user} setPage={navigate} />}
           {page === "packorders" && <OrderPackingBoard plants={plants} user={user} setPage={navigate} casdCerts={casdCerts} />}
           {page === "orders_ws" && <OrdersWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} users={users} settings={settings} setSettings={setSettings} refunds={refunds} setRefunds={setRefunds} casdCerts={casdCerts} setCasdCerts={setCasdCerts} setPage={navigate} />}
           {page === "money_ws" && <MoneyCommandCenter plants={plants} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} timecards={timecards} setTimecards={setTimecards} receipts={expenseReceipts} setReceipts={setExpenseReceipts} users={users} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
           {page === "admin_ws" && user.role === "owner" && <SettingsWorkflow users={users} settings={settings} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} auditLog={auditLog} user={user} setPage={navigate} cloudStatus={cloudStatus} cloudMsg={cloudMsg} />}
+          {page === "teamsync" && user.role === "owner" && <TeamSyncSafetyCenter user={user} cloudStatus={cloudStatus} cloudMsg={cloudMsg} pendingSyncCount={pendingSyncCount} cloudSafeMode={cloudSafeMode} teamSafeSync={teamSafeSync} syncConflict={syncConflict} onSave={() => flushTeamSync({ force:false })} onLoad={() => loadFromCloud({ force:true })} onBackup={exportBackup} onSnapshot={() => makePhase1Snapshot("manual_from_team_sync_center")} onHealth={downloadPhase1Health} onTestCloud={async () => { try { setCloudStatus("loading"); setCloudMsg("Testing Supabase connection..."); await cloudRequest("plants?select=id&limit=1", { method: "GET" }); setCloudStatus("synced"); setCloudMsg("Supabase test passed"); alert("Supabase test passed. Cloud connection is working."); } catch (err) { const msg = err && err.message ? err.message : String(err); setCloudStatus("offline"); setCloudMsg("Supabase test failed: " + msg); alert("Supabase test failed: " + msg); } }} onToggleTeamSync={() => setTeamSafeSync(!teamSafeSync)} onToggleSafeMode={() => setCloudSafeMode(!cloudSafeMode)} onForceSave={() => saveAllToCloud({ force:true })} setPage={navigate} />}
           {page === "dash" && user.role !== "employee" && <OwnerDash plants={plants} expenses={expenses} timecards={timecards} bills={bills} setPage={navigate} />}
           {page === "command" && user.role === "owner" && <OwnerCommandCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} nurseries={nurseries} receipts={expenseReceipts} users={users} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "execai" && user.role === "owner" && <Phase6ExecutiveCommandCenter appData={buildCurrentAppData()} user={user} settings={settings} setSettings={setSettings} addAudit={addAudit} setPage={navigate} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
