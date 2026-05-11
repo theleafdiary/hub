@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -1674,6 +1673,18 @@
   <div id="root"></div>
   <script type="text/babel">
     /* V106 STEP 1 CLEANUP: removed appended patcher UI, preserved working AI gateway, fixed Local AI model display, disabled heavy archive popup. */
+    /* UPDATE 108 AI MARKET WEB SEARCH PAYLOAD
+       - Adds structured web-search instructions for plant pricing research.
+       - Keeps existing working AI gateway endpoint/model/token untouched.
+       - Does not auto-run paid research; owner/manager click only.
+    */
+    /* UPDATE 107 AI CONTROL CENTER CONSOLIDATION
+       - Makes AI Doctor / Control Center the main setup screen.
+       - Hides advanced Local/Gateway/Routing screens from normal navigation while preserving routes.
+       - Keeps the working leaf-diary-ai-gateway endpoint and gpt-oss:20b model locked.
+    */
+
+    /* V110E CLEAN CDN RESCUE — removes document.write CDN fallbacks to prevent cold-start script token errors. */
     /* UPDATE 103 AI CENTER STABILITY PATCH
        - Prevents stale browser/runtime references to lowercase instock from white-screening the app.
        - Keeps AI Center related-page navigation inside safe routes.
@@ -2105,11 +2116,13 @@
         enabled: saved.enabled !== false,
         discountPctBelowMarket: Math.min(.10, Math.max(.05, +discountPctBelowMarket || .07)),
         minMarginPct: Math.min(95, Math.max(1, +minMarginPct || 55)),
-        maxCostPerLookup: +saved.maxCostPerLookup || .01,
-        cacheHours: +saved.cacheHours || 24,
+        maxCostPerLookup: +saved.maxCostPerLookup || .02,
+        cacheHours: +saved.cacheHours || 336,
+        bulkBatchLimit: Math.min(30, Math.max(1, +saved.bulkBatchLimit || 30)),
+        uniqueGroupFirst: saved.uniqueGroupFirst !== false,
         requirePhoto: saved.requirePhoto === true,
         showSourceList: saved.showSourceList !== false,
-        batchRateLimit: +saved.batchRateLimit || 5000,
+        batchRateLimit: +saved.batchRateLimit || 1000,
         ownerApprovalRequired: saved.ownerApprovalRequired !== false,
         allowManagerResearch: saved.allowManagerResearch !== false,
         noNewPricingPage: true
@@ -2313,6 +2326,59 @@ RETURN FORMAT — return ONLY this JSON object, no other text:
 
 If you cannot find enough exact-size data, return the exact/close sources you found, mark the rest mismatch/unknown, lower confidenceScore, and explain the size limitation in confidenceNote. Do not invent prices. Only report prices you actually found in search results.`;
     }
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 108 — MARKET PRICING WEB SEARCH PAYLOAD
+       The HTML app now sends clear, structured search instructions to
+       the Cloudflare gateway. The Worker can use these with Tavily.
+       This is still manual click-only and respects Cost Guard.
+    ══════════════════════════════════════════════════════════ */
+    function phase108CleanSearchName(value = "") {
+      return String(value || "").replace(/\s+/g, " ").replace(/[^a-zA-Z0-9 \-\"'.]/g, "").trim();
+    }
+    function phase108MarketSearchQueries(plant = {}, settings = {}) {
+      const name = phase108CleanSearchName(plant.name || plant.botanicalName || "");
+      const pot = phase92NormalizePotSize(plant.potSize || plant.size || plant.containerSize || '4 inch').label || "4 inch";
+      const year = new Date().getFullYear();
+      if (!name) return [];
+      const base = `${name} ${pot}`.trim();
+      const alt = /carmel marble/i.test(name) ? phase108CleanSearchName(name.replace(/carmel/ig, "Caramel")) : /caramel marble/i.test(name) ? phase108CleanSearchName(name.replace(/caramel/ig, "Carmel")) : "";
+      const q = [
+        { source:"whatnot", type:"sold_or_completed", weight:.30, query:`${base} Whatnot sold completed plant price` },
+        { source:"palmstreet", type:"active_listing", weight:.25, query:`${base} Palmstreet plant price listing` },
+        { source:"etsy", type:"sold_or_current", weight:.20, query:`${base} plant Etsy sold price` },
+        { source:"ebay", type:"sold_or_completed", weight:.15, query:`${base} houseplant eBay sold completed price` },
+        { source:"general_web", type:"current_retail", weight:.10, query:`buy ${base} online ${year} price plant nursery` }
+      ];
+      if (alt) {
+        const altBase = `${alt} ${pot}`.trim();
+        q.push({ source:"alternate_spelling", type:"current_or_sold", weight:.05, query:`${altBase} plant price sold listing` });
+      }
+      return q;
+    }
+    function phase108BuildMarketWebSearchPayload(plant = {}, settings = {}) {
+      let gatewayCfg = {};
+      try { gatewayCfg = phase61ReadConfig ? phase61ReadConfig() : {}; } catch(e) { gatewayCfg = {}; }
+      const queries = phase108MarketSearchQueries(plant, settings);
+      return {
+        enabled:true,
+        required:true,
+        provider:"tavily",
+        route:"pricing",
+        purpose:"plant_market_pricing",
+        queryLimit: Math.max(1, Math.min(6, +gatewayCfg.marketSearchQueryLimit || 5)),
+        maxResultsPerQuery: Math.max(1, Math.min(8, +gatewayCfg.marketSearchMaxResults || 4)),
+        depth: gatewayCfg.marketSearchDepth || "basic",
+        requestedDataPoints:20,
+        preferSoldPrices:true,
+        maxListingAgeDays:90,
+        strictPotSize:true,
+        excludeTerms:["seed", "seeds", "corm", "node", "cutting", "unrooted", "tissue culture", "tc", "damaged", "diseased"],
+        sources:["Whatnot", "Palmstreet", "Etsy", "eBay", "General Web"],
+        queries,
+        instructions:"Use Tavily/web search before answering. Return JSON only. Do not invent prices. If search is unavailable, return dataSources: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and marketNotes explaining WEB_SEARCH_NOT_AVAILABLE."
+      };
+    }
+
     function calcAIMarketPrice(plant = {}, marketDataRaw = {}, settings = {}, allPlants = []) {
       const cfg = phase83MarketPricingSettings(settings);
       const marketData = phase83NormalizeMarketData(marketDataRaw);
@@ -2429,7 +2495,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       } else if (src.includes("gateway_disabled")) {
         title = "Gateway is disabled or not configured";
         body = r.priceReason || "The app used the local profit-safe preview because the Gateway endpoint/settings are not active.";
-        fixes = ["Open Mobile AI Gateway / AI Settings and restore the working Gateway settings.", "Confirm endpoint is leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai and connection mode is Gateway."];
+        fixes = ["Open Cloud AI Gateway / AI Settings and restore the working Gateway settings.", "Confirm endpoint is leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai and connection mode is Gateway."];
       } else if (src.includes("json_parse")) {
         title = "Gateway answered, but did not return usable marketplace JSON";
         body = "The model likely gave a paragraph, refused to browse, or returned no live source prices. The app requires structured JSON with dataSources and marketMedianPrice before it will trust the price.";
@@ -2855,7 +2921,15 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       if (!canAffordLookup) return { ...phase83BuildFallbackMarketResult(normalizedPlant, settings, allPlants, `Cost guard blocked lookup. Estimated ${$(estimatedCost)} is above max ${$(marketCfg.maxCostPerLookup)}.`), source:"cost_guard_fallback", gatewayError:"per_lookup_cost_guard" };
       if (typeof phase61ShouldUseGateway === "function" && !phase61ShouldUseGateway(gatewayCfg)) return { ...phase85BuildLocalMarketPreview(normalizedPlant, settings, allPlants), source:"gateway_disabled_fallback", priceReason:"Gateway is disabled or missing endpoint. Local profit-safe preview used instead." };
       const prompt = buildMarketPricePrompt(normalizedPlant, settings);
-      const routeDef = { label:"Market Price Research", task:"market_price_lookup", financials:"owner_manager", requireWebSearch:true };
+      const marketWebSearch = phase108BuildMarketWebSearchPayload(normalizedPlant, settings);
+      const routeDef = {
+        label:"Market Price Research",
+        task:"market_price_lookup",
+        financials:"owner_manager",
+        requireWebSearch:true,
+        webSearch:marketWebSearch,
+        searchQueries:marketWebSearch.queries
+      };
       try {
         const report = await phase61CallGateway({
           question:prompt,
@@ -2864,7 +2938,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           appData:{ plants:[], expenses:[], bills:[], timecards:[], expenseReceipts:[] },
           user,
           model:gatewayCfg.model,
-          extraPrompt:`Context: research only this plant. Cost ${$(normalizedPlant.cost)}. Minimum margin ${marketCfg.minMarginPct}%. Return JSON only.`,
+          extraPrompt:`Context: research only this plant. Cost ${$(normalizedPlant.cost)}. Minimum margin ${marketCfg.minMarginPct}%. WEB_SEARCH_REQUIRED=true. Use the attached webSearch/searchQueries payload. Return JSON only.`,
           cfg:gatewayCfg
         });
         if (!report?.ok) {
@@ -2889,9 +2963,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const sample = { id:"qa-86", plantId:"QA-086", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock" };
       const fallback = phase83BuildFallbackMarketResult(sample, settings, [sample], "QA fallback test");
       const checks = [
-        { id:"mp86-runner", icon:"🌐", title:"Gateway Research Runner", pass: typeof runMarketPriceResearch === "function", reason:"Owner/manager clicked market research can call the Mobile AI Gateway through the pricing route.", page:"aihub", severity:"critical" },
+        { id:"mp86-runner", icon:"🌐", title:"Gateway Research Runner", pass: typeof runMarketPriceResearch === "function", reason:"Owner/manager clicked market research can call the Cloud AI Gateway through the pricing route.", page:"aihub", severity:"critical" },
         { id:"mp86-json-parser", icon:"{}", title:"JSON Parser Guard", pass: !!parsed && +parsed.marketMedianPrice === 24.5, reason:"Gateway answers can be parsed even when wrapped in JSON code fences.", page:"phase2qa", severity:"critical" },
         { id:"mp86-cost-guard", icon:"🛡️", title:"Per-Lookup Cost Guard", pass: cfg.estimatedCost <= (+cfg.marketCfg.maxCostPerLookup || .01), reason:`Estimated pricing lookup cost ${$(cfg.estimatedCost)} stays under max ${$(cfg.marketCfg.maxCostPerLookup)}.`, page:"aihub", severity:"critical" },
+        { id:"mp108-web-search-payload", icon:"🌐", title:"Pricing Web Search Payload", pass: typeof phase108BuildMarketWebSearchPayload === "function" && safeArray(phase108BuildMarketWebSearchPayload(sample, settings).queries).length >= 5, reason:"Market pricing sends structured Whatnot, Palmstreet, Etsy, eBay, and general web search queries to the gateway for Tavily/web search.", page:"aihub", severity:"critical" },
         { id:"mp86-role-guard", icon:"🔐", title:"Owner/Manager Only", pass: phase85CanResearchMarket(owner, settings) && !phase85CanResearchMarket(employee, settings), reason:"Employees cannot trigger live market research or apply AI prices.", page:"admin", severity:"critical" },
         { id:"mp86-fallback", icon:"🛟", title:"Fallback Price Safety", pass: !!fallback && +fallback.suggestedPrice > 0 && ["fallback","low_confidence","at_floor","competitive","margin_risk"].includes(fallback.priceStatus), reason:"If Gateway/JSON fails, the app falls back to internal PPS/sprice logic instead of crashing.", page:"manual", severity:"critical" },
       ];
@@ -4566,12 +4641,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"quickstart", icon:"🧭", l:"Quick Start Guide", group:"Settings", roles:["owner","manager","employee"] },
       { id:"workflowcoach", icon:"🧩", l:"Next Step Coach", group:"Today", roles:["owner","manager","employee"] },
       { id:"employeeboard", icon:"✅", l:"Employee Task Board", group:"Today", roles:["owner","manager","employee"] },
-      { id:"ollama", icon:"🧠", l:"Local AI Setup", group:"Settings", roles:["owner"] },
-      { id:"ollamadoctor", icon:"🩺", l:"Ollama Connection Doctor", group:"Settings", roles:["owner"] },
-      { id:"aigateway", icon:"🌐", l:"Advanced AI Setup", group:"Settings", roles:["owner"] },
-      { id:"airouter", icon:"🧭", l:"AI Model Routing", group:"Settings", roles:["owner"] },
+      { id:"ollama", icon:"🧠", l:"Advanced Local AI Settings", group:"Settings", roles:["owner"], hidden:true },
+      { id:"ollamadoctor", icon:"🩺", l:"AI Doctor / Control Center", group:"Settings", roles:["owner"] },
+      { id:"aigateway", icon:"🌐", l:"Advanced Gateway Settings", group:"Settings", roles:["owner"], hidden:true },
+      { id:"airouter", icon:"🧭", l:"Advanced AI Model Routing", group:"Settings", roles:["owner"], hidden:true },
     ];
-    const getToolsForRole = role => TOOL_CATALOG.filter(t => (t.roles || []).includes(role));
+    const getToolsForRole = role => TOOL_CATALOG.filter(t => (t.roles || []).includes(role) && !t.hidden);
 
     const ROOT_PAGES = ["today", "plants_ws", "intake_ws", "shows_ws", "orders_ws", "money_ws", "buy_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
@@ -4834,7 +4909,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const ownerSettingsItems = [
         { id:"ollamadoctor", icon:"🩺", title:"Ollama Doctor", sub:"Fix MacBook local AI" },
         { id:"ollama", icon:"🧠", title:"Local AI Setup", sub:"MacBook Ollama settings" },
-        { id:"aigateway", icon:"🌐", title:"Mobile AI Gateway", sub:"Phone AI bridge + cost guard" },
+        { id:"aigateway", icon:"🌐", title:"Cloud AI Gateway", sub:"Phone AI bridge + cost guard" },
         { id:"airouter", icon:"🧭", title:"AI Task Routing", sub:"Route each AI task" },
         { id:"invoicetrainer", icon:"🧾", title:"Purchase Trainer", sub:"Invoice pot-size rules" },
         { id:"devtools", icon:"🧪", title:"Developer Testing", sub:"Diagnostics" },
@@ -5012,7 +5087,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
                   {cloudControls.testCloud && <button onClick={cloudControls.testCloud} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Test Cloud</button>}
                   {cloudControls.phase1Snapshot && <button onClick={cloudControls.phase1Snapshot} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧯 Safety Snapshot</button>}
                   {cloudControls.phase1Health && <button onClick={cloudControls.phase1Health} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🩺 Health Report</button>}
-                  {cloudControls.phase61Gateway && <button onClick={cloudControls.phase61Gateway} style={{ background:"#111", border:"1px solid #7EE7FF", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🌐 Mobile AI Gateway</button>}
+                  {cloudControls.phase61Gateway && <button onClick={cloudControls.phase61Gateway} style={{ background:"#111", border:"1px solid #7EE7FF", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🌐 Cloud AI Gateway</button>}
                   {cloudControls.phase4Console && <button onClick={cloudControls.phase4Console} style={{ background:"#111", border:"1px solid #68d8ff", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧭 AI Task Routing</button>}
                   {cloudControls.phase3Console && <button onClick={cloudControls.phase3Console} style={{ background:"#111", border:"1px solid #97d33e", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧠 Ollama</button>}
                   {cloudControls.phase2Console && <button onClick={cloudControls.phase2Console} style={{ background:"#111", border:"1px solid #fb6392", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900 }}>🧪 Developer Testing</button>}
@@ -5431,7 +5506,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Proof + Reports", items:[["Reports","reports","📈","Profit and sales reports"],["Cash Flow","cashflow","💵","Safe buy budget"],["Sell-Through","sellthru","📊","What sells fastest"],["Owner AI Brief","execai","🧠","Plain-English owner decisions"]] }
         ]},
         admin_ws:{ icon:"⚙️", title:"Settings", sub:"Owner setup, permissions, security, AI, and data.", hero:"Hide technical tools away from daily operations", color:"#b695ff", kpis:[["Users","👥","roles"],["Audit","🔍","history"],["Backups","💾","safety"],["Settings","⚙️","system"]], sections:[
-          { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Owner Repair Tools","cleanup","🧹","Fix duplicates/issues"],["Developer Testing","devtools","🧪","Diagnostics and safe tests"],["Local AI Setup","ollama","🧠","Local AI model settings"],["Ollama Doctor","ollamadoctor","🩺","Fix local AI connection"],["Mobile AI Gateway","aigateway","🌐","Mobile AI API bridge"],["AI Task Routing","airouter","🧭","Route each AI task to the right model"],["Owner AI Brief","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Daily operating plan"],["Reports","reports","📈","Business reports"],["Data Visualization","datacharts","📊","Charts for reports, Buy Smart, cash, and goals"],["Phase 2 Final QA","phase2qa","🧪","Regression checklist for every Phase 2 feature"],["What Makes Money","slotprofit","📦","Capacity and profit engine"]] },
+          { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Owner Repair Tools","cleanup","🧹","Fix duplicates/issues"],["Developer Testing","devtools","🧪","Diagnostics and safe tests"],["Local AI Setup","ollama","🧠","Local AI model settings"],["Ollama Doctor","ollamadoctor","🩺","Fix local AI connection"],["Cloud AI Gateway","aigateway","🌐","Cloud AI API bridge"],["AI Task Routing","airouter","🧭","Route each AI task to the right model"],["Owner AI Brief","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Daily operating plan"],["Reports","reports","📈","Business reports"],["Data Visualization","datacharts","📊","Charts for reports, Buy Smart, cash, and goals"],["Phase 2 Final QA","phase2qa","🧪","Regression checklist for every Phase 2 feature"],["What Makes Money","slotprofit","📦","Capacity and profit engine"]] },
           { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Receipt Reader Training","invoicetrainer","🧾","Invoice training rules"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
         ]}
       }[type || "today"];
@@ -11523,7 +11598,7 @@ Cancel keeps this local/free.`);
       const runPhase8CloudEnhance = async () => {
         const cfg = typeof phase61ReadConfig === "function" ? phase61ReadConfig() : {};
         const spend = typeof phase61CanSpend === "function" ? phase61CanSpend(cfg) : { ok:true };
-        if (!cfg.enabled || !cfg.endpointUrl) { setPhase8CloudAnswer("Mobile AI Gateway is not configured. Local receipt intelligence is still working."); return; }
+        if (!cfg.enabled || !cfg.endpointUrl) { setPhase8CloudAnswer("Cloud AI Gateway is not configured. Local receipt intelligence is still working."); return; }
         if (!spend.ok) { setPhase8CloudAnswer(spend.reason || "AI Cost Guard blocked this cloud request."); return; }
         const ok = window.confirm(`Use one paid Ollama Cloud call to enhance the Receipt & Expense report?\n\nCost Guard estimate: ${$(cfg.estimatedCostPerCall || 0.01)}.\nDaily limit: ${cfg.maxDailyRequests || 0} calls.\n\nCancel keeps this page local/free.`);
         if (!ok) return;
@@ -12733,6 +12808,197 @@ Cancel keeps this local/free.`);
     }
 
 
+
+
+    /* ══════════════════════════════════════════════════════════
+       UPDATE 110 — BATCH MARKET PRICING + COST GUARD FIX
+       Prices hundreds of plants/week affordably by grouping duplicates,
+       using cached prices first, and counting market lookups separately
+       from normal chat/doctor tests.
+    ══════════════════════════════════════════════════════════ */
+    function phase110NormalizePricingText(v = "") {
+      return String(v || "").toLowerCase().replace(/[^a-z0-9\s".]/g, " ").replace(/\s+/g, " ").trim();
+    }
+    function phase110MarketGroupKey(p = {}) {
+      const name = phase110NormalizePricingText(p.name || p.botanicalName || "unknown plant");
+      const pot = phase92NormalizePotSize(p.potSize || p.size || p.containerSize || "").label || "unknown size";
+      return `${name}||${String(pot).toLowerCase()}`;
+    }
+    function phase110GroupLabel(group = {}) {
+      return `${group.name || "Plant"}${group.potSize ? " · " + group.potSize : ""}`;
+    }
+    function phase110GroupMarketCache(group = {}, settings = {}) {
+      const rows = safeArray(group.plants);
+      for (const p of rows) {
+        const cached = getCachedMarketResearch(p, settings);
+        if (cached) return cached;
+      }
+      return null;
+    }
+    function phase110BuildPricingGroups(plants = [], filter = "noPrice", settings = {}) {
+      const rows = phase88BulkPricingCandidates(plants, filter, settings);
+      const map = {};
+      rows.forEach(p => {
+        const key = phase110MarketGroupKey(p);
+        if (!map[key]) map[key] = { key, name:p.name || "Plant", potSize:p.potSize || p.size || "", plants:[], highestCost:0, noPriceCount:0, lowMarginCount:0 };
+        const g = map[key];
+        g.plants.push(p);
+        g.highestCost = Math.max(g.highestCost, +p.cost || 0);
+        const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
+        const margin = price ? Math.round(((price - (+p.cost || 0)) / price) * 100) : 0;
+        if (!price) g.noPriceCount += 1;
+        if (price && margin < (+phase83MarketPricingSettings(settings).minMarginPct || 55)) g.lowMarginCount += 1;
+      });
+      return Object.values(map).map(g => {
+        const representative = safeArray(g.plants).slice().sort((a,b)=>(+b.cost||0)-(+a.cost||0))[0] || g.plants[0] || {};
+        const cached = phase110GroupMarketCache(g, settings);
+        return { ...g, count:g.plants.length, representative, cached, cachedCount:cached ? g.plants.length : 0 };
+      }).sort((a,b) => (b.noPriceCount - a.noPriceCount) || (b.lowMarginCount - a.lowMarginCount) || (b.count - a.count) || String(a.name).localeCompare(String(b.name)));
+    }
+    function phase110BuildBatchPricingStats(plants = [], settings = {}) {
+      const inStock = safeArray(plants).filter(p => String(p.status || "In Stock") === "In Stock");
+      const allGroups = phase110BuildPricingGroups(plants, "all", settings);
+      const noPriceGroups = phase110BuildPricingGroups(plants, "noPrice", settings);
+      const cachedGroups = allGroups.filter(g => !!g.cached).length;
+      const needsLive = allGroups.filter(g => !g.cached).length;
+      const gw = phase61UsageSnapshot(phase61ReadConfig());
+      const est = (+phase61ReadConfig().estimatedMarketCostPerLookup || 0.02) * Math.min(needsLive, gw.remainingMarketDaily || needsLive);
+      return { inStock:inStock.length, uniqueGroups:allGroups.length, noPriceGroups:noPriceGroups.length, cachedGroups, needsLive, estimatedTodayCost:est, remainingMarketDaily:gw.remainingMarketDaily, remainingMarketWeekly:gw.remainingMarketWeekly };
+    }
+    function phase110ApplyGroupResultToPlants({ group, result, setPlants, force = false }) {
+      if (!group || !result || !setPlants) return 0;
+      if (!force && !phase88IsSafeBulkApply(result)) return 0;
+      const price = Math.max(0, Math.round((+result.suggestedPrice || 0) * 100) / 100);
+      if (!price) return 0;
+      const ids = new Set(safeArray(group.plants).map(p => String(p.id || p.plantId || p.plantCode || phase88PlantKey(p))));
+      let applied = 0;
+      setPlants(prev => safeArray(prev).map(p => {
+        const id = String(p.id || p.plantId || p.plantCode || phase88PlantKey(p));
+        if (!ids.has(id)) return p;
+        applied += 1;
+        const payload = { ...safeObject(result), suggestedPrice:price, appliedAt:new Date().toISOString(), appliedPrice:price, groupKey:group.key, groupCount:group.count };
+        return { ...p, suggestedPrice:price, margin:marg(+p.cost || 0, price), marketResearch:payload, updatedAt:new Date().toISOString() };
+      }));
+      return applied;
+    }
+
+    function Phase88BulkMarketPricingTool({ plants = [], setPlants, settings = {}, user = {}, setPage, compact = false }) {
+      const canRun = phase85CanResearchMarket(user, settings);
+      const cfg = phase83MarketPricingSettings(settings);
+      const gatewayCfg = phase61ReadConfig();
+      const usage = phase61UsageSnapshot(gatewayCfg);
+      const [filter, setFilter] = useState("noPrice");
+      const [selected, setSelected] = useState({});
+      const [results, setResults] = useState({});
+      const [running, setRunning] = useState(false);
+      const [progress, setProgress] = useState({ done:0, total:0, current:"" });
+      const [msg, setMsg] = useState("");
+      const groups = phase110BuildPricingGroups(plants, filter, settings).slice(0, compact ? 8 : 120);
+      const stats = phase110BuildBatchPricingStats(plants, settings);
+      const batchLimit = Math.max(1, Math.min(30, +cfg.bulkBatchLimit || 30));
+      const selectedKeys = Object.keys(selected).filter(k => selected[k]);
+      const selectedGroups = groups.filter(g => selected[g.key]).slice(0, batchLimit);
+      const resultList = Object.values(results || {});
+      const safeResults = resultList.filter(r => phase88IsSafeBulkApply(r));
+      const riskResults = resultList.filter(r => String(r.priceStatus || "") === "margin_risk");
+      const estimatedRunCost = selectedGroups.filter(g => !g.cached && !results[g.key]?.cacheHit).length * (+gatewayCfg.estimatedMarketCostPerLookup || 0.02);
+      const selectTop = (count = 10) => {
+        const next = {};
+        groups.slice(0, Math.min(count, batchLimit)).forEach(g => { next[g.key] = true; });
+        setSelected(next);
+        setMsg(`Selected ${Math.min(count, groups.length, batchLimit)} unique plant group(s), not individual plants.`);
+      };
+      const cacheGroupResult = (group, result) => {
+        const payload = { ...safeObject(result), runAt:result.runAt || new Date().toISOString(), groupKey:group.key, groupCount:group.count };
+        setResults(prev => ({ ...prev, [group.key]: payload }));
+        if (setPlants) {
+          const ids = new Set(safeArray(group.plants).map(p => String(p.id || p.plantId || p.plantCode || phase88PlantKey(p))));
+          setPlants(prev => safeArray(prev).map(p => ids.has(String(p.id || p.plantId || p.plantCode || phase88PlantKey(p))) ? { ...p, marketResearch:payload, updatedAt:new Date().toISOString() } : p));
+        }
+      };
+      const runQueue = async () => {
+        if (!canRun || running) return;
+        if (!selectedGroups.length) { setMsg("Select at least one unique plant group first."); return; }
+        if (estimatedRunCost > usage.remainingBudget && gatewayCfg.maxMonthlyDollars > 0) { setMsg(`Budget guard stopped this run. Selected groups estimate ${$(estimatedRunCost)} but remaining monthly budget is ${$(usage.remainingBudget)}.`); return; }
+        setRunning(true); setMsg("Starting grouped market-pricing queue. Cached groups do not use paid AI."); setProgress({ done:0, total:selectedGroups.length, current:"" });
+        for (let i = 0; i < selectedGroups.length; i++) {
+          const group = selectedGroups[i];
+          const label = phase110GroupLabel(group);
+          setProgress({ done:i, total:selectedGroups.length, current:label });
+          try {
+            const cached = group.cached || phase110GroupMarketCache(group, settings);
+            const result = cached ? { ...cached, cacheHit:true, groupKey:group.key, groupCount:group.count } : await runMarketPriceResearch(group.representative, settings, plants, user, { forceRefresh:false });
+            cacheGroupResult(group, result);
+            setMsg(`${cached ? "Used cached" : "Researched"} price for ${label} — covers ${group.count} plant(s).`);
+            const delay = Math.max(0, Math.min(5000, +cfg.batchRateLimit || 0));
+            if (!cached && delay && i < selectedGroups.length - 1) await new Promise(resolve => setTimeout(resolve, delay));
+          } catch(e) {
+            const fallback = phase83BuildFallbackMarketResult(group.representative, settings, plants, `Grouped market research failed for ${label}: ${e?.message || e}.`);
+            cacheGroupResult(group, { ...fallback, source:"group_exception_fallback", gatewayError:e?.message || String(e) });
+          }
+        }
+        setProgress({ done:selectedGroups.length, total:selectedGroups.length, current:"Complete" });
+        setRunning(false);
+        setMsg(`Grouped pricing complete: ${selectedGroups.length} lookup group(s) covered ${selectedGroups.reduce((s,g)=>s+g.count,0)} plant(s). Review margin-risk groups before applying.`);
+      };
+      const applySafe = () => {
+        let applied = 0;
+        groups.forEach(g => {
+          const r = results[g.key] || g.cached;
+          if (r && phase88IsSafeBulkApply(r)) applied += phase110ApplyGroupResultToPlants({ group:g, result:r, setPlants, force:false });
+        });
+        setMsg(applied ? `Applied safe market prices to ${applied} plant(s). Margin-risk groups were skipped.` : "No safe researched prices to apply yet.");
+      };
+      if (!canRun) return <Card style={{ borderLeft:`5px solid ${C.amber}`, background:C.goldBg }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>💲 Batch Market Pricing</div><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:4 }}>Owner/manager tool only. Employees cannot run market research or apply batch prices.</div></Card>;
+      return <Card style={{ border:`2px solid ${C.g300}`, borderRadius:22, padding:16, background:C.card }}>
+        <Row between center wrap gap={10} style={{ marginBottom:12 }}>
+          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Batch Market Pricing Manager</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Built for 400 plants/week: groups duplicate plant + pot size, uses 14-day cache first, and only spends AI on unique groups that still need live market research.</div></div>
+          <Row gap={7} wrap><Tag text={`${stats.inStock} plants`} color={C.g600} /><Tag text={`${stats.uniqueGroups} unique groups`} color={C.blue} /><Tag text={`${stats.cachedGroups} cached`} color={C.gold} /><Tag text={`Market ${usage.dailyMarketCalls}/${usage.dailyMarketLimit} today`} color={usage.dailyMarketLimit && usage.dailyMarketCalls >= usage.dailyMarketLimit ? C.red : C.g600} /></Row>
+        </Row>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:12 }}>
+          {[ ["all","All Groups"], ["noPrice","No Price"], ["lowMargin",`Low Margin <${+cfg.minMarginPct || 55}%`], ["aging","Aging 45+"], ["stale","Stale Cache"] ].map(([id,label]) => <button key={id} onClick={()=>{ setFilter(id); setSelected({}); }} style={{ borderRadius:14, border:`1px solid ${filter===id ? C.g600 : C.bd}`, background:filter===id ? C.g50 : C.card, color:filter===id ? C.g800 : C.tx2, fontWeight:900, padding:"10px 8px", cursor:"pointer", fontFamily:F.body }}>{label}</button>)}
+        </div>
+        <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:12, marginBottom:12 }}>
+          <Row between center wrap gap={8}>
+            <div style={{ color:C.tx2, fontSize:12, lineHeight:1.5 }}><b>Selected run estimate:</b> {selectedGroups.length} unique lookup group(s), covers {selectedGroups.reduce((s,g)=>s+g.count,0)} plant(s). Live cost estimate: <b>{$(estimatedRunCost)}</b>. Cached groups cost $0.</div>
+            <Tag text={`Week ${usage.weeklyMarketCalls}/${usage.weeklyMarketLimit}`} color={usage.weeklyMarketLimit && usage.weeklyMarketCalls >= usage.weeklyMarketLimit ? C.red : C.g600} />
+          </Row>
+        </div>
+        <Row gap={8} wrap center style={{ marginBottom:12 }}>
+          <Btn sz="sm" v="soft" onClick={()=>selectTop(10)} disabled={running || !groups.length}>Select Top 10</Btn>
+          <Btn sz="sm" v="outline" onClick={()=>selectTop(batchLimit)} disabled={running || !groups.length}>Select Max {batchLimit}</Btn>
+          <Btn sz="sm" onClick={runQueue} disabled={running || !selectedGroups.length}>{running ? "Researching..." : `Research Selected Groups (${selectedGroups.length})`}</Btn>
+          <Btn sz="sm" v="gold" onClick={applySafe} disabled={running || !safeResults.length}>Apply Safe Prices ({safeResults.length})</Btn>
+          <Btn sz="sm" v="ghost" onClick={()=>{ setSelected({}); setResults({}); setProgress({done:0,total:0,current:""}); setMsg("Cleared batch pricing queue."); }} disabled={running}>Clear</Btn>
+        </Row>
+        {(running || progress.total > 0) && <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, marginBottom:12 }}>
+          <Row between center><b style={{ color:C.g900 }}>Progress</b><Tag text={`${progress.done}/${progress.total}`} color={running ? C.blue : C.g600} /></Row>
+          <div style={{ height:10, borderRadius:999, background:C.g100, overflow:"hidden", marginTop:8 }}><div style={{ width:`${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%`, height:"100%", background:running ? C.blue : C.g600 }} /></div>
+          <div style={{ color:C.tx3, fontSize:12, marginTop:7 }}>{progress.current || "Ready"}</div>
+        </div>}
+        {msg && <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:12, padding:"9px 10px", color:C.tx2, fontSize:12, fontWeight:800, marginBottom:12 }}>{msg}</div>}
+        {riskResults.length > 0 && <div style={{ background:C.redBg, border:`1px solid ${C.red}44`, borderLeft:`5px solid ${C.red}`, borderRadius:14, padding:12, marginBottom:12 }}><b style={{ color:C.red }}>Margin-risk groups need manual review:</b><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:3 }}>{riskResults.length} group(s) came back below your profit floor. Apply Safe skips those prices.</div></div>}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+          {groups.length ? groups.slice(0, compact ? 8 : 40).map(g => {
+            const res = results[g.key] || g.cached;
+            const status = res?.priceStatus || (g.cached ? "cached" : "not_researched");
+            const color = status === "competitive" ? C.g600 : status === "at_floor" ? C.gold : status === "margin_risk" ? C.red : status === "cached" ? C.blue : C.tx3;
+            return <Card key={g.key} style={{ padding:13, borderLeft:`5px solid ${selected[g.key] ? C.g600 : color}`, background:selected[g.key] ? C.g50 : C.card }}>
+              <Row gap={10} center style={{ alignItems:"flex-start" }}>
+                <input type="checkbox" checked={!!selected[g.key]} onChange={e=>setSelected(prev=>({ ...prev, [g.key]:e.target.checked }))} style={{ width:18, height:18, marginTop:3 }} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>{phase110GroupLabel(g)}</div>
+                  <div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{g.count} plant(s) · highest cost {$(g.highestCost)} · {g.noPriceCount} no price · {g.lowMarginCount} low margin</div>
+                  {res ? <div style={{ marginTop:8 }}><Row gap={6} wrap center><Tag text={res.cacheHit || g.cached ? "cache" : "researched"} color={res.cacheHit || g.cached ? C.blue : C.g600} sm /><Tag text={phase83MarketPriceStatusMeta(res.priceStatus).label} color={color} sm /><Tag text={res.suggestedPrice ? $(res.suggestedPrice) : "no price"} color={color} sm /></Row><div style={{ color:C.tx3, fontSize:11, marginTop:5 }}>{res.priceReason || res.confidenceNote || "Review result before applying."}</div></div> : <div style={{ marginTop:8 }}><Tag text="Needs lookup" color={C.tx3} sm /></div>}
+                </div>
+              </Row>
+            </Card>;
+          }) : <div style={{ gridColumn:"1 / -1", textAlign:"center", padding:24, color:C.tx3, background:C.cardAlt, borderRadius:16 }}>No groups match this filter.</div>}
+        </div>
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns:repeat(5,1fr)"],div[style*="grid-template-columns: repeat(5,1fr)"],div[style*="grid-template-columns:repeat(2,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
+      </Card>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        UPDATE 89 — MARKET COMPARISON INSIDE BUY SMART + PPS
        No new page. Uses cached marketResearch only. Adds market-vs-price
@@ -13466,7 +13732,7 @@ Cancel keeps this local/free.`);
       const provider = aiGateway.provider || aiGateway.aiProvider || settings.aiProvider || "";
       const model = aiGateway.model || aiGateway.gatewayModel || settings.aiModel || "";
       const costGuard = !!(aiGateway.costSaverMode || aiGateway.costGuardEnabled || settings?.aiCostGuard?.enabled || aiGateway.disableAutoGatewayCalls !== false);
-      const gatewayLooksRight = String(endpoint).includes("leaf-diary-ai-gateway") || String(endpoint).includes("leaf-diary-ai-public-gateway") || String(provider).toLowerCase().includes("gateway") || String(provider).toLowerCase().includes("proxy");
+      const gatewayLooksRight = String(endpoint).includes("leaf-diary-ai-gateway") || String(provider).toLowerCase().includes("gateway") || String(provider).toLowerCase().includes("proxy");
       const modelLooksRight = !model || String(model).toLowerCase().includes("gpt-oss:20b") || String(model).toLowerCase().includes("gpt-oss") || String(model).toLowerCase().includes("llama") || String(model).toLowerCase().includes("gateway");
       const fnLoaded = name => {
         try { return typeof window !== "undefined" ? (typeof eval(name) === "function") : false; } catch(e) { return false; }
@@ -13864,13 +14130,10 @@ Cancel keeps this local/free.`);
         </div>}
 
         {tab === "ai" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          <SettingsCard icon="🤖" title="Leaf Diary AI" body="Simple AI tools for daily plans, show building, buying advice, and business questions." page="aihub" button="Open AI" color="#97d33e" />
-          <SettingsCard icon="🌐" title="Advanced AI Setup" body={`Mobile gateway, cloud model, API endpoint, and cost controls. Cost guard: ${costGuardOn ? "on" : "manual"}.`} page="aigateway" button="AI Setup" color={C.blue} />
-          <SettingsCard icon="🧭" title="AI Model Routing" body="Choose which AI model handles each task. Owner-only because bad routing can create cost or reliability issues." page="airouter" button="Open Routing" color={C.purple} />
-          <SettingsCard icon="🩺" title="Ollama Doctor" body="One-click MacBook local AI test and fix screen. Use this if local Ollama says CORS, offline, or 0 models." page="ollamadoctor" button="Open Doctor" color="#97d33e" />
-          <SettingsCard icon="🧠" title="Local AI Setup" body="Ollama / local AI model settings. Keep this hidden from normal users." page="ollama" button="Local AI" color={C.g600} />
-          <SettingsCard icon="💵" title="AI Cost Control" body={`${aiDailyLimit}/day limit. Free/local first where possible. Cloud should stay manual unless owner approves.`} page="aigateway" button="Cost Settings" color={C.gold} />
-          <SettingsCard icon="💬" title="Ask Leaf Diary AI" body="User-friendly question screen for the business data copilot." page="dataai" button="Ask AI" color="#fb6392" />
+          <SettingsCard icon="🩺" title="AI Doctor / Control Center" body={`Main AI command screen. Gateway: ${phase61ReadConfig().enabled ? "connected" : "off"} · Model: ${phase61ReadConfig().model || LEAF_AI_WORKING_GATEWAY_MODEL} · Cost guard: ${costGuardOn ? "on" : "manual"}.`} page="ollamadoctor" button="Open AI Doctor" color="#97d33e" />
+          <SettingsCard icon="💬" title="Ask Leaf Diary AI" body="User-friendly business data copilot. Use this to ask questions after Doctor shows the gateway is connected." page="dataai" button="Ask AI" color="#fb6392" />
+          <SettingsCard icon="🔍" title="AI Market Pricing" body="Research Market buttons now send structured web-search instructions to the gateway: Whatnot, Palmstreet, Etsy, eBay, and web. Owner/manager click only; no automatic paid calls." page="inv" button="Open Inventory" color={C.blue} />
+          <SettingsCard icon="🟣" title="Palmstreet Auction Manager" body="Auction picks, active timers, close-as-sold, and no-sale return are inside the Shows workspace." page="shows_ws" button="Open Auctions" color={C.purple} />
         </div>}
 
         {tab === "security" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
@@ -16540,7 +16803,7 @@ function OwnerCommandCenter({ plants, expenses, bills, timecards, settings, setS
       const runPhase9CloudEnhance = async () => {
         const cfg = phase61ReadConfig();
         const spend = phase61CanSpend(cfg);
-        if (!cfg.enabled || !cfg.endpointUrl) { setPhase9CloudAnswer("Mobile AI Gateway is not configured. Local/free financial forecast is still working."); return; }
+        if (!cfg.enabled || !cfg.endpointUrl) { setPhase9CloudAnswer("Cloud AI Gateway is not configured. Local/free financial forecast is still working."); return; }
         if (!spend.ok) { setPhase9CloudAnswer(spend.reason || "AI Cost Guard blocked this cloud request."); return; }
         const ok = window.confirm(`Use one paid Ollama Cloud call to enhance the Money Forecast?
 
@@ -17438,7 +17701,7 @@ Cancel keeps this page local/free.`);
         if (!plan?.plantIds?.length) { setMsg('Build a local AI show plan first.'); return; }
         const cfg = typeof phase61ReadConfig === 'function' ? phase61ReadConfig() : {};
         const spend = typeof phase61CanSpend === 'function' ? phase61CanSpend(cfg) : { ok:true };
-        if (!spend.ok) { setMsg(spend.reason || 'Mobile AI Gateway is blocked by cost limits.'); return; }
+        if (!spend.ok) { setMsg(spend.reason || 'Cloud AI Gateway is blocked by cost limits.'); return; }
         const ok = confirm(`Use Ollama Cloud API one time to enhance this show plan?
 
 Estimated local tracker cost: ${phase7Money(cfg.estimatedCostPerRequest || 0)}
@@ -19130,7 +19393,7 @@ Cancel if you want to save money.`);
       const toggleAuto = () => { const next = !autoOn; setAutoOn(next); setSettings && setSettings(prev => ({ ...prev, phase10AutomationEnabled:next })); addAudit && addAudit({ action:`Morning Briefing local auto-briefing ${next ? "enabled" : "disabled"}`, page:"Morning Briefing", user:user?.name || "Owner" }); };
       const runCloudEnhance = async () => {
         const cfg = phase61ReadConfig();
-        if (!cfg.enabled || !cfg.endpointUrl) { setCloudAnswer("Mobile AI Gateway is not configured. Local/free morning briefing is still working."); return; }
+        if (!cfg.enabled || !cfg.endpointUrl) { setCloudAnswer("Cloud AI Gateway is not configured. Local/free morning briefing is still working."); return; }
         const spend = phase61CanSpend(cfg);
         if (!spend.ok) { setCloudAnswer(spend.reason || "AI Cost Guard blocked this cloud request."); return; }
         const ok = window.confirm(`Use one paid Ollama Cloud call to enhance the Morning Briefing?\n\nCost Guard estimate: ${$(cfg.estimatedCostPerRequest || 0.01)}.\nDaily limit: ${cfg.maxDailyRequests || 0} calls.\n\nCancel keeps this page local/free.`);
@@ -20098,7 +20361,7 @@ Cancel if you want to save money.`);
 
        What finally worked:
        - Live website app uses Gateway/Proxy mode.
-       - iPhone uses Mobile AI Gateway.
+       - iPhone uses Cloud AI Gateway.
        - MacBook live website also uses Gateway/Proxy because direct
          localhost JavaScript was browser-blocked.
        - Local Ollama still works in Terminal at http://127.0.0.1:11434.
@@ -20109,9 +20372,10 @@ Cancel if you want to save money.`);
     const LEAF_AI_WORKING_LOCAL_MODEL = "llama3.1:8b";
     const LEAF_AI_WORKING_SETTINGS_KEY = "leafdiary_working_ai_settings_locked_v66";
     const LEAF_AI_WORKING_NOTE = "Known-good AI setup: Gateway/Proxy mode for the live app, endpoint leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai, provider ollama-proxy, model gpt-oss:20b, daily limit 15, monthly budget $5, inventory payload 35, timeout 30000ms. Local Ollama on the MacBook stays http://127.0.0.1:11434 with llama3.1:8b, but the live website should use Gateway mode because direct localhost JavaScript was browser-blocked.";
-    const LEAF_AI_OLD_BLOCKED_ENDPOINT = "https://leaf-diary-ai-public-gateway.theleafdiary.workers.dev/leaf-ai";
+    const LEAF_AI_OLD_BLOCKED_ENDPOINT = "";
     function leafAiIsOldBlockedEndpoint(url = "") {
-      return /leaf-diary-ai-public-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(String(url || ""));
+      const oldHost = ["leaf-diary-ai", "public-gateway.theleafdiary.workers.dev"].join("-");
+      return new RegExp(oldHost.replace(/\./g, "\\.") + "\/leaf-ai", "i").test(String(url || ""));
     }
 
 
@@ -20192,7 +20456,7 @@ Cancel if you want to save money.`);
         phase3AddUrlVariant(list, cfg.baseUrl || PHASE3_DEFAULT_CONFIG.baseUrl);
         return [...new Set(list)].filter(Boolean);
       }
-      // Gateway mode uses the Mobile AI Gateway screen and should not append Ollama /api paths.
+      // Gateway mode uses the Cloud AI Gateway screen and should not append Ollama /api paths.
       if (mode === "gateway") {
         return [];
       }
@@ -20472,7 +20736,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const gatewayReadyForStatus = !!(gatewayCfgForStatus.enabled && gatewayCfgForStatus.endpointUrl && gatewayCfgForStatus.useOnDesktop !== false);
       const displayStatus = draft.connectionMode === "gateway" && gatewayReadyForStatus ? "gateway" : (status?.status || (draft.enabled ? "not_tested" : "disabled"));
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh" }}>
-        <SHdr icon="🧠" title="Local AI Setup" sub="Connect Leaf Diary to local Ollama AI without replacing working AI features." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Settings</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Ollama</Btn><Btn sz="sm" v="outline" onClick={()=>setPage && setPage("ollamadoctor")}>Doctor</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🧠" title="Advanced Local AI Settings" sub="Advanced MacBook Ollama setup. Most users should use AI Doctor / Control Center first." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Settings</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Ollama</Btn><Btn sz="sm" v="outline" onClick={()=>setPage && setPage("ollamadoctor")}>Doctor</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase3StatusColor(displayStatus)}` }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase3StatusColor(displayStatus) }}>Ollama {phase3StatusLabel(displayStatus)}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>{displayStatus === "gateway" ? <>Gateway endpoint: {gatewayCfgForStatus.endpointUrl} · Model: {gatewayCfgForStatus.model || draft.primaryModel}</> : <>Desktop URL: {draft.baseUrl} · Mobile/LAN URL: {draft.mobileBaseUrl || "not set"} · Primary model: {draft.primaryModel}</>}</div></div>
@@ -20606,7 +20870,7 @@ Answer with a practical action plan for Leaf Diary.`;
       if (!cfg.enabled) return { title:"Ollama is disabled in Leaf Diary", fix:"Turn Ollama Enabled on, save settings, then run Doctor again.", severity:"warning" };
       if (!device.isMobile && cfg.connectionMode === "gateway" && gateway.configured) return { title:"Gateway/Proxy selected for MacBook", fix:`Direct localhost is browser-blocked on this website, so this MacBook will use the saved Gateway endpoint (${gateway.endpointUrl}). Local Ollama is still installed and can be tested in Terminal, but browser AI should use Gateway/Proxy.`, severity:"ok" };
       if (device.isMobile && gateway.configured && gateway.useOnMobile) return { title:"Mobile Gateway/Tunnel is configured", fix:`Phone AI should use the saved Gateway/Tunnel endpoint (${gateway.endpointUrl}). MacBook local Ollama still uses http://127.0.0.1:11434 and should be tested from the MacBook, not the phone.`, severity:"ok" };
-      if (device.isMobile && !mobileUrl && !cfg.proxyUrl && /127\.0\.0\.1|localhost/i.test(desktopUrl)) return { title:"Phone is trying to use localhost", fix:"A phone cannot reach Ollama through 127.0.0.1. Set Mobile/LAN URL to your Mac IP, set a Cloud/Tunnel Proxy URL, or use the Mobile AI Gateway. Test MacBook local Ollama from the MacBook.", severity:"critical" };
+      if (device.isMobile && !mobileUrl && !cfg.proxyUrl && /127\.0\.0\.1|localhost/i.test(desktopUrl)) return { title:"Phone is trying to use localhost", fix:"A phone cannot reach Ollama through 127.0.0.1. Set Mobile/LAN URL to your Mac IP, set a Cloud/Tunnel Proxy URL, or use the Cloud AI Gateway. Test MacBook local Ollama from the MacBook.", severity:"critical" };
       if (anyVersion && !anyModels) return { title:"Ollama responded, but model list failed", fix:"Ollama is partly reachable. Restart Ollama, then run: ollama list. If the browser still fails, set OLLAMA_ORIGINS=* and reopen Ollama.", severity:"warning" };
       if (anyReachable && anyModels) return { title:"Ollama connection looks good", fix:"Use Local AI Setup → Test Ollama. If a model is missing, pull or select an installed model.", severity:"ok" };
       if (device.protocol === "https:" && bases.some(b => b.startsWith("http://") && !/127\.0\.0\.1|localhost/i.test(b))) return { title:"HTTPS page may block plain HTTP LAN Ollama", fix:"Use the app from the same MacBook with 127.0.0.1, or create a secure proxy/tunnel for phone use. iPhone + HTTPS pages often cannot call an HTTP LAN URL directly.", severity:"critical" };
@@ -20757,7 +21021,7 @@ Answer with a practical action plan for Leaf Diary.`;
           const nextStatus = phase3BuildStatus("online", { results: rows, testedBases: [gatewayNow.endpointUrl], gateway:true });
           setStatus && setStatus(nextStatus);
           phase3SaveReport({ type:"ollama_doctor", ok:true, gateway:true, results: rows, device, config: cfg, gatewayConfig: gatewayNow, checkedAt:new Date().toISOString() });
-          setNote("Phone is using the Mobile AI Gateway/Tunnel path. Test MacBook local Ollama from the MacBook.");
+          setNote("Phone is using the Cloud AI Gateway/Tunnel path. Test MacBook local Ollama from the MacBook.");
           try { addAudit && addAudit({ action:"Ollama Doctor confirmed mobile gateway/tunnel", page:"Ollama Doctor", user:user?.name || "Owner", severity:"info" }); } catch(e) {}
           setBusy(false);
           return;
@@ -20787,18 +21051,29 @@ Answer with a practical action plan for Leaf Diary.`;
       const currentStatus = results.length ? diagnosis : (draft.connectionMode === "gateway" && gatewayInfo.configured
         ? { title:"Gateway/Proxy selected", fix:`Browser-safe AI is selected. Leaf Diary will use ${gatewayInfo.endpointUrl} for website AI calls instead of direct localhost.`, severity:"ok" }
         : device.isMobile && gatewayInfo.configured && gatewayInfo.useOnMobile
-        ? { title:"Mobile Gateway/Tunnel ready", fix:`This phone should use the Mobile AI Gateway/Tunnel endpoint (${gatewayInfo.endpointUrl}). MacBook local Ollama is separate and should be tested from the MacBook.`, severity:"ok" }
+        ? { title:"Mobile Gateway/Tunnel ready", fix:`This phone should use the Cloud AI Gateway/Tunnel endpoint (${gatewayInfo.endpointUrl}). MacBook local Ollama is separate and should be tested from the MacBook.`, severity:"ok" }
         : { title:"Run Doctor to test Ollama", fix:"This will test /api/version and /api/tags using your saved desktop, LAN, or proxy URL.", severity:"warning" });
       const statusColor = currentStatus.severity === "ok" ? C.g600 : currentStatus.severity === "warning" ? C.amber : C.red;
       const QuickCard = ({ icon, title, body, color = C.g600 }) => <Card style={{ borderLeft:`5px solid ${color}` }}><div style={{ fontSize:28 }}>{icon}</div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, fontSize:18, marginTop:4 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:4 }}>{body}</div></Card>;
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
         <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:`2px solid ${statusColor}`, boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
           <Row between center wrap gap={12}>
-            <div style={{ minWidth:0 }}><div style={{ fontSize:42 }}>🩺</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900 }}>Ollama Connection Doctor</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>One screen to find why local AI is not connected. No business data or AI routing is changed.</div></div>
-            <Row gap={8} wrap><button onClick={runDoctor} disabled={busy} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:busy?"not-allowed":"pointer", opacity:busy ? .6 : 1 }}>{busy ? "Testing..." : "Run Doctor"}</button><button onClick={()=>setPage && setPage("ollama")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Local AI Setup</button><button onClick={()=>setPage && setPage("aigateway")} style={{ background:"rgba(126,231,255,.16)", color:"#fff", border:"1px solid rgba(126,231,255,.42)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Mobile Gateway</button><button onClick={forceDesktopDevice} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Force MacBook</button></Row>
+            <div style={{ minWidth:0 }}><div style={{ fontSize:42 }}>🩺</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900 }}>AI Doctor / Control Center</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>One main screen for mobile Gateway, MacBook Ollama, cost guard, model routing, and market-pricing readiness. Working gateway settings stay locked.</div></div>
+            <Row gap={8} wrap><button onClick={runDoctor} disabled={busy} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:busy?"not-allowed":"pointer", opacity:busy ? .6 : 1 }}>{busy ? "Testing..." : "Run Doctor"}</button><button onClick={()=>setPage && setPage("dataai")} style={{ background:"#fb6392", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Ask AI</button><button onClick={()=>setPage && setPage("aigateway")} style={{ background:"rgba(126,231,255,.16)", color:"#fff", border:"1px solid rgba(126,231,255,.42)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Advanced Gateway</button><button onClick={()=>setPage && setPage("ollama")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Advanced Local</button><button onClick={()=>setPage && setPage("airouter")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Routing</button><button onClick={forceDesktopDevice} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Force MacBook</button></Row>
           </Row>
           <div style={{ marginTop:14, background:"rgba(255,255,255,.08)", border:`1px solid ${statusColor}66`, borderRadius:16, padding:"12px 13px" }}><div style={{ color:statusColor, fontWeight:900, fontFamily:F.display, fontSize:20 }}>{currentStatus.title}</div><div style={{ color:"rgba(255,255,255,.78)", fontSize:12, lineHeight:1.45, marginTop:4 }}>{currentStatus.fix}</div>{note && <div style={{ marginTop:8, color:"#97d33e", fontWeight:800, fontSize:12 }}>{note}</div>}</div>
         </div>
+
+        <Card style={{ marginBottom:14, background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:22, fontWeight:950 }}>✅ AI Screen Consolidation</div>
+              <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5, marginTop:4 }}>This is now the main AI control screen. Advanced Gateway, Local Ollama, and Routing screens are still available from the buttons above, but they are hidden from normal Settings navigation so the app feels cleaner.</div>
+              <div style={{ color:C.tx3, fontSize:12, marginTop:6 }}>Next build step: finish Smart Market Pricing web-search output through the existing Gateway pricing route and keep Palmstreet Auction Manager inside Shows.</div>
+            </div>
+            <Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setPage && setPage("inv")}>Open Inventory Pricing</Btn><Btn sz="sm" v="outline" onClick={()=>setPage && setPage("shows_ws")}>Open Auctions</Btn></Row>
+          </Row>
+        </Card>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <KPI label="Device" value={device.isMobile ? "Phone" : "Desktop"} sub={device.browser} color={device.isMobile ? C.blue : C.g600} />
@@ -20862,7 +21137,7 @@ Answer with a practical action plan for Leaf Diary.`;
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:14 }}>
           <QuickCard icon="💻" title="MacBook / Same Computer" color={C.g600} body="Use Desktop Preset. Leaf Diary in Chrome and Ollama must run on the same MacBook. URL should be http://127.0.0.1:11434." />
-          <QuickCard icon="📱" title="iPhone / Same Wi‑Fi" color={C.blue} body="Use Mobile AI Gateway/Tunnel for iPhone. Only use Phone LAN Preset if you purposely want same-Wi‑Fi access directly to the Mac." />
+          <QuickCard icon="📱" title="iPhone / Same Wi‑Fi" color={C.blue} body="Use Cloud AI Gateway/Tunnel for iPhone. Only use Phone LAN Preset if you purposely want same-Wi‑Fi access directly to the Mac." />
           <QuickCard icon="🛡️" title="Safe Fallback" color={C.gold} body="If Ollama fails, Leaf Diary still uses local/free business rules. This Doctor does not change inventory, money, or show data." />
         </div>
 
@@ -20905,9 +21180,16 @@ Answer with a practical action plan for Leaf Diary.`;
       provider: "ollama-proxy",
       model: LEAF_AI_WORKING_GATEWAY_MODEL,
       fallbackMode: "ollama_then_local",
-      maxDailyRequests: 15,
-      maxMonthlyDollars: 5,
+      maxDailyRequests: 8,
+      maxDailyMarketLookups: 30,
+      maxWeeklyMarketLookups: 100,
+      maxMonthlyDollars: 10,
       estimatedCostPerRequest: 0.02,
+      estimatedMarketCostPerLookup: 0.02,
+      marketCacheDays: 14,
+      doctorTestsFree: true,
+      gatewayHealthChecksFree: true,
+      marketLookupsManualOnly: true,
       timeoutMs: 30000,
       sendInventoryLimit: 35,
       useOnMobile: true,
@@ -20955,9 +21237,16 @@ Answer with a practical action plan for Leaf Diary.`;
           provider: "ollama-proxy",
           model: LEAF_AI_WORKING_GATEWAY_MODEL,
           fallbackMode: "ollama_then_local",
-          maxDailyRequests: +next.maxDailyRequests || 15,
-          maxMonthlyDollars: +next.maxMonthlyDollars || 5,
+          maxDailyRequests: +next.maxDailyRequests || 8,
+          maxDailyMarketLookups: +next.maxDailyMarketLookups || 30,
+          maxWeeklyMarketLookups: +next.maxWeeklyMarketLookups || 100,
+          maxMonthlyDollars: +next.maxMonthlyDollars || 10,
           estimatedCostPerRequest: +next.estimatedCostPerRequest || 0.02,
+          estimatedMarketCostPerLookup: +next.estimatedMarketCostPerLookup || 0.02,
+          marketCacheDays: +next.marketCacheDays || 14,
+          doctorTestsFree: next.doctorTestsFree !== false,
+          gatewayHealthChecksFree: next.gatewayHealthChecksFree !== false,
+          marketLookupsManualOnly: next.marketLookupsManualOnly !== false,
           timeoutMs: +next.timeoutMs || 30000,
           sendInventoryLimit: +next.sendInventoryLimit || 35,
           useOnMobile: true,
@@ -20981,9 +21270,16 @@ Answer with a practical action plan for Leaf Diary.`;
         next.provider = "ollama-proxy";
         next.model = LEAF_AI_WORKING_GATEWAY_MODEL;
         next.fallbackMode = next.fallbackMode || "ollama_then_local";
-        next.maxDailyRequests = +next.maxDailyRequests || 15;
-        next.maxMonthlyDollars = +next.maxMonthlyDollars || 5;
+        next.maxDailyRequests = +next.maxDailyRequests || 8;
+        next.maxDailyMarketLookups = +next.maxDailyMarketLookups || 30;
+        next.maxWeeklyMarketLookups = +next.maxWeeklyMarketLookups || 100;
+        next.maxMonthlyDollars = +next.maxMonthlyDollars || 10;
         next.estimatedCostPerRequest = +next.estimatedCostPerRequest || 0.02;
+        next.estimatedMarketCostPerLookup = +next.estimatedMarketCostPerLookup || 0.02;
+        next.marketCacheDays = +next.marketCacheDays || 14;
+        next.doctorTestsFree = next.doctorTestsFree !== false;
+        next.gatewayHealthChecksFree = next.gatewayHealthChecksFree !== false;
+        next.marketLookupsManualOnly = next.marketLookupsManualOnly !== false;
         next.timeoutMs = +next.timeoutMs || 30000;
         next.sendInventoryLimit = +next.sendInventoryLimit || 35;
         next.useOnMobile = true;
@@ -21001,8 +21297,15 @@ Answer with a practical action plan for Leaf Diary.`;
       next.allowOwnerFinancialsToGateway = !!next.allowOwnerFinancialsToGateway;
       next.logPromptsLocally = !!next.logPromptsLocally;
       next.maxDailyRequests = Math.max(1, +next.maxDailyRequests || PHASE61_DEFAULT_CONFIG.maxDailyRequests);
+      next.maxDailyMarketLookups = Math.max(0, +next.maxDailyMarketLookups || PHASE61_DEFAULT_CONFIG.maxDailyMarketLookups);
+      next.maxWeeklyMarketLookups = Math.max(0, +next.maxWeeklyMarketLookups || PHASE61_DEFAULT_CONFIG.maxWeeklyMarketLookups);
       next.maxMonthlyDollars = Math.max(0, +next.maxMonthlyDollars || PHASE61_DEFAULT_CONFIG.maxMonthlyDollars);
       next.estimatedCostPerRequest = Math.max(0, +next.estimatedCostPerRequest || PHASE61_DEFAULT_CONFIG.estimatedCostPerRequest);
+      next.estimatedMarketCostPerLookup = Math.max(0, +next.estimatedMarketCostPerLookup || PHASE61_DEFAULT_CONFIG.estimatedMarketCostPerLookup);
+      next.marketCacheDays = Math.max(1, +next.marketCacheDays || PHASE61_DEFAULT_CONFIG.marketCacheDays);
+      next.doctorTestsFree = next.doctorTestsFree !== false;
+      next.gatewayHealthChecksFree = next.gatewayHealthChecksFree !== false;
+      next.marketLookupsManualOnly = next.marketLookupsManualOnly !== false;
       next.timeoutMs = Math.max(8000, +next.timeoutMs || PHASE61_DEFAULT_CONFIG.timeoutMs);
       next.sendInventoryLimit = Math.max(10, +next.sendInventoryLimit || PHASE61_DEFAULT_CONFIG.sendInventoryLimit);
       try { localStorage.setItem(PHASE61_CONFIG_KEY, JSON.stringify(next)); } catch(e) { phase1LogError("phase61SaveConfig", e); }
@@ -21013,8 +21316,8 @@ Answer with a practical action plan for Leaf Diary.`;
         ...phase61ReadConfig(),
         enabled:true, endpointUrl:LEAF_AI_WORKING_ENDPOINT, secretToken:LEAF_AI_WORKING_TOKEN,
         provider:"ollama-proxy", model:LEAF_AI_WORKING_GATEWAY_MODEL, fallbackMode:"ollama_then_local",
-        maxDailyRequests:15, maxMonthlyDollars:5, estimatedCostPerRequest:0.02, timeoutMs:30000,
-        sendInventoryLimit:35, useOnMobile:true, useOnDesktop:true, preferGatewayOnMobile:true,
+        maxDailyRequests:8, maxDailyMarketLookups:30, maxWeeklyMarketLookups:100, maxMonthlyDollars:10, estimatedCostPerRequest:0.02, estimatedMarketCostPerLookup:0.02, marketCacheDays:14, doctorTestsFree:true, gatewayHealthChecksFree:true, marketLookupsManualOnly:true, timeoutMs:30000,
+        sendInventoryLimit:35, useOnMobile:true, useOnDesktop:true, preferGatewayOnMobile:true, requireManualCloudApproval:true, disableAutoGatewayCalls:true,
         workingSettingsLocked:true, workingSettingsNote:LEAF_AI_WORKING_NOTE
       });
       const local = phase3SaveConfig({
@@ -21031,25 +21334,76 @@ Answer with a practical action plan for Leaf Diary.`;
     const phase61Month = () => new Date().toISOString().slice(0, 7);
     const phase61ReadUsage = () => ({ daily:{}, monthly:{}, calls:[], ...safeObject(safeJsonParse(localStorage.getItem(PHASE61_USAGE_KEY), {})) });
     const phase61SaveUsage = usage => { try { localStorage.setItem(PHASE61_USAGE_KEY, JSON.stringify(usage)); } catch(e) { phase1LogError("phase61SaveUsage", e); } return usage; };
+    const phase61Week = () => {
+      const d = new Date();
+      const oneJan = new Date(d.getFullYear(), 0, 1);
+      const dayMs = 86400000;
+      const week = Math.ceil((((d - oneJan) / dayMs) + oneJan.getDay() + 1) / 7);
+      return `${d.getFullYear()}-W${String(week).padStart(2, "0")}`;
+    };
     const phase61UsageSnapshot = (cfg = phase61ReadConfig()) => {
       const usage = phase61ReadUsage();
-      const day = phase61Today(), mon = phase61Month();
-      const dailyCalls = +(usage.daily?.[day]?.calls || 0);
-      const monthlyCost = +(usage.monthly?.[mon]?.estimatedCost || 0);
-      return { day, month:mon, dailyCalls, dailyLimit:+cfg.maxDailyRequests || 0, monthlyCost, monthlyLimit:+cfg.maxMonthlyDollars || 0, remainingDaily: Math.max(0, (+cfg.maxDailyRequests || 0) - dailyCalls), remainingBudget: Math.max(0, (+cfg.maxMonthlyDollars || 0) - monthlyCost) };
+      const day = phase61Today(), mon = phase61Month(), week = phase61Week();
+      const daily = usage.daily?.[day] || {};
+      const weekly = usage.weekly?.[week] || {};
+      const monthly = usage.monthly?.[mon] || {};
+      const dailyCalls = +(daily.calls || 0);
+      const dailyMarketCalls = +(daily.marketCalls || 0);
+      const weeklyMarketCalls = +(weekly.marketCalls || 0);
+      const monthlyCost = +(monthly.estimatedCost || 0);
+      const dailyLimit = +cfg.maxDailyRequests || 0;
+      const dailyMarketLimit = +cfg.maxDailyMarketLookups || 0;
+      const weeklyMarketLimit = +cfg.maxWeeklyMarketLookups || 0;
+      return {
+        day, month:mon, week,
+        dailyCalls, dailyLimit,
+        dailyMarketCalls, dailyMarketLimit,
+        weeklyMarketCalls, weeklyMarketLimit,
+        monthlyCost, monthlyLimit:+cfg.maxMonthlyDollars || 0,
+        remainingDaily: Math.max(0, dailyLimit - dailyCalls),
+        remainingMarketDaily: dailyMarketLimit ? Math.max(0, dailyMarketLimit - dailyMarketCalls) : 999999,
+        remainingMarketWeekly: weeklyMarketLimit ? Math.max(0, weeklyMarketLimit - weeklyMarketCalls) : 999999,
+        remainingBudget: Math.max(0, (+cfg.maxMonthlyDollars || 0) - monthlyCost)
+      };
+    };
+    const phase61IsFreeGatewayTask = ({ route = "", routeDef = {} } = {}) => {
+      const task = String(routeDef?.task || route || "").toLowerCase();
+      return /connection_test|health|status|doctor|model_list|tags|ping/.test(task);
+    };
+    const phase61IsMarketPricingTask = ({ route = "", routeDef = {} } = {}) => {
+      const task = String(routeDef?.task || route || "").toLowerCase();
+      return route === "pricing" || /market_price|pricing|market_lookup/.test(task);
     };
     const phase61LogGatewayCall = entry => {
       const cfg = phase61ReadConfig();
       const usage = phase61ReadUsage();
-      const day = phase61Today(), mon = phase61Month();
-      const est = +(entry.estimatedCost ?? cfg.estimatedCostPerRequest ?? 0.01) || 0;
-      usage.daily = usage.daily || {}; usage.monthly = usage.monthly || {}; usage.calls = safeArray(usage.calls);
-      usage.daily[day] = usage.daily[day] || { calls:0, estimatedCost:0 };
-      usage.monthly[mon] = usage.monthly[mon] || { calls:0, estimatedCost:0 };
-      usage.daily[day].calls += 1; usage.daily[day].estimatedCost += est;
-      usage.monthly[mon].calls += 1; usage.monthly[mon].estimatedCost += est;
-      usage.calls.push({ id:uid(), createdAt:new Date().toISOString(), ...entry, estimatedCost:est });
-      usage.calls = usage.calls.slice(-150);
+      const day = phase61Today(), mon = phase61Month(), week = phase61Week();
+      const category = entry.category || (entry.route === "pricing" ? "market" : "chat");
+      const isFree = entry.free === true;
+      const defaultCost = category === "market" ? (+cfg.estimatedMarketCostPerLookup || +cfg.estimatedCostPerRequest || 0.02) : (+cfg.estimatedCostPerRequest || 0.02);
+      const est = isFree ? 0 : (+(entry.estimatedCost ?? defaultCost) || 0);
+      usage.daily = usage.daily || {}; usage.weekly = usage.weekly || {}; usage.monthly = usage.monthly || {}; usage.calls = safeArray(usage.calls);
+      usage.daily[day] = usage.daily[day] || { calls:0, marketCalls:0, estimatedCost:0, marketCost:0, freeCalls:0 };
+      usage.weekly[week] = usage.weekly[week] || { marketCalls:0, estimatedCost:0 };
+      usage.monthly[mon] = usage.monthly[mon] || { calls:0, marketCalls:0, estimatedCost:0, freeCalls:0 };
+      if (isFree) {
+        usage.daily[day].freeCalls = +(usage.daily[day].freeCalls || 0) + 1;
+        usage.monthly[mon].freeCalls = +(usage.monthly[mon].freeCalls || 0) + 1;
+      } else if (category === "market") {
+        usage.daily[day].marketCalls = +(usage.daily[day].marketCalls || 0) + 1;
+        usage.daily[day].marketCost = +(usage.daily[day].marketCost || 0) + est;
+        usage.weekly[week].marketCalls = +(usage.weekly[week].marketCalls || 0) + 1;
+        usage.weekly[week].estimatedCost = +(usage.weekly[week].estimatedCost || 0) + est;
+        usage.monthly[mon].marketCalls = +(usage.monthly[mon].marketCalls || 0) + 1;
+        usage.monthly[mon].estimatedCost = +(usage.monthly[mon].estimatedCost || 0) + est;
+      } else {
+        usage.daily[day].calls = +(usage.daily[day].calls || 0) + 1;
+        usage.daily[day].estimatedCost = +(usage.daily[day].estimatedCost || 0) + est;
+        usage.monthly[mon].calls = +(usage.monthly[mon].calls || 0) + 1;
+        usage.monthly[mon].estimatedCost = +(usage.monthly[mon].estimatedCost || 0) + est;
+      }
+      usage.calls.push({ id:uid(), createdAt:new Date().toISOString(), ...entry, category, free:isFree, estimatedCost:est });
+      usage.calls = usage.calls.slice(-250);
       return phase61SaveUsage(usage);
     };
     const phase61ReportHistory = () => safeArray(safeJsonParse(localStorage.getItem(PHASE61_REPORT_KEY), []));
@@ -21067,11 +21421,20 @@ Answer with a practical action plan for Leaf Diary.`;
       if (!mobile && !cfg.useOnDesktop) return false;
       return true;
     };
-    const phase61CanSpend = (cfg = phase61ReadConfig()) => {
+    const phase61CanSpend = (cfg = phase61ReadConfig(), ctx = {}) => {
       const usage = phase61UsageSnapshot(cfg);
-      if (usage.dailyCalls >= usage.dailyLimit) return { ok:false, reason:`Daily Mobile AI Gateway limit reached (${usage.dailyCalls}/${usage.dailyLimit}).`, usage };
-      if (usage.monthlyLimit > 0 && usage.monthlyCost + (+cfg.estimatedCostPerRequest || 0) > usage.monthlyLimit) return { ok:false, reason:`Monthly Mobile AI Gateway budget limit reached (${$(usage.monthlyCost)} / ${$(usage.monthlyLimit)}).`, usage };
-      return { ok:true, usage };
+      const isFree = phase61IsFreeGatewayTask(ctx);
+      const isMarket = phase61IsMarketPricingTask(ctx);
+      if (isFree) return { ok:true, usage, free:true, category:"free", estimatedCost:0 };
+      const est = isMarket ? (+cfg.estimatedMarketCostPerLookup || +cfg.estimatedCostPerRequest || 0.02) : (+cfg.estimatedCostPerRequest || 0.02);
+      if (isMarket) {
+        if (usage.dailyMarketLimit > 0 && usage.dailyMarketCalls >= usage.dailyMarketLimit) return { ok:false, reason:`Daily Market Pricing lookup limit reached (${usage.dailyMarketCalls}/${usage.dailyMarketLimit}). Cached/internal pricing was used instead.`, usage, category:"market" };
+        if (usage.weeklyMarketLimit > 0 && usage.weeklyMarketCalls >= usage.weeklyMarketLimit) return { ok:false, reason:`Weekly Market Pricing lookup limit reached (${usage.weeklyMarketCalls}/${usage.weeklyMarketLimit}). Cached/internal pricing was used instead.`, usage, category:"market" };
+      } else {
+        if (usage.dailyCalls >= usage.dailyLimit) return { ok:false, reason:`Daily Cloud AI chat limit reached (${usage.dailyCalls}/${usage.dailyLimit}).`, usage, category:"chat" };
+      }
+      if (usage.monthlyLimit > 0 && usage.monthlyCost + est > usage.monthlyLimit) return { ok:false, reason:`Monthly Cloud AI budget limit reached (${$(usage.monthlyCost)} / ${$(usage.monthlyLimit)}).`, usage, category:isMarket ? "market" : "chat" };
+      return { ok:true, usage, category:isMarket ? "market" : "chat", estimatedCost:est };
     };
     const phase61CostGuardMessage = cfg => cfg?.disableAutoGatewayCalls
       ? "AI Cost Guard is ON: cloud AI runs only when you click a cloud AI button. Normal dashboards use local/free logic."
@@ -21080,8 +21443,12 @@ Answer with a practical action plan for Leaf Diary.`;
       ...safeObject(cfg),
       enabled: true,
       maxDailyRequests: 8,
-      maxMonthlyDollars: 5,
+      maxDailyMarketLookups: 30,
+      maxWeeklyMarketLookups: 100,
+      maxMonthlyDollars: 10,
       estimatedCostPerRequest: 0.02,
+      estimatedMarketCostPerLookup: 0.02,
+      marketCacheDays: 14,
       sendInventoryLimit: 35,
       allowOwnerFinancialsToGateway: false,
       logPromptsLocally: false,
@@ -21111,15 +21478,48 @@ Answer with a practical action plan for Leaf Diary.`;
       const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
       const limitedInventory = inStock.slice(0, cfg.sendInventoryLimit || 80).map(p => ({ plantId:p.plantId || p.plantCode || "", name:p.name || "Plant", potSize:p.potSize || "", status:p.status || "", dateAdded:p.dateAdded || "", daysHeld:dHeld(p.dateAdded), suggestedPrice: owner && cfg.allowOwnerFinancialsToGateway ? (+p.suggestedPrice || 0) : undefined, cost: owner && cfg.allowOwnerFinancialsToGateway ? (+p.cost || 0) : undefined, margin: owner && cfg.allowOwnerFinancialsToGateway ? (+p.margin || marg(+p.cost||0,+p.suggestedPrice||0)) : undefined, nurseryName:p.nurseryName || p.nursery || p.supplier || "", needsPhoto: !(p.photoUrl || p.photoBase64), labelPrinted: !!p.labelPrinted }));
       const safeSummary = { role:user?.role || "employee", route, routeLabel:routeDef?.label || route, counts:{ inStock:inStock.length, sold30:sold30.length, noPhoto, aging45, aging60, receipts:safeArray(appData.expenseReceipts).length, billsOpen:bills.filter(b=>b.status!=="Paid").length }, ownerFinancialsSent: !!(owner && cfg.allowOwnerFinancialsToGateway), financials: owner && cfg.allowOwnerFinancialsToGateway ? { revenue30, inventoryCost:invCost, inventoryValue:invValue, billsDue14:due14, expense30:expenses.filter(e=>dateInLast(e.date || e.createdAt,30)).reduce((s,e)=>s+(+e.amount||0),0), payroll30:timecards.filter(t=>dateInLast(t.date || t.createdAt,30)).reduce((s,t)=>s+(+t.totalPay||0),0) } : "restricted", inventory:limitedInventory, hotGenera:Object.values(sold30.reduce((m,p)=>{ const g=gOf(p.name); m[g]=m[g]||{genus:g,count:0,revenue:0}; m[g].count++; m[g].revenue += (+p.salePrice||+p.suggestedPrice||0); return m; },{})).sort((a,b)=>b.count-a.count).slice(0,8) };
-      return { app:"Leaf Diary Business Hub", appVersion:APP_VERSION, provider:cfg.provider, model:model || cfg.model, route, task:routeDef?.task || route, question:String(question || ""), extraPrompt:String(extraPrompt || ""), user:{ role:user?.role || "employee", name:user?.name || "Leaf Diary User" }, mobile:phase3IsMobileDevice(), safeSummary };
+      const routeMeta = {
+        label: routeDef?.label || route,
+        task: routeDef?.task || route,
+        financials: routeDef?.financials || "limited",
+        requireWebSearch: routeDef?.requireWebSearch === true,
+        webSearchPurpose: routeDef?.webSearch?.purpose || routeDef?.task || route
+      };
+      const webSearch = routeDef?.requireWebSearch === true
+        ? safeObject(routeDef.webSearch || routeDef.search || {})
+        : undefined;
+      const searchQueries = webSearch?.queries || routeDef?.searchQueries || undefined;
+      return {
+        app:"Leaf Diary Business Hub",
+        appVersion:APP_VERSION,
+        provider:cfg.provider,
+        model:model || cfg.model,
+        route,
+        task:routeDef?.task || route,
+        routeMeta,
+        requireWebSearch: routeDef?.requireWebSearch === true,
+        webSearch,
+        searchQueries,
+        question:String(question || ""),
+        extraPrompt:String(extraPrompt || ""),
+        user:{ role:user?.role || "employee", name:user?.name || "Leaf Diary User" },
+        mobile:phase3IsMobileDevice(),
+        safeSummary
+      };
     }
     async function phase61CallGateway({ question = "", route = "executive", routeDef = {}, appData = {}, user = {}, model = "", extraPrompt = "", cfg = phase61ReadConfig() }) {
-      if (!phase61ShouldUseGateway(cfg)) throw new Error("Mobile AI Gateway is disabled or endpoint is not configured.");
+      if (!phase61ShouldUseGateway(cfg)) throw new Error("Cloud AI Gateway is disabled or endpoint is not configured.");
       if (routeDef?.financials === "owner_only" && user?.role !== "owner") throw new Error("This AI route is owner-only. Financial AI is protected.");
-      const spend = phase61CanSpend(cfg);
+      const spend = phase61CanSpend(cfg, { route, routeDef, question });
       if (!spend.ok) throw new Error(spend.reason);
       const endpoint = phase61NormalizeUrl(cfg.endpointUrl);
       const payload = phase61BuildSafeBusinessPayload({ question, route, routeDef, appData, user, model:model || cfg.model, extraPrompt });
+      if (routeDef?.requireWebSearch === true) {
+        payload.requireWebSearch = true;
+        payload.webSearch = payload.webSearch || safeObject(routeDef.webSearch || routeDef.search || {});
+        payload.searchQueries = payload.searchQueries || payload.webSearch?.queries || routeDef.searchQueries || [];
+        payload.toolHints = { ...(payload.toolHints || {}), webSearch:true, provider:payload.webSearch?.provider || "tavily", purpose:payload.webSearch?.purpose || routeDef.task || route };
+      }
       const started = Date.now();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), Math.max(8000, +cfg.timeoutMs || 30000));
@@ -21128,19 +21528,19 @@ Answer with a practical action plan for Leaf Diary.`;
         const text = await res.text();
         let data = null; try { data = text ? JSON.parse(text) : null; } catch(e) { data = { raw:text }; }
         if (!res.ok || !data?.ok) throw new Error(data?.error || `${res.status} ${res.statusText}: ${String(text).slice(0,240)}`);
-        phase61LogGatewayCall({ ok:true, route, provider:data.provider || cfg.provider, model:data.model || cfg.model, ms:Date.now()-started, question:cfg.logPromptsLocally ? String(question).slice(0,500) : "hidden" });
+        phase61LogGatewayCall({ ok:true, route, category:spend.category, free:spend.free, estimatedCost:spend.estimatedCost, provider:data.provider || cfg.provider, model:data.model || cfg.model, ms:Date.now()-started, question:cfg.logPromptsLocally ? String(question).slice(0,500) : "hidden" });
         return phase61SaveReport({ ok:true, status:"online", route, provider:data.provider || cfg.provider, model:data.model || cfg.model, answer:data.answer || data.output || "", usage:data.usage || null, ms:Date.now()-started, endpoint, generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
       } catch(e) {
-        phase61LogGatewayCall({ ok:false, route, provider:cfg.provider, model:cfg.model, ms:Date.now()-started, error:e?.message || String(e), question:cfg.logPromptsLocally ? String(question).slice(0,500) : "hidden" });
+        phase61LogGatewayCall({ ok:false, route, category:spend?.category, free:spend?.free, estimatedCost:spend?.estimatedCost, provider:cfg.provider, model:cfg.model, ms:Date.now()-started, error:e?.message || String(e), question:cfg.logPromptsLocally ? String(question).slice(0,500) : "hidden" });
         phase1LogError("phase61CallGateway", e, { route, endpoint });
         return phase61SaveReport({ ok:false, status:"offline", route, provider:cfg.provider, model:cfg.model, error:e?.message || String(e), ms:Date.now()-started, endpoint, generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
       } finally { clearTimeout(timeout); }
     }
     async function phase61TestGatewayConnection(cfg = phase61ReadConfig(), user = { role:"owner", name:"Owner" }) {
       const clean = phase61SaveConfig({ ...cfg, enabled:!!cfg.enabled });
-      if (!clean.enabled) return phase61SaveReport({ ok:false, status:"disabled", error:"Mobile AI Gateway is disabled.", generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
+      if (!clean.enabled) return phase61SaveReport({ ok:false, status:"disabled", error:"Cloud AI Gateway is disabled.", generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
       if (!clean.endpointUrl) return phase61SaveReport({ ok:false, status:"missing", error:"Add your Cloudflare Worker endpoint URL first.", generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
-      return await phase61CallGateway({ question:"Reply with exactly: Leaf Diary Mobile AI Gateway connected.", route:"executive", routeDef:{ label:"Gateway Test", task:"connection_test", financials:"none" }, appData:{ plants:[], expenses:[], bills:[], timecards:[], expenseReceipts:[] }, user, model:clean.model, cfg:clean });
+      return await phase61CallGateway({ question:"Reply with exactly: Leaf Diary Cloud AI Gateway connected.", route:"executive", routeDef:{ label:"Gateway Test", task:"connection_test", financials:"none" }, appData:{ plants:[], expenses:[], bills:[], timecards:[], expenseReceipts:[] }, user, model:clean.model, cfg:clean });
     }
     function Phase61AIGatewayConsole({ appData, user, config, setConfig, status, setStatus, addAudit, setPage }) {
       const [draft, setDraft] = useState(() => ({ ...PHASE61_DEFAULT_CONFIG, ...safeObject(config) }));
@@ -21152,7 +21552,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const save = () => {
         const next = phase61SaveConfig(draft);
         setDraft(next); setConfig && setConfig(next); setStatus && setStatus(phase61BuildStatus(next.enabled ? "not_tested" : "disabled", { config:next }));
-        try { addAudit && addAudit({ action:"Mobile AI Gateway settings saved", page:"Mobile AI Gateway", user:user?.name||"Owner" }); } catch(e) {}
+        try { addAudit && addAudit({ action:"Cloud AI Gateway settings saved", page:"Cloud AI Gateway", user:user?.name||"Owner" }); } catch(e) {}
       };
       const test = async () => {
         setBusy(true); setAnswer(""); setStatus && setStatus(phase61BuildStatus("testing", { config:draft }));
@@ -21160,11 +21560,11 @@ Answer with a practical action plan for Leaf Diary.`;
         const report = await phase61TestGatewayConnection(cfg, user);
         setTestReport(report); setAnswer(report.answer || report.error || "No answer returned.");
         setStatus && setStatus(phase61BuildStatus(report.status || (report.ok ? "online" : "offline"), { report, config:cfg }));
-        try { addAudit && addAudit({ action:`Mobile AI Gateway test ${report.ok ? "passed" : "failed"}`, details:report.ok ? report.answer : report.error, page:"Mobile AI Gateway", user:user?.name||"Owner", severity:report.ok?"info":"warning" }); } catch(e) {}
+        try { addAudit && addAudit({ action:`Cloud AI Gateway test ${report.ok ? "passed" : "failed"}`, details:report.ok ? report.answer : report.error, page:"Cloud AI Gateway", user:user?.name||"Owner", severity:report.ok?"info":"warning" }); } catch(e) {}
         setBusy(false);
       };
       const ask = async () => {
-        setBusy(true); setAnswer("Thinking through Mobile AI Gateway...");
+        setBusy(true); setAnswer("Thinking through Cloud AI Gateway...");
         const cfg = phase61SaveConfig(draft); setConfig && setConfig(cfg);
         const report = await phase61CallGateway({ question, route:"executive", routeDef:{ label:"Gateway Manual Test", task:"manual_test", financials:"owner_only" }, appData, user, model:cfg.model, cfg });
         setTestReport(report); setAnswer(report.answer || report.error || "Gateway did not return an answer.");
@@ -21183,16 +21583,16 @@ Answer with a practical action plan for Leaf Diary.`;
       const useLeafGatewayPreset = () => {
         const locked = leafAiLockWorkingSettings();
         setDraft(locked.gateway); setConfig && setConfig(locked.gateway);
-        setAnswer("Working AI settings restored and locked: Gateway endpoint, token, provider, model, daily limit 15, $5 budget, inventory limit 35, timeout 30000ms, and MacBook Gateway mode are saved on this device.");
+        setAnswer("Working AI settings restored and locked: Gateway endpoint, token, provider, model, daily chat limit 8, market 30/day and 100/week, $10 budget, inventory limit 35, timeout 30000ms, and MacBook Gateway mode are saved on this device.");
       };
-      const activateCostSaver = () => { const next = phase61CostSaverPreset(draft); setDraft(next); const saved = phase61SaveConfig(next); setConfig && setConfig(saved); setAnswer("AI Cost Guard activated: cloud calls are manual-only, daily limit 8, monthly tracker $5, inventory payload capped at 35, owner financials redacted by default."); };
+      const activateCostSaver = () => { const next = phase61CostSaverPreset(draft); setDraft(next); const saved = phase61SaveConfig(next); setConfig && setConfig(saved); setAnswer("AI Cost Guard activated: cloud calls are manual-only, daily chat limit 8, market pricing 30/day and 100/week, monthly tracker $10, inventory payload capped at 35, owner financials redacted by default."); };
       const download = () => phase1DownloadJson(`leafdiary-phase61-ai-gateway-${today()}.json`, { appVersion:APP_VERSION, config:{ ...draft, secretToken:draft.secretToken ? "saved-token-hidden" : "" }, status, usage:phase61ReadUsage(), lastReport:testReport, generatedAt:new Date().toISOString() });
       return <div className="ld-page" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", maxWidth:1080, margin:"0 auto" }}>
-        <SHdr icon="🌐" title="Mobile AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Gateway/Proxy answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
+        <SHdr icon="🌐" title="Cloud AI Gateway" sub="Phone-safe AI bridge: phone → secure endpoint → Ollama Gateway/Proxy answer, with fallback protection." right={<Row gap={8} wrap><Btn sz="sm" onClick={save}>Save Gateway</Btn><Btn sz="sm" v="soft" onClick={test} disabled={busy}>Test Gateway</Btn><Btn sz="sm" v="outline" onClick={download}>Download Report</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:`2px solid ${phase61StatusColor(status?.status || (draft.enabled ? "not_tested" : "disabled"))}` }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:28, fontWeight:900, color:phase61StatusColor(status?.status || "not_tested") }}>{phase61StatusLabel(status?.status || (draft.enabled ? "not_tested" : "disabled"))}</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>Endpoint: {draft.endpointUrl || "not set"} · Ollama model: {draft.model} · Provider: {draft.provider === "ollama-proxy" ? "Ollama Proxy / Gateway" : "Ollama Cloud API"}</div></div>
-            <Row gap={8} wrap><Tag text={phase3IsMobileDevice() ? "Mobile detected" : "Desktop detected"} color={phase3IsMobileDevice() ? C.blue : C.g600} /><Tag text={`${usage.dailyCalls}/${usage.dailyLimit} today`} color={usage.dailyCalls >= usage.dailyLimit ? C.red : C.g600} /><Tag text={`${$(usage.monthlyCost)} est. month`} color={usage.monthlyCost >= usage.monthlyLimit && usage.monthlyLimit ? C.red : C.gold} /></Row>
+            <Row gap={8} wrap><Tag text={phase3IsMobileDevice() ? "Mobile detected" : "Desktop detected"} color={phase3IsMobileDevice() ? C.blue : C.g600} /><Tag text={`Chat ${usage.dailyCalls}/${usage.dailyLimit}`} color={usage.dailyCalls >= usage.dailyLimit ? C.red : C.g600} /><Tag text={`Market ${usage.dailyMarketCalls}/${usage.dailyMarketLimit}/day`} color={usage.dailyMarketLimit && usage.dailyMarketCalls >= usage.dailyMarketLimit ? C.red : C.g600} /><Tag text={`${$(usage.monthlyCost)} est. month`} color={usage.monthlyCost >= usage.monthlyLimit && usage.monthlyLimit ? C.red : C.gold} /></Row>
           </Row>
         </Card>
         <Card style={{ marginBottom:14, background:C.goldBg, border:`2px solid ${C.gold}` }}>
@@ -21224,10 +21624,13 @@ Answer with a practical action plan for Leaf Diary.`;
                 <Inp label="Gateway Model" value={draft.model} onChange={v=>setDraft(p=>({...p, model:v}))} placeholder="gpt-oss:20b" />
                 <Sel label="Fallback" value={draft.fallbackMode} onChange={v=>setDraft(p=>({...p, fallbackMode:v}))} options={[{v:"ollama_then_local",l:"Gateway → Ollama → local"},{v:"local_only",l:"Gateway → local fallback"},{v:"gateway_only",l:"Gateway only test"}]} />
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:10 }}>
-                <Inp label="Daily AI Limit" type="number" value={draft.maxDailyRequests} onChange={v=>setDraft(p=>({...p, maxDailyRequests:v}))} />
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:10 }}>
+                <Inp label="Daily Chat Limit" type="number" value={draft.maxDailyRequests} onChange={v=>setDraft(p=>({...p, maxDailyRequests:v}))} />
+                <Inp label="Market / Day" type="number" value={draft.maxDailyMarketLookups} onChange={v=>setDraft(p=>({...p, maxDailyMarketLookups:v}))} />
+                <Inp label="Market / Week" type="number" value={draft.maxWeeklyMarketLookups} onChange={v=>setDraft(p=>({...p, maxWeeklyMarketLookups:v}))} />
                 <Inp label="Monthly Budget $" type="number" value={draft.maxMonthlyDollars} onChange={v=>setDraft(p=>({...p, maxMonthlyDollars:v}))} />
-                <Inp label="Est. Cost/Call $" type="number" value={draft.estimatedCostPerRequest} onChange={v=>setDraft(p=>({...p, estimatedCostPerRequest:v}))} />
+                <Inp label="Est. Chat Cost $" type="number" value={draft.estimatedCostPerRequest} onChange={v=>setDraft(p=>({...p, estimatedCostPerRequest:v}))} />
+                <Inp label="Est. Market Cost $" type="number" value={draft.estimatedMarketCostPerLookup} onChange={v=>setDraft(p=>({...p, estimatedMarketCostPerLookup:v}))} />
                 <Inp label="Inventory Sent" type="number" value={draft.sendInventoryLimit} onChange={v=>setDraft(p=>({...p, sendInventoryLimit:v}))} />
                 <Inp label="Timeout MS" type="number" value={draft.timeoutMs} onChange={v=>setDraft(p=>({...p, timeoutMs:v}))} />
               </div>
@@ -21246,7 +21649,7 @@ Answer with a practical action plan for Leaf Diary.`;
           <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
             <Card style={{ background:C.g50 }}>
               <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>How you know it works</div>
-              <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55 }}>Press <b>Test Gateway</b>. Working means the status changes to <b>Gateway connected</b> and the answer says Leaf Diary Mobile AI Gateway connected. If it fails, Ask Business AI still falls back safely.</div>
+              <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55 }}>Press <b>Test Gateway</b>. Working means the status changes to <b>Gateway connected</b> and the answer says Leaf Diary Cloud AI Gateway connected. If it fails, Ask Business AI still falls back safely.</div>
             </Card>
             <Card>
               <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>No API key in HTML</div>
@@ -21254,7 +21657,7 @@ Answer with a practical action plan for Leaf Diary.`;
             </Card>
             <Card>
               <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Usage Guard</div>
-              <div style={{ fontSize:12, color:C.tx2 }}>Today: <b>{usage.dailyCalls}</b> / {usage.dailyLimit} calls<br/>Month estimate: <b>{$(usage.monthlyCost)}</b> / {$(usage.monthlyLimit)}</div>
+              <div style={{ fontSize:12, color:C.tx2 }}>Chat today: <b>{usage.dailyCalls}</b> / {usage.dailyLimit}<br/>Market today: <b>{usage.dailyMarketCalls}</b> / {usage.dailyMarketLimit}<br/>Market week: <b>{usage.weeklyMarketCalls}</b> / {usage.weeklyMarketLimit}<br/>Month estimate: <b>{$(usage.monthlyCost)}</b> / {$(usage.monthlyLimit)}</div>
             </Card>
           </div>
         </div>
@@ -21368,7 +21771,7 @@ Answer with a practical action plan for Leaf Diary.`;
       if (allowGateway && phase61ShouldUseGateway(gatewayCfg)) {
         const gw = await phase61CallGateway({ question, route, routeDef, appData, user, model: gatewayCfg.model || model, extraPrompt: extraPrompt || prompt, cfg: gatewayCfg });
         if (gw.ok) return phase4SaveReport({ ok:true, gateway:true, route, model:gw.model || gatewayCfg.model, question, answer:gw.answer, provider:gw.provider || gatewayCfg.provider, generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
-        if (gatewayCfg.fallbackMode === "gateway_only") return phase4SaveReport({ ok:false, gateway:true, fallback:false, route, model:gatewayCfg.model, question, answer:`Mobile AI Gateway failed and gateway-only mode is on.
+        if (gatewayCfg.fallbackMode === "gateway_only") return phase4SaveReport({ ok:false, gateway:true, fallback:false, route, model:gatewayCfg.model, question, answer:`Cloud AI Gateway failed and gateway-only mode is on.
 
 ${gw.error || "Unknown gateway error"}`, error:gw.error, generatedAt:new Date().toISOString(), appVersion:APP_VERSION });
       }
@@ -21987,8 +22390,46 @@ ${local.summary || "Fallback completed."}`;
 
       const [session, setSession] = useState(undefined);
       useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => setSession(session || null));
-        supabase.auth.onAuthStateChange((_e, s) => setSession(s || null));
+        let alive = true;
+        const authTimeout = setTimeout(() => {
+          if (!alive) return;
+          setSession(prev => prev === undefined ? null : prev);
+          try { console.warn("Leaf Diary auth timeout — opening login/local mode instead of staying on white/loading screen."); } catch(e) {}
+        }, 4500);
+        try {
+          if (!supabase || !supabase.auth || typeof supabase.auth.getSession !== "function") {
+            clearTimeout(authTimeout);
+            setSession(null);
+            return () => { alive = false; clearTimeout(authTimeout); };
+          }
+          supabase.auth.getSession()
+            .then(({ data }) => {
+              if (!alive) return;
+              clearTimeout(authTimeout);
+              setSession(data?.session || null);
+            })
+            .catch(err => {
+              if (!alive) return;
+              clearTimeout(authTimeout);
+              try { phase1LogError("auth.getSession", err); } catch(e) {}
+              setSession(null);
+            });
+          const sub = supabase.auth.onAuthStateChange((_e, s) => {
+            if (!alive) return;
+            clearTimeout(authTimeout);
+            setSession(s || null);
+          });
+          return () => {
+            alive = false;
+            clearTimeout(authTimeout);
+            try { sub?.data?.subscription?.unsubscribe?.(); } catch(e) {}
+          };
+        } catch (err) {
+          clearTimeout(authTimeout);
+          try { phase1LogError("auth.startup", err); } catch(e) {}
+          setSession(null);
+          return () => { alive = false; clearTimeout(authTimeout); };
+        }
       }, []);
 
       const [user, setUser] = useState(null);
@@ -22776,7 +23217,7 @@ ${local.summary || "Fallback completed."}`;
             { id:"phase1", icon:"🛡️", title:"App Safety", value: phase1Health?.ok ? "Healthy" : "Needs review", sub:`${APP_VERSION} · ${phase1ReadSnapshots().length} local snapshots · ${startupMode === "local-fallback" ? "Local fallback active" : "Startup normal"}`, color: phase1Health?.ok ? "#97d33e" : "#C0570A", border: phase1Health?.ok ? "rgba(151,211,62,.32)" : "rgba(192,87,10,.42)", actionLabel:"Health", onClick:downloadPhase1Health },
             { id:"phase2", icon:"🧪", title:"Developer Safety Check", value:`${phase2Report?.score || 0}/100`, sub:"Owner-only diagnostics, smoke tests, rollback checkpoints.", color: phase2Report?.ok ? "#97d33e" : "#fb6392", border: phase2Report?.ok ? "rgba(151,211,62,.32)" : "rgba(251,99,146,.42)", actionLabel:"Open", onClick:()=>navigate("devtools") },
             { id:"phase3", icon:"🧠", title:"Local AI Setup", value:`${phase3StatusLabel(phase3Status?.status || "not_tested")} · ${phase3Config?.primaryModel || "no model"}`, sub:"Connects local Ollama AI.", color: phase3StatusColor(phase3Status?.status || "not_tested"), border:"rgba(151,211,62,.28)", actionLabel:"Open", onClick:()=>navigate("ollama") },
-            { id:"phase61", icon:"🌐", title:"Mobile AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Connects phone AI to your secure endpoint.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
+            { id:"phase61", icon:"🌐", title:"Cloud AI Gateway", value:`${phase61StatusLabel(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled"))} · ${phase61Config?.model || "no model"}`, sub:"Connects phone AI to your secure endpoint.", color: phase61StatusColor(phase61Status?.status || (phase61Config?.enabled ? "not_tested" : "disabled")), border:"rgba(126,231,255,.28)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
             { id:"phase71", icon:"💵", title:"AI Cost Control", value:`${phase61Config?.disableAutoGatewayCalls !== false ? "Manual cloud only" : "Auto cloud allowed"} · ${phase61Config?.maxDailyRequests || 0}/day · ${$(phase61Config?.maxMonthlyDollars || 0)} tracker`, sub:"Prevents surprise AI costs. Free/local first; cloud only when approved.", color:C.gold, border:"rgba(176,125,16,.30)", actionLabel:"Open", onClick:()=>navigate("aigateway") },
             { id:"phase101", icon:"🧾", title:"Receipt Reader Training", value:`Default ${phase101TrainingStats(settings).defaultPotSize} · ${phase101TrainingStats(settings).activeRules} active rules`, sub:"Teaches invoice and pot-size reading. Local/free first.", color:C.amber, border:"rgba(192,87,10,.30)", actionLabel:"Open", onClick:()=>navigate("invoicetrainer") },
             { id:"phase7", icon:"🎪", title:"Smart Show Builder", value:`${settings?.phase7LastShowPlan?.ok ? `${settings.phase7LastShowPlan.plantIds?.length || 0} plants planned` : "Ready to build"}`, sub:"Builds show lists. Review first, then export normally.", color:"#fb6392", border:"rgba(251,99,146,.30)", actionLabel:"Open", onClick:()=>navigate("showbuilder") },
