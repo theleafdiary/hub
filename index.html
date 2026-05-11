@@ -1,7 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><!DOCTYPE html>
-<html lang="en">
 
 <head>
   <meta charset="UTF-8" />
@@ -1674,6 +1672,7 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
+    /* V106 STEP 1 CLEANUP: removed appended patcher UI, preserved working AI gateway, fixed Local AI model display, disabled heavy archive popup. */
     /* UPDATE 103 AI CENTER STABILITY PATCH
        - Prevents stale browser/runtime references to lowercase instock from white-screening the app.
        - Keeps AI Center related-page navigation inside safe routes.
@@ -2429,7 +2428,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       } else if (src.includes("gateway_disabled")) {
         title = "Gateway is disabled or not configured";
         body = r.priceReason || "The app used the local profit-safe preview because the Gateway endpoint/settings are not active.";
-        fixes = ["Open Mobile AI Gateway / AI Settings and restore the working Gateway settings.", "Confirm endpoint is leaf-diary-ai-public-gateway.theleafdiary.workers.dev/leaf-ai and connection mode is Gateway."];
+        fixes = ["Open Mobile AI Gateway / AI Settings and restore the working Gateway settings.", "Confirm endpoint is leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai and connection mode is Gateway."];
       } else if (src.includes("json_parse")) {
         title = "Gateway answered, but did not return usable marketplace JSON";
         body = "The model likely gave a paragraph, refused to browse, or returned no live source prices. The app requires structured JSON with dataSources and marketMedianPrice before it will trust the price.";
@@ -13466,7 +13465,7 @@ Cancel keeps this local/free.`);
       const provider = aiGateway.provider || aiGateway.aiProvider || settings.aiProvider || "";
       const model = aiGateway.model || aiGateway.gatewayModel || settings.aiModel || "";
       const costGuard = !!(aiGateway.costSaverMode || aiGateway.costGuardEnabled || settings?.aiCostGuard?.enabled || aiGateway.disableAutoGatewayCalls !== false);
-      const gatewayLooksRight = String(endpoint).includes("leaf-diary-ai-public-gateway") || String(provider).toLowerCase().includes("gateway") || String(provider).toLowerCase().includes("proxy");
+      const gatewayLooksRight = String(endpoint).includes("leaf-diary-ai-gateway") || String(endpoint).includes("leaf-diary-ai-public-gateway") || String(provider).toLowerCase().includes("gateway") || String(provider).toLowerCase().includes("proxy");
       const modelLooksRight = !model || String(model).toLowerCase().includes("gpt-oss:20b") || String(model).toLowerCase().includes("gpt-oss") || String(model).toLowerCase().includes("llama") || String(model).toLowerCase().includes("gateway");
       const fnLoaded = name => {
         try { return typeof window !== "undefined" ? (typeof eval(name) === "function") : false; } catch(e) { return false; }
@@ -20103,15 +20102,15 @@ Cancel if you want to save money.`);
          localhost JavaScript was browser-blocked.
        - Local Ollama still works in Terminal at http://127.0.0.1:11434.
     ══════════════════════════════════════════════════════════ */
-    const LEAF_AI_WORKING_ENDPOINT = "https://leaf-diary-ai-public-gateway.theleafdiary.workers.dev/leaf-ai";
+    const LEAF_AI_WORKING_ENDPOINT = "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai";
     const LEAF_AI_WORKING_TOKEN = "leaf-diary-eric-private-ai-2026";
     const LEAF_AI_WORKING_GATEWAY_MODEL = "gpt-oss:20b";
     const LEAF_AI_WORKING_LOCAL_MODEL = "llama3.1:8b";
     const LEAF_AI_WORKING_SETTINGS_KEY = "leafdiary_working_ai_settings_locked_v66";
-    const LEAF_AI_WORKING_NOTE = "Known-good AI setup: Gateway/Proxy mode for the live app, endpoint leaf-diary-ai-public-gateway.theleafdiary.workers.dev/leaf-ai, provider ollama-proxy, model gpt-oss:20b, daily limit 15, monthly budget $5, inventory payload 35, timeout 30000ms. Local Ollama on the MacBook stays http://127.0.0.1:11434 with llama3.1:8b, but the live website should use Gateway mode because direct localhost JavaScript was browser-blocked.";
-    const LEAF_AI_OLD_BLOCKED_ENDPOINT = "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai";
+    const LEAF_AI_WORKING_NOTE = "Known-good AI setup: Gateway/Proxy mode for the live app, endpoint leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai, provider ollama-proxy, model gpt-oss:20b, daily limit 15, monthly budget $5, inventory payload 35, timeout 30000ms. Local Ollama on the MacBook stays http://127.0.0.1:11434 with llama3.1:8b, but the live website should use Gateway mode because direct localhost JavaScript was browser-blocked.";
+    const LEAF_AI_OLD_BLOCKED_ENDPOINT = "https://leaf-diary-ai-public-gateway.theleafdiary.workers.dev/leaf-ai";
     function leafAiIsOldBlockedEndpoint(url = "") {
-      return /leaf-diary-ai-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(String(url || ""));
+      return /leaf-diary-ai-public-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(String(url || ""));
     }
 
 
@@ -20462,7 +20461,12 @@ Answer with a practical action plan for Leaf Diary.`;
         setBusy(false);
       };
       const download = () => phase1DownloadJson(`leafdiary-phase3-ollama-report-${today()}.json`, { config:draft, status, testReport, models, reportHistory:phase3ReportHistory(), appCounts:{ plants:safeArray(appData.plants).length, receipts:safeArray(appData.expenseReceipts).length, bills:safeArray(appData.bills).length }, exportedAt:new Date().toISOString(), appVersion:APP_VERSION });
-      const installedNames = models.map(m => m.name || m);
+      const installedNames = Array.from(new Set([
+        ...safeArray(models).map(m => m?.name || m).filter(Boolean),
+        ...safeArray(testReport?.models).map(m => m?.name || m).filter(Boolean),
+        ...safeArray(status?.models).map(m => m?.name || m).filter(Boolean),
+        ...((status?.status === "online" || testReport?.status === "online") && draft.primaryModel ? [draft.primaryModel] : [])
+      ]));
       const gatewayCfgForStatus = (() => { try { return phase61ReadConfig ? phase61ReadConfig() : {}; } catch(e) { return {}; } })();
       const gatewayReadyForStatus = !!(gatewayCfgForStatus.enabled && gatewayCfgForStatus.endpointUrl && gatewayCfgForStatus.useOnDesktop !== false);
       const displayStatus = draft.connectionMode === "gateway" && gatewayReadyForStatus ? "gateway" : (status?.status || (draft.enabled ? "not_tested" : "disabled"));
@@ -20492,7 +20496,7 @@ Answer with a practical action plan for Leaf Diary.`;
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                 <Inp label="Desktop Ollama URL" value={draft.baseUrl} onChange={v=>setDraft(p=>({...p, baseUrl:v}))} placeholder="http://127.0.0.1:11434" />
                 <Inp label="Mobile/LAN Ollama URL" value={draft.mobileBaseUrl || ""} onChange={v=>setDraft(p=>({...p, mobileBaseUrl:v}))} placeholder="http://192.168.1.25:11434" />
-                <Inp label="Cloud/Tunnel Proxy URL" value={draft.proxyUrl || ""} onChange={v=>setDraft(p=>({...p, proxyUrl:v}))} placeholder="https://your-secure-ai-proxy.example.com" />
+                <Inp label="Cloud/Tunnel Proxy URL" value={draft.proxyUrl || ""} onChange={v=>setDraft(p=>({...p, proxyUrl:v}))} placeholder="https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai" />
                 <Inp label="Proxy Secret Token" value={draft.proxyToken || ""} onChange={v=>setDraft(p=>({...p, proxyToken:v}))} placeholder="optional" />
                 <Sel label="Connection Mode" value={draft.connectionMode || "auto"} onChange={v=>setDraft(p=>({...p, connectionMode:v}))} options={["auto","desktop","gateway","lan","proxy"]} />
                 <Inp label="Primary Model" value={draft.primaryModel} onChange={v=>setDraft(p=>({...p, primaryModel:v}))} placeholder="llama3.1:8b" />
@@ -20842,7 +20846,7 @@ Answer with a practical action plan for Leaf Diary.`;
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
           <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Connection Results</div>{results.length ? <div style={{ display:"grid", gap:8 }}>{results.map((r,i)=><div key={i} style={{ background:C.cardAlt, border:`1px solid ${r.versionOk && r.tagsOk ? C.g300 : C.red + "55"}`, borderRadius:14, padding:12 }}><Row between center gap={8}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{r.base}</div><Tag text={r.versionOk && r.tagsOk ? "Connected" : r.versionOk ? "Partial" : "Failed"} color={r.versionOk && r.tagsOk ? C.g600 : r.versionOk ? C.amber : C.red} sm /></Row><div style={{ color:C.tx3, fontSize:12, marginTop:6, lineHeight:1.45 }}>Version: {r.version || "not reached"} · Models: {r.models?.length || 0} · Generate: {r.generateOk ? "passed" : r.models?.length ? "failed" : "not tested"} · {r.ms}ms</div>{r.browserBlocked && <div style={{ color:C.amber, fontSize:12, marginTop:6, lineHeight:1.35, fontWeight:900 }}>Browser reached Ollama but the app could not read it. Use the CORS restart fix or select Gateway/Proxy for browser-safe AI.</div>}{r.answer && <div style={{ color:C.g700, fontSize:12, marginTop:6, lineHeight:1.35, fontWeight:800 }}>{r.answer}</div>}{r.error && <div style={{ color:r.browserBlocked ? C.amber : C.red, fontSize:12, marginTop:6, lineHeight:1.35 }}>{r.error}</div>}</div>)}</div> : <div style={{ color:C.tx3, fontSize:13 }}>Click Run Doctor to test every configured Ollama URL.</div>}</Card>
-          <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Installed Models</div>{modelNames.length ? modelNames.map(name=><Row key={name} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><span style={{ fontWeight:900, fontSize:12, color:C.tx1 }}>{name}</span><button onClick={()=>setDraft(p=>({...p, primaryModel:name}))} style={{ background:C.g100, border:`1px solid ${C.g300}`, color:C.g800, borderRadius:999, padding:"7px 10px", fontWeight:900, cursor:"pointer" }}>Use</button></Row>) : <div style={{ color:C.tx3, fontSize:13 }}>No models found yet. On the MacBook, run <b>ollama list</b> or <b>ollama pull llama3.1:8b</b>.</div>}</Card>
+          <Card><div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:10 }}>Installed Models</div>{modelNames.length ? modelNames.map(name=><Row key={name} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><span style={{ fontWeight:900, fontSize:12, color:C.tx1 }}>{name}</span><button onClick={()=>setDraft(p=>({...p, primaryModel:name}))} style={{ background:C.g100, border:`1px solid ${C.g300}`, color:C.g800, borderRadius:999, padding:"7px 10px", fontWeight:900, cursor:"pointer" }}>Use</button></Row>) : <div style={{ color:C.tx3, fontSize:13 }}>No model list returned from this endpoint. Your saved primary model is <b>{draft.primaryModel || LEAF_AI_WORKING_LOCAL_MODEL}</b>. If Doctor shows localhost connected with Models: 1, local Ollama is working.</div>}</Card>
         </div>
 
         <Card style={{ marginBottom:14, background:C.blueBg, borderLeft:`5px solid ${C.blue}` }}>
@@ -20938,7 +20942,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const saved = safeObject(safeJsonParse(localStorage.getItem(PHASE61_CONFIG_KEY), {}));
       let next = { ...PHASE61_DEFAULT_CONFIG, ...saved };
       const endpointText = String(next.endpointUrl || "");
-      const missingOrBadEndpoint = !endpointText || /endpoint:\s*https?:/i.test(endpointText) || leafAiIsOldBlockedEndpoint(endpointText) || !/leaf-diary-ai-public-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(endpointText);
+      const missingOrBadEndpoint = !endpointText || /endpoint:\s*https?:/i.test(endpointText) || leafAiIsOldBlockedEndpoint(endpointText) || !/leaf-diary-ai-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(endpointText);
       const wrongProvider = next.provider !== "ollama-proxy";
       const wrongModel = next.model !== LEAF_AI_WORKING_GATEWAY_MODEL;
       if (next.workingSettingsLocked !== false && (missingOrBadEndpoint || wrongProvider || wrongModel)) {
@@ -22900,193 +22904,4 @@ ${local.summary || "Fallback completed."}`;
   </script>
 </body>
 
-</html>
-
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Leaf Diary HTML Patch — Stop Heavy Archive Popup</title>
-  <style>
-    :root { --green:#97d33e; --pink:#fb6392; --black:#050505; --soft:#f4f7f5; --line:#cde0d5; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#eef4f1; color:#102015; }
-    .wrap { max-width: 940px; margin: 0 auto; padding: 28px 16px 80px; }
-    .hero { background:#050505; color:white; border:2px solid rgba(151,211,62,.5); border-radius:28px; padding:24px; box-shadow:0 18px 50px rgba(0,0,0,.18); }
-    h1 { margin:0 0 8px; font-size: clamp(28px, 5vw, 46px); line-height:1; }
-    .tag { color:var(--green); font-weight:900; letter-spacing:.08em; text-transform:uppercase; font-size:12px; }
-    .sub { color:rgba(255,255,255,.76); line-height:1.55; max-width:760px; }
-    .card { background:white; border:1px solid var(--line); border-radius:22px; padding:18px; margin-top:16px; box-shadow:0 8px 28px rgba(13,43,26,.07); }
-    .row { display:grid; grid-template-columns: 1fr; gap:12px; }
-    @media(min-width:760px){ .row { grid-template-columns: 1fr 1fr; } }
-    label { font-weight:900; display:block; margin-bottom:8px; }
-    input[type=file] { width:100%; padding:14px; border:2px dashed #9ddeb4; border-radius:16px; background:#f6faf7; }
-    button { border:0; border-radius:999px; min-height:48px; padding:12px 18px; font-weight:900; cursor:pointer; font-size:15px; }
-    .primary { background:var(--pink); color:#fff; box-shadow:0 10px 24px rgba(251,99,146,.25); }
-    .secondary { background:#0d2b1a; color:var(--green); }
-    .muted { background:#e3f7eb; color:#174d2f; }
-    .status { padding:12px 14px; border-radius:16px; background:#f6faf7; border:1px solid var(--line); white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size:13px; line-height:1.45; }
-    .ok { border-color:#74c98a; background:#effbf2; }
-    .bad { border-color:#e09c9c; background:#fff1f1; }
-    code { background:#07120b; color:#97d33e; padding:2px 6px; border-radius:6px; }
-    .steps li { margin:8px 0; line-height:1.45; }
-    .small { color:#5f7b69; font-size:13px; line-height:1.45; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="hero">
-      <div class="tag">Leaf Diary emergency patch</div>
-      <h1>Stop the heavy cloud archives popup</h1>
-      <p class="sub">This tool patches your latest <code>index.html</code> locally in your browser. It does not upload your app to ChatGPT or any server. It removes the repeating confirm box: <b>Load heavy cloud archives too?</b></p>
-    </div>
-
-    <div class="card">
-      <h2>1. Select your current Leaf Diary HTML file</h2>
-      <p class="small">Use the newest file you are trying to upload to GitHub, usually named <code>index.html</code>. The patcher will create a fixed download.</p>
-      <label for="file">Choose HTML file</label>
-      <input id="file" type="file" accept=".html,text/html" />
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
-        <button class="primary" id="patchBtn">Patch HTML and Download Fixed File</button>
-        <button class="muted" id="clearBtn">Clear</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Patch result</h2>
-      <div id="status" class="status">No file selected yet.</div>
-    </div>
-
-    <div class="card">
-      <h2>What this fixes</h2>
-      <ul class="steps">
-        <li>Replaces the blocking <code>window.confirm("Load heavy cloud archives too?")</code> logic so automatic cloud refreshes do not interrupt you every 30 seconds.</li>
-        <li>Adds a tiny safety guard that suppresses only that exact heavy archive confirm message.</li>
-        <li>Keeps normal cloud loading active for plants, bills, nurseries, expenses, receipts, bundles, users, settings, and core state.</li>
-        <li>Leaves heavy archives off by default so Supabase egress stays low.</li>
-      </ul>
-    </div>
-
-    <div class="card">
-      <h2>After download</h2>
-      <ol class="steps">
-        <li>Rename the downloaded file to <code>index.html</code> if needed.</li>
-        <li>Upload/replace it in your GitHub <code>theleafdiary/hub</code> repo.</li>
-        <li>Wait 1–2 minutes for GitHub Pages to update.</li>
-        <li>Open the app in an incognito/private browser first and confirm the popup is gone.</li>
-      </ol>
-    </div>
-  </div>
-
-<script>
-(function(){
-  const fileInput = document.getElementById('file');
-  const status = document.getElementById('status');
-  const patchBtn = document.getElementById('patchBtn');
-  const clearBtn = document.getElementById('clearBtn');
-
-  const POPUP_TEXT = 'Load heavy cloud archives too? Choose Cancel for normal low-egress load. Heavy archives can include audit log and state document backups.';
-  const PATCH_MARKER = 'LD_PATCH_V104_NO_HEAVY_ARCHIVE_POPUP';
-
-  function setStatus(msg, type){
-    status.textContent = msg;
-    status.className = 'status ' + (type || '');
-  }
-
-  function downloadText(filename, text){
-    const blob = new Blob([text], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1200);
-  }
-
-  function patchHtml(html){
-    let patched = html;
-    let changes = [];
-
-    // Patch the exact Leaf Diary source line found in the saved versions.
-    const exactLine = 'const loadHeavyArchives = !!force && window.confirm("' + POPUP_TEXT + '");';
-    const replacementLine = 'const loadHeavyArchives = false; /* ' + PATCH_MARKER + ': heavy archive popup disabled for automatic cloud loads */';
-    if (patched.includes(exactLine)) {
-      patched = patched.split(exactLine).join(replacementLine);
-      changes.push('Exact loadHeavyArchives confirm line replaced.');
-    }
-
-    // Patch formatted/minified variants of the same logic.
-    const regexes = [
-      /const\s+loadHeavyArchives\s*=\s*!!force\s*&&\s*window\.confirm\(\s*["']Load heavy cloud archives too\?[\s\S]*?state document backups\.["']\s*\)\s*;/g,
-      /const\s+loadHeavyArchives\s*=\s*[^;]*window\.confirm\(\s*["']Load heavy cloud archives too\?[\s\S]*?state document backups\.["']\s*\)\s*;/g
-    ];
-    regexes.forEach((rx, i) => {
-      const before = patched;
-      patched = patched.replace(rx, replacementLine);
-      if (patched !== before) changes.push('Regex patch #' + (i+1) + ' applied.');
-    });
-
-    // Add a safety guard that only suppresses this one confirm message.
-    const guard = `\n<!-- ${PATCH_MARKER}: suppress only the repeating heavy archive browser confirm -->\n<script>\n(function(){\n  var originalConfirm = window.confirm;\n  window.confirm = function(message){\n    if (typeof message === "string" && message.indexOf("Load heavy cloud archives too?") !== -1) {\n      try { console.warn("Leaf Diary patch: suppressed heavy archive popup."); } catch(e) {}\n      return false;\n    }\n    return originalConfirm.apply(window, arguments);\n  };\n})();\n<\/script>\n`;
-
-    if (!patched.includes(PATCH_MARKER)) {
-      if (patched.includes('</head>')) {
-        patched = patched.replace('</head>', guard + '\n</head>');
-        changes.push('Head safety guard inserted.');
-      } else if (patched.includes('<body')) {
-        patched = patched.replace('<body', guard + '\n<body');
-        changes.push('Body safety guard inserted.');
-      } else {
-        patched = guard + patched;
-        changes.push('Top safety guard inserted.');
-      }
-    } else {
-      changes.push('Patch marker already present; safety guard not duplicated.');
-    }
-
-    return { patched, changes };
-  }
-
-  patchBtn.addEventListener('click', async () => {
-    const file = fileInput.files && fileInput.files[0];
-    if (!file) {
-      setStatus('Choose your current index.html file first.', 'bad');
-      return;
-    }
-    try {
-      const text = await file.text();
-      const beforeSize = text.length;
-      const { patched, changes } = patchHtml(text);
-      const afterSize = patched.length;
-      const foundOriginalText = text.includes('Load heavy cloud archives too?');
-      const stillHasPopupConfirm = /window\.confirm\(\s*["']Load heavy cloud archives too\?/i.test(patched);
-      const outName = file.name.replace(/\.html?$/i, '') + '-NO-HEAVY-ARCHIVE-POPUP-FIXED.html';
-
-      downloadText(outName, patched);
-
-      setStatus([
-        '✅ Fixed file downloaded: ' + outName,
-        '',
-        'Original popup text found: ' + (foundOriginalText ? 'YES' : 'NO — safety guard still added'),
-        'Blocking confirm still present after patch: ' + (stillHasPopupConfirm ? 'YES — check manually' : 'NO'),
-        'Original size: ' + beforeSize.toLocaleString() + ' characters',
-        'Fixed size: ' + afterSize.toLocaleString() + ' characters',
-        '',
-        'Changes:',
-        ...changes.map(c => '• ' + c),
-        '',
-        stillHasPopupConfirm ? '⚠️ A confirm may still remain. Search the fixed file for Load heavy cloud archives too? before uploading.' : 'Upload this fixed file to GitHub as index.html.'
-      ].join('\n'), stillHasPopupConfirm ? 'bad' : 'ok');
-    } catch (err) {
-      setStatus('Patch failed: ' + (err && err.message ? err.message : String(err)), 'bad');
-    }
-  });
-
-  clearBtn.addEventListener('click', () => {
-    fileInput.value = '';
-    setStatus('No file selected yet.');
-  });
-})();
-</script>
-</body>
 </html>
