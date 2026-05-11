@@ -2681,78 +2681,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       result.safeAutoApplyAllowed = phase113SafeAutoApplyAllowed(result);
       return result;
     }
-    /* ══════════════════════════════════════════════════════════
-       UPDATE 116 — SAVED MARKET PRICE CACHE + APPLY TO MATCHES
-       A market lookup should help every matching plant, not just the one
-       clicked. Matching uses plant name + pot size + stage + variegation
-       signature so TC/seedling/cutting/corm/non-variegated plants are not
-       mixed with rooted/potted/variegated inventory.
-    ══════════════════════════════════════════════════════════ */
-    function phase116MarketCacheKeyForPlant(plant = {}) {
-      try {
-        const key = typeof phase110MarketGroupKey === "function" ? phase110MarketGroupKey(plant) : `${phase110NormalizePricingText(plant.name || plant.botanicalName || "unknown plant")}||${phase92NormalizePotSize(plant.potSize || plant.size || plant.containerSize || "").label || "unknown size"}`;
-        return `ld_market_research_cache_v116::${key}`;
-      } catch(e) {
-        return `ld_market_research_cache_v116::${phase83SafePlantPriceId(plant)}`;
-      }
-    }
-    function phase116MarketSignature(plant = {}) {
-      try { return typeof phase110MarketGroupKey === "function" ? phase110MarketGroupKey(plant) : phase116MarketCacheKeyForPlant(plant); }
-      catch(e) { return phase116MarketCacheKeyForPlant(plant); }
-    }
-    function phase116PlantsMatchMarketSignature(a = {}, b = {}) {
-      return !!a && !!b && phase116MarketSignature(a) === phase116MarketSignature(b);
-    }
-    function phase116ShouldSaveMarketCache(result = {}) {
-      const src = String(result.source || "").toLowerCase();
-      if (!result || src.includes("fallback") || src.includes("local_preview") || result.gatewayError) return false;
-      const trusted = +result.trustedComparableCount || +result.dataPointCount || 0;
-      return (+result.marketMedianPrice > 0 || trusted > 0 || safeArray(result.usedComparables).length > 0 || safeArray(result.dataSources).some(s => s.includedInMarketMedian === true));
-    }
-    function phase116SaveMarketCacheForPlant(plant = {}, result = {}) {
-      if (!phase116ShouldSaveMarketCache(result)) return null;
-      const now = new Date().toISOString();
-      const payload = {
-        ...safeObject(result),
-        runAt: result.runAt || now,
-        savedAt: now,
-        savedCacheVersion: "v116",
-        groupKey: phase116MarketSignature(plant),
-        matchingRule: "plant name + pot size + stage + variegation",
-        cacheAppliesToMatchingPlants: true
-      };
-      try { localStorage.setItem(phase116MarketCacheKeyForPlant(plant), JSON.stringify(payload)); } catch(e) {}
-      return payload;
-    }
-    function phase116GetSavedMarketCache(plant = {}, settings = {}) {
-      let raw = null;
-      try { raw = localStorage.getItem(phase116MarketCacheKeyForPlant(plant)); } catch(e) { raw = null; }
-      if (!raw) return null;
-      let cached = null;
-      try { cached = JSON.parse(raw); } catch(e) { cached = null; }
-      if (!cached || !cached.runAt) return null;
-      const cfg = phase83MarketPricingSettings(settings);
-      const ageHours = (Date.now() - new Date(cached.runAt).getTime()) / 3600000;
-      if (!Number.isFinite(ageHours) || ageHours > cfg.cacheHours) return null;
-      return { ...cached, cacheHit:true, source:cached.source || "saved_market_cache_v116" };
-    }
-    function phase116DecorateResultForGroup(plant = {}, result = {}) {
-      return {
-        ...safeObject(result),
-        runAt: result.runAt || new Date().toISOString(),
-        groupKey: result.groupKey || phase116MarketSignature(plant),
-        matchingRule: result.matchingRule || "plant name + pot size + stage + variegation",
-        cacheAppliesToMatchingPlants: true
-      };
-    }
     function getCachedMarketResearch(plant = {}, settings = {}) {
       const research = safeObject(plant.marketResearch);
+      if (!research || !research.runAt) return null;
       const cfg = phase83MarketPricingSettings(settings);
-      if (research && research.runAt) {
-        const ageHours = (Date.now() - new Date(research.runAt).getTime()) / 3600000;
-        if (Number.isFinite(ageHours) && ageHours <= cfg.cacheHours) return research;
-      }
-      return phase116GetSavedMarketCache(plant, settings);
+      const ageHours = (Date.now() - new Date(research.runAt).getTime()) / 3600000;
+      if (!Number.isFinite(ageHours) || ageHours > cfg.cacheHours) return null;
+      return research;
     }
     function phase83MarketPriceStatusMeta(status = "") {
       const s = String(status || "").toLowerCase();
@@ -3155,9 +3090,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           const researched = await runMarketPriceResearch(normalizedPlant, settings, allPlants, user, { forceRefresh });
           setResult(researched);
           onCacheResult && onCacheResult(researched);
-          if (researched.cacheHit) setMsg("Showing saved market research for this matching plant group.");
+          if (researched.cacheHit) setMsg("Showing cached market research for this plant.");
           else if (String(researched.source || "").includes("fallback")) setMsg(researched.priceReason || "Gateway unavailable — fallback price shown.");
-          else setMsg(`Smart market research saved: ${researched.dataPointCount || 0} trusted source(s), confidence ${researched.confidenceScore || 0}/100. Apply updates all matching plants.`);
+          else setMsg(`Smart market research complete: ${researched.dataPointCount || 0} source(s), confidence ${researched.confidenceScore || 0}/100.`);
         } catch(e) {
           const local = phase85BuildLocalMarketPreview(normalizedPlant, settings, allPlants);
           setResult({ ...local, source:"button_exception_fallback", gatewayError:e?.message || String(e) });
@@ -3173,7 +3108,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const payload = { ...r, appliedAt:new Date().toISOString(), appliedPrice:price };
         onApplyPrice && onApplyPrice(price, payload);
         setResult(payload);
-        setMsg(`Applied ${$(price)} from Market Price panel to this matching plant group.`);
+        setMsg(`Applied ${$(price)} from Market Price panel.`);
       };
       if (!canRun) return null;
       return <div style={{ marginTop:compact ? 6 : 10 }}>
@@ -8737,25 +8672,14 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       };
       const cacheMarketResearchForInventoryPlant = (plant, payload = {}) => {
         if (!plant || !payload) return;
-        const saved = phase116DecorateResultForGroup(plant, payload);
-        phase116SaveMarketCacheForPlant(plant, saved);
-        setPlants(prev => safeArray(prev).map(x => phase116PlantsMatchMarketSignature(x, plant)
-          ? { ...x, marketResearch:saved, marketPricingQueued:false, updatedAt:new Date().toISOString() }
-          : x));
+        setPlants(prev => safeArray(prev).map(x => x.id === plant.id ? { ...x, marketResearch:{ ...safeObject(payload), runAt:payload.runAt || new Date().toISOString() }, updatedAt:new Date().toISOString() } : x));
       };
       const applyMarketResearchToInventoryPlant = (plant, price, payload = {}) => {
         const clean = Math.max(0, Math.round((+price || 0) * 100) / 100);
         if (!plant || !clean) return;
-        const saved = phase116DecorateResultForGroup(plant, { ...safeObject(payload), suggestedPrice:clean, appliedAt:payload.appliedAt || new Date().toISOString(), appliedPrice:clean });
-        phase116SaveMarketCacheForPlant(plant, saved);
-        let applied = 0;
-        setPlants(prev => safeArray(prev).map(x => {
-          if (!phase116PlantsMatchMarketSignature(x, plant)) return x;
-          applied += 1;
-          return { ...x, suggestedPrice:clean, margin:marg(+x.cost || 0, clean), marketResearch:saved, suggestedPriceSource:"market_research_matching_group", marketPricingQueued:false, updatedAt:new Date().toISOString() };
-        }));
-        addAudit && addAudit({ action:`Applied market research price ${$(clean)} to all matching plants for ${plant.name || plant.plantId || plant.id}`, user:user.name, page:"Inventory" });
-        ldEmitNextStep({ icon:"🔍", title:"Market price applied to matches", body:`${plant.name || plant.plantId || "Plant"} and matching inventory were updated to ${$(clean)} from saved Market Pricing.`, cta:"Open Inventory", page:"inv", color:C.g600 });
+        setPlants(prev => safeArray(prev).map(x => x.id === plant.id ? { ...x, suggestedPrice:clean, margin:marg(+x.cost || 0, clean), marketResearch:{ ...safeObject(payload), suggestedPrice:clean, appliedAt:payload.appliedAt || new Date().toISOString(), appliedPrice:clean, runAt:payload.runAt || new Date().toISOString() }, updatedAt:new Date().toISOString() } : x));
+        addAudit && addAudit({ action:`Applied market research price ${$(clean)} to ${plant.plantId || plant.plantCode || plant.id}`, user:user.name, page:"Inventory" });
+        ldEmitNextStep({ icon:"🔍", title:"Market price applied", body:`${plant.name || plant.plantId || "Plant"} price was updated to ${$(clean)} from Market Pricing.`, cta:"Open Inventory", page:"inv", color:C.g600 });
       };
 
       const markPlantStagedFromSwipe = (plant) => {
@@ -13073,23 +12997,6 @@ Cancel keeps this local/free.`);
       ];
       return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
     }
-    function phase116BuildSavedPriceCacheSelfChecks({ plants = [], settings = {} } = {}) {
-      const a = { id:"qa-116-a", plantId:"QA-116A", name:"Alocasia Antoro Velvet", potSize:'4"', cost:10, status:"In Stock" };
-      const b = { id:"qa-116-b", plantId:"QA-116B", name:"Alocasia Antoro Velvet", potSize:'4"', cost:12, status:"In Stock" };
-      const c = { id:"qa-116-c", plantId:"QA-116C", name:"Alocasia Antoro Velvet", potSize:'6"', cost:18, status:"In Stock" };
-      const same = phase116PlantsMatchMarketSignature(a, b);
-      const differentSize = !phase116PlantsMatchMarketSignature(a, c);
-      const result = { source:"gateway_market_research", runAt:new Date().toISOString(), suggestedPrice:35, marketMedianPrice:36, dataPointCount:8, trustedComparableCount:8, priceStatus:"competitive" };
-      const shouldSave = phase116ShouldSaveMarketCache(result);
-      const shouldNotSave = !phase116ShouldSaveMarketCache({ ...result, source:"gateway_fallback", gatewayError:"no json" });
-      const checks = [
-        { id:"mp116-signature", icon:"🧬", title:"Matching Signature", pass:same && differentSize, reason:"Market cache groups exact plant + pot size + stage + variegation; different pot sizes do not share pricing.", page:"buy_ws", severity:"critical" },
-        { id:"mp116-cache-save", icon:"💾", title:"Successful Searches Save", pass:shouldSave && shouldNotSave, reason:"Successful marketplace results can be saved; fallback/no-source results are not reused as trusted market cache.", page:"buy_ws", severity:"critical" },
-        { id:"mp116-apply-matches", icon:"🔁", title:"Apply To Matching Plants", pass:typeof phase110ApplyGroupResultToPlants === "function" && typeof phase116DecorateResultForGroup === "function", reason:"Batch and row research can update every matching plant at once instead of only one clicked plant.", page:"plants_ws", severity:"critical" },
-      ];
-      return checks.map(c => ({ ...c, color:c.pass ? C.g600 : c.severity === "critical" ? C.red : C.amber }));
-    }
-
     function Phase88BulkMarketPricingTool({ plants = [], setPlants, settings = {}, user = {}, setPage, compact = false }) {
       const canRun = phase85CanResearchMarket(user, settings);
       const cfg = phase83MarketPricingSettings(settings);
@@ -13176,7 +13083,7 @@ Cancel keeps this local/free.`);
           <Btn sz="sm" v="soft" onClick={()=>selectTop(5)} disabled={running || !candidates.length}>Select Top 5</Btn>
           <Btn sz="sm" v="outline" onClick={()=>selectTop(batchLimit)} disabled={running || !candidates.length}>Select Max {batchLimit}</Btn>
           <Btn sz="sm" onClick={runQueue} disabled={running || !selectedPlants.length}>{running ? "Researching..." : `Research Selected (${selectedPlants.length})`}</Btn>
-          <Btn sz="sm" v="gold" onClick={applySafe} disabled={running || !safeResults.length}>Apply Safe Prices to Matches ({safeResults.length})</Btn>
+          <Btn sz="sm" v="gold" onClick={applySafe} disabled={running || !safeResults.length}>Apply Safe Prices ({safeResults.length})</Btn>
           <Btn sz="sm" v="ghost" onClick={()=>{ setSelected({}); setResults({}); setProgress({done:0,total:0,current:""}); setMsg("Cleared bulk pricing queue."); }} disabled={running}>Clear</Btn>
         </Row>
         {(running || progress.total > 0) && <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, marginBottom:12 }}>
@@ -13321,9 +13228,8 @@ Cancel keeps this local/free.`);
         const id = String(p.id || p.plantId || p.plantCode || phase88PlantKey(p));
         if (!ids.has(id)) return p;
         applied += 1;
-        const payload = phase116DecorateResultForGroup(group.representative || p, { ...safeObject(result), suggestedPrice:price, appliedAt:new Date().toISOString(), appliedPrice:price, groupKey:group.key, groupCount:group.count });
-        phase116SaveMarketCacheForPlant(group.representative || p, payload);
-        return { ...p, suggestedPrice:price, margin:marg(+p.cost || 0, price), marketResearch:payload, suggestedPriceSource:"market_research_matching_group", marketPricingQueued:false, updatedAt:new Date().toISOString() };
+        const payload = { ...safeObject(result), suggestedPrice:price, appliedAt:new Date().toISOString(), appliedPrice:price, groupKey:group.key, groupCount:group.count };
+        return { ...p, suggestedPrice:price, margin:marg(+p.cost || 0, price), marketResearch:payload, updatedAt:new Date().toISOString() };
       }));
       return applied;
     }
@@ -13398,7 +13304,7 @@ Cancel keeps this local/free.`);
       if (!canRun) return <Card style={{ borderLeft:`5px solid ${C.amber}`, background:C.goldBg }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>💲 Batch Market Pricing</div><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:4 }}>Owner/manager tool only. Employees cannot run market research or apply batch prices.</div></Card>;
       return <Card style={{ border:`2px solid ${C.g300}`, borderRadius:22, padding:16, background:C.card }}>
         <Row between center wrap gap={10} style={{ marginBottom:12 }}>
-          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Batch Market Pricing Manager</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Built for 400 plants/week: groups duplicate plant + pot size + stage + variegation, saves each market lookup, and can apply one trusted price to every matching plant at once.</div></div>
+          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Batch Market Pricing Manager</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Built for 400 plants/week: groups duplicate plant + pot size, uses 14-day cache first, and only spends AI on unique groups. V113 adds Smart Profit Floor + market positioning so prices are not too low or too high.</div></div>
           <Row gap={7} wrap><Tag text={`${stats.inStock} plants`} color={C.g600} /><Tag text={`${stats.uniqueGroups} unique groups`} color={C.blue} /><Tag text={`${stats.importQueueGroups || 0} import queue`} color={(stats.importQueueGroups || 0) ? C.purple : C.tx3} /><Tag text={`${stats.cachedGroups} cached`} color={C.gold} /><Tag text={`Market ${usage.dailyMarketCalls}/${usage.dailyMarketLimit} today`} color={usage.dailyMarketLimit && usage.dailyMarketCalls >= usage.dailyMarketLimit ? C.red : C.g600} /></Row>
         </Row>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:12 }}>
@@ -13411,13 +13317,13 @@ Cancel keeps this local/free.`);
           </Row>
         </div>
         {filter === "imported" && <div style={{ background:C.purpleBg, border:`1px solid ${C.purple}44`, borderLeft:`5px solid ${C.purple}`, borderRadius:14, padding:12, marginBottom:12 }}>
-          <b style={{ color:C.purple }}>Imported Pricing Queue</b><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:3 }}>Newly imported plants are grouped by plant name + pot size + stage + variegation. Run pricing manually, review used/rejected comparables, then apply only safe prices. A saved lookup updates the full matching group, not just one plant.</div>
+          <b style={{ color:C.purple }}>Imported Pricing Queue</b><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:3 }}>Newly imported plants are grouped by plant name + pot size + stage + variegation. Run pricing manually, review used/rejected comparables, then apply only safe prices.</div>
         </div>}
         <Row gap={8} wrap center style={{ marginBottom:12 }}>
           <Btn sz="sm" v="soft" onClick={()=>selectTop(10)} disabled={running || !groups.length}>Select Top 10</Btn>
           <Btn sz="sm" v="outline" onClick={()=>selectTop(batchLimit)} disabled={running || !groups.length}>Select Max {batchLimit}</Btn>
           <Btn sz="sm" onClick={runQueue} disabled={running || !selectedGroups.length}>{running ? "Researching..." : `Research Selected Groups (${selectedGroups.length})`}</Btn>
-          <Btn sz="sm" v="gold" onClick={applySafe} disabled={running || !safeResults.length}>Apply Safe Prices to Matches ({safeResults.length})</Btn>
+          <Btn sz="sm" v="gold" onClick={applySafe} disabled={running || !safeResults.length}>Apply Safe Prices ({safeResults.length})</Btn>
           <Btn sz="sm" v="ghost" onClick={()=>{ setSelected({}); setResults({}); setProgress({done:0,total:0,current:""}); setMsg("Cleared batch pricing queue."); }} disabled={running}>Clear</Btn>
         </Row>
         {(running || progress.total > 0) && <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12, marginBottom:12 }}>
