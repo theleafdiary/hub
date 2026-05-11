@@ -1,15 +1,16 @@
-
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
+  <!-- BUILD: V110F NO-STUCK-AUTH STARTUP RESCUE - 2026-05-11 -->
+
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB</title>
+  <title>LEAF DIARY - BUSINESS HUB — V110F</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -1671,6 +1672,7 @@
 </head>
 
 <body>
+  <!-- Leaf Diary Build V110F: no-stuck-auth startup rescue -->
   <div id="root"></div>
   <script type="text/babel">
     /* V106 STEP 1 CLEANUP: removed appended patcher UI, preserved working AI gateway, fixed Local AI model display, disabled heavy archive popup. */
@@ -22389,12 +22391,12 @@ ${local.summary || "Fallback completed."}`;
       useEffect(() => { ldApplyThemeMode(themeMode); }, [themeMode]);
       const toggleThemeMode = useCallback(() => setThemeMode(p => ldApplyThemeMode(p === "dark" ? "light" : "dark")), []);
 
-      const [session, setSession] = useState(undefined);
+      const [session, setSession] = useState(null); // V110F: never cold-start stuck on undefined auth state
       useEffect(() => {
         let alive = true;
         const authTimeout = setTimeout(() => {
           if (!alive) return;
-          setSession(prev => prev === undefined ? null : prev);
+          setSession(null);
           try { console.warn("Leaf Diary auth timeout — opening login/local mode instead of staying on white/loading screen."); } catch(e) {}
         }, 4500);
         try {
@@ -23178,7 +23180,7 @@ ${local.summary || "Fallback completed."}`;
       const billAlerts = bills.filter(b => { const d = Math.ceil((new Date(b.dueDate) - Date.now()) / 864e5); return d <= 7 && d >= 0 && b.status === "Unpaid"; }).length;
       const inStockPlantCount = plants.filter(p => String(p.status || "").trim() === "In Stock").length;
 
-      if (session === undefined) return <AppLoadingSkeleton title="Opening Leaf Diary" sub="Checking your secure login before loading the app..." />;
+      if (session === undefined) return <AppLoadingSkeleton title="Opening Leaf Diary — Startup Rescue" sub="Auth startup is taking longer than expected. V110F should move to login/local mode automatically." showRepair={true} onRepair={() => setSession(null)} />;
       if (!session) return <AuthScreen />;
       if (cloudStatus === "loading" || !user) return <AppLoadingSkeleton title="Loading Leaf Diary Cloud" sub={cloudMsg || "Connecting to Supabase and preparing your business dashboard..."} showRepair={true} onRepair={() => { resetBrokenNavStorage(); const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const repairedOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, phone: "", jobTitle: "Owner", hourlyRate: 0, active: true, mustChangePassword: false, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Repair Startup", authStatus: "auth-created" }; const nextUsers = safeArray(users).some(u => u.email === email) ? safeArray(users) : [repairedOwner, ...safeArray(users)]; setUsersRaw(nextUsers); setUser(repairedOwner); try { cloudUpsertState("users", nextUsers); } catch(e) {} setCloudStatus("synced"); setCloudMsg("Startup repaired — app opened locally."); resetToPage("today"); }} onOffline={() => { const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const localOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, active: true, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Offline Continue", authStatus: "auth-created" }; setUser(localOwner); setCloudStatus("offline"); resetToPage("today"); }} />;
       if (user?.blocked || user?.active === false) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, padding: 20 }}><Card style={{ maxWidth: 420, textAlign: "center" }}><div style={{ fontSize: 38 }}>🚫</div><h2 style={{ fontFamily: F.display, color: C.red, margin: "8px 0" }}>Access Disabled</h2><p style={{ color: C.tx3 }}>This user is disabled in Leaf Diary. Contact the owner to re-enable access.</p><Btn v="danger" onClick={handleLogout}>Log Out</Btn></Card></div>;
