@@ -2818,52 +2818,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {onCancel && <Row style={{ marginTop:10 }}><Btn sz="sm" v="ghost" onClick={onCancel}>Cancel</Btn></Row>}
       </div>;
     }
-    /* UPDATE 114 — Pricing Result Display Upgrade
-       Shows used vs rejected comparables so the owner can see exactly why a source
-       was trusted or excluded before applying a market price. */
-    function phase114ComparableBuckets(result = {}) {
-      const rawSources = safeArray(result.sources || result.dataSources || []);
-      const used = safeArray(result.usedComparables).length ? safeArray(result.usedComparables) : rawSources.filter(s => s.includedInMarketMedian !== false && (+s.comparableScore || 0) >= 90);
-      const rejected = safeArray(result.excludedComparables).length ? safeArray(result.excludedComparables) : rawSources.filter(s => !used.includes(s));
-      return { used, rejected, all: rawSources };
-    }
-    function phase114ComparableColor(source = {}, included = false) {
-      if (included) return C.g600;
-      const reason = String(source.excludeReason || source.potSizeMatchQuality || source.observedStage || "").toLowerCase();
-      if (/tissue|seed|plug|corm|cutting|node|bare/.test(reason)) return C.red;
-      if (/pot|size|varieg|cultivar|match/.test(reason)) return C.amber;
-      return C.tx3;
-    }
-    function Phase114ComparableReviewPanel({ result = {}, plant = {}, compact = false }) {
-      const { used, rejected, all } = phase114ComparableBuckets(result);
-      const [expanded, setExpanded] = useState(false);
-      if (!all.length && !used.length && !rejected.length) return null;
-      const showUsed = expanded ? used : used.slice(0, 5);
-      const showRejected = expanded ? rejected : rejected.slice(0, 5);
-      const strictEnough = used.length >= 5 && (+result.confidenceScore || 0) >= 35;
-      return <div style={{ background:C.card, border:`1px solid ${strictEnough ? C.g300 : C.amber}66`, borderLeft:`6px solid ${strictEnough ? C.g600 : C.amber}`, borderRadius:16, padding:12, marginBottom:12 }}>
-        <Row between center wrap gap={8} style={{ marginBottom:8 }}>
-          <div><div style={{ fontWeight:950, color:C.g900, fontSize:15 }}>🔎 Comparable Match Review</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35 }}>Only true matches should drive price: same plant/cultivar, pot size, rooted stage, and variegation when required.</div></div>
-          <Row gap={6} wrap><Tag text={`${used.length} used`} color={used.length >= 5 ? C.g600 : C.amber} sm /><Tag text={`${rejected.length} rejected`} color={rejected.length ? C.red : C.tx3} sm /><Tag text={`${+result.confidenceScore || 0}/100 confidence`} color={(+result.confidenceScore || 0) >= 70 ? C.g600 : (+result.confidenceScore || 0) >= 35 ? C.amber : C.red} sm /></Row>
-        </Row>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
-          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:13, padding:10 }}>
-            <div style={{ fontWeight:950, color:C.g800, fontSize:13, marginBottom:6 }}>✅ Used in Market Median</div>
-            {showUsed.length ? showUsed.map((s,i)=><div key={i} style={{ borderTop:i?`1px solid ${C.g200}`:0, paddingTop:i?7:0, marginTop:i?7:0, color:C.tx2, fontSize:12 }}>
-              <b>{s.platform || "Web"}</b> · {$(s.priceUSD)} · {s.type || "asking"}<div style={{ color:C.tx3, marginTop:2 }}>{s.title || s.host || "Listing"}</div><Row gap={5} wrap style={{ marginTop:4 }}><Tag text={`Score ${s.comparableScore ?? "—"}`} color={(+s.comparableScore || 0) >= 90 ? C.g600 : C.amber} sm /><Tag text={s.observedPotSize || result.potSize || plant.potSize || "size?"} color={C.g600} sm /><Tag text={String(s.observedStage || "rooted").replace(/_/g," ")} color={C.g600} sm /></Row>
-            </div>) : <div style={{ color:C.red, fontSize:12, fontWeight:850 }}>No trusted comparables. Do not use as market price.</div>}
-          </div>
-          <div style={{ background:C.redBg, border:`1px solid ${C.red}33`, borderRadius:13, padding:10 }}>
-            <div style={{ fontWeight:950, color:C.red, fontSize:13, marginBottom:6 }}>🚫 Rejected / Not Comparable</div>
-            {showRejected.length ? showRejected.map((s,i)=><div key={i} style={{ borderTop:i?`1px solid ${C.red}22`:0, paddingTop:i?7:0, marginTop:i?7:0, color:C.tx2, fontSize:12 }}>
-              <b>{s.platform || "Web"}</b>{s.priceUSD ? ` · ${$(s.priceUSD)}` : ""}<div style={{ color:C.tx3, marginTop:2 }}>{s.title || s.host || "Listing"}</div><div style={{ color:phase114ComparableColor(s,false), marginTop:3, fontWeight:850 }}>{s.excludeReason || `Not used: ${s.potSizeMatchLabel || s.potSizeMatchQuality || "weak match"}`}</div>
-            </div>) : <div style={{ color:C.tx3, fontSize:12 }}>No rejected sources returned.</div>}
-          </div>
-        </div>
-        {(used.length > 5 || rejected.length > 5) && <button onClick={()=>setExpanded(!expanded)} style={{ marginTop:9, border:0, background:"transparent", color:C.g800, fontWeight:950, fontFamily:F.body, cursor:"pointer", padding:0 }}>{expanded ? "Show fewer comparables" : "Show all comparables"}</button>}
-      </div>;
-    }
-
     function MarketPricePanel({ plant = {}, marketResult = {}, currentPrice, onApplyPrice, onKeepPrice, onClose, compact = false, title = "Market Research Result" }) {
       const r = safeObject(marketResult);
       const meta = phase83MarketPriceStatusMeta(r.priceStatus);
@@ -2961,8 +2915,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <Row between center wrap gap={8} style={{ marginBottom:8 }}><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>📊 Size-Matched Source Summary</div><Tag text={`${sourceRows.length} platforms`} color={C.blue} sm /></Row>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:7 }}>{sourceRows.slice(0,4).map(row => <div key={row.platform} style={{ border:`1px solid ${C.bdS}`, borderRadius:11, padding:"8px 9px", color:C.tx2, fontSize:12 }}><b>{row.platform}</b> · {row.count} trusted listing(s) · median {$(row.median)}</div>)}</div>
         </div>}
-
-        <Phase114ComparableReviewPanel result={r} plant={plant} compact={compact} />
 
         {sources.length > 0 && <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:12 }}>
           <button onClick={()=>setShowSources(!showSources)} style={{ width:"100%", border:0, background:"transparent", color:C.g800, fontWeight:950, fontFamily:F.body, cursor:"pointer", textAlign:"left", padding:0 }}>See {showSources ? "fewer" : "all"} {sources.length} sources {showSources ? "▴" : "▾"}</button>
@@ -12940,8 +12892,6 @@ Cancel keeps this local/free.`);
         if (filter === "lowMargin") return hasPrice(p) && marginOf(p) < minMargin;
         if (filter === "aging") return (dHeld(p.dateAdded) || 0) >= minAge;
         if (filter === "stale") return !!mr.runAt && !cached;
-        if (filter === "imported") return phase115IsImportedPricingQueued(p) && !cached;
-        if (filter === "queued") return phase115IsImportedPricingQueued(p);
         if (filter === "marginRisk") return mr.priceStatus === "margin_risk";
         if (filter === "noMarket") return !mr.runAt;
         return true;
@@ -13001,7 +12951,7 @@ Cancel keeps this local/free.`);
       const canRun = phase85CanResearchMarket(user, settings);
       const cfg = phase83MarketPricingSettings(settings);
       const summary = phase88BuildBulkPricingSummary(plants, settings);
-      const [filter, setFilter] = useState(() => phase110BuildPricingGroups(plants, "imported", settings).length ? "imported" : "noPrice");
+      const [filter, setFilter] = useState("noPrice");
       const [selected, setSelected] = useState({});
       const [results, setResults] = useState({});
       const [running, setRunning] = useState(false);
@@ -13077,7 +13027,7 @@ Cancel keeps this local/free.`);
           <Row gap={7} wrap><Tag text={`${summary.cached} cached`} color={C.blue} /><Tag text={`${summary.noPrice} no price`} color={summary.noPrice ? C.amber : C.g600} /><Tag text={`${summary.lowMargin} low margin`} color={summary.lowMargin ? C.red : C.g600} /></Row>
         </Row>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:12 }}>
-          {[ ["imported","Imported Queue"], ["all","All"], ["noPrice","No Price"], ["lowMargin",`Low Margin <${+cfg.minMarginPct || 55}%`], ["aging","Aging 45+"], ["stale","Stale Cache"] ].map(([id,label]) => <button key={id} onClick={()=>{ setFilter(id); setSelected({}); }} style={{ borderRadius:14, border:`1px solid ${filter===id ? C.g600 : C.bd}`, background:filter===id ? C.g50 : C.card, color:filter===id ? C.g800 : C.tx2, fontWeight:900, padding:"10px 8px", cursor:"pointer", fontFamily:F.body }}>{label}</button>)}
+          {[ ["all","All"], ["noPrice","No Price"], ["lowMargin",`Low Margin <${+cfg.minMarginPct || 55}%`], ["aging","Aging 45+"], ["stale","Stale Cache"] ].map(([id,label]) => <button key={id} onClick={()=>{ setFilter(id); setSelected({}); }} style={{ borderRadius:14, border:`1px solid ${filter===id ? C.g600 : C.bd}`, background:filter===id ? C.g50 : C.card, color:filter===id ? C.g800 : C.tx2, fontWeight:900, padding:"10px 8px", cursor:"pointer", fontFamily:F.body }}>{label}</button>)}
         </div>
         <Row gap={8} wrap center style={{ marginBottom:12 }}>
           <Btn sz="sm" v="soft" onClick={()=>selectTop(5)} disabled={running || !candidates.length}>Select Top 5</Btn>
@@ -13134,45 +13084,10 @@ Cancel keeps this local/free.`);
     function phase110NormalizePricingText(v = "") {
       return String(v || "").toLowerCase().replace(/[^a-z0-9\s".]/g, " ").replace(/\s+/g, " ").trim();
     }
-    /* UPDATE 115 — Import Pricing Queue + smarter grouping signatures.
-       Group by plant name + pot size + plant stage + variegation signature so
-       a 6 inch variegated rooted plant never gets grouped with TC, seedlings,
-       corms, cuttings, or non-variegated inventory. */
-    function phase115IsImportedPricingQueued(p = {}) {
-      const src = String(p.suggestedPriceSource || p.notes || p.invoiceNumber || "").toLowerCase();
-      return p.marketPricingQueued === true || !!p.importedExistingInventory || !!p.purchaseIntakeTrained || /pending_market|existing inventory import|imported current inventory|invoice/.test(src);
-    }
-    function phase115PlantStageForPricing(p = {}) {
-      const txt = phase110NormalizePricingText([p.name, p.botanicalName, p.notes, p.description, p.sourceType, p.plantType, p.invoiceNumber].filter(Boolean).join(" "));
-      if (/tissue culture|\btc\b|\btc | tc cup|culture cup|flask/.test(txt)) return "tissue_culture";
-      if (/seedling|starter|plug|liner|baby plant/.test(txt)) return "starter_seedling";
-      if (/corm|bulb|rhizome/.test(txt)) return "corm_bulb";
-      if (/wet stick|node|cutting|unrooted/.test(txt)) return "cutting_node";
-      if (/bare root|bareroot/.test(txt)) return "bare_root";
-      if (/rooted|potted|pot|[2346810]\s*inch|[2346810]"/.test(txt)) return "rooted_potted";
-      return "rooted_potted";
-    }
-    function phase115VariegationSignature(p = {}) {
-      const txt = phase110NormalizePricingText([p.name, p.botanicalName, p.notes, p.description, p.variegation, p.traits].filter(Boolean).join(" "));
-      const terms = [
-        ["thai", /thai constellation|thai con/], ["albo", /albo|white variegat/], ["aurea", /aurea|yellow variegat/],
-        ["mint", /mint/], ["pink", /pink variegat|pink princess|pink splash|pink/], ["white_wizard", /white wizard/],
-        ["white_princess", /white princess/], ["white_knight", /white knight/], ["marble", /marble|marbled/],
-        ["caramel_marble", /caramel marble|carmel marble/], ["sport", /sport/], ["half_moon", /half moon/],
-        ["sectoral", /sectoral/], ["high_color", /high color|high variegat/], ["variegated", /variegated|variegation|variegata/]
-      ];
-      const found = terms.filter(([,rx]) => rx.test(txt)).map(([k]) => k);
-      return found.length ? Array.from(new Set(found)).join("+") : "standard";
-    }
-    function phase115GroupNeedsImportPricing(group = {}) {
-      return safeArray(group.plants).some(phase115IsImportedPricingQueued);
-    }
     function phase110MarketGroupKey(p = {}) {
       const name = phase110NormalizePricingText(p.name || p.botanicalName || "unknown plant");
       const pot = phase92NormalizePotSize(p.potSize || p.size || p.containerSize || "").label || "unknown size";
-      const stage = phase115PlantStageForPricing(p);
-      const vari = phase115VariegationSignature(p);
-      return `${name}||${String(pot).toLowerCase()}||${stage}||${vari}`;
+      return `${name}||${String(pot).toLowerCase()}`;
     }
     function phase110GroupLabel(group = {}) {
       return `${group.name || "Plant"}${group.potSize ? " · " + group.potSize : ""}`;
@@ -13202,8 +13117,7 @@ Cancel keeps this local/free.`);
       return Object.values(map).map(g => {
         const representative = safeArray(g.plants).slice().sort((a,b)=>(+b.cost||0)-(+a.cost||0))[0] || g.plants[0] || {};
         const cached = phase110GroupMarketCache(g, settings);
-        const importedQueued = phase115GroupNeedsImportPricing(g);
-        return { ...g, count:g.plants.length, representative, cached, cachedCount:cached ? g.plants.length : 0, importedQueued, stageSignature:phase115PlantStageForPricing(representative), variegationSignature:phase115VariegationSignature(representative) };
+        return { ...g, count:g.plants.length, representative, cached, cachedCount:cached ? g.plants.length : 0 };
       }).sort((a,b) => (b.noPriceCount - a.noPriceCount) || (b.lowMarginCount - a.lowMarginCount) || (b.count - a.count) || String(a.name).localeCompare(String(b.name)));
     }
     function phase110BuildBatchPricingStats(plants = [], settings = {}) {
@@ -13211,11 +13125,10 @@ Cancel keeps this local/free.`);
       const allGroups = phase110BuildPricingGroups(plants, "all", settings);
       const noPriceGroups = phase110BuildPricingGroups(plants, "noPrice", settings);
       const cachedGroups = allGroups.filter(g => !!g.cached).length;
-      const importQueueGroups = phase110BuildPricingGroups(plants, "imported", settings).length;
       const needsLive = allGroups.filter(g => !g.cached).length;
       const gw = phase61UsageSnapshot(phase61ReadConfig());
       const est = (+phase61ReadConfig().estimatedMarketCostPerLookup || 0.02) * Math.min(needsLive, gw.remainingMarketDaily || needsLive);
-      return { inStock:inStock.length, uniqueGroups:allGroups.length, noPriceGroups:noPriceGroups.length, importQueueGroups, cachedGroups, needsLive, estimatedTodayCost:est, remainingMarketDaily:gw.remainingMarketDaily, remainingMarketWeekly:gw.remainingMarketWeekly };
+      return { inStock:inStock.length, uniqueGroups:allGroups.length, noPriceGroups:noPriceGroups.length, cachedGroups, needsLive, estimatedTodayCost:est, remainingMarketDaily:gw.remainingMarketDaily, remainingMarketWeekly:gw.remainingMarketWeekly };
     }
     function phase110ApplyGroupResultToPlants({ group, result, setPlants, force = false }) {
       if (!group || !result || !setPlants) return 0;
@@ -13239,7 +13152,7 @@ Cancel keeps this local/free.`);
       const cfg = phase83MarketPricingSettings(settings);
       const gatewayCfg = phase61ReadConfig();
       const usage = phase61UsageSnapshot(gatewayCfg);
-      const [filter, setFilter] = useState(() => phase110BuildPricingGroups(plants, "imported", settings).length ? "imported" : "noPrice");
+      const [filter, setFilter] = useState("noPrice");
       const [selected, setSelected] = useState({});
       const [results, setResults] = useState({});
       const [running, setRunning] = useState(false);
@@ -13305,10 +13218,10 @@ Cancel keeps this local/free.`);
       return <Card style={{ border:`2px solid ${C.g300}`, borderRadius:22, padding:16, background:C.card }}>
         <Row between center wrap gap={10} style={{ marginBottom:12 }}>
           <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>💲 Batch Market Pricing Manager</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:3 }}>Built for 400 plants/week: groups duplicate plant + pot size, uses 14-day cache first, and only spends AI on unique groups. V113 adds Smart Profit Floor + market positioning so prices are not too low or too high.</div></div>
-          <Row gap={7} wrap><Tag text={`${stats.inStock} plants`} color={C.g600} /><Tag text={`${stats.uniqueGroups} unique groups`} color={C.blue} /><Tag text={`${stats.importQueueGroups || 0} import queue`} color={(stats.importQueueGroups || 0) ? C.purple : C.tx3} /><Tag text={`${stats.cachedGroups} cached`} color={C.gold} /><Tag text={`Market ${usage.dailyMarketCalls}/${usage.dailyMarketLimit} today`} color={usage.dailyMarketLimit && usage.dailyMarketCalls >= usage.dailyMarketLimit ? C.red : C.g600} /></Row>
+          <Row gap={7} wrap><Tag text={`${stats.inStock} plants`} color={C.g600} /><Tag text={`${stats.uniqueGroups} unique groups`} color={C.blue} /><Tag text={`${stats.cachedGroups} cached`} color={C.gold} /><Tag text={`Market ${usage.dailyMarketCalls}/${usage.dailyMarketLimit} today`} color={usage.dailyMarketLimit && usage.dailyMarketCalls >= usage.dailyMarketLimit ? C.red : C.g600} /></Row>
         </Row>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, marginBottom:12 }}>
-          {[ ["imported","Imported Queue"], ["all","All Groups"], ["noPrice","No Price"], ["lowMargin",`Low Margin <${+cfg.minMarginPct || 55}%`], ["aging","Aging 45+"], ["stale","Stale Cache"] ].map(([id,label]) => <button key={id} onClick={()=>{ setFilter(id); setSelected({}); }} style={{ borderRadius:14, border:`1px solid ${filter===id ? C.g600 : C.bd}`, background:filter===id ? C.g50 : C.card, color:filter===id ? C.g800 : C.tx2, fontWeight:900, padding:"10px 8px", cursor:"pointer", fontFamily:F.body }}>{label}</button>)}
+          {[ ["all","All Groups"], ["noPrice","No Price"], ["lowMargin",`Low Margin <${+cfg.minMarginPct || 55}%`], ["aging","Aging 45+"], ["stale","Stale Cache"] ].map(([id,label]) => <button key={id} onClick={()=>{ setFilter(id); setSelected({}); }} style={{ borderRadius:14, border:`1px solid ${filter===id ? C.g600 : C.bd}`, background:filter===id ? C.g50 : C.card, color:filter===id ? C.g800 : C.tx2, fontWeight:900, padding:"10px 8px", cursor:"pointer", fontFamily:F.body }}>{label}</button>)}
         </div>
         <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:12, marginBottom:12 }}>
           <Row between center wrap gap={8}>
@@ -13316,9 +13229,6 @@ Cancel keeps this local/free.`);
             <Tag text={`Week ${usage.weeklyMarketCalls}/${usage.weeklyMarketLimit}`} color={usage.weeklyMarketLimit && usage.weeklyMarketCalls >= usage.weeklyMarketLimit ? C.red : C.g600} />
           </Row>
         </div>
-        {filter === "imported" && <div style={{ background:C.purpleBg, border:`1px solid ${C.purple}44`, borderLeft:`5px solid ${C.purple}`, borderRadius:14, padding:12, marginBottom:12 }}>
-          <b style={{ color:C.purple }}>Imported Pricing Queue</b><div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:3 }}>Newly imported plants are grouped by plant name + pot size + stage + variegation. Run pricing manually, review used/rejected comparables, then apply only safe prices.</div>
-        </div>}
         <Row gap={8} wrap center style={{ marginBottom:12 }}>
           <Btn sz="sm" v="soft" onClick={()=>selectTop(10)} disabled={running || !groups.length}>Select Top 10</Btn>
           <Btn sz="sm" v="outline" onClick={()=>selectTop(batchLimit)} disabled={running || !groups.length}>Select Max {batchLimit}</Btn>
@@ -13343,7 +13253,7 @@ Cancel keeps this local/free.`);
                 <input type="checkbox" checked={!!selected[g.key]} onChange={e=>setSelected(prev=>({ ...prev, [g.key]:e.target.checked }))} style={{ width:18, height:18, marginTop:3 }} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>{phase110GroupLabel(g)}</div>
-                  <div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{g.count} plant(s) · highest cost {$(g.highestCost)} · {g.noPriceCount} no price · {g.lowMarginCount} low margin</div><div style={{ color:C.tx4, fontSize:10, marginTop:2 }}>Stage: {String(g.stageSignature || "rooted_potted").replace(/_/g," ")} · Variegation: {String(g.variegationSignature || "standard").replace(/_/g," ")}{g.importedQueued ? " · imported queue" : ""}</div>
+                  <div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{g.count} plant(s) · highest cost {$(g.highestCost)} · {g.noPriceCount} no price · {g.lowMarginCount} low margin</div>
                   {res ? <div style={{ marginTop:8 }}><Row gap={6} wrap center><Tag text={res.cacheHit || g.cached ? "cache" : "researched"} color={res.cacheHit || g.cached ? C.blue : C.g600} sm /><Tag text={phase83MarketPriceStatusMeta(res.priceStatus).label} color={color} sm /><Tag text={res.suggestedPrice ? $(res.suggestedPrice) : "no price"} color={color} sm />{res.profitFloorPrice && <Tag text={`floor ${$(res.profitFloorPrice)}`} color={C.g600} sm />}{res.ownerReviewRequired && <Tag text="owner review" color={C.purple} sm />}</Row><div style={{ color:C.tx3, fontSize:11, marginTop:5 }}>{res.priceReason || res.confidenceNote || "Review result before applying."}</div></div> : <div style={{ marginTop:8 }}><Tag text="Needs lookup" color={C.tx3} sm /></div>}
                 </div>
               </Row>
