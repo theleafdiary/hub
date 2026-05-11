@@ -1672,6 +1672,12 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
+    /* UPDATE 103 AI CENTER STABILITY PATCH
+       - Prevents stale browser/runtime references to lowercase instock from white-screening the app.
+       - Keeps AI Center related-page navigation inside safe routes.
+       - Migrates the locked AI endpoint away from the old Cloudflare Access-blocked Worker.
+    */
+    var instock = [];
     const { useState, useRef, useEffect, useCallback } = React;
 
     /* ═══════════════════════════════════════════════════════════
@@ -2421,7 +2427,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       } else if (src.includes("gateway_disabled")) {
         title = "Gateway is disabled or not configured";
         body = r.priceReason || "The app used the local profit-safe preview because the Gateway endpoint/settings are not active.";
-        fixes = ["Open Mobile AI Gateway / AI Settings and restore the working Gateway settings.", "Confirm endpoint is leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai and connection mode is Gateway."];
+        fixes = ["Open Mobile AI Gateway / AI Settings and restore the working Gateway settings.", "Confirm endpoint is leaf-diary-ai-public-gateway.theleafdiary.workers.dev/leaf-ai and connection mode is Gateway."];
       } else if (src.includes("json_parse")) {
         title = "Gateway answered, but did not return usable marketplace JSON";
         body = "The model likely gave a paragraph, refused to browse, or returned no live source prices. The app requires structured JSON with dataSources and marketMedianPrice before it will trust the price.";
@@ -13458,7 +13464,7 @@ Cancel keeps this local/free.`);
       const provider = aiGateway.provider || aiGateway.aiProvider || settings.aiProvider || "";
       const model = aiGateway.model || aiGateway.gatewayModel || settings.aiModel || "";
       const costGuard = !!(aiGateway.costSaverMode || aiGateway.costGuardEnabled || settings?.aiCostGuard?.enabled || aiGateway.disableAutoGatewayCalls !== false);
-      const gatewayLooksRight = String(endpoint).includes("leaf-diary-ai-gateway") || String(provider).toLowerCase().includes("gateway") || String(provider).toLowerCase().includes("proxy");
+      const gatewayLooksRight = String(endpoint).includes("leaf-diary-ai-public-gateway") || String(provider).toLowerCase().includes("gateway") || String(provider).toLowerCase().includes("proxy");
       const modelLooksRight = !model || String(model).toLowerCase().includes("gpt-oss:20b") || String(model).toLowerCase().includes("gpt-oss") || String(model).toLowerCase().includes("llama") || String(model).toLowerCase().includes("gateway");
       const fnLoaded = name => {
         try { return typeof window !== "undefined" ? (typeof eval(name) === "function") : false; } catch(e) { return false; }
@@ -16174,11 +16180,19 @@ Cancel keeps this local/free.`);
       </div>;
     }
 
-function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, receipts = [], users = [], settings, setSettings, casdCerts = [], user, setPage, addAudit }) {
+function AIAutomationCenter({ plants = [], expenses = [], bills = [], timecards = [], nurseries = [], receipts = [], users = [], settings = {}, setSettings, casdCerts = [], user, setPage, addAudit }) {
       const [busy, setBusy] = useState(""), [result, setResult] = useState(settings?.aiLastResults?.latest || null), [selected, setSelected] = useState("daily_check"), [groupFilter, setGroupFilter] = useState("All");
-      const snapshot = buildLeafDataSnapshot({ plants, expenses, bills, timecards, nurseries, receipts, users, settings, casdCerts });
+      const safePlants = safeArray(plants);
+      const safeExpenses = safeArray(expenses);
+      const safeBills = safeArray(bills);
+      const safeTimecards = safeArray(timecards);
+      const safeNurseries = safeArray(nurseries);
+      const safeReceipts = safeArray(receipts);
+      const safeUsers = safeArray(users);
+      const safeCasdCerts = safeArray(casdCerts);
+      const snapshot = buildLeafDataSnapshot({ plants:safePlants, expenses:safeExpenses, bills:safeBills, timecards:safeTimecards, nurseries:safeNurseries, receipts:safeReceipts, users:safeUsers, settings, casdCerts:safeCasdCerts });
       const isOwner = user?.role === "owner";
-      const inStock = plants.filter(p=>p.status==="In Stock"), sold = plants.filter(p=>p.status==="Sold"), noPhoto = inStock.filter(p=>!p.photoUrl&&!p.photoBase64), aging = inStock.filter(p=>dHeld(p.dateAdded)>=45), noPrice = inStock.filter(p=>!(+p.suggestedPrice||+p.listPrice||+p.price));
+      const inStock = safePlants.filter(p=>p.status==="In Stock"), instock = inStock, sold = safePlants.filter(p=>p.status==="Sold"), noPhoto = inStock.filter(p=>!p.photoUrl&&!p.photoBase64), aging = inStock.filter(p=>dHeld(p.dateAdded)>=45), noPrice = inStock.filter(p=>!(+p.suggestedPrice||+p.listPrice||+p.price));
       const monthSold = sold.filter(p=>monthKey(plantSaleDate(p))===monthKey());
       const monthRevenue = monthSold.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
       const tasks = [
@@ -16213,10 +16227,21 @@ function AIAutomationCenter({ plants, expenses, bills, timecards, nurseries, rec
       const visibleTasks = groupFilter === "All" ? tasks : tasks.filter(t=>t.group===groupFilter);
       const runTask = async (taskId) => { setBusy(taskId); setSelected(taskId); try { const res = await runLeafAI(taskId, snapshot); setResult(res); setSettings && setSettings(prev => ({ ...prev, aiLastResults:{ ...(prev.aiLastResults||{}), latest:res, [taskId]:res } })); addAudit && addAudit({ action:`AI ran ${taskId}`, user:user?.name||"AI", page:"AI Center" }); } catch(err) { setResult({ ok:false, summary:"AI tool failed: "+(err?.message||String(err)), actions:[], warnings:[aiLine("AI error", err?.message||String(err), "aihub", "critical")], recommendations:[] }); } finally { setBusy(""); } };
       const selectedTask = tasks.find(t=>t.id===selected);
-      const renderItems = (arr, title, color) => <Card style={{ marginBottom:12 }}><div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:15, marginBottom:10 }}>{title}</div>{(!arr || arr.length===0) ? <div style={{ color:C.tx3, fontSize:12 }}>Nothing here right now.</div> : arr.map(x => <div key={x.id} style={{ background:(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)+"12", border:`1px solid ${(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)}40`, borderRadius:12, padding:11, marginBottom:8 }}><Row between center wrap><div style={{ flex:1, minWidth:220 }}><div style={{ fontWeight:900, color:x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color, fontSize:13 }}>{x.title}</div><div style={{ fontSize:12, color:C.tx2, marginTop:2 }}>{x.body}</div></div>{x.page && <Btn sz="sm" v="soft" onClick={()=>setPage(x.page)}>Open</Btn>}</Row></div>)}</Card>;
+      const phase103SafeRelatedPage = (page) => {
+        const raw = String(page || "aihub").trim() || "aihub";
+        // The AI Center daily-check card used to jump to command, which can white-screen on stale desktop sessions.
+        // Keep the user in a stable AI area instead of risking a startup repair screen.
+        const safeMap = { command:"aihub", undefined:"aihub", null:"aihub" };
+        return safeMap[raw] || raw;
+      };
+      const phase103GoRelated = () => {
+        try { if (setPage) setPage(phase103SafeRelatedPage(selectedTask?.page)); }
+        catch(e) { phase1LogError && phase1LogError("Phase103OpenRelatedPage", e, { selected, page:selectedTask?.page }); }
+      };
+      const renderItems = (arr, title, color) => <Card style={{ marginBottom:12 }}><div style={{ fontFamily:F.display, fontWeight:800, color:C.g900, fontSize:15, marginBottom:10 }}>{title}</div>{(!arr || arr.length===0) ? <div style={{ color:C.tx3, fontSize:12 }}>Nothing here right now.</div> : arr.map(x => <div key={x.id} style={{ background:(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)+"12", border:`1px solid ${(x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color)}40`, borderRadius:12, padding:11, marginBottom:8 }}><Row between center wrap><div style={{ flex:1, minWidth:220 }}><div style={{ fontWeight:900, color:x.severity==="critical"?C.red:x.severity==="warning"?C.amber:color, fontSize:13 }}>{x.title}</div><div style={{ fontSize:12, color:C.tx2, marginTop:2 }}>{x.body}</div></div>{x.page && <Btn sz="sm" v="soft" onClick={()=>setPage && setPage(phase103SafeRelatedPage(x.page))}>Open</Btn>}</Row></div>)}</Card>;
       return <div className="page-scroll-safe" style={{ padding:"14px 14px 150px", background:C.bg, minHeight:"100dvh" }}>
         <SHdr icon="🤖" title="AI Center" sub="Leaf Diary Business Data Copilot — inventory, shows, money, buyers, nurseries, payroll, tasks, and cleanup." right={<Row gap={8} wrap><Btn sz="sm" onClick={()=>runTask("daily_check")} disabled={!!busy}>{busy ? "Running..." : "🚀 Daily Check"}</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("dataai")}>💬 Ask AI</Btn></Row>} />
-        <div style={{ background:"#000", color:"#fff", borderRadius:18, padding:"16px 18px", border:"2px solid #97d33e", marginBottom:14 }}><Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.74)", marginTop:4 }}>Uses the CRM data already saved in this app. It does not replace your judgment, but it turns your plant data into decisions.</div></div><Btn v="gold" sz="sm" onClick={()=>selectedTask?.page && setPage(selectedTask.page)}>Open Related Page →</Btn></Row></div>
+        <div style={{ background:"#000", color:"#fff", borderRadius:18, padding:"16px 18px", border:"2px solid #97d33e", marginBottom:14 }}><Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:24, fontWeight:900, color:"#97d33e" }}>Leaf Diary Business Data Copilot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.74)", marginTop:4 }}>Uses the CRM data already saved in this app. It does not replace your judgment, but it turns your plant data into decisions.</div></div><Btn v="gold" sz="sm" onClick={phase103GoRelated}>Open Related Page →</Btn></Row></div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:10, marginBottom:14 }}><KPI label="In Stock" value={inStock.length} color={C.g600}/><KPI label="Missing Photos" value={noPhoto.length} color={noPhoto.length?C.amber:C.g600}/><KPI label="Missing Prices" value={noPrice.length} color={noPrice.length?C.red:C.g600}/><KPI label="Aging 45+" value={aging.length} color={aging.length?C.amber:C.g600}/><KPI label="Month Sales" value={isOwner?$(monthRevenue):monthSold.length} color={C.blue}/></div>
         <Card style={{ marginBottom:14 }}><Row gap={8} wrap>{groups.map(g=><button key={g} onClick={()=>setGroupFilter(g)} style={{ background:groupFilter===g?"#000":C.cardAlt, color:groupFilter===g?"#fff":C.tx2, border:`1px solid ${groupFilter===g?"#000":C.bd}`, borderRadius:999, padding:"9px 12px", fontWeight:900, cursor:"pointer" }}>{g}</button>)}</Row></Card>
         <div style={{ display:"grid", gridTemplateColumns:"1.05fr 1fr", gap:14 }}><Card><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:17, marginBottom:10 }}>AI Power Tools</div><div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>{visibleTasks.map(t => <button key={t.id} onClick={()=>runTask(t.id)} disabled={!!busy} style={{ textAlign:"left", background:selected===t.id?C.g50:C.cardAlt, border:`1.5px solid ${selected===t.id?C.g500:C.bd}`, borderRadius:13, padding:12, cursor:busy?"wait":"pointer", fontFamily:F.body }}><div style={{ fontSize:22 }}>{t.icon}</div><div style={{ fontWeight:900, color:C.g900, fontSize:12, marginTop:3 }}>{t.title}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3 }}>{t.desc}</div></button>)}</div></Card><div><Card style={{ marginBottom:12, borderTop:`4px solid ${C.g600}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18, marginBottom:7 }}>AI Result</div><div style={{ fontSize:13, color:C.tx2, lineHeight:1.45 }}>{result?.summary || "Choose an AI tool or run the daily check. Results save here and survive refresh."}</div>{result?.generatedAt && <div style={{ color:C.tx3, fontSize:11, marginTop:8 }}>Generated {new Date(result.generatedAt).toLocaleString()}</div>}</Card>{renderItems(result?.actions,"✅ Recommended Actions",C.g600)}{renderItems(result?.warnings,"⚠️ Warnings",C.amber)}{renderItems(result?.recommendations,"💡 Opportunities",C.blue)}</div></div>
@@ -19165,7 +19190,7 @@ Cancel if you want to save money.`);
       </div>;
     }
 
-    const APP_VERSION = "Leaf Diary Business Hub — Workflow UX Build 2026-05-09";
+    const APP_VERSION = "Leaf Diary Business Hub — AI Recovery Build 2026-05-10";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -20064,10 +20089,10 @@ Cancel if you want to save money.`);
 
 
     /* ══════════════════════════════════════════════════════════
-       UPDATE 66 — LOCKED WORKING AI SETTINGS
-       Known-good setup confirmed on 2026-05-10.
-       Do not change these defaults unless the Cloudflare Worker URL,
-       gateway token, or model changes.
+       UPDATE 102 — LOCKED WORKING AI SETTINGS — PUBLIC GATEWAY RECOVERY
+       Known-good setup recovered on 2026-05-10 after old gateway was blocked by Cloudflare Access.
+       Do not change these defaults unless the public Cloudflare Worker URL,
+       gateway token, or model changes. The old leaf-diary-ai-gateway Worker was blocked by Cloudflare Access POST redirects.
 
        What finally worked:
        - Live website app uses Gateway/Proxy mode.
@@ -20076,12 +20101,17 @@ Cancel if you want to save money.`);
          localhost JavaScript was browser-blocked.
        - Local Ollama still works in Terminal at http://127.0.0.1:11434.
     ══════════════════════════════════════════════════════════ */
-    const LEAF_AI_WORKING_ENDPOINT = "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai";
+    const LEAF_AI_WORKING_ENDPOINT = "https://leaf-diary-ai-public-gateway.theleafdiary.workers.dev/leaf-ai";
     const LEAF_AI_WORKING_TOKEN = "leaf-diary-eric-private-ai-2026";
     const LEAF_AI_WORKING_GATEWAY_MODEL = "gpt-oss:20b";
     const LEAF_AI_WORKING_LOCAL_MODEL = "llama3.1:8b";
     const LEAF_AI_WORKING_SETTINGS_KEY = "leafdiary_working_ai_settings_locked_v66";
-    const LEAF_AI_WORKING_NOTE = "Known-good AI setup: Gateway/Proxy mode for the live app, endpoint leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai, provider ollama-proxy, model gpt-oss:20b, daily limit 15, monthly budget $5, inventory payload 35, timeout 30000ms. Local Ollama on the MacBook stays http://127.0.0.1:11434 with llama3.1:8b, but the live website should use Gateway mode because direct localhost JavaScript was browser-blocked.";
+    const LEAF_AI_WORKING_NOTE = "Known-good AI setup: Gateway/Proxy mode for the live app, endpoint leaf-diary-ai-public-gateway.theleafdiary.workers.dev/leaf-ai, provider ollama-proxy, model gpt-oss:20b, daily limit 15, monthly budget $5, inventory payload 35, timeout 30000ms. Local Ollama on the MacBook stays http://127.0.0.1:11434 with llama3.1:8b, but the live website should use Gateway mode because direct localhost JavaScript was browser-blocked.";
+    const LEAF_AI_OLD_BLOCKED_ENDPOINT = "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai";
+    function leafAiIsOldBlockedEndpoint(url = "") {
+      return /leaf-diary-ai-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(String(url || ""));
+    }
+
 
     /* ══════════════════════════════════════════════════════════
        PHASE 3 OLLAMA AI CONNECTOR — local-first AI settings,
@@ -20906,7 +20936,7 @@ Answer with a practical action plan for Leaf Diary.`;
       const saved = safeObject(safeJsonParse(localStorage.getItem(PHASE61_CONFIG_KEY), {}));
       let next = { ...PHASE61_DEFAULT_CONFIG, ...saved };
       const endpointText = String(next.endpointUrl || "");
-      const missingOrBadEndpoint = !endpointText || /endpoint:\s*https?:/i.test(endpointText) || !/leaf-diary-ai-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(endpointText);
+      const missingOrBadEndpoint = !endpointText || /endpoint:\s*https?:/i.test(endpointText) || leafAiIsOldBlockedEndpoint(endpointText) || !/leaf-diary-ai-public-gateway\.theleafdiary\.workers\.dev\/leaf-ai/i.test(endpointText);
       const wrongProvider = next.provider !== "ollama-proxy";
       const wrongModel = next.model !== LEAF_AI_WORKING_GATEWAY_MODEL;
       if (next.workingSettingsLocked !== false && (missingOrBadEndpoint || wrongProvider || wrongModel)) {
@@ -21053,7 +21083,7 @@ Answer with a practical action plan for Leaf Diary.`;
       fallbackMode: "ollama_then_local",
       provider: "ollama-proxy",
       model: "gpt-oss:20b",
-      endpointUrl: phase61NormalizeUrl(cfg?.endpointUrl || "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai")
+      endpointUrl: phase61NormalizeUrl(cfg?.endpointUrl || LEAF_AI_WORKING_ENDPOINT)
     });
     function phase61BuildSafeBusinessPayload({ question = "", route = "executive", routeDef = {}, appData = {}, user = {}, model = "", extraPrompt = "" }) {
       const owner = user?.role === "owner";
