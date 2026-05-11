@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V109R</title>
+  <title>LEAF DIARY - BUSINESS HUB · V113R</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -1690,6 +1690,10 @@
     var instock = [];
     const { useState, useRef, useEffect, useCallback } = React;
 
+    /* V113R CUSTOMER OCR MATCH FOR SHIPPING LABELS
+       Adds optional camera/file OCR to read printed customer name/address on shipping labels, then auto-match orders.
+       Home screen, auth, AI, pricing, and Shipping State Docs are not changed.
+    */
     /* V109R SHIPPING LABEL IMPORT + TRACKING CENTER
        Adds batch label PDF/text import, scan-one-label workflow, tracking match review, and mark-shipped apply.
        Home screen, auth, AI, pricing, and Shipping State Docs are not changed.
@@ -1700,12 +1704,12 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V109R",
-      name: "Shipping Label Import + Tracking Center",
+      id: "V113R",
+      name: "Shipping Label Customer OCR Match",
       date: "2026-05-11",
-      base: "index (55) + Whatnot Shipping State Docs grouped fix",
-      safety: "Order Fulfillment page only; home screen logic untouched",
-      nextPhase: "V113R: tracking API webhook/backend after label scanning is stable"
+      base: "V112R USPS scan boost + V108R release gate",
+      safety: "Order Fulfillment / Scan Shipping Labels only; home screen logic untouched",
+      nextPhase: "V114R: secure tracking API webhook/backend after label matching is stable"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -16699,6 +16703,44 @@ Cancel keeps this page local/free.`);
       });
       return found;
     }
+    function ldLooseLabelText(v = "") {
+      return String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+    }
+    function ldImportantNameTokens(v = "") {
+      return ldLooseLabelText(v).split(" ").filter(t => t.length >= 3 && !["the","and","for","llc","inc","plant","plants","leaf","diary"].includes(t));
+    }
+    function ldLoadScriptOnce(src, globalName) {
+      return new Promise((resolve, reject) => {
+        try {
+          if (globalName && window[globalName]) return resolve(window[globalName]);
+          const existing = Array.from(document.scripts || []).find(s => s.src === src);
+          if (existing) {
+            existing.addEventListener("load", () => resolve(globalName ? window[globalName] : true), { once:true });
+            existing.addEventListener("error", reject, { once:true });
+            return;
+          }
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = true;
+          script.crossOrigin = "anonymous";
+          script.onload = () => resolve(globalName ? window[globalName] : true);
+          script.onerror = () => reject(new Error("Could not load OCR library."));
+          document.head.appendChild(script);
+        } catch (e) { reject(e); }
+      });
+    }
+    async function ldEnsureShippingLabelOcr() {
+      if (window.Tesseract && window.Tesseract.recognize) return window.Tesseract;
+      return await ldLoadScriptOnce("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js", "Tesseract");
+    }
+    async function ldOcrShippingLabelImage(imageSource) {
+      const Tesseract = await ldEnsureShippingLabelOcr();
+      const result = await Tesseract.recognize(imageSource, "eng", {
+        logger: () => {},
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 #.-_/\n"
+      });
+      return String(result?.data?.text || "").trim();
+    }
     async function ldReadShippingLabelFileText(file) {
       const name = String(file?.name || "");
       const type = String(file?.type || "");
@@ -16719,12 +16761,19 @@ Cancel keeps this page local/free.`);
       if (/\.(txt|csv|tsv)$/i.test(name) || type.includes("text") || type.includes("csv")) {
         return `${name}\n${await file.text()}`;
       }
-      // Browser-side OCR is intentionally not included here. For label photos, use Scan One Label,
-      // or add a secure server-side OCR/vision endpoint later.
+      if (type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/i.test(name)) {
+        try {
+          const text = await ldOcrShippingLabelImage(file);
+          return `${name}\n${text}`;
+        } catch (e) {
+          return `${name}\n[Image OCR failed: ${e?.message || String(e)}]`;
+        }
+      }
       return name;
     }
     function ldShippingLabelMatchScore(label, order, orderPlants = [], platformFilter = "Auto") {
-      const hay = `${label.fileName || ""} ${label.rawText || ""}`.toLowerCase();
+      const hay = `${label.fileName || ""} ${label.rawText || ""} ${label.ocrText || ""}`.toLowerCase();
+      const hayLoose = ldLooseLabelText(hay);
       const platform = String(orderPlants[0]?.platform || "").toLowerCase();
       const forced = String(platformFilter || "Auto").toLowerCase();
       if (forced !== "auto" && platform && platform !== forced.toLowerCase()) return { score: 0, reason: "Different platform" };
@@ -16739,12 +16788,18 @@ Cancel keeps this page local/free.`);
       const zip = String(order.zip || "").toLowerCase();
       if (orderPlants.some(p => ldNormalizeTrackingNumber(p.trackingNumber) === label.trackingNumber)) { score += 120; reasons.push("tracking already on order"); }
       if (orderId && orderId.length > 3 && hay.includes(orderId)) { score += 90; reasons.push("order ID found"); }
-      if (customer && customer.length > 3 && hay.includes(customer)) { score += 55; reasons.push("customer name found"); }
-      if (userName && userName.length > 2 && hay.includes(userName)) { score += 45; reasons.push("username found"); }
-      if (address1 && address1.length > 6 && hay.includes(address1.slice(0, 14))) { score += 45; reasons.push("address found"); }
-      if (zip && zip.length >= 5 && hay.includes(zip.slice(0, 5))) { score += 30; reasons.push("zip found"); }
-      if (city && city.length > 3 && hay.includes(city)) { score += 20; reasons.push("city found"); }
-      if (state && hay.includes(` ${state} `)) { score += 10; reasons.push("state found"); }
+      const customerLoose = ldLooseLabelText(customer);
+      const customerTokens = ldImportantNameTokens(customer);
+      if (customer && customer.length > 3 && (hay.includes(customer) || (customerLoose && hayLoose.includes(customerLoose)))) { score += 70; reasons.push("customer name found"); }
+      else if (customerTokens.length >= 2 && customerTokens.filter(t => hayLoose.includes(t)).length >= Math.min(2, customerTokens.length)) { score += 52; reasons.push("customer name tokens found"); }
+      else if (customerTokens.length === 1 && hayLoose.includes(customerTokens[0])) { score += 28; reasons.push("customer token found"); }
+      const usernameLoose = ldLooseLabelText(userName);
+      if (userName && userName.length > 2 && (hay.includes(userName) || (usernameLoose && hayLoose.includes(usernameLoose)))) { score += 45; reasons.push("username found"); }
+      const addrLoose = ldLooseLabelText(address1);
+      if (address1 && address1.length > 6 && (hay.includes(address1.slice(0, 14)) || (addrLoose && hayLoose.includes(addrLoose.slice(0, 14))))) { score += 55; reasons.push("address found"); }
+      if (zip && zip.length >= 5 && hay.includes(zip.slice(0, 5))) { score += 35; reasons.push("zip found"); }
+      if (city && city.length > 3 && hayLoose.includes(ldLooseLabelText(city))) { score += 24; reasons.push("city found"); }
+      if (state && (hay.includes(` ${state} `) || hayLoose.split(" ").includes(state))) { score += 12; reasons.push("state found"); }
       if (platform && forced !== "auto") { score += 8; reasons.push(platform + " filter"); }
       return { score, reason: reasons.join(", ") || "No strong match" };
     }
@@ -16763,6 +16818,8 @@ Cancel keeps this page local/free.`);
       const [labelImportStatus, setLabelImportStatus] = useState("");
       const [labelImportPlatform, setLabelImportPlatform] = useState("Auto");
       const [manualTrackingText, setManualTrackingText] = useState("");
+      const [labelOcrBusy, setLabelOcrBusy] = useState(false);
+      const [labelOcrPreview, setLabelOcrPreview] = useState("");
       const [labelScanActive, setLabelScanActive] = useState(false);
       const [labelSprintActive, setLabelSprintActive] = useState(false);
       const [labelSprintLog, setLabelSprintLog] = useState([]);
@@ -16771,6 +16828,7 @@ Cancel keeps this page local/free.`);
       const nativeLabelScanTimerRef = useRef(null);
       const labelSprintSeenRef = useRef(new Set());
       const labelLastScanRef = useRef({ value:"", at:0 });
+      const labelOcrBusyRef = useRef(false);
       useEffect(() => { try { localStorage.setItem("ld_shipping_label_imports", JSON.stringify(safeArray(labelImportRows).slice(0, 120))); } catch(e) {} }, [labelImportRows]);
       const orders = groupSalesIntoOrders(plants);
       const getOrderPlants = (order) => plants.filter(p => order.plants.some(x => x.id === p.id));
@@ -16920,6 +16978,74 @@ Cancel keeps this page local/free.`);
         setManualTrackingText("");
         setLabelImportStatus(`Added ${rows.length} manual tracking number(s).`);
       };
+      const captureShippingLabelCustomerOcr = async () => {
+        if (labelOcrBusyRef.current) return "";
+        const video = scanVideoRef.current;
+        if (!video || video.readyState < 2 || !video.videoWidth) {
+          setLabelImportStatus("Camera is not ready for customer-name OCR yet. Hold the label steady and try again.");
+          return "";
+        }
+        labelOcrBusyRef.current = true;
+        setLabelOcrBusy(true);
+        try {
+          setLabelImportStatus("Reading printed customer name/address from the label… hold the box still.");
+          const canvas = document.createElement("canvas");
+          const maxW = 1400;
+          const scale = Math.min(1, maxW / Math.max(1, video.videoWidth));
+          canvas.width = Math.max(320, Math.round(video.videoWidth * scale));
+          canvas.height = Math.max(240, Math.round(video.videoHeight * scale));
+          const ctx = canvas.getContext("2d", { willReadFrequently:true });
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/png", 0.92);
+          const text = await ldOcrShippingLabelImage(dataUrl);
+          setLabelOcrPreview(String(text || "").slice(0, 1000));
+          return String(text || "");
+        } catch (e) {
+          setLabelImportStatus("Customer-name OCR failed: " + (e?.message || String(e)) + ". You can still choose the order manually.");
+          return "";
+        } finally {
+          labelOcrBusyRef.current = false;
+          setLabelOcrBusy(false);
+        }
+      };
+      const tryCustomerOcrMatchForRow = async (row, sprintMode = false, sourceName = "Camera OCR") => {
+        if (!row?.trackingNumber) return false;
+        const ocrText = await captureShippingLabelCustomerOcr();
+        if (!ocrText) {
+          if (!row.matchedOrderId) addLabelRows([{ ...row, status: sprintMode ? "Sprint Needs Review" : "Needs Review", matchReason: row.matchReason || "Tracking scanned; customer OCR did not read enough text" }]);
+          return false;
+        }
+        const combined = `${row.trackingNumber}\n${row.carrier || ""}\n${ocrText}`;
+        const rebuilt = buildLabelRowsFromText(combined, `${sourceName} + customer name`);
+        const improved = rebuilt.find(r => r.trackingNumber === row.trackingNumber) || rebuilt[0];
+        const finalRow = improved ? { ...row, ...improved, rawText: combined, ocrText, fileName: `${sourceName} + customer name` } : { ...row, rawText: combined, ocrText };
+        if (finalRow.matchedOrderId) {
+          const applied = sprintMode ? applyTrackingRowInstant(finalRow, "Shipping Label Sprint OCR") : false;
+          addLabelRows([{ ...finalRow, status: applied ? "Applied / Shipped" : "Ready to Apply", appliedAt: applied ? new Date().toISOString() : "" }]);
+          playSprintBeep(applied || !sprintMode);
+          if (sprintMode) {
+            setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:finalRow.trackingNumber, carrier:finalRow.carrier, orderId:finalRow.matchedOrderId || "", status:applied ? "Shipped" : "Ready to Apply", reason:finalRow.matchReason || "Matched by customer name OCR" }, ...safeArray(prev)].slice(0, 30));
+            setLabelImportStatus(applied ? `✅ Customer OCR matched ${finalRow.carrier} ${finalRow.trackingNumber} and marked the order shipped. Hold up the next box.` : `✅ Customer OCR matched ${finalRow.carrier} ${finalRow.trackingNumber}. Review/apply if needed.`);
+          } else {
+            setLabelImportStatus(`✅ Customer OCR matched ${finalRow.carrier} ${finalRow.trackingNumber}. Review and apply tracking.`);
+          }
+          return true;
+        }
+        addLabelRows([{ ...finalRow, status: sprintMode ? "Sprint Needs Review" : "Needs Review", matchReason: finalRow.matchReason || "Tracking scanned, but customer OCR could not confidently match an order" }]);
+        setLabelImportStatus(`⚠️ Tracking scanned, but customer name/address did not confidently match an order. It was added to Review Matched Labels.`);
+        return false;
+      };
+      const readCustomerNameFromCamera = async () => {
+        const text = await captureShippingLabelCustomerOcr();
+        if (!text) return;
+        const rows = buildLabelRowsFromText(text, "Customer Name Camera OCR");
+        if (rows.length) {
+          addLabelRows(rows);
+          setLabelImportStatus(`Customer-name OCR found ${rows.length} tracking row(s). Review matches, then apply.`);
+        } else {
+          setLabelImportStatus("Customer-name OCR read text but did not find a tracking number. Try scanning the barcode first, then tap Read Customer Name.");
+        }
+      };
       const processDetectedShippingLabelText = (text, sprintMode = false, sourceName = "Camera Scan") => {
         const rows = buildLabelRowsFromText(text, sourceName);
         if (!rows.length) return false;
@@ -16935,13 +17061,25 @@ Cancel keeps this page local/free.`);
             return true;
           }
           labelSprintSeenRef.current.add(key);
-          const applied = row.matchedOrderId ? applyTrackingRowInstant(row, "Shipping Label Sprint") : false;
+          if (!row.matchedOrderId) {
+            playSprintBeep(false);
+            setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:key, carrier:row.carrier, orderId:"", status:"Reading Name", reason:"Tracking scanned; reading printed customer name/address" }, ...safeArray(prev)].slice(0, 30));
+            setLabelImportStatus(`Tracking scanned (${row.carrier} ${key}). Reading customer name/address from the label to auto-match the order…`);
+            tryCustomerOcrMatchForRow(row, true, "Shipping Label Sprint OCR");
+            return true;
+          }
+          const applied = applyTrackingRowInstant(row, "Shipping Label Sprint");
           const nextRow = { ...row, status: applied ? "Applied / Shipped" : "Sprint Needs Review", appliedAt: applied ? new Date().toISOString() : "" };
           addLabelRows([nextRow]);
           playSprintBeep(applied);
           try { if (navigator.vibrate) navigator.vibrate(applied ? 40 : [40,40,40]); } catch(e) {}
           setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:key, carrier:row.carrier, orderId:row.matchedOrderId || "", status:applied ? "Shipped" : "Needs Review", reason:row.matchReason || "No confident match" }, ...safeArray(prev)].slice(0, 30));
           setLabelImportStatus(applied ? `✅ Sprint scanned ${row.carrier} ${key} and marked the matched order shipped. Hold up the next box label.` : `⚠️ Sprint scanned ${row.carrier} ${key}, but no confident order match was found. It was added to Review Matched Labels. Hold up the next box label.`);
+          return true;
+        }
+        if (!row.matchedOrderId && labelScanActive) {
+          setLabelImportStatus(`Scanned ${row.carrier} ${row.trackingNumber}. Reading customer name/address to auto-match…`);
+          tryCustomerOcrMatchForRow(row, false, "One Label OCR");
           return true;
         }
         addLabelRows(rows);
@@ -16979,7 +17117,7 @@ Cancel keeps this page local/free.`);
           labelLastScanRef.current = { value:"", at:0 };
           setLabelSprintLog([]);
         }
-        setLabelImportStatus(sprintMode ? "Starting Shipping Label Sprint. Hold each packed box label up to the camera until it beeps, then move to the next box." : "Starting one-label camera scanner...");
+        setLabelImportStatus(sprintMode ? "Starting Shipping Label Sprint. Hold each packed box label up to the camera. If the barcode scans but the order is not known, Leaf Diary will read the printed customer name/address and retry the match." : "Starting one-label camera scanner. If needed, Leaf Diary can read the printed customer name/address from the camera too.");
         setTimeout(async () => {
           try {
             const reader = new window.ZXing.BrowserMultiFormatReader();
@@ -16993,7 +17131,7 @@ Cancel keeps this page local/free.`);
               processDetectedShippingLabelText(text, sprintMode, sprintMode ? "Camera Sprint" : "Camera Scan");
             });
             const nativeBoost = startNativeLabelScanBoost(sprintMode);
-            if (nativeBoost) setLabelImportStatus(sprintMode ? "Shipping Label Sprint is running with USPS scan boost. Hold each USPS/UPS/FedEx barcode steady, close to the camera, until it beeps/checks." : "Camera scanner is running with USPS scan boost. Hold the label barcode steady and close to the camera.");
+            if (nativeBoost) setLabelImportStatus(sprintMode ? "Shipping Label Sprint is running with USPS scan boost + customer OCR. Hold each USPS/UPS/FedEx label steady. If tracking scans but the order is unclear, the app reads the printed customer name/address." : "Camera scanner is running with USPS scan boost + customer OCR. Hold the barcode steady; tap Read Customer Name if it needs help matching.");
           } catch (e) {
             setLabelImportStatus("Camera scan failed: " + (e?.message || String(e)));
             setLabelScanActive(false);
@@ -17077,9 +17215,9 @@ Cancel keeps this page local/free.`);
           <Row between wrap gap={10}>
             <div>
               <h3 style={{ margin: 0, fontFamily: F.display, color: C.g900 }}>{labelScanMode ? "📷 Scan Shipping Labels" : "🚚 Shipping Label Import + Tracking"}</h3>
-              <p style={{ margin: "4px 0 0", color: C.tx3, fontSize: 12 }}>Upload labels in batch, paste tracking, scan one label, or use Shipping Label Sprint with the MacBook/iPhone camera. High-confidence sprint scans mark the matched order shipped automatically.</p>
+              <p style={{ margin: "4px 0 0", color: C.tx3, fontSize: 12 }}>Upload labels in batch, paste tracking, scan one label, or use Shipping Label Sprint with the MacBook/iPhone camera. V113R can read printed customer name/address from the label to auto-match the order before marking it shipped.</p>
             </div>
-            <Tag text="V110R" color={C.blue} />
+            <Tag text="V113R" color={C.blue} />
           </Row>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginTop:12 }}>
             <div style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:12 }}>
@@ -17089,16 +17227,17 @@ Cancel keeps this page local/free.`);
                   <input type="file" multiple accept="application/pdf,image/*,.txt,.csv" onChange={handleShippingLabelFiles} style={{ padding:10, border:`1px solid ${C.bd}`, borderRadius:12, background:C.card }} />
                 </label>
               </Row>
-              <div style={{ fontSize:11, color:C.tx3, marginTop:8, lineHeight:1.45 }}>Best: upload label PDFs downloaded from Whatnot/Palmstreet. For packed boxes, use Shipping Label Sprint on MacBook or iPhone and hold each box label up to the camera until it scans.</div>
+              <div style={{ fontSize:11, color:C.tx3, marginTop:8, lineHeight:1.45 }}>Best: upload label PDFs downloaded from Whatnot/Palmstreet. For packed boxes, use Shipping Label Sprint on MacBook or iPhone. If tracking scans but customer match is weak, the app reads the printed customer name/address from the label.</div>
             </div>
             <div style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:12 }}>
               <Inp label="Paste Tracking Numbers" value={manualTrackingText} onChange={setManualTrackingText} placeholder="Paste USPS / UPS / FedEx tracking numbers here..." />
-              <Row gap={8} wrap style={{ marginTop:8 }}><Btn sz="sm" onClick={addManualTracking}>Add Manual Tracking</Btn><Btn sz="sm" v={labelScanActive && !labelSprintActive ? "danger" : "soft"} onClick={labelScanActive && !labelSprintActive ? stopLabelScanner : () => startLabelScanner(false)}>{labelScanActive && !labelSprintActive ? "Stop One Scan" : "Scan One Label"}</Btn><Btn sz="sm" v={labelSprintActive ? "danger" : "fill"} onClick={labelSprintActive ? stopLabelScanner : () => startLabelScanner(true)}>{labelSprintActive ? "Stop Sprint" : "Start Shipping Label Sprint"}</Btn><Btn sz="sm" v="ghost" onClick={clearAppliedLabelRows}>Clear Applied</Btn></Row>
+              <Row gap={8} wrap style={{ marginTop:8 }}><Btn sz="sm" onClick={addManualTracking}>Add Manual Tracking</Btn><Btn sz="sm" v={labelScanActive && !labelSprintActive ? "danger" : "soft"} onClick={labelScanActive && !labelSprintActive ? stopLabelScanner : () => startLabelScanner(false)}>{labelScanActive && !labelSprintActive ? "Stop One Scan" : "Scan One Label"}</Btn><Btn sz="sm" v={labelSprintActive ? "danger" : "fill"} onClick={labelSprintActive ? stopLabelScanner : () => startLabelScanner(true)}>{labelSprintActive ? "Stop Sprint" : "Start Shipping Label Sprint"}</Btn><Btn sz="sm" v="soft" disabled={!labelScanActive || labelOcrBusy} onClick={readCustomerNameFromCamera}>{labelOcrBusy ? "Reading Name…" : "Read Customer Name"}</Btn><Btn sz="sm" v="ghost" onClick={clearAppliedLabelRows}>Clear Applied</Btn></Row>
             </div>
           </div>
-          {labelScanActive && <div style={{ marginTop:12, background:"#000", border:`2px solid ${labelSprintActive ? "#97d33e" : C.g300}`, borderRadius:18, padding:10 }}><video ref={scanVideoRef} style={{ width:"100%", maxHeight:360, borderRadius:14, background:"#000" }} muted playsInline /><div style={{ color:"#97d33e", fontSize:12, fontWeight:900, marginTop:8 }}>{labelSprintActive ? "Sprint active with USPS scan boost: hold the barcode 6–12 inches from the camera, steady and well lit, until it beeps/checks. Duplicate scans are ignored." : "Point the camera at the shipping label barcode/tracking number. USPS labels may need to be held close and steady for 1–2 seconds."}</div></div>}
+          {labelScanActive && <div style={{ marginTop:12, background:"#000", border:`2px solid ${labelSprintActive ? "#97d33e" : C.g300}`, borderRadius:18, padding:10 }}><video ref={scanVideoRef} style={{ width:"100%", maxHeight:360, borderRadius:14, background:"#000" }} muted playsInline /><div style={{ color:"#97d33e", fontSize:12, fontWeight:900, marginTop:8 }}>{labelSprintActive ? "Sprint active with USPS scan boost + customer OCR: hold the full label steady. Barcode reads tracking; OCR reads customer name/address if the order match is unclear. Duplicate scans are ignored." : "Point the camera at the shipping label barcode/tracking number. If it scans but does not match, tap Read Customer Name while the full label is visible."}</div>{labelOcrBusy && <div style={{ marginTop:8, color:"#fff", background:"rgba(151,211,62,.16)", border:"1px solid rgba(151,211,62,.35)", borderRadius:10, padding:8, fontSize:12, fontWeight:900 }}>Reading customer name/address from label… keep it steady.</div>}</div>}
           {safeArray(labelSprintLog).length > 0 && <div style={{ marginTop:10, display:"grid", gap:6 }}><div style={{ fontWeight:900, color:C.g900, fontSize:12 }}>Shipping Label Sprint Log</div>{safeArray(labelSprintLog).slice(0,8).map(x => <div key={x.id} style={{ background:x.status === "Shipped" ? C.g50 : C.amberBg, border:`1px solid ${x.status === "Shipped" ? C.g200 : C.gold}66`, borderRadius:10, padding:"7px 9px", fontSize:11, color:C.tx2 }}><b>{x.status === "Shipped" ? "✅" : "⚠️"} {x.carrier} {x.trackingNumber}</b> · {x.status}{x.orderId ? ` · ${x.orderId}` : " · needs review"}<div style={{ color:C.tx3 }}>{x.at} · {x.reason}</div></div>)}</div>}
           {labelImportStatus && <div style={{ marginTop:10, background:C.blueBg, border:`1px solid rgba(26,95,154,.25)`, borderRadius:12, padding:10, color:C.tx2, fontSize:12, whiteSpace:"pre-wrap" }}>{labelImportStatus}</div>}
+          {labelOcrPreview && <details style={{ marginTop:8, background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:10 }}><summary style={{ cursor:"pointer", fontWeight:900, color:C.g900, fontSize:12 }}>Customer OCR text preview</summary><pre style={{ whiteSpace:"pre-wrap", fontSize:11, color:C.tx3, marginTop:8 }}>{labelOcrPreview}</pre></details>}
           {safeArray(labelImportRows).length > 0 && <div style={{ marginTop:12 }}>
             <Row between center wrap gap={8} style={{ marginBottom:8 }}><div style={{ fontWeight:900, color:C.g900 }}>Review Matched Labels</div><Btn sz="sm" onClick={() => applyTrackingRows(true)}>Apply Tracking + Mark Shipped</Btn></Row>
             <div className="ld-table-scroll" style={{ border:`1px solid ${C.bd}`, borderRadius:14, overflow:"hidden" }}>
