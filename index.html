@@ -1706,12 +1706,12 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V119R-SAFE",
-      name: "Whatnot Shipment Data + Full Tracking Match",
+      id: "V121R",
+      name: "UX Cleanup Shell",
       date: "2026-05-11",
-      base: "index (59).html stable backup",
-      safety: "Order Fulfillment / Scan Shipping Labels add-on only; home screen logic untouched",
-      nextPhase: "Test this version before adding any more scanner changes"
+      base: "index (59).html stable backup + V120R customer-row label photo",
+      safety: "Navigation/workflow shell only; home screen, auth, AI, pricing, imports, and shipping-doc generation untouched",
+      nextPhase: "V122R: consolidate Ship Orders page internals after V121R passes MacBook + iPhone tests"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -4516,14 +4516,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        STREAMLINED WORKSPACE NAVIGATION — mobile-first redesign
     ══════════════════════════════════════════════════════════ */
     const WORKSPACES = [
-      { id:"today", icon:"🏠", l:"Today", sub:"What needs attention now", color:"#97d33e", roles:["owner","manager","employee"] },
-      { id:"plants_ws", icon:"🌿", l:"Inventory", sub:"Plants, photos, labels, care", color:"#2E8A55", roles:["owner","manager","employee"] },
-      { id:"intake_ws", icon:"➕", l:"Add / Intake", sub:"Invoices, manual adds, bulk imports", color:"#97d33e", roles:["owner","manager","employee"] },
-      { id:"shows_ws", icon:"🎪", l:"Shows", sub:"Build, run, export, content", color:"#fb6392", roles:["owner","manager","employee"] },
-      { id:"orders_ws", icon:"📦", l:"Orders", sub:"Sold review, buyers, paperwork", color:"#68d8ff", roles:["owner","manager"] },
-      { id:"money_ws", icon:"💵", l:"Money", sub:"Receipts, bills, payroll, profit", color:"#f5c542", roles:["owner","manager","employee"] },
-      { id:"buy_ws", icon:"🧠", l:"Buy Smart", sub:"What to buy and stop buying", color:"#B07D10", roles:["owner","manager"] },
-      { id:"admin_ws", icon:"⚙️", l:"Settings", sub:"Owner setup, AI, data, security", color:"#b695ff", roles:["owner"] },
+      { id:"today", icon:"🏠", l:"Today", sub:"Do this now", color:"#97d33e", roles:["owner","manager","employee"] },
+      { id:"plants_ws", icon:"🌿", l:"Plants", sub:"Add, label, photo, manage", color:"#2E8A55", roles:["owner","manager","employee"] },
+      { id:"shows_ws", icon:"🎪", l:"Shows", sub:"Build, prep, export, import", color:"#fb6392", roles:["owner","manager","employee"] },
+      { id:"orders_ws", icon:"📦", l:"Orders", sub:"Pack, ship, tracking, buyers", color:"#68d8ff", roles:["owner","manager","employee"] },
+      { id:"money_ws", icon:"💵", l:"Money", sub:"Receipts, bills, payroll", color:"#f5c542", roles:["owner","manager","employee"] },
+      { id:"admin_ws", icon:"⚙️", l:"Settings", sub:"Owner setup + advanced", color:"#b695ff", roles:["owner"] },
     ];
     const TOOL_CATALOG = [
       { id:"dash", icon:"📊", l:"Dashboard", group:"Today", roles:["owner","manager"] },
@@ -4605,17 +4603,30 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"aigateway", icon:"🌐", l:"Advanced Gateway Settings", group:"Settings", roles:["owner"], hidden:true },
       { id:"airouter", icon:"🧭", l:"Advanced AI Model Routing", group:"Settings", roles:["owner"], hidden:true },
     ];
+    const LD_SIMPLE_MODE_KEY = "ld_v121_simple_mode";
+    const LD_V121_SIMPLE_GROUPS = [
+      { group:"Today", ids:["rolelauncher","employeeboard","workflowcoach","ownerboard","managerboard","photosprint","showprep","packorders","shiplabels"] },
+      { group:"Plants", ids:["manual","upload","inv","photosprint","labels","scanlabel","barcodeqa","care","savedfilters"] },
+      { group:"Shows", ids:["showbuilder","showprep","liveshow","showimport","discounts","bundles"] },
+      { group:"Orders", ids:["showimport","ship","packorders","shiplabels","casd","refunds","customers","retention"] },
+      { group:"Money", ids:["receipts","timecard","bills","cashflow","expense","payroll","commissions","tax","goals"] },
+      { group:"Settings", ids:["admin","ollamadoctor","quickstart","appcheck","releasecenter","cleanup"] },
+    ];
+    const LD_V121_ADVANCED_IDS = new Set(["keyboardshortcuts","datacharts","accessibility","phase2qa","nextsteps","onboarding","command","execai","aihub","dataai","slotprofit","overnight","inlineedit","bulkactions","swipegestures","invoicetrainer","labelife","locations","sellthru","showdragdrop","social","content","nursery","pos","intel","reports","history","audit","devtools","workflowqa","ollama","aigateway","airouter"]);
+    const LD_V121_SIMPLE_IDS = new Set(LD_V121_SIMPLE_GROUPS.flatMap(g => g.ids));
+    const ldV121ReadSimpleMode = () => { try { return localStorage.getItem(LD_SIMPLE_MODE_KEY) !== "off"; } catch(e) { return true; } };
+    const ldV121WriteSimpleMode = v => { try { localStorage.setItem(LD_SIMPLE_MODE_KEY, v ? "on" : "off"); } catch(e) {} };
     const getToolsForRole = role => TOOL_CATALOG.filter(t => (t.roles || []).includes(role) && !t.hidden);
 
     const ROOT_PAGES = ["today", "plants_ws", "intake_ws", "shows_ws", "orders_ws", "money_ws", "buy_ws", "admin_ws"];
     const PAGE_TO_WORKSPACE = {
-      today:"today", dash:"today", rolelauncher:"today", keyboardshortcuts:"today", datacharts:"buy_ws", accessibility:"admin_ws", darkmode:"admin_ws", nextsteps:"today", onboarding:"today", command:"today", ownerboard:"today", managerboard:"today", execai:"today", aihub:"today", dataai:"today", workflowcoach:"today", employeeboard:"today", cashflow:"money_ws", overnight:"today", emp_dash:"today",
+      today:"today", dash:"today", rolelauncher:"today", keyboardshortcuts:"today", datacharts:"money_ws", accessibility:"admin_ws", darkmode:"admin_ws", nextsteps:"today", onboarding:"today", command:"today", ownerboard:"today", managerboard:"today", execai:"today", aihub:"today", dataai:"today", workflowcoach:"today", employeeboard:"today", cashflow:"money_ws", overnight:"today", emp_dash:"today",
       plants_ws:"plants_ws", inv:"plants_ws", savedfilters:"plants_ws", inlineedit:"plants_ws", bulkactions:"plants_ws", swipegestures:"plants_ws", labels:"plants_ws", labelife:"plants_ws", barcodeqa:"plants_ws", scanlabel:"plants_ws", photosprint:"plants_ws", care:"plants_ws", locations:"plants_ws", sellthru:"plants_ws",
-      intake_ws:"intake_ws", manual:"intake_ws", upload:"intake_ws", invoicetrainer:"intake_ws", history:"intake_ws",
+      intake_ws:"plants_ws", manual:"plants_ws", upload:"plants_ws", invoicetrainer:"plants_ws", history:"plants_ws",
       shows_ws:"shows_ws", showprep:"shows_ws", showdragdrop:"shows_ws", showbuilder:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws", social:"shows_ws", content:"shows_ws",
       orders_ws:"orders_ws", packorders:"orders_ws", shiplabels:"orders_ws", showimport:"orders_ws", ship:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws", casd:"orders_ws",
       money_ws:"money_ws", expense:"money_ws", receipts:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws",
-      buy_ws:"buy_ws", slotprofit:"buy_ws", nursery:"buy_ws", pos:"buy_ws", intel:"buy_ws", reports:"buy_ws",
+      buy_ws:"money_ws", slotprofit:"money_ws", nursery:"money_ws", pos:"money_ws", intel:"money_ws", reports:"money_ws",
       admin_ws:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", releasecenter:"admin_ws", quickstart:"admin_ws", phase2qa:"admin_ws", ollama:"admin_ws", ollamadoctor:"admin_ws", aigateway:"admin_ws"
     };
     const getPageLabel = (id) => (TOOL_CATALOG.find(t => t.id === id)?.l || WORKSPACES.find(w => w.id === id)?.l || id);
@@ -4822,9 +4833,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const headerSearchInputRef = useRef(null);
       const role = user?.role || "employee";
       const tools = getToolsForRole(role);
+      const [simpleMode, setSimpleMode] = useState(() => ldV121ReadSimpleMode());
+      const visibleTools = simpleMode ? tools.filter(t => LD_V121_SIMPLE_IDS.has(t.id)) : tools;
       const bottomTabs = role === "employee"
-        ? ["today","plants_ws","shows_ws"]
-        : ["today","plants_ws","shows_ws","orders_ws","money_ws"];
+        ? ["today","plants_ws","orders_ws","money_ws"]
+        : role === "owner"
+          ? ["today","plants_ws","shows_ws","orders_ws","money_ws","admin_ws"]
+          : ["today","plants_ws","shows_ws","orders_ws","money_ws"];
       const workspaceById = Object.fromEntries(WORKSPACES.map(w => [w.id, w]));
       const openPage = id => {
         setHeaderSearchOpen(false);
@@ -4888,9 +4903,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       </svg>;
       // Pink + menu is reserved for cloud / backup controls only.
       const quickAdd = [];
-      const menuGroups = ["Today","Plants","Add / Intake","Shows","Orders","Money","Buy Smart","Marketing","Business","Settings"]
-        .map(g => ({ group:g, items:tools.filter(t => t.group === g && (!menuSearch || (t.l + " " + t.group).toLowerCase().includes(menuSearch.toLowerCase()))) }))
-        .filter(g => g.items.length);
+      const toolMatchesSearch = t => !menuSearch || (t.l + " " + t.group + " " + t.id).toLowerCase().includes(menuSearch.toLowerCase());
+      const menuGroups = (simpleMode && !menuSearch)
+        ? LD_V121_SIMPLE_GROUPS.map(g => ({ group:g.group, items:g.ids.map(id => tools.find(t => t.id === id)).filter(Boolean).filter(toolMatchesSearch) })).filter(g => g.items.length)
+        : ["Today","Plants","Shows","Orders","Money","Settings","Marketing","Buy Smart","Add / Intake","Business"].map(g => ({ group:g, items:tools.filter(t => t.group === g && toolMatchesSearch(t)) })).filter(g => g.items.length);
       const headerSearchAliases = {
         ollamadoctor: "ollama doctor ollama connection doctor local ai doctor local ai setup macbook ai macbook ollama cors origin blocked test ollama run doctor desktop preset llama model models",
         ollama: "ollama local ai setup local ai connector macbook ollama desktop ollama llama3 llama3.1 model test ollama",
@@ -5063,8 +5079,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {menuOpen && <div style={{ position:"fixed", inset:0, zIndex:650, background:"rgba(0,0,0,.38)" }} onClick={()=>setMenuOpen(false)}>
           <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:55, right:8, left:8, maxWidth:760, margin:"0 auto", background:"#000", color:"#fff", border:"1px solid rgba(151,211,62,.35)", borderRadius:20, maxHeight:"calc(100dvh - 80px)", overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", boxShadow:"0 24px 70px rgba(0,0,0,.55)", paddingBottom:18 }}>
             <div style={{ padding:"16px 16px 10px", borderBottom:"1px solid rgba(255,255,255,.08)" }}>
-              <Row between center gap={8}><div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:24, fontWeight:900 }}>Workspaces</div><div style={{ color:"rgba(255,255,255,.66)", fontSize:12 }}>Everything is still here — now grouped so it is not overwhelming.</div></div><button onClick={onLogout} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:12, padding:"9px 12px", fontWeight:800 }}>Logout</button></Row>
-              <input value={menuSearch} onChange={e=>setMenuSearch(e.target.value)} placeholder="Search any tool..." style={{ marginTop:12, width:"100%", background:"#101010", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:14, padding:"13px 14px", fontSize:16, outline:"none" }} />
+              <Row between center gap={8}><div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:24, fontWeight:900 }}>Workspaces</div><div style={{ color:"rgba(255,255,255,.66)", fontSize:12 }}>Simple workflows first. Advanced tools are hidden unless you turn them on.</div></div><button onClick={onLogout} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:12, padding:"9px 12px", fontWeight:800 }}>Logout</button></Row>
+              <input value={menuSearch} onChange={e=>setMenuSearch(e.target.value)} placeholder={simpleMode ? "Search simple workflows..." : "Search any tool..."} style={{ marginTop:12, width:"100%", background:"#101010", color:"#fff", border:"1px solid rgba(255,255,255,.2)", borderRadius:14, padding:"13px 14px", fontSize:16, outline:"none" }} />
+              <Row between center wrap gap={8} style={{ marginTop:10, background:"rgba(151,211,62,.08)", border:"1px solid rgba(151,211,62,.22)", borderRadius:14, padding:"10px 11px" }}>
+                <div style={{ minWidth:0 }}><div style={{ color:"#97d33e", fontWeight:900, fontSize:12 }}>{simpleMode ? "Simple Mode ON" : "Advanced Mode ON"}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:11 }}>{simpleMode ? "Shows the main workflows only. Old tools still work in Advanced or search." : "Shows every tool/page for owner troubleshooting."}</div></div>
+                <button onClick={()=>{ const next = !simpleMode; setSimpleMode(next); ldV121WriteSimpleMode(next); }} style={{ background:simpleMode?"#97d33e":"rgba(255,255,255,.12)", color:simpleMode?"#000":"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:999, padding:"9px 12px", fontWeight:900, cursor:"pointer" }}>{simpleMode ? "Switch to Advanced" : "Switch to Simple"}</button>
+              </Row>
             </div>
             {!menuSearch && <div style={{ padding:12, display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{WORKSPACES.filter(w => !(w.roles && !w.roles.includes(role))).map(w => <button key={w.id} onClick={()=>openPage(w.id)} style={{ background:page===w.id?"rgba(151,211,62,.16)":"#0f0f0f", border:`1px solid ${page===w.id?w.color:"rgba(255,255,255,.12)"}`, borderRadius:18, padding:"16px 13px", color:"#fff", fontFamily:F.body, cursor:"pointer", textAlign:"left" }}><Row gap={10} center><span style={{ fontSize:29 }}>{w.icon}</span><div><div style={{ fontWeight:900, fontSize:15 }}>{w.l}</div><div style={{ color:"rgba(255,255,255,.62)", fontSize:11 }}>{w.sub}</div></div></Row></button>)}</div>}
             <div style={{ padding:"6px 12px 16px" }}>{menuGroups.map(g => <details key={g.group} open={!!menuSearch} style={{ background:"#080808", border:"1px solid rgba(255,255,255,.1)", borderRadius:14, marginBottom:8, overflow:"hidden" }}><summary style={{ cursor:"pointer", padding:"13px 14px", fontWeight:900, color:"#fff", listStyle:"none" }}>{g.group} <span style={{ float:"right", color:"#97d33e", fontSize:12 }}>{g.items.length} tools</span></summary><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:6, padding:"0 10px 10px" }}>{g.items.map(t => <button key={t.id} onClick={()=>openPage(t.id)} style={{ background:page===t.id?"rgba(251,99,146,.18)":"rgba(255,255,255,.055)", border:`1px solid ${page===t.id?"#fb6392":"rgba(255,255,255,.1)"}`, color:"#fff", borderRadius:12, padding:"10px 9px", textAlign:"left", fontFamily:F.body, cursor:"pointer" }}><span style={{ marginRight:7 }}>{t.icon}</span><span style={{ fontWeight:800, fontSize:12 }}>{t.l}</span></button>)}</div></details>)}</div>
@@ -5447,30 +5467,32 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Add New Plants", items:[["Upload Invoice Photo","upload","📸","Use camera/photo to add nursery purchases"],["Add Plants Manually","manual","✏️","Quick entry for small buys"],["Receipt / Invoice Archive","history","📋","Review past uploads"],["Teach Receipt Reader","invoicetrainer","🧾","Owner rules for sizes and receipts"]] },
           { title:"Finish Intake", items:[["Print Labels","labels","🏷️","Print after plant IDs are assigned"],["Open Inventory","inv","🌿","Check new plants"],["Nursery Scores","nursery","🏪","Supplier records and performance"],["Ask Leaf Diary","dataai","💬","Ask what is missing before the show"]] }
         ]},
-        plants_ws:{ icon:"🌿", title:"Inventory", sub:"Everything plant-related in one clean area.", hero:"Manage plants without hunting pages", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"],["Need Photos",noPhoto.length,"marketing"]], sections:[
-          { title:"Inventory Work", items:[["Fast Photo Sprint","photosprint","⚡","Barcode scan → photo → next plant"],["Scan Label + Add Photo","scanlabel","📷","Careful one-plant barcode photo workflow"],["Inventory","inv","🌿","Search and edit all plants"],["Saved Views","savedfilters","🔖","One-tap saved inventory filters"],["Inline Editing","inlineedit","✏️","Tap price, size, or status without opening full details"],["Bulk Actions","bulkactions","☑️","Select many plants and act on the whole batch"],["Swipe Gestures","swipegestures","👆","Swipe plant cards right to stage or left to hide"],["Add Plants","manual","✏️","Manual entry with camera/upload"],["Upload Invoice","upload","📸","Bulk add from invoice"],["Receipt Reader Training","invoicetrainer","🧾","Teach invoice pot-size rules"],["Past Invoices","history","📋","Previous uploads"]] },
-          { title:"Plant Tools", items:[["Labels","labels","🏷️","Print plant labels"],["Plant Care","care","🩺","Quarantine and health"],["Locations","locations","📍","Racks, trailer, rooms"],["Sell-Through","sellthru","📊","What sells fastest"]] }
+        plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything before a plant sells.", hero:"Add plants → labels/photos → manage inventory → fix problems", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Need Photos",noPhoto.length,"fix before show"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"]], sections:[
+          { title:"1. Add Plants", items:[["Upload Invoice Photo","upload","📸","Add nursery purchases from photo"],["Add Plants Manually","manual","✏️","Quick one-plant entry"],["Inventory","inv","🌿","Search and edit all plants"],["Saved Views","savedfilters","🔖","One-tap inventory filters"]] },
+          { title:"2. Photo + Label Sprint", items:[["Fast Photo Sprint","photosprint","⚡","Scan barcode → take photo → next plant"],["Labels","labels","🏷️","Print labels for new plants"],["Scan Label + Add Photo","scanlabel","📷","Open a plant by barcode"],["Barcode QA + Backfill","barcodeqa","✅","Fix missing/duplicate barcodes"]] },
+          { title:"3. Fix Problems", items:[["Plant Care","care","🩺","Quarantine and health notes"],["Sell-Through","sellthru","📊","What sells fastest"],["Bulk Actions","bulkactions","☑️","Apply changes to many plants"],["Receipt / Invoice Archive","history","📋","Past plant purchase uploads"]] }
         ]},
-        shows_ws:{ icon:"🎪", title:"Show Command Center", sub:"Build, run, import, pay, and promote live shows.", hero:"Sell faster with one guided show workflow", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Commissions","1%","after fees"]], sections:[
-          { title:"Run Shows", items:[["Build Show","showbuilder","🎪","Choose plants and export the show"],["Live Show","liveshow","🎥","On-screen live mode"],["Import Show Sales","showimport","📥","Import Whatnot/Palmstreet CSV"],["Bundles","bundles","🧺","Group plants to sell"]] },
-          { title:"Sell More", items:[["Discounts","discounts","🏷️","Clear slow plants"],["Social Center","social","📣","Create posts from plant photos"],["AI Content","content","✨","Captions and descriptions"],["Buy Smart","intel","💡","What to buy next"]] }
+        shows_ws:{ icon:"🎪", title:"Shows", sub:"Everything before and during a live show.", hero:"Build show → fix export problems → pull plants → export → import results", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Need Photos",noPhoto.length,"before export"]], sections:[
+          { title:"1. Build + Prep", items:[["Build Show","showbuilder","🎪","Choose plants and export the show"],["Show Prep Pull List","showprep","🧺","Physically pull and stage plants"],["Discounts","discounts","🏷️","Clear slow plants"],["Bundles","bundles","🧺","Group plants to sell"]] },
+          { title:"2. Go Live + Finish", items:[["Live Show","liveshow","🎥","On-screen live mode"],["Import Show Sales","showimport","📥","Bring results into Orders"],["Social Center","social","📣","Promote show content"],["AI Content","content","✨","Captions and descriptions"]] }
         ]},
-        orders_ws:{ icon:"✅", title:"Sold Shows", sub:"Sold plants, buyer usernames, commissions and import review. Shipping docs are Whatnot-only; Palmstreet shipping stays in Palmstreet.", hero:"Review what sold without building shipping into the CRM", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Reminders",casdCerts.length,"archived"],["Refunds","↩️","manage"]], sections:[
-          { title:"Sold Review", items:[["Sold Review","ship","✅","Review sold plants only"],["Scan Shipping Labels","shiplabels","📷","Camera sprint + batch tracking import"],["Import Show Sales","showimport","📥","Upload Palmstreet/Whatnot sales"],["Buyers","customers","👥","Buyer usernames and history"],["Refunds","refunds","↩️","Track issues"]] },
-          { title:"Follow-Up", items:[["Repeat Buyers","retention","💚","VIP and repeat buyers"],["Shipping State Docs","casd","📜","Compliance reminder only"],["Reports","reports","📈","Sold show reports"],["Ask Leaf Diary","dataai","💬","Find follow-up tasks"]] }
+        orders_ws:{ icon:"📦", title:"Orders", sub:"One workflow for everything after a sale.", hero:"Import sales → pack boxes → state docs → tracking → shipped", color:"#68d8ff", kpis:[["Sold Groups",readyOrders.length,"from platforms"],["Buyers",new Set(sold.map(p=>p.customerUsername||p.customerName).filter(Boolean)).size,"usernames"],["State Docs",casdCerts.length,"archived"],["Refunds","↩️","issues"]], sections:[
+          { title:"1. Import + Review", items:[["Import Show Sales","showimport","📥","Upload Whatnot/Palmstreet sold CSV"],["Sold Review","ship","✅","Confirm buyer, employee, tips, and commissions"],["Buyers","customers","👥","Open buyer history"],["Repeat Buyers","retention","💚","VIP and repeat customer follow-up"]] },
+          { title:"2. Pack + Ship", items:[["Pack Orders","packorders","📦","Build boxes and packing checklist"],["Shipping State Docs","casd","📜","Create CA/AZ/TX/LA documents when needed"],["Add Tracking","shiplabels","📷","Whatnot shipment data, label photo, live scan, or paste tracking"],["Refunds / Problems","refunds","↩️","DOA, claims, refunds, and CASD follow-up"]] },
+          { title:"3. Reports + Help", items:[["Order Reports","reports","📈","Review sold show performance"],["Ask Leaf Diary","dataai","💬","Ask what orders still need action"]] }
         ]},
-        money_ws:{ icon:"💵", title:"Money", sub:"Cash pulse, receipts, bills, payroll, profit, and taxes.", hero:"Can Leaf Diary spend money this week?", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
-          { title:"Daily Money", items:[["Cash Flow","cashflow","💵","Can you spend?"],["What Makes Money","slotprofit","📦","Max profit from 400 weekly slots"],["Morning Briefing","overnight","🌅","Daily money and task plan"],["Expenses","expense","💳","Business spending"],["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Due dates"]] },
-          { title:"Pay + Tax", items:[["Timecard","timecard","⏱️","Hours"],["Payroll","payroll","👥","Pay employees"],["Commissions","commissions","🤝","Show commissions"],["Tax Center","tax","🧾","Tax-ready totals"]] }
+        money_ws:{ icon:"💵", title:"Money", sub:"Receipts, bills, payroll, and safe spending.", hero:"Know what came in, what went out, and what is due", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
+          { title:"Daily Money", items:[["Receipt Scanner","receipts","🧾","Photo receipt vault"],["Bills","bills","📅","Upcoming bills"],["Timecard","timecard","⏱️","Clock in/out and hours"],["Cash Flow","cashflow","💵","Can we spend money?"]] },
+          { title:"Owner Reports", items:[["Expenses","expense","💳","Business spending"],["Payroll","payroll","👥","Pay employees"],["Commissions","commissions","🤝","Show commissions"],["Tax Center","tax","🧾","Tax-ready totals"],["Goals","goals","🎯","Revenue/profit goals"],["Buy Smart","intel","💡","What to buy or stop buying"]] }
         ]},
         buy_ws:{ icon:"🧠", title:"Buy Smart", sub:"Know what to buy, what to avoid, and how much you can safely spend.", hero:"Stop buying low-profit plants and use your weekly slots for winners", color:"#B07D10", kpis:[["In Stock",inStock.length,"current"],["Inventory Cost",$(invCost),"money tied up"],["Month Sales",$(monthSales),"proof of demand"],["No Photos",noPhoto.length,"blocks selling"]], sections:[
           { title:"Buying Decisions", items:[["What Makes Money","slotprofit","📦","Profit-per-slot and weekly capacity"],["Buy Smart","intel","💡","What to buy and stop buying"],["Nursery Scores","nursery","🏪","Which suppliers make profit"],["Buying Lists","pos","📋","Plan purchase orders"]] },
           { title:"Proof + Reports", items:[["Reports","reports","📈","Profit and sales reports"],["Cash Flow","cashflow","💵","Safe buy budget"],["Sell-Through","sellthru","📊","What sells fastest"],["Owner AI Brief","execai","🧠","Plain-English owner decisions"]] }
         ]},
-        admin_ws:{ icon:"⚙️", title:"Settings", sub:"Owner setup, permissions, security, AI, and data.", hero:"Hide technical tools away from daily operations", color:"#b695ff", kpis:[["Users","👥","roles"],["Audit","🔍","history"],["Backups","💾","safety"],["Settings","⚙️","system"]], sections:[
-          { title:"System", items:[["Admin Panel","admin","⚙️","Users, footer, settings"],["Audit Log","audit","🔍","Security and IP activity"],["Owner Repair Tools","cleanup","🧹","Fix duplicates/issues"],["Developer Testing","devtools","🧪","Diagnostics and safe tests"],["Local AI Setup","ollama","🧠","Local AI model settings"],["Ollama Doctor","ollamadoctor","🩺","Fix local AI connection"],["Mobile AI Gateway","aigateway","🌐","Mobile AI API bridge"],["AI Task Routing","airouter","🧭","Route each AI task to the right model"],["Owner AI Brief","execai","🧠","CEO-style command center"],["Morning Briefing","overnight","🌅","Daily operating plan"],["Reports","reports","📈","Business reports"],["Data Visualization","datacharts","📊","Charts for reports, Buy Smart, cash, and goals"],["Phase 2 Final QA","phase2qa","🧪","Regression checklist for every Phase 2 feature"],["What Makes Money","slotprofit","📦","Capacity and profit engine"]] },
-          { title:"Buying + Setup", items:[["Nurseries","nursery","🏪","Supplier records"],["Receipt Reader Training","invoicetrainer","🧾","Invoice training rules"],["Purchase Orders","pos","📋","Buying lists"],["Goals","goals","🎯","Profit goals"],["AI Center","aihub","🤖","Automation settings"]] }
-        ]}
+        admin_ws:{ icon:"⚙️", title:"Settings", sub:"Owner setup, users, AI, backup, and advanced tools.", hero:"Daily users should not live here — this is for setup and rescue", color:"#b695ff", kpis:[["Users","👥","roles"],["Backups","💾","safety"],["AI","🩺","doctor"],["Advanced","🧪","hidden"]], sections:[
+          { title:"Core Setup", items:[["Business Settings","admin","⚙️","Users, roles, footer, fees, and setup"],["AI Doctor / Control Center","ollamadoctor","🩺","One AI setup screen"],["Backup / Release Center","releasecenter","🚀","Export backup and pre-upload checklist"],["App Checkup","appcheck","✅","Find broken data before live use"]] },
+          { title:"Advanced Owner Tools", items:[["Owner Repair Tools","cleanup","🧹","Fix duplicates and storage issues"],["Audit Log","audit","🔍","Security and activity"],["Developer Testing","devtools","🧪","Diagnostics and test buttons"],["Quick Start Guide","quickstart","🧭","Training and guide"]] }
+        ]},
       }[type || "today"];
       const CardBtn = ({ item }) => { const [label,id,icon,sub] = item; const disabled = !canOpen(id); return <button disabled={disabled} onClick={()=>open(id)} className="ld-workspace-card" style={{ background:disabled?"#f1f1f1":C.card, border:`1px solid ${disabled?"#ddd":C.bd}`, borderRadius:18, padding:"15px 14px", textAlign:"left", cursor:disabled?"not-allowed":"pointer", boxShadow:"0 6px 18px rgba(13,43,26,.06)", fontFamily:F.body, opacity:disabled ? .45 : 1 }}><Row gap={10} center><div style={{ width:42, height:42, borderRadius:14, background:(pack.color||C.g600)+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:23 }}>{icon}</div><div style={{ flex:1 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{label}</div><div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>{sub}</div></div><span style={{ color:C.tx4, fontWeight:900 }}>›</span></Row></button> };
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1060, margin:"0 auto", fontFamily:F.body }}>
