@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V119R-SAFE</title>
+  <title>LEAF DIARY - BUSINESS HUB · V123R</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -1706,12 +1706,12 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V121R",
-      name: "UX Cleanup Shell",
+      id: "V123R",
+      name: "Plants Workflow Consolidation + Page Help",
       date: "2026-05-11",
-      base: "index (59).html stable backup + V120R customer-row label photo",
-      safety: "Navigation/workflow shell only; home screen, auth, AI, pricing, imports, and shipping-doc generation untouched",
-      nextPhase: "V122R: consolidate Ship Orders page internals after V121R passes MacBook + iPhone tests"
+      base: "V122R Ship Orders + built-in help on index (59).html stable backup",
+      safety: "Plants workflow shell only; old tools preserved; home screen, auth, AI, pricing, orders, and shipping docs untouched",
+      nextPhase: "V124R: Shows workflow consolidation after V123R passes MacBook + iPhone tests"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -4543,6 +4543,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"slotprofit", icon:"📦", l:"What Makes Money", group:"Buy Smart", roles:["owner"] },
       { id:"overnight", icon:"🌅", l:"Today’s Plan", group:"Today", roles:["owner"] },
       { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Today", roles:["employee"] },
+      { id:"plantcapture", icon:"🌿", l:"Plant Capture", group:"Plants", roles:["owner","manager","employee"] },
       { id:"inv", icon:"🌿", l:"Inventory", group:"Plants", roles:["owner","manager","employee"] },
       { id:"savedfilters", icon:"🔖", l:"Saved Views", group:"Plants", roles:["owner","manager","employee"] },
       { id:"inlineedit", icon:"✏️", l:"Inline Editing", group:"Plants", roles:["owner","manager"] },
@@ -4606,7 +4607,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     const LD_SIMPLE_MODE_KEY = "ld_v121_simple_mode";
     const LD_V121_SIMPLE_GROUPS = [
       { group:"Today", ids:["rolelauncher","employeeboard","workflowcoach","ownerboard","managerboard","photosprint","showprep","packorders","shiplabels"] },
-      { group:"Plants", ids:["manual","upload","inv","photosprint","labels","scanlabel","barcodeqa","care","savedfilters"] },
+      { group:"Plants", ids:["plantcapture","inv"] },
       { group:"Shows", ids:["showbuilder","showprep","liveshow","showimport","discounts","bundles"] },
       { group:"Orders", ids:["showimport","ship","packorders","shiplabels","casd","refunds","customers","retention"] },
       { group:"Money", ids:["receipts","timecard","bills","cashflow","expense","payroll","commissions","tax","goals"] },
@@ -4822,10 +4823,140 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     }
 
 
+
+    /* ══════════════════════════════════════════════════════════
+       V122R — BUILT-IN PAGE HELP / EMPLOYEE TRAINING GUIDE
+       One global info button. It teaches the current page without adding
+       another maze of training pages. Content is intentionally concise and
+       role-safe; advanced tools stay under Advanced Mode.
+    ══════════════════════════════════════════════════════════ */
+    const LD_HELP_QUICK_STEPS = {
+      today: {
+        icon:"🏠", title:"Today Dashboard", role:"All roles",
+        purpose:"Start here. Today shows what needs attention right now and sends you to the correct workflow.",
+        steps:["Check red or amber alerts first.","Use the first task card instead of hunting through menus.","Tap Start, Review, Fix, or Open on the card that matches the job.","Return to Today any time you feel lost."],
+        tips:["Employees should start every shift here.","Owners should use Today to review cash, orders, show prep, and AI tasks."],
+        go:[{label:"Open Role Launcher", page:"rolelauncher"},{label:"Open My Tasks", page:"employeeboard"}]
+      },
+      plants_ws: {
+        icon:"🌿", title:"Plants", role:"All roles",
+        purpose:"Everything before a plant sells: add plants, manage inventory, print labels, scan labels, and take photos.",
+        steps:["Use Plant Capture when you do not know where to start.","Add the plant from invoice, manual entry, or bulk import.","Print the label.","Use Photo Sprint to scan the label and take the plant photo.","Fix missing labels/photos before exporting a show."],
+        tips:["Plant barcode labels connect the physical plant to the digital record.","Photo Sprint is the fastest way to photograph plants without typing."],
+        go:[{label:"Open Plant Capture", page:"plantcapture"},{label:"Manage Inventory", page:"inv"}]
+      },
+      plantcapture: {
+        icon:"🌿", title:"Plant Capture", role:"All roles",
+        purpose:"One simple page for the full plant intake job: add plants, print labels, scan labels, take photos, and fix missing plant setup.",
+        steps:["Step 1: Choose how to add plants — invoice photo, manual entry, or existing inventory CSV.","Step 2: Print labels for new plants.","Step 3: Use Fast Photo Sprint to scan each label and take photos.","Step 4: Check missing labels, missing photos, and missing prices before shows."],
+        tips:["Use this page instead of hunting for five separate plant tools.","Employees can use Plant Capture for the daily photo/label work without seeing advanced inventory controls."],
+        go:[{label:"Add Plants", page:"manual"},{label:"Print Labels", page:"labels"},{label:"Photo Sprint", page:"photosprint"}]
+      },
+      shows_ws: {
+        icon:"🎪", title:"Shows", role:"Owner / Manager",
+        purpose:"Everything before and during a live show: build the lineup, pull plants, fix export problems, export CSV, and import results.",
+        steps:["Build the show list.","Fix export guard problems like missing photos, price, or description.","Use Pull List to stage plants physically.","Export the show CSV to Whatnot or Palmstreet.","After the show, import sales results."],
+        tips:["Auction tools belong inside Shows as Auction Mode, not as a separate daily workflow.","Import Results should happen right after the show ends."],
+        go:[{label:"Build Show", page:"showbuilder"},{label:"Pull List", page:"showprep"},{label:"Import Results", page:"showimport"}]
+      },
+      orders_ws: {
+        icon:"📦", title:"Orders", role:"Owner / Manager / Employee packing tasks",
+        purpose:"Everything after a sale: import results, review sold plants, pack boxes, create state docs, add tracking, and mark shipped.",
+        steps:["Import show sales first.","Review sold orders and unmatched items.","Pack orders and print/check packing slips.","Create/check Shipping State Docs when needed.","Add tracking by shipment data, label photo, scan, or paste.","Confirm before marking shipped."],
+        tips:["Use Ship Orders when you are confused — it puts the shipping steps in order.","Whatnot can have multiple boxes for one customer; verify tracking before saving."],
+        go:[{label:"Ship Orders", page:"orders_ws"},{label:"Scan Shipping Labels", page:"shiplabels"},{label:"State Docs", page:"casd"}]
+      },
+      money_ws: {
+        icon:"💵", title:"Money", role:"Owner / Manager / Employee limited",
+        purpose:"Receipts, expenses, bills, timecards, payroll, cash flow, taxes, and goals.",
+        steps:["Scan every receipt.","Review uncategorized receipts.","Clock in/out on Timecard.","Owners check bills, payroll, commissions, and cash flow before buying plants."],
+        tips:["Employees should only see Timecard and task-level receipt tools.","Owners should update bank balance for safe buy decisions."],
+        go:[{label:"Receipts", page:"receipts"},{label:"Timecard", page:"timecard"},{label:"Cash Flow", page:"cashflow"}]
+      },
+      admin_ws: {
+        icon:"⚙️", title:"Settings", role:"Owner",
+        purpose:"Owner setup, users, AI settings, backup, app health, release checks, and advanced tools.",
+        steps:["Export a full backup before uploading a new HTML version.","Use App Checkup if data looks wrong.","Keep AI/Gateway/Ollama tools under Advanced unless troubleshooting.","Use Release Center before any live upload."],
+        tips:["Do not clear browser data unless you have exported a backup.","Advanced tools should not be part of daily employee workflows."],
+        go:[{label:"Backup / Settings", page:"admin"},{label:"App Checkup", page:"appcheck"},{label:"Release Center", page:"releasecenter"}]
+      },
+      shiplabels: {
+        icon:"📷", title:"Scan / Add Shipping Tracking", role:"Owner / Manager / Employee packing",
+        purpose:"Add tracking numbers after orders are packed. Use Whatnot shipment data first, then label photo/scan/paste to get full tracking.",
+        steps:["For Whatnot, paste/upload shipment data first so boxes and plants are known.","Use Take Tracking Photo on the customer row when you need full tracking.","Review customer, plants, carrier, and tracking before saving.","Click Save Tracking + Mark Shipped only when it is correct."],
+        tips:["Label photos are easier than live scan when barcodes are blurry.","One Whatnot customer may have multiple boxes and multiple tracking numbers."],
+        go:[{label:"Open Orders", page:"orders_ws"},{label:"State Docs", page:"casd"}]
+      },
+      casd: {
+        icon:"📜", title:"Shipping State Docs", role:"Owner / Manager",
+        purpose:"Create or check plant shipping documents for CA, AZ, TX, LA, and related state paperwork.",
+        steps:["Import show sales first so the app knows the customers and plants.","For Whatnot, group by shipment/box — max 4 plants per box.","Generate the correct state document.","Attach paperwork to the packed box before shipping."],
+        tips:["State docs should be part of Ship Orders, not a separate daily hunt.","If cloud archive fails, PDF generation should still continue."],
+        go:[{label:"Ship Orders", page:"orders_ws"},{label:"Scan Tracking", page:"shiplabels"}]
+      },
+      photosprint: {
+        icon:"⚡", title:"Fast Photo Sprint", role:"All roles",
+        purpose:"The fastest way to photograph plants. Scan the plant label, confirm the plant, take photo, move to the next plant.",
+        steps:["Open Photo Sprint.","Point the camera at the plant barcode.","Confirm the plant name/ID.","Take the photo.","Repeat for the next plant."],
+        tips:["Good photos help plants sell faster and for more money.","Use natural or bright indirect light."],
+        go:[{label:"Print Labels", page:"labels"},{label:"Inventory", page:"inv"}]
+      },
+      showimport: {
+        icon:"📥", title:"Import Show Sales", role:"Owner / Manager",
+        purpose:"Upload Whatnot or Palmstreet show results so sold plants, buyers, employee commission, and tips are recorded.",
+        steps:["Download the show results CSV from the platform.","Upload the CSV in Import Show Sales.","Select the employee who ran the show.","Confirm commission percentage and tips.","Save, then move to Orders → Ship Orders."],
+        tips:["Importing sales is the first step before packing or shipping.","Shipping and payment still happen in Whatnot/Palmstreet; Leaf Diary records the business data."],
+        go:[{label:"Ship Orders", page:"orders_ws"},{label:"Sold Review", page:"ship"}]
+      },
+      quickstart: {
+        icon:"🧭", title:"Quick Start Guide", role:"All roles",
+        purpose:"Use this when a team member needs a simple path through the app.",
+        steps:["Start on Today.","Choose the job you are doing: Plants, Shows, Orders, Money, or Settings.","Use the info button on any page if you do not know what to click.","Use Simple Mode unless you are the owner troubleshooting."],
+        tips:["The app is being cleaned into workflows so it saves time instead of creating confusion."],
+        go:[{label:"Today", page:"today"},{label:"Orders", page:"orders_ws"}]
+      }
+    };
+    const LD_HELP_ALIASES = {
+      inv:"plants_ws", manual:"plantcapture", upload:"plantcapture", labels:"plantcapture", scanlabel:"plantcapture", photosprint:"plantcapture", barcodeqa:"plantcapture", care:"plants_ws", savedfilters:"plants_ws",
+      showbuilder:"shows_ws", showprep:"shows_ws", liveshow:"shows_ws", bundles:"shows_ws", discounts:"shows_ws",
+      ship:"orders_ws", packorders:"orders_ws", customers:"orders_ws", retention:"orders_ws", refunds:"orders_ws",
+      receipts:"money_ws", expense:"money_ws", bills:"money_ws", timecard:"money_ws", payroll:"money_ws", commissions:"money_ws", tax:"money_ws", goals:"money_ws", cashflow:"money_ws",
+      admin:"admin_ws", appcheck:"admin_ws", releasecenter:"admin_ws", ollamadoctor:"admin_ws", aihub:"today", dataai:"today", rolelauncher:"today", employeeboard:"today", ownerboard:"today", managerboard:"today"
+    };
+    function ldHelpForPage(page) {
+      const key = LD_HELP_QUICK_STEPS[page] ? page : (LD_HELP_ALIASES[page] || page || "today");
+      return LD_HELP_QUICK_STEPS[key] || LD_HELP_QUICK_STEPS.today;
+    }
+    function PageHelpModal({ page, user, onClose, setPage }) {
+      const help = ldHelpForPage(page);
+      const role = user?.role || "employee";
+      return <div style={{ position:"fixed", inset:0, zIndex:2200, background:"rgba(0,0,0,.62)", display:"flex", alignItems:"flex-start", justifyContent:"center", padding:"72px 12px 16px" }} onClick={onClose}>
+        <div onClick={e=>e.stopPropagation()} style={{ width:"min(760px,100%)", maxHeight:"calc(100dvh - 92px)", overflowY:"auto", WebkitOverflowScrolling:"touch", background:C.card, color:C.tx1, border:`2px solid ${C.g600}`, borderRadius:24, boxShadow:"0 28px 90px rgba(0,0,0,.55)", fontFamily:F.body }}>
+          <div style={{ background:"#000", color:"#fff", padding:"18px 16px", borderRadius:"21px 21px 0 0" }}>
+            <Row between center gap={12} wrap>
+              <div style={{ minWidth:0 }}><div style={{ fontSize:36, lineHeight:1 }}>{help.icon}</div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:26, fontWeight:900, marginTop:4 }}>How to use: {help.title}</div><div style={{ color:"rgba(255,255,255,.68)", fontSize:12, marginTop:3 }}>Leaf Diary Business Hub Training Guide · Role: {role} · Page: {page}</div></div>
+              <button onClick={onClose} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.25)", borderRadius:999, width:42, height:42, fontWeight:900, cursor:"pointer", fontSize:20 }}>×</button>
+            </Row>
+          </div>
+          <div style={{ padding:16 }}>
+            <Card style={{ borderLeft:`5px solid ${C.g600}`, marginBottom:12 }}><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:6 }}>What this page is for</div><div style={{ color:C.tx2, lineHeight:1.5, fontSize:14 }}>{help.purpose}</div><div style={{ marginTop:8 }}><Tag text={help.role} color={C.blue} sm /></div></Card>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <Card style={{ borderTop:`4px solid ${C.blue}` }}><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900, marginBottom:8 }}>Steps</div><ol style={{ margin:"0 0 0 18px", padding:0, color:C.tx2, fontSize:13, lineHeight:1.55 }}>{safeArray(help.steps).map((x,i)=><li key={i} style={{ marginBottom:6 }}>{x}</li>)}</ol></Card>
+              <Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900, marginBottom:8 }}>Tips</div><ul style={{ margin:"0 0 0 18px", padding:0, color:C.tx2, fontSize:13, lineHeight:1.55 }}>{safeArray(help.tips).map((x,i)=><li key={i} style={{ marginBottom:6 }}>{x}</li>)}</ul></Card>
+            </div>
+            {safeArray(help.go).length > 0 && <Card style={{ marginTop:12, background:C.g50, border:`1px solid ${C.g200}` }}><div style={{ fontFamily:F.display, fontSize:17, fontWeight:900, color:C.g900, marginBottom:9 }}>Open the right tool</div><Row gap={8} wrap>{help.go.map(g => <Btn key={g.page + g.label} sz="sm" onClick={()=>{ onClose && onClose(); setPage && setPage(g.page); }}>{g.label}</Btn>)}</Row></Card>}
+            <Card style={{ marginTop:12, background:C.cardAlt }}><div style={{ fontSize:12, color:C.tx3, lineHeight:1.45 }}><b>Training rule:</b> Use Simple Mode for daily work. Use Advanced Mode only when the owner or developer is troubleshooting. This help button replaces hunting through the PDF while your team learns the app.</div></Card>
+          </div>
+          <style>{`@media(max-width:760px){div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}.ld-page-help-actions button{width:100%!important;}}`}</style>
+        </div>
+      </div>;
+    }
+
     function Nav({ page, setPage, user, onLogout, plantCount, billAlerts, onChangePassword, settings = {}, cloudControls = {}, themeMode = "light", onToggleTheme }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const [addOpen, setAddOpen] = useState(false);
       const [aiMenuOpen, setAiMenuOpen] = useState(false);
+      const [pageHelpOpen, setPageHelpOpen] = useState(false);
       const [menuSearch, setMenuSearch] = useState("");
       const [headerSearch, setHeaderSearch] = useState("");
       const [headerSearchOpen, setHeaderSearchOpen] = useState(false);
@@ -4847,6 +4978,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(e) {}
         try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch(e) {}
         setPage(id);
+        setPageHelpOpen(false);
         setMenuOpen(false);
         setAddOpen(false);
         setAiMenuOpen(false);
@@ -4908,6 +5040,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         ? LD_V121_SIMPLE_GROUPS.map(g => ({ group:g.group, items:g.ids.map(id => tools.find(t => t.id === id)).filter(Boolean).filter(toolMatchesSearch) })).filter(g => g.items.length)
         : ["Today","Plants","Shows","Orders","Money","Settings","Marketing","Buy Smart","Add / Intake","Business"].map(g => ({ group:g, items:tools.filter(t => t.group === g && toolMatchesSearch(t)) })).filter(g => g.items.length);
       const headerSearchAliases = {
+        plantcapture: "plant capture plant workflow add plants labels photo sprint scan barcode print label missing photos missing labels inventory intake",
         ollamadoctor: "ollama doctor ollama connection doctor local ai doctor local ai setup macbook ai macbook ollama cors origin blocked test ollama run doctor desktop preset llama model models",
         ollama: "ollama local ai setup local ai connector macbook ollama desktop ollama llama3 llama3.1 model test ollama",
         aigateway: "mobile ai gateway phone ai cloud ai worker cloudflare gateway cost guard iphone ai",
@@ -4974,7 +5107,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <Row gap={7} center style={{ flexShrink:0 }}>
             {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
             <button className="ld-theme-toggle" onClick={()=>{ if (onToggleTheme) onToggleTheme(); }} aria-label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>{themeMode === "dark" ? "☀️" : "🌙"}</button>
-            <button onClick={()=>{ setAiMenuOpen(p=>!p); setAddOpen(false); setMenuOpen(false); setHeaderSearchOpen(false); }} title="AI tools" aria-label="AI tools" style={{ background:"#050505", color:"#97d33e", border:"2px solid #97d33e", borderRadius:999, width:40, height:40, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", boxShadow: aiMenuOpen ? "0 0 18px rgba(151,211,62,.7)" : "0 0 10px rgba(151,211,62,.28)", padding:0 }}><AIChipIcon /></button>
+            <button onClick={()=>{ setPageHelpOpen(true); setAiMenuOpen(false); setAddOpen(false); setMenuOpen(false); setHeaderSearchOpen(false); }} title="How to use this page" aria-label="How to use this page" style={{ background:"#111", color:"#97d33e", border:"2px solid rgba(151,211,62,.85)", borderRadius:999, width:40, height:40, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontWeight:950, fontSize:18, fontFamily:F.body, boxShadow: pageHelpOpen ? "0 0 18px rgba(151,211,62,.7)" : "0 0 10px rgba(151,211,62,.22)", padding:0 }}>i</button>
+            <button onClick={()=>{ setAiMenuOpen(p=>!p); setAddOpen(false); setMenuOpen(false); setHeaderSearchOpen(false); setPageHelpOpen(false); }} title="AI tools" aria-label="AI tools" style={{ background:"#050505", color:"#97d33e", border:"2px solid #97d33e", borderRadius:999, width:40, height:40, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", boxShadow: aiMenuOpen ? "0 0 18px rgba(151,211,62,.7)" : "0 0 10px rgba(151,211,62,.28)", padding:0 }}><AIChipIcon /></button>
             <button onClick={()=>{ setMenuOpen(p=>!p); setHeaderSearchOpen(false); }} aria-label="Open navigation menu" style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
           </Row>
         </div>
@@ -5092,6 +5226,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           </div>
         </div>}
 
+        {pageHelpOpen && <PageHelpModal page={page} user={user} onClose={()=>setPageHelpOpen(false)} setPage={setPage} />}
         <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:299, background:"#000", borderTop:`2px solid ${C.g600}`, display:"flex", paddingBottom:"env(safe-area-inset-bottom,0px)", boxShadow:"0 -4px 24px rgba(0,0,0,.45)" }}>{bottomTabs.map(id => { const t = workspaceById[id]; const activeWorkflow = getWorkspaceForPage(page); const active = page === id || activeWorkflow === id || (id === "plants_ws" && activeWorkflow === "intake_ws") || (id === "money_ws" && activeWorkflow === "buy_ws"); return <button key={id} onClick={()=>setPage(id)} style={{ flex:1, background:active?"rgba(151,211,62,.12)":"transparent", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, padding:"10px 4px 12px", fontFamily:F.body, position:"relative" }}><span style={{ fontSize:23, lineHeight:1, filter:active?"drop-shadow(0 0 6px rgba(151,211,62,.55))":"none" }}>{t.icon}</span><span style={{ fontSize:10, fontWeight:active?900:600, color:active?"#97d33e":"rgba(255,255,255,.72)" }}>{t.l}</span>{active && <div style={{ position:"absolute", top:0, left:"20%", right:"20%", height:3, background:"#fb6392", borderRadius:2, boxShadow:"0 0 8px rgba(251,99,146,.8)" }} />}{id==="plants_ws" && plantCount > 0 && <span style={{ position:"absolute", top:6, right:"10%", background:C.g600, color:"#fff", borderRadius:20, padding:"0 5px", fontSize:9, fontWeight:900 }}>{plantCount}</span>}</button> })}</div>
         <style>{`body{margin:0}.pg-pad{padding:14px 14px 96px!important}.ld-workspace-card{transition:transform .12s ease, box-shadow .12s ease}.ld-workspace-card:active{transform:scale(.985)}.ld-ai-status-open{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;text-align:center!important}.ld-clean-ai-grid button{white-space:normal!important;word-break:normal!important;overflow-wrap:anywhere!important}.ld-ai-status-open *{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}@media(max-width:760px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}.ld-ai-status-open{font-size:8px!important;min-width:38px!important;padding:6px 6px!important;}}@media(max-width:380px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </>;
@@ -5467,10 +5602,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Add New Plants", items:[["Upload Invoice Photo","upload","📸","Use camera/photo to add nursery purchases"],["Add Plants Manually","manual","✏️","Quick entry for small buys"],["Receipt / Invoice Archive","history","📋","Review past uploads"],["Teach Receipt Reader","invoicetrainer","🧾","Owner rules for sizes and receipts"]] },
           { title:"Finish Intake", items:[["Print Labels","labels","🏷️","Print after plant IDs are assigned"],["Open Inventory","inv","🌿","Check new plants"],["Nursery Scores","nursery","🏪","Supplier records and performance"],["Ask Leaf Diary","dataai","💬","Ask what is missing before the show"]] }
         ]},
-        plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything before a plant sells.", hero:"Add plants → labels/photos → manage inventory → fix problems", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Need Photos",noPhoto.length,"fix before show"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"]], sections:[
-          { title:"1. Add Plants", items:[["Upload Invoice Photo","upload","📸","Add nursery purchases from photo"],["Add Plants Manually","manual","✏️","Quick one-plant entry"],["Inventory","inv","🌿","Search and edit all plants"],["Saved Views","savedfilters","🔖","One-tap inventory filters"]] },
-          { title:"2. Photo + Label Sprint", items:[["Fast Photo Sprint","photosprint","⚡","Scan barcode → take photo → next plant"],["Labels","labels","🏷️","Print labels for new plants"],["Scan Label + Add Photo","scanlabel","📷","Open a plant by barcode"],["Barcode QA + Backfill","barcodeqa","✅","Fix missing/duplicate barcodes"]] },
-          { title:"3. Fix Problems", items:[["Plant Care","care","🩺","Quarantine and health notes"],["Sell-Through","sellthru","📊","What sells fastest"],["Bulk Actions","bulkactions","☑️","Apply changes to many plants"],["Receipt / Invoice Archive","history","📋","Past plant purchase uploads"]] }
+        plants_ws:{ icon:"🌿", title:"Plants", sub:"Everything before a plant sells.", hero:"Use Plant Capture first: add → label → photo → show-ready", color:"#2E8A55", kpis:[["In Stock",inStock.length,"current"],["Need Photos",noPhoto.length,"fix before show"],["Inventory Cost",$(invCost),"owner cost"],["Sell Value",$(invValue),"potential"]], sections:[
+          { title:"1. Simple Plant Workflow", items:[["Plant Capture","plantcapture","🌿","One simple page for add plants, labels, scan labels, and photos"],["Manage Inventory","inv","🌿","Search, edit, filter, and price all plants"]] },
+          { title:"2. Advanced Plant Tools", items:[["Upload Invoice Photo","upload","📸","Add nursery purchases from photo"],["Add Plants Manually","manual","✏️","Quick one-plant entry"],["Fast Photo Sprint","photosprint","⚡","Scan barcode → take photo → next plant"],["Labels","labels","🏷️","Print labels for new plants"]] },
+          { title:"3. Fix Problems", items:[["Scan Label + Add Photo","scanlabel","📷","Open a plant by barcode"],["Barcode QA + Backfill","barcodeqa","✅","Fix missing/duplicate barcodes"],["Saved Views","savedfilters","🔖","One-tap inventory filters"],["Plant Care","care","🩺","Quarantine and health notes"]] }
         ]},
         shows_ws:{ icon:"🎪", title:"Shows", sub:"Everything before and during a live show.", hero:"Build show → fix export problems → pull plants → export → import results", color:"#fb6392", kpis:[["Sold Total",sold.length,"lifetime"],["This Month",soldMonth.length,"plants sold"],["Show Sales",$(monthSales),"this month"],["Need Photos",noPhoto.length,"before export"]], sections:[
           { title:"1. Build + Prep", items:[["Build Show","showbuilder","🎪","Choose plants and export the show"],["Show Prep Pull List","showprep","🧺","Physically pull and stage plants"],["Discounts","discounts","🏷️","Clear slow plants"],["Bundles","bundles","🧺","Group plants to sell"]] },
@@ -5510,6 +5645,84 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        Safe wrapper around existing upload, manual, bulk, archive and label tools.
        No database or Supabase schema changes.
     ══════════════════════════════════════════════════════════ */
+
+    /* ══════════════════════════════════════════════════════════
+       V123R — PLANT CAPTURE WORKFLOW
+       One simple daily plant page: add plants, print labels, scan labels,
+       take photos, and fix missing setup without hunting through 5 pages.
+       Existing detailed pages stay available as advanced tools.
+    ══════════════════════════════════════════════════════════ */
+    function PlantCaptureWorkflow({ plants = [], user = {}, setPage }) {
+      const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const addedToday = inStock.filter(p => String(p.dateAdded || "").slice(0,10) === today()).slice(-12).reverse();
+      const needsLabel = inStock.filter(p => !p.labelPrinted && !p.labelPrintedAt && !p.barcodePrintedAt);
+      const needsPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
+      const needsPrice = inStock.filter(p => !(+p.suggestedPrice || +p.price || +p.salePrice));
+      const canAdvanced = user.role === "owner" || user.role === "manager";
+      const StepCard = ({ n, icon, title, body, primary, page, color = C.g600, softPage, softLabel }) => <Card style={{ borderLeft:`6px solid ${color}`, padding:16 }}>
+        <Row between center wrap gap={10}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontSize:12, color:C.tx3, fontWeight:950, textTransform:"uppercase", letterSpacing:.7 }}>Step {n}</div>
+            <div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:950, lineHeight:1.08 }}>{icon} {title}</div>
+            <div style={{ fontSize:13, color:C.tx3, lineHeight:1.4, marginTop:5 }}>{body}</div>
+          </div>
+          <Row gap={8} wrap>
+            {softPage && <Btn v="soft" sz="sm" onClick={()=>setPage(softPage)}>{softLabel || "Open"}</Btn>}
+            <Btn sz="sm" onClick={()=>setPage(page)}>{primary}</Btn>
+          </Row>
+        </Row>
+      </Card>;
+      return <div className="ld-page ld-plant-capture" style={{ padding:"14px 14px 120px", background:C.bg, minHeight:"100vh", maxWidth:1180, margin:"0 auto" }}>
+        <Card style={{ background:"#000", color:"#fff", border:`2px solid ${C.g600}`, borderRadius:26, padding:18, marginBottom:12 }}>
+          <Row between center wrap gap={12}>
+            <div>
+              <div style={{ fontSize:38 }}>🌿</div>
+              <div style={{ fontFamily:F.display, fontSize:28, fontWeight:950, color:"#97d33e", lineHeight:1 }}>Plant Capture</div>
+              <div style={{ color:"rgba(255,255,255,.75)", fontSize:13, marginTop:5, maxWidth:720 }}>One page for the full plant setup job: add plants, print labels, scan labels, take photos, and fix missing setup before shows.</div>
+            </div>
+            <Row gap={8} wrap>
+              <Btn onClick={()=>setPage("manual")}>+ Add Plant</Btn>
+              <Btn v="soft" onClick={()=>setPage("photosprint")}>⚡ Photo Sprint</Btn>
+            </Row>
+          </Row>
+        </Card>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:12 }}>
+          <KPI label="In Stock" value={inStock.length} sub="plants" color={C.g600} />
+          <KPI label="Labels Needed" value={needsLabel.length} sub="print queue" color={needsLabel.length?C.amber:C.g600} />
+          <KPI label="Photos Needed" value={needsPhoto.length} sub="photo sprint" color={needsPhoto.length?C.blue:C.g600} />
+          <KPI label="Prices Needed" value={needsPrice.length} sub="show blockers" color={needsPrice.length?C.red:C.g600} />
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1.1fr) minmax(0,.9fr)", gap:12 }}>
+          <div style={{ display:"grid", gap:10 }}>
+            <StepCard n="1" icon="➕" title="Add Plants" body="Start here when plants arrive. Use invoice photo for big buys, manual entry for one-offs, or bulk import for current inventory." primary="Add Plants" page="manual" softPage="upload" softLabel="Invoice Photo" color={C.g600} />
+            <StepCard n="2" icon="🏷️" title="Print Labels" body="Print barcode labels so every physical plant can be scanned and matched to its digital record." primary="Print Labels" page="labels" softPage="barcodeqa" softLabel="Fix Barcodes" color={C.gold} />
+            <StepCard n="3" icon="⚡" title="Photo Sprint" body="Scan the plant label, confirm the plant, take the photo, and move to the next plant without typing." primary="Start Photo Sprint" page="photosprint" softPage="scanlabel" softLabel="Scan One Label" color={C.blue} />
+            <StepCard n="4" icon="✅" title="Fix Show Blockers" body="Before a show, fix missing photos, labels, and prices so exports and live selling move fast." primary="Manage Inventory" page="inv" softPage={canAdvanced ? "bulkactions" : "inv"} softLabel={canAdvanced ? "Bulk Fix" : "Inventory"} color={C.purple} />
+          </div>
+          <div style={{ display:"grid", gap:12 }}>
+            <Card style={{ borderTop:`5px solid ${needsPhoto.length?C.blue:C.g600}` }}>
+              <Row between center wrap gap={8}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:950, color:C.g900 }}>Today’s Plant Setup</div><div style={{ fontSize:12, color:C.tx3 }}>Use the top problem first. This replaces hunting through the old plant tools.</div></div><Tag text="Simple Mode" color="#97d33e" /></Row>
+              <div style={{ display:"grid", gap:8, marginTop:12 }}>
+                {(needsLabel.length ? [{icon:"🏷️", title:"Print missing labels", body:`${needsLabel.length} plants need labels.`, page:"labels", color:C.gold}] : [])
+                  .concat(needsPhoto.length ? [{icon:"📸", title:"Take missing photos", body:`${needsPhoto.length} plants need photos.`, page:"photosprint", color:C.blue}] : [])
+                  .concat(needsPrice.length ? [{icon:"💲", title:"Set missing prices", body:`${needsPrice.length} plants need a price.`, page:"inv", color:C.red}] : [])
+                  .concat(!needsLabel.length && !needsPhoto.length && !needsPrice.length ? [{icon:"✅", title:"Plant setup looks clean", body:"No urgent label/photo/price blockers right now.", page:"inv", color:C.g600}] : [])
+                  .map((t,i)=><button key={i+t.title} onClick={()=>setPage(t.page)} style={{ background:C.cardAlt, border:`1px solid ${t.color}55`, borderLeft:`5px solid ${t.color}`, borderRadius:16, padding:12, textAlign:"left", cursor:"pointer", fontFamily:F.body }}><div style={{ fontWeight:950, color:C.g900 }}>{t.icon} {t.title}</div><div style={{ color:C.tx3, fontSize:12, marginTop:3 }}>{t.body}</div></button>)}
+              </div>
+            </Card>
+            <Card>
+              <Row between center wrap gap={8} style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:950, color:C.g900 }}>Newest Plants</div><div style={{ fontSize:12, color:C.tx3 }}>Quick check after intake.</div></div><Btn sz="sm" v="soft" onClick={()=>setPage("inv")}>Open Inventory</Btn></Row>
+              {addedToday.length ? <div style={{ display:"grid", gap:7 }}>{addedToday.slice(0,8).map(p => <div key={p.id || p.plantId || p.name} style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:10 }}><div style={{ fontWeight:950, color:C.g900, fontSize:13 }}>{p.plantId || p.id || "Plant"} · {p.name || p.plantName || "Unnamed"}</div><div style={{ fontSize:11, color:C.tx3 }}>{p.potSize || ""} {p.status || ""}</div></div>)}</div> : <div style={{ padding:18, border:`1px dashed ${C.bd}`, borderRadius:16, color:C.tx3, fontSize:13 }}>No plants added today yet.</div>}
+            </Card>
+            {canAdvanced && <Card style={{ background:C.cardAlt }}><div style={{ fontFamily:F.display, fontSize:18, fontWeight:950, color:C.g900 }}>Advanced Plant Tools</div><p style={{ color:C.tx3, fontSize:12, lineHeight:1.45 }}>These still exist, but daily team work should start with Plant Capture.</p><Row gap={8} wrap><Btn sz="sm" v="soft" onClick={()=>setPage("savedfilters")}>Saved Views</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("inlineedit")}>Inline Edit</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("care")}>Plant Care</Btn></Row></Card>}
+          </div>
+        </div>
+        <style>{`@media(max-width:760px){.ld-plant-capture div[style*="grid-template-columns:repeat(4,1fr)"],.ld-plant-capture div[style*="grid-template-columns:minmax(0,1.1fr)"]{grid-template-columns:1fr!important}.ld-plant-capture button{min-height:46px}}`}</style>
+      </div>;
+    }
+
     function IntakeWorkflow({ plants = [], setPlants, nurseries = [], setNurseries, user, addAudit, settings = {}, setSettings, setPage }) {
       const [mode, setMode] = useState("start");
       const inStock = safeArray(plants).filter(p => p.status === "In Stock" || !p.status);
@@ -6427,6 +6640,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         { show:true, icon:"📥", title:"Import show sales", body:"Upload the Whatnot or Palmstreet CSV first. The import screen already asks who hosted the show, commission percent, and tips.", button:"Import Sales", tab:"import", color:C.blue },
         { show:openOrders.length>0, icon:"✅", title:"Review sold orders", body:`${openOrders.length} sold order group(s) need review, packing, or platform-ready status.`, button:"Open Review", tab:"review", color:openOrders.length>8?C.red:C.amber },
         { show:packOrders.length>0, icon:"📦", title:"Pack orders", body:`${packOrders.length} order group(s) are not marked done yet. Print slips, check plants, heat packs, and paperwork.`, button:"Pack Orders", tab:"pack", color:C.g600 },
+        { show:openOrders.length>0, icon:"🚚", title:"Ship orders", body:"Use one guided page for paperwork, tracking, and final shipped confirmation so you do not jump between five tools.", button:"Ship Orders", tab:"shiporders", color:C.blue },
         { show:docOrders.length>0, icon:"📜", title:"Check shipping paperwork", body:`${docOrders.length} order group(s) are going to CA, AZ, TX, LA, or HI and may need paperwork checked.`, button:"Paperwork", tab:"paperwork", color:C.purple },
         { show:unpaidCommissions.length>0 && canOwner, icon:"🤝", title:"Review employee pay", body:`${unpaidCommissions.length} commission record(s) may still need to be paid or marked paid.`, button:"Employee Pay", tab:"pay", color:C.gold },
         { show:refundCount>0 && canManage, icon:"↩️", title:"Resolve refunds", body:`${refundCount} open refund/problem record(s) need review.`, button:"Refunds", tab:"refunds", color:C.red }
@@ -6436,6 +6650,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         ["import", "📥", "Import Sales"],
         ["review", "✅", "Sold Review"],
         ["pack", "📦", "Pack Orders"],
+        ["shiporders", "🚚", "Ship Orders"],
         ["buyers", "👥", "Buyers"],
         canOwner ? ["pay", "🤝", "Employee Pay"] : null,
         ["refunds", "↩️", "Refunds"],
@@ -6471,7 +6686,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #68d8ff", boxShadow:"0 14px 44px rgba(0,0,0,.2)", marginBottom:14 }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontSize:38 }}>📦</div><div style={{ fontFamily:F.display, fontSize:29, color:"#68d8ff", fontWeight:900, marginTop:4 }}>Orders</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>After the show: import sales, review sold plants, pack orders, check paperwork, buyers, refunds, tips, and commission.</div></div>
-            <Row gap={8} wrap><button onClick={()=>setTab("import")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📥 Import Sales</button><button onClick={()=>setTab("pack")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📦 Pack Orders</button></Row>
+            <Row gap={8} wrap><button onClick={()=>setTab("import")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📥 Import Sales</button><button onClick={()=>setTab("pack")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📦 Pack Orders</button><button onClick={()=>setTab("shiporders")} style={{ background:"#f5c542", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🚚 Ship Orders</button></Row>
           </Row>
           <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>One place for everything that happens after a Whatnot or Palmstreet show.</div>
         </div>
@@ -6498,6 +6713,44 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {tab === "review" && <div><Card style={{ marginBottom:12, borderLeft:`5px solid ${C.amber}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Step 2: Sold Review</div><div style={{ fontSize:12, color:C.tx3 }}>Check what imported, what matched, what is unmatched, and what still needs packing.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={()=>setTab("pack")}>Next: Pack Orders</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("showimport")}>Open Full Import Tool</Btn></Row></Row></Card>{unmatchedSold.length>0 && <Card style={{ marginBottom:12, background:C.redBg, border:`1px solid ${C.red}44` }}><b style={{ color:C.red }}>⚠️ {unmatchedSold.length} unmatched / needs-review sold plant record(s)</b><p style={{ fontSize:12, color:C.tx2 }}>Open Import Sales or Inventory to clean these up before trusting profit reports.</p></Card>}<div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>{orders.length ? orders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <Card><div style={{ textAlign:"center", color:C.tx3, padding:30 }}>No sold orders yet. Import a show CSV first.</div></Card>}</div></div>}
 
         {tab === "pack" && <div><Card style={{ marginBottom:12, background:C.g50, border:`1px solid ${C.g300}`, borderLeft:`5px solid ${C.g600}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Step 3: Pack Orders</div><div style={{ fontSize:12, color:C.tx3 }}>Use the existing packing tool below. It prints packing slips, marks heat packs, insulation, paperwork, and platform-ready status.</div></div><Tag text={`${packOrders.length} active`} color={packOrders.length?C.amber:C.g600}/></Row></Card><PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} /></div>}
+
+        {tab === "shiporders" && <div className="ld-ship-orders-flow">
+          <Card style={{ marginBottom:12, background:"#000", color:"#fff", border:`2px solid ${C.blue}`, borderRadius:24 }}>
+            <Row between center wrap gap={12}>
+              <div><div style={{ fontSize:36 }}>🚚</div><div style={{ fontFamily:F.display, color:"#68d8ff", fontSize:26, fontWeight:900 }}>Ship Orders</div><div style={{ color:"rgba(255,255,255,.72)", fontSize:13, marginTop:3 }}>One page for the shipping flow: sales imported → boxes packed → state docs checked → tracking added → shipped confirmed.</div></div>
+              <button onClick={()=>setPage("shiplabels")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>📷 Add Tracking</button>
+            </Row>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:12 }}>
+            <KPI label="Open Orders" value={openOrders.length} sub="not done" color={openOrders.length?C.amber:C.g600} />
+            <KPI label="To Pack" value={packOrders.length} sub="active boxes" color={packOrders.length?C.g600:C.tx3} />
+            <KPI label="State Docs" value={docOrders.length} sub="CA/AZ/TX/LA/HI" color={docOrders.length?C.purple:C.g600} />
+            <KPI label="Shipped" value={orders.filter(o => orderStatus(o) === "Done").length} sub="completed" color={C.blue} />
+            <KPI label="Refunds" value={refundCount} sub="open problems" color={refundCount?C.red:C.g600} />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:12 }}>
+            {[
+              ["1", "📥", "Import Sales", "Upload Whatnot/Palmstreet results first so the app knows sold plants, buyers, tips, and commission.", "import", C.blue, "Open"],
+              ["2", "✅", "Review Sold", "Check unmatched rows and make sure the right buyer and plants are connected before packing.", "review", C.amber, "Review"],
+              ["3", "📦", "Pack Boxes", "Print slips, pull plants, check heat packs, insulation, and mark packed or ready.", "pack", C.g600, "Pack"],
+              ["4", "📜", "State Docs", "Check CA, AZ, TX, LA, and HI paperwork. Whatnot boxes should stay max 4 plants per box.", "paperwork", C.purple, "Docs"],
+              ["5", "📷", "Add Tracking", "Use Whatnot shipment data, take label photo, live scan, or paste tracking. Confirm before shipped.", "shiplabels", C.gold, "Tracking"]
+            ].map(([num,icon,title,body,target,color,button]) => <button key={title} onClick={()=> target === "shiplabels" ? setPage("shiplabels") : setTab(target)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderTop:`4px solid ${color}`, borderRadius:18, padding:"13px 11px", textAlign:"left", cursor:"pointer", fontFamily:F.body, boxShadow:"0 6px 18px rgba(13,43,26,.06)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><span style={{ fontSize:24 }}>{icon}</span><Tag text={`Step ${num}`} color={color} sm /></div>
+              <div style={{ fontWeight:900, color:C.g900, fontSize:14, marginTop:7 }}>{title}</div>
+              <div style={{ color:C.tx3, fontSize:11, lineHeight:1.35, marginTop:4 }}>{body}</div>
+              <div style={{ color, fontWeight:900, fontSize:11, marginTop:8 }}>{button} →</div>
+            </button>)}
+          </div>
+          <Card style={{ borderTop:`4px solid ${C.blue}`, marginBottom:12 }}>
+            <Row between center wrap gap={10} style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20 }}>Orders Needing Shipping Work</div><div style={{ color:C.tx3, fontSize:12 }}>This keeps packing, docs, and tracking in one visible checklist.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={()=>setPage("shiplabels")}>Add Tracking</Btn><Btn sz="sm" v="soft" onClick={()=>setTab("paperwork")}>State Docs</Btn></Row></Row>
+            {openOrders.length ? openOrders.slice(0,12).map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:18, color:C.g800, fontWeight:800 }}>No open shipping work found. Imported orders marked shipped/done will not clutter this list.</div>}
+          </Card>
+          <Card style={{ background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`5px solid ${C.g600}` }}>
+            <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:19, marginBottom:6 }}>Simple rule</div>
+            <div style={{ color:C.tx2, fontSize:13, lineHeight:1.5 }}>Do not hunt through separate pages. Start here, follow the steps, and use the blue info button in the top bar if anyone on the team is unsure what this screen does.</div>
+          </Card>
+        </div>}
 
         {tab === "buyers" && <div style={{ display:"grid", gridTemplateColumns:".85fr 1.15fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>👥 Buyers At A Glance</div><p style={{ color:C.tx3, fontSize:13 }}>Use this to see who buys most, repeat customers, and who should get early access or bundle previews.</p><BuyerSnapshot /></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}><Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} /></Card></div>}
 
@@ -23750,6 +24003,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "today" && <WorkspaceHome type="today" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "rolelauncher" && <RoleLauncher user={user} plants={plants} bills={bills} receipts={expenseReceipts} timecards={timecards} settings={settings} setPage={navigate} />}
           {page === "plants_ws" && <WorkspaceHome type="plants_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
+          {page === "plantcapture" && <PlantCaptureWorkflow plants={plants} user={user} setPage={navigate} />}
           {page === "intake_ws" && <IntakeWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} setNurseries={setNurseries} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
           {page === "shows_ws" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
           {page === "showprep" && <ShowPrepPullList plants={plants} user={user} setPage={navigate} />}
