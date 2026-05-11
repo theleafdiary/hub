@@ -1672,7 +1672,10 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
+    /* V117R SIMPLE SHIPPING LABEL REVIEW - clearer Matched / Needs Review / Saved workflow. Shows customer + tracking together, hides fully-tracked customers from assignment dropdowns, keeps free photo/live scan. */
+    /* V115R WHATNOT MULTI-BOX TRACKING REVIEW - scan/upload labels, show customer/order/expected boxes, save multiple tracking numbers only after confirmation. */
     /* V112R USPS SHIPPING LABEL SCAN BOOST - improves USPS/FedEx/UPS live camera sprint detection with native BarcodeDetector fallback and USPS 420-prefix cleanup. */
+    /* V118R WHATNOT SHIPMENT DATA IMPORT - main Whatnot tracking workflow from shipment export/text, exact plants per box, label scan/photo remains backup. */
     /* V111R MENU SHORTCUT - adds clear Scan Shipping Labels menu/page shortcut; keeps V110R sprint scanner, Whatnot state-doc grouping, and home screen untouched. */
     /* V110R SHIPPING LABEL SPRINT SCANNER - adds MacBook/iPhone camera sprint scanning for shipping labels; keeps Whatnot state docs grouped and Palmstreet ignored for auto docs. */
     /* V106 STEP 1 CLEANUP: removed appended patcher UI, preserved working AI gateway, fixed Local AI model display, disabled heavy archive popup. */
@@ -1704,12 +1707,12 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V114R",
-      name: "Shipping Label Sprint Barcode Engine",
+      id: "V117R",
+      name: "Simple Shipping Label Review",
       date: "2026-05-11",
-      base: "V112R USPS scan boost + V108R release gate",
-      safety: "Order Fulfillment / Scan Shipping Labels scanner engine only; home screen logic untouched",
-      nextPhase: "V114R: secure tracking API webhook/backend after label matching is stable"
+      base: "V116R-Free Shipping Label Photo Reader",
+      safety: "Order Fulfillment / Scan Shipping Labels review UI only; home screen logic untouched",
+      nextPhase: "V118R: secure tracking API webhook/backend after label matching is stable"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -6982,7 +6985,40 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", gap:14 }}>
           <Card>
             <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900, marginBottom:10 }}>Add Invoice Rule</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div style={{ background:C.g50, border:`2px solid ${C.g300}`, borderRadius:18, padding:12, marginBottom:12 }}>
+            <Row between wrap gap={10} center>
+              <div>
+                <h3 style={{ margin:0, fontFamily:F.display, color:C.g900 }}>📦 Best Whatnot Workflow: Upload Shipment Data</h3>
+                <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>After creating labels in Whatnot, upload or paste the shipment page/export. This matches each tracking number to the exact plants inside that box, including bundled shipments.</div>
+              </div>
+              <Tag text="Whatnot main workflow" color={C.g600} />
+            </Row>
+            <Row gap={10} wrap style={{ marginTop:10 }}>
+              <label style={{ display:"grid", gap:5, fontSize:12, fontWeight:900, color:C.tx2, flex:"1 1 260px" }}>Upload Whatnot Shipment Data
+                <input type="file" multiple accept=".txt,.csv,text/plain" onChange={handleWhatnotShipmentFiles} style={{ padding:10, border:`1px solid ${C.bd}`, borderRadius:12, background:C.card }} />
+              </label>
+              <div style={{ flex:"2 1 420px" }}>
+                <label style={{ display:"block", fontSize:12, fontWeight:900, color:C.tx2, marginBottom:5 }}>Paste Whatnot Shipment Text</label>
+                <textarea value={whatnotShipmentText} onChange={e=>setWhatnotShipmentText(e.target.value)} placeholder="Paste the Whatnot shipment page text here after labels are created..." style={{ width:"100%", minHeight:74, padding:10, borderRadius:12, border:`1px solid ${C.bd}`, fontFamily:F.body, fontSize:13 }} />
+                <Row gap={8} wrap style={{ marginTop:8 }}><Btn sz="sm" onClick={importWhatnotShipmentPaste}>Import Pasted Whatnot Data</Btn><Btn sz="sm" v="soft" onClick={() => saveWhatnotShipmentRows(true)} disabled={!safeArray(whatnotShipmentRows).some(r => r.status !== "Saved / Shipped" && r.trackingNumber && r.matchedPlantIds?.length)}>Save Whatnot Shipments + Mark Shipped</Btn><Btn sz="sm" v="ghost" onClick={clearWhatnotShipmentRows}>Clear Whatnot Review</Btn></Row>
+              </div>
+            </Row>
+            {safeArray(whatnotShipmentRows).length > 0 && <div style={{ marginTop:12, display:"grid", gap:8 }}>
+              <Row between wrap gap={8} center><div style={{ fontWeight:900, color:C.g900 }}>Whatnot Shipment Review</div><Row gap={6} wrap><Tag text={`${safeArray(whatnotShipmentRows).filter(r=>r.status !== "Saved / Shipped" && r.matchedPlantIds?.length).length} ready`} color={C.g600}/><Tag text={`${safeArray(whatnotShipmentRows).filter(r=>!r.matchedPlantIds?.length).length} need review`} color={C.amber}/><Tag text={`${safeArray(whatnotShipmentRows).filter(r=>r.status === "Saved / Shipped").length} saved`} color={C.blue}/></Row></Row>
+              {safeArray(whatnotShipmentRows).slice(0,40).map(row => <div key={row.id} style={{ background:row.status === "Saved / Shipped" ? C.blueBg : row.matchedPlantIds?.length ? C.card : C.amberBg, border:`1px solid ${row.matchedPlantIds?.length ? C.g200 : C.gold}99`, borderRadius:14, padding:10 }}>
+                <Row between wrap gap={8} center>
+                  <div><b style={{ color:C.g900 }}>{row.customerUsername || "Whatnot customer"}</b> · {row.shipmentDate || "date unknown"}<div style={{ fontSize:11, color:C.tx3 }}>{row.service || row.carrier} · {row.boxWeight || ""} {row.dimensions ? `· ${row.dimensions}` : ""}</div></div>
+                  <Tag text={row.status || "Review"} color={row.status === "Saved / Shipped" ? C.blue : row.matchedPlantIds?.length ? C.g600 : C.amber} />
+                </Row>
+                <div style={{ marginTop:7, background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:10, padding:8, fontSize:12 }}><b>{row.carrier || "Carrier"}</b> <b>{row.trackingNumber || "No tracking found"}</b>{row.trackingIsShort && <span style={{ color:C.amber, fontWeight:900 }}> · shortened display from Whatnot</span>}</div>
+                <div style={{ marginTop:8, display:"grid", gap:5 }}>{safeArray(row.items).map((it, idx) => <div key={it.id || idx} style={{ fontSize:11, color:C.tx2, padding:"5px 7px", borderRadius:9, background:C.card }}><b>{it.plantCode || "Plant"}</b> · {it.itemName || "Unnamed item"} · Order #{it.orderNumber || "—"}<div style={{ color:it.matchedPlantId ? C.g600 : C.amber, fontWeight:900 }}>{it.matchedPlantId ? `Matched: ${it.matchReason}` : it.matchReason || "Needs review"}</div></div>)}</div>
+                <Row gap={8} wrap style={{ marginTop:8 }}><Tag text={row.matchSummary || `${safeArray(row.matchedPlantIds).length} plant(s) matched`} color={row.matchedPlantIds?.length ? C.g600 : C.amber}/><Btn sz="sm" v="ghost" onClick={() => setWhatnotShipmentRows(prev => safeArray(prev).filter(x => x.id !== row.id))}>Remove</Btn></Row>
+              </div>)}
+            </div>}
+            <div style={{ fontSize:11, color:C.tx3, marginTop:8, lineHeight:1.45 }}>Use this before scanning labels. Label photo/live scan remains below as backup for missing or shortened tracking numbers.</div>
+          </div>
+
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
               <Sel label="Applies to nursery" value={nurseryCode} onChange={setNurseryCode} options={[{v:"*",l:"All nurseries"}, ...nurseries.map(n=>({v:n.code,l:`${n.code} · ${n.name}`}))]} />
               <Sel label="Means pot size" value={value} onChange={setValue} options={[...POT_SIZES, '6" Hanging Basket', '10" Hanging Basket']} />
             </div>
@@ -16729,6 +16765,29 @@ Cancel keeps this page local/free.`);
         } catch (e) { reject(e); }
       });
     }
+
+    /* V116R-Free: paid Pro SDK removed/disabled.
+       Free engines used instead: native BarcodeDetector when available, ZXing, Quagga, PDF.js, and Tesseract OCR.
+       Keep these no-op helpers so older scanner paths remain safe and never try to load a paid SDK. */
+    function ldReadProBarcodeConfig() { return { enabled:false, license:"" }; }
+    async function ldEnsureProBarcodeSdk() { throw new Error("Paid Pro Barcode SDK is disabled in V116R-Free."); }
+    function ldDynamsoftBarcodeTextFromResult() { return ""; }
+    async function ldDecodeCanvasDynamsoft() { return ""; }
+
+    async function ldDecodeShippingLabelPhotoFile(file) {
+      const variants = await ldBuildBarcodeImageVariants(file);
+      const detectorFormats = ["code_128", "code_39", "pdf417", "qr_code", "data_matrix", "itf", "ean_13", "upc_a"].filter(Boolean);
+      const found = [];
+      const add = (text, source) => {
+        const clean = String(text || "").trim();
+        if (clean && !found.some(x => x.text === clean)) found.push({ text: clean, source });
+      };
+      for (const v of variants) { try { const raw = await ldDecodeCanvasNative(v.canvas, detectorFormats); if (raw) add(raw, `Native ${v.name}`); } catch(e) {} }
+      for (const v of variants) { try { const raw = await ldDecodeCanvasZxing(v.canvas); if (raw) add(raw, `ZXing ${v.name}`); } catch(e) {} }
+      for (const v of variants) { try { const raw = await ldDecodeCanvasQuagga(v.canvas); if (raw) add(raw, `Quagga ${v.name}`); } catch(e) {} }
+      return found.map(x => `${x.source}: ${x.text}`).join("\n");
+    }
+
     async function ldEnsureShippingLabelOcr() {
       if (window.Tesseract && window.Tesseract.recognize) return window.Tesseract;
       return await ldLoadScriptOnce("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js", "Tesseract");
@@ -16762,12 +16821,13 @@ Cancel keeps this page local/free.`);
         return `${name}\n${await file.text()}`;
       }
       if (type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/i.test(name)) {
-        try {
-          const text = await ldOcrShippingLabelImage(file);
-          return `${name}\n${text}`;
-        } catch (e) {
-          return `${name}\n[Image OCR failed: ${e?.message || String(e)}]`;
-        }
+        let barcodeText = "";
+        let ocrText = "";
+        try { barcodeText = await ldDecodeShippingLabelPhotoFile(file); } catch (e) { barcodeText = `[Barcode scan failed: ${e?.message || String(e)}]`; }
+        try { ocrText = await ldOcrShippingLabelImage(file); } catch (e) { ocrText = `[Image OCR failed: ${e?.message || String(e)}]`; }
+        return `${name}
+${barcodeText}
+${ocrText}`;
       }
       return name;
     }
@@ -16823,6 +16883,8 @@ Cancel keeps this page local/free.`);
       const [labelScanActive, setLabelScanActive] = useState(false);
       const [labelSprintActive, setLabelSprintActive] = useState(false);
       const [labelSprintLog, setLabelSprintLog] = useState([]);
+      const [whatnotShipmentRows, setWhatnotShipmentRows] = useState(() => { try { return safeArray(JSON.parse(localStorage.getItem("ld_whatnot_shipment_rows_v1") || "[]")).slice(0, 120); } catch(e) { return []; } });
+      const [whatnotShipmentText, setWhatnotShipmentText] = useState("");
       const scanVideoRef = useRef(null);
       const scanReaderRef = useRef(null);
       const nativeLabelScanTimerRef = useRef(null);
@@ -16833,6 +16895,7 @@ Cancel keeps this page local/free.`);
       const labelLastScanRef = useRef({ value:"", at:0 });
       const labelOcrBusyRef = useRef(false);
       useEffect(() => { try { localStorage.setItem("ld_shipping_label_imports", JSON.stringify(safeArray(labelImportRows).slice(0, 120))); } catch(e) {} }, [labelImportRows]);
+      useEffect(() => { try { localStorage.setItem("ld_whatnot_shipment_rows_v1", JSON.stringify(safeArray(whatnotShipmentRows).slice(0, 120))); } catch(e) {} }, [whatnotShipmentRows]);
       const orders = groupSalesIntoOrders(plants);
       const getOrderPlants = (order) => plants.filter(p => order.plants.some(x => x.id === p.id));
       const orderFulfillment = (order) => {
@@ -16888,6 +16951,166 @@ Cancel keeps this page local/free.`);
         setSelected({});
       };
       const updateOne = (order, patch) => updateOrders([order.orderId], patch);
+
+      /* V118R — Whatnot Shipment Data Import
+         Main workflow after Whatnot labels are created: paste/upload the Whatnot shipment data.
+         It already contains customer username, bundled items, order numbers, carrier/service,
+         and tracking display, so the app can attach tracking to the exact plants in each box.
+         Label photo/live scan stays as backup only. */
+      const whatnotCleanLine = v => String(v || "").replace(/\s+/g, " ").trim();
+      const whatnotNorm = v => whatnotCleanLine(v).toLowerCase().replace(/[^a-z0-9]+/g, "");
+      const extractShortOrFullTracking = (text = "") => {
+        const full = ldExtractTrackingNumbersFromText(text);
+        if (full.length) return { trackingNumber: full[0].trackingNumber, carrier: full[0].carrier, isShort: false };
+        const m = String(text || "").match(/\b([A-Z0-9]{4,}\.\.\.[A-Z0-9]{3,})\b/i);
+        if (m) return { trackingNumber: m[1].toUpperCase(), carrier: ldInferCarrierFromTracking(m[1]) === "Unknown" ? "USPS" : ldInferCarrierFromTracking(m[1]), isShort: true };
+        return { trackingNumber: "", carrier: "Unknown", isShort: false };
+      };
+      const whatnotPlantCodeFromName = (name = "") => {
+        const txt = String(name || "");
+        const m = txt.match(/\b([A-Z]{1,3}\s*-\s*\d{1,5}|PC\s*-\s*\d{1,5}|CF\s*-\s*\d{1,5})\b/i);
+        return m ? m[1].toUpperCase().replace(/\s+/g, "") : "";
+      };
+      const parseWhatnotShipmentDataText = (rawText = "", sourceName = "Whatnot Shipment Data") => {
+        const text = String(rawText || "").replace(/\r/g, "\n").replace(/\t/g, "\n");
+        const blocks = [];
+        const rx = /(?:^|\n)\s*([a-z0-9_.-]{3,})\s*(?:\n\s*New\s*)?\n\s*Collapse\s*\n([\s\S]*?)(?=\n\s*[a-z0-9_.-]{3,}\s*(?:\n\s*New\s*)?\n\s*Collapse\s*\n|$)/gi;
+        let m;
+        while ((m = rx.exec(text))) blocks.push({ customerUsername: whatnotCleanLine(m[1]), body: m[2] || "" });
+        const sourceBlocks = blocks.length ? blocks : [{ customerUsername: "Unknown Whatnot Customer", body: text }];
+        return sourceBlocks.map((block, idx) => {
+          const body = block.body || "";
+          const lines = body.split(/\n+/).map(whatnotCleanLine).filter(Boolean);
+          const dateMatch = body.match(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}\b/i);
+          const date = dateMatch ? dateMatch[0] : "";
+          const shipIdx = lines.findIndex(l => /^Shipping$/i.test(l));
+          const service = shipIdx >= 0 ? (lines[shipIdx + 1] || "") : (lines.find(l => /USPS|UPS|FedEx/i.test(l)) || "");
+          const tracking = extractShortOrFullTracking(body);
+          const items = [];
+          lines.forEach((line, lineIdx) => {
+            const om = line.match(/^Order\s*#\s*(\d+)/i);
+            if (!om) return;
+            let itemName = "";
+            for (let i = lineIdx - 1; i >= 0; i--) {
+              const candidate = lines[i];
+              if (!candidate || /^This shipment/i.test(candidate) || /^Items?\b/i.test(candidate) || /^Learn More/i.test(candidate) || /^Shipping$/i.test(candidate) || /USPS|UPS|FedEx/i.test(candidate)) continue;
+              if (/^\$?\d+(\.\d+)?$/.test(candidate) || /^\d+\s*(lb|oz)$/i.test(candidate) || /Video Receipt/i.test(candidate) || /Auction/i.test(candidate)) continue;
+              itemName = candidate;
+              break;
+            }
+            items.push({ id: uid(), itemName, orderNumber: om[1], plantCode: whatnotPlantCodeFromName(itemName), qty: 1 });
+          });
+          const itemCountGuess = items.length || +(lines.find(l => /^\d+$/.test(l)) || 0) || 1;
+          const boxWeight = (body.match(/\b\d+\s*oz\b/i) || [""])[0];
+          const dimensions = (body.match(/\b\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?\s*in\b/i) || [""])[0];
+          const totalValue = (body.match(/\$\d+(?:\.\d{2})?/) || [""])[0];
+          return {
+            id: uid(),
+            sourceName,
+            platform: "Whatnot",
+            customerUsername: block.customerUsername,
+            customerName: block.customerUsername,
+            shipmentDate: date,
+            service: service || tracking.carrier || "USPS Priority",
+            carrier: tracking.carrier || (service.match(/USPS|UPS|FedEx/i)?.[0] || "USPS"),
+            trackingNumber: tracking.trackingNumber,
+            trackingIsShort: !!tracking.isShort,
+            itemCount: itemCountGuess,
+            boxWeight,
+            dimensions,
+            totalValue,
+            items,
+            status: "Needs Review",
+            importedAt: new Date().toISOString(),
+            matchSummary: "",
+            matchedPlantIds: []
+          };
+        }).filter(x => x.customerUsername || x.items.length || x.trackingNumber);
+      };
+      const matchWhatnotShipmentToPlants = (shipment) => {
+        const used = new Set();
+        const matched = [];
+        const details = [];
+        const candidatePlants = safeArray(plants).filter(p => {
+          if (p.status !== "Sold") return false;
+          const plat = String(p.platform || p.salePlatform || p.sourcePlatform || "").toLowerCase();
+          const cust = whatnotNorm(p.customerUsername || p.customerName || p.buyerName || p.recipientName || "");
+          const shipCust = whatnotNorm(shipment.customerUsername || shipment.customerName || "");
+          return (!plat || plat.includes("whatnot")) && (!shipCust || cust.includes(shipCust) || shipCust.includes(cust));
+        });
+        safeArray(shipment.items).forEach(item => {
+          const orderNo = whatnotNorm(item.orderNumber);
+          const code = whatnotNorm(item.plantCode);
+          const nameN = whatnotNorm(item.itemName);
+          const scored = candidatePlants.filter(p => !used.has(p.id)).map(p => {
+            let score = 0;
+            const reasons = [];
+            const pOrder = whatnotNorm(p.orderNumber || p.orderNo || p.whatnotOrderId || p.orderId || "");
+            const pCode = whatnotNorm(p.plantId || p.plantCode || p.sku || "");
+            const pName = whatnotNorm(p.rawProductVariant || p.productName || p.name || "");
+            if (orderNo && pOrder && pOrder === orderNo) { score += 130; reasons.push("order #"); }
+            if (code && pCode && pCode === code) { score += 100; reasons.push("plant code"); }
+            if (nameN && pName && (pName.includes(nameN) || nameN.includes(pName))) { score += 60; reasons.push("plant name"); }
+            return { p, score, reason: reasons.join(" + ") || "weak" };
+          }).sort((a,b) => b.score - a.score)[0];
+          if (scored && scored.score >= 60) {
+            used.add(scored.p.id);
+            matched.push(scored.p.id);
+            details.push({ ...item, matchedPlantId: scored.p.id, matchReason: scored.reason });
+          } else {
+            details.push({ ...item, matchedPlantId: "", matchReason: "No exact plant/order match yet" });
+          }
+        });
+        if (!matched.length && candidatePlants.length && shipment.itemCount) {
+          candidatePlants.slice(0, shipment.itemCount).forEach(p => { used.add(p.id); matched.push(p.id); });
+        }
+        return { ...shipment, matchedPlantIds: matched, items: details, status: matched.length ? "Ready to Save" : "Needs Review", matchSummary: matched.length ? `${matched.length}/${Math.max(1, safeArray(shipment.items).length || shipment.itemCount)} plant(s) matched` : "No plants matched yet" };
+      };
+      const handleWhatnotShipmentFiles = async (ev) => {
+        const files = Array.from(ev?.target?.files || []);
+        if (!files.length) return;
+        setLabelImportStatus(`Reading ${files.length} Whatnot shipment file(s)...`);
+        const all = [];
+        for (const file of files) {
+          try {
+            const txt = await file.text();
+            all.push(...parseWhatnotShipmentDataText(txt, file.name).map(matchWhatnotShipmentToPlants));
+          } catch (e) { console.warn("Whatnot shipment import failed", file.name, e); }
+        }
+        if (!all.length) return setLabelImportStatus("No Whatnot shipment blocks found. Copy the Whatnot shipment page text or upload a text/CSV export after labels are created.");
+        setWhatnotShipmentRows(prev => [...all, ...safeArray(prev)].filter((r, idx, arr) => arr.findIndex(x => `${x.customerUsername}|${x.trackingNumber}|${x.shipmentDate}|${x.items?.map?.(i=>i.orderNumber).join(',')}` === `${r.customerUsername}|${r.trackingNumber}|${r.shipmentDate}|${r.items?.map?.(i=>i.orderNumber).join(',')}`) === idx).slice(0, 120));
+        setLabelImportStatus(`Imported ${all.length} Whatnot shipment box(es). Review exact plants + tracking, then click Save Whatnot Shipments.`);
+        try { ev.target.value = ""; } catch(e) {}
+      };
+      const importWhatnotShipmentPaste = () => {
+        const rows = parseWhatnotShipmentDataText(whatnotShipmentText, "Pasted Whatnot Shipment Data").map(matchWhatnotShipmentToPlants);
+        if (!rows.length) return alert("No Whatnot shipment data found. Paste the Whatnot shipment page text after labels are created.");
+        setWhatnotShipmentRows(prev => [...rows, ...safeArray(prev)].slice(0, 120));
+        setWhatnotShipmentText("");
+        setLabelImportStatus(`Imported ${rows.length} pasted Whatnot shipment box(es). Review and save when correct.`);
+      };
+      const saveWhatnotShipmentRows = (onlyReady = true) => {
+        const rows = safeArray(whatnotShipmentRows).filter(r => r.trackingNumber && r.matchedPlantIds?.length && (!onlyReady || r.status !== "Saved / Shipped"));
+        if (!rows.length) return alert("No ready Whatnot shipment rows to save yet.");
+        const now = new Date().toISOString();
+        const byPlant = new Map();
+        rows.forEach((shipment, shipIdx) => safeArray(shipment.matchedPlantIds).forEach(pid => byPlant.set(pid, { shipment, shipIdx })));
+        setPlants(prev => safeArray(prev).map(p => {
+          const hit = byPlant.get(p.id);
+          if (!hit) return p;
+          const s = hit.shipment;
+          const trackingList = [{ box: 1, trackingNumber: s.trackingNumber, carrier: s.carrier, importedAt: now, source: s.sourceName || "Whatnot Shipment Data", shipmentDate: s.shipmentDate, whatnotCustomer: s.customerUsername }];
+          return { ...p, trackingNumber: s.trackingNumber, carrier: s.carrier, shippingTrackingNumbers: trackingList, trackingNumbers: trackingList, trackingNumbersText: `${s.carrier} ${s.trackingNumber}`, fulfillmentStatus: "Shipped", shipmentStatus: "Shipped", shippedDate: today(), whatnotShipmentCustomer: s.customerUsername, whatnotShipmentDate: s.shipmentDate, whatnotShipmentTracking: s.trackingNumber, whatnotShipmentService: s.service, shippingLabelImportedAt: now, shippingLabelFileName: s.sourceName || "Whatnot Shipment Data", trackingStatus: s.trackingIsShort ? "Imported from Whatnot / Short tracking display" : "Imported / Tracking Pending", fulfillmentUpdatedAt: now };
+        }));
+        const savedIds = new Set(rows.map(r => r.id));
+        setWhatnotShipmentRows(prev => safeArray(prev).map(r => savedIds.has(r.id) ? { ...r, status:"Saved / Shipped", savedAt: now } : r));
+        addAudit?.(`Saved ${rows.length} Whatnot shipment box(es) and marked ${byPlant.size} plant(s) shipped from Whatnot shipment data`);
+        setLabelImportStatus(`Saved ${rows.length} Whatnot shipment box(es) and marked ${byPlant.size} plant(s) shipped.`);
+      };
+      const clearWhatnotShipmentRows = () => {
+        if (confirm("Clear imported Whatnot shipment review rows? This does not remove tracking already saved on plants.")) setWhatnotShipmentRows([]);
+      };
+
       const buildLabelRowsFromText = (text, fileName = "Manual Entry") => {
         const rawText = String(text || "");
         const numbers = ldExtractTrackingNumbersFromText(rawText);
@@ -17023,14 +17246,14 @@ Cancel keeps this page local/free.`);
         const improved = rebuilt.find(r => r.trackingNumber === row.trackingNumber) || rebuilt[0];
         const finalRow = improved ? { ...row, ...improved, rawText: combined, ocrText, fileName: `${sourceName} + customer name` } : { ...row, rawText: combined, ocrText };
         if (finalRow.matchedOrderId) {
-          const applied = sprintMode ? applyTrackingRowInstant(finalRow, "Shipping Label Sprint OCR") : false;
-          addLabelRows([{ ...finalRow, status: applied ? "Applied / Shipped" : "Ready to Apply", appliedAt: applied ? new Date().toISOString() : "" }]);
-          playSprintBeep(applied || !sprintMode);
+          const matched = orders.find(o => o.orderId === finalRow.matchedOrderId);
+          addLabelRows([{ ...finalRow, status: "Ready to Save", appliedAt: "" }]);
+          playSprintBeep(true);
           if (sprintMode) {
-            setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:finalRow.trackingNumber, carrier:finalRow.carrier, orderId:finalRow.matchedOrderId || "", status:applied ? "Shipped" : "Ready to Apply", reason:finalRow.matchReason || "Matched by customer name OCR" }, ...safeArray(prev)].slice(0, 30));
-            setLabelImportStatus(applied ? `✅ Customer OCR matched ${finalRow.carrier} ${finalRow.trackingNumber} and marked the order shipped. Hold up the next box.` : `✅ Customer OCR matched ${finalRow.carrier} ${finalRow.trackingNumber}. Review/apply if needed.`);
+            setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:finalRow.trackingNumber, carrier:finalRow.carrier, orderId:finalRow.matchedOrderId || "", customerName:matched?.customerName || "", status:"Ready to Save", reason:finalRow.matchReason || "Matched by customer name OCR" }, ...safeArray(prev)].slice(0, 30));
+            setLabelImportStatus(`✅ Customer OCR matched ${matched?.customerName || "the order"} for ${finalRow.carrier} ${finalRow.trackingNumber}. Review the customer/box count, then click Save Tracking + Mark Shipped.`);
           } else {
-            setLabelImportStatus(`✅ Customer OCR matched ${finalRow.carrier} ${finalRow.trackingNumber}. Review and apply tracking.`);
+            setLabelImportStatus(`✅ Customer OCR matched ${matched?.customerName || "the order"} for ${finalRow.carrier} ${finalRow.trackingNumber}. Review and save tracking.`);
           }
           return true;
         }
@@ -17071,13 +17294,13 @@ Cancel keeps this page local/free.`);
             tryCustomerOcrMatchForRow(row, true, "Shipping Label Sprint OCR");
             return true;
           }
-          const applied = applyTrackingRowInstant(row, "Shipping Label Sprint");
-          const nextRow = { ...row, status: applied ? "Applied / Shipped" : "Sprint Needs Review", appliedAt: applied ? new Date().toISOString() : "" };
+          const matched = orders.find(o => o.orderId === row.matchedOrderId);
+          const nextRow = { ...row, status: "Ready to Save", appliedAt: "" };
           addLabelRows([nextRow]);
-          playSprintBeep(applied);
-          try { if (navigator.vibrate) navigator.vibrate(applied ? 40 : [40,40,40]); } catch(e) {}
-          setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:key, carrier:row.carrier, orderId:row.matchedOrderId || "", status:applied ? "Shipped" : "Needs Review", reason:row.matchReason || "No confident match" }, ...safeArray(prev)].slice(0, 30));
-          setLabelImportStatus(applied ? `✅ Sprint scanned ${row.carrier} ${key} and marked the matched order shipped. Hold up the next box label.` : `⚠️ Sprint scanned ${row.carrier} ${key}, but no confident order match was found. It was added to Review Matched Labels. Hold up the next box label.`);
+          playSprintBeep(true);
+          try { if (navigator.vibrate) navigator.vibrate(40); } catch(e) {}
+          setLabelSprintLog(prev => [{ id:uid(), at:new Date().toLocaleTimeString(), trackingNumber:key, carrier:row.carrier, orderId:row.matchedOrderId || "", customerName:matched?.customerName || "", status:"Ready to Save", reason:row.matchReason || "Matched — waiting for owner confirmation" }, ...safeArray(prev)].slice(0, 30));
+          setLabelImportStatus(`✅ Sprint scanned ${row.carrier} ${key} and matched ${matched?.customerName || "an order"}. Review the customer/box count, then click Save Tracking + Mark Shipped. Hold up the next box label.`);
           return true;
         }
         if (!row.matchedOrderId && labelScanActive) {
@@ -17183,7 +17406,7 @@ Cancel keeps this page local/free.`);
           labelLastOcrAttemptRef.current = 0;
           setLabelSprintLog([]);
         }
-        setLabelImportStatus(sprintMode ? "Starting Shipping Label Sprint. This now uses the same proven barcode engine as Plant Photo Sprint plus auto frame decode. Hold each USPS/UPS/FedEx label steady; matched orders are marked shipped automatically." : "Starting one-label camera scanner. Hold the shipping barcode steady, or use the full-label frame reader if the barcode is dense.");
+        setLabelImportStatus(sprintMode ? "Starting Shipping Label Sprint. Free barcode/OCR engines are active. Hold each USPS/UPS/FedEx label steady; matches are added to review so you can confirm the customer before marking shipped. For best results on mobile, use Take Label Photo or Batch Upload Label Photos." : "Starting one-label camera scanner. Hold the shipping barcode steady, or use the full-label frame reader if the barcode is dense.");
         setTimeout(async () => {
           try {
             if (!scanVideoRef.current) throw new Error("Camera preview is not ready yet. Tap Start Shipping Label Sprint again.");
@@ -17200,7 +17423,7 @@ Cancel keeps this page local/free.`);
             }
             const nativeBoost = startNativeLabelScanBoost(sprintMode);
             startShippingFrameScanLoop(sprintMode);
-            setLabelImportStatus(sprintMode ? "✅ Shipping Label Sprint is running. Hold the whole label 6–12 inches from the camera, pause until it beeps/logs, then hold up the next box. It will match customer/order, carrier, tracking number, and mark shipped." : "✅ Shipping label scanner is running. Hold the label steady; if barcode is hard to read, the frame reader will try snapshots automatically.");
+            setLabelImportStatus(sprintMode ? "✅ Shipping Label Sprint is running. Pro SDK + fallback scanners are watching the label. Hold the whole label 6–12 inches from the camera, pause until it beeps/logs, then hold up the next box. It will match customer/order, carrier, and tracking number, then wait for your Save confirmation." : "✅ Shipping label scanner is running. Hold the label steady; if barcode is hard to read, the frame reader will try snapshots automatically.");
             if (!nativeBoost && !reader) setLabelImportStatus("Scanner is running in frame-scan mode only. Hold the label very steady for 1–2 seconds.");
           } catch (e) {
             setLabelImportStatus("Camera scan failed: " + (e?.message || String(e)));
@@ -17221,21 +17444,97 @@ Cancel keeps this page local/free.`);
         setLabelScanActive(false);
         setLabelSprintActive(false);
       };
+      const orderPlatformName = (order) => {
+        const ps = getOrderPlants(order);
+        return ps.find(p => p.platform)?.platform || ps.find(p => p.salePlatform)?.salePlatform || ps.find(p => p.sourcePlatform)?.sourcePlatform || "";
+      };
+      const orderBoxLimit = (order) => String(orderPlatformName(order)).toLowerCase().includes("whatnot") ? 4 : 999;
+      const expectedBoxesForOrder = (order) => {
+        const count = Math.max(1, safeArray(order?.plants).length || getOrderPlants(order).length || 1);
+        const limit = orderBoxLimit(order);
+        return limit === 4 ? Math.max(1, Math.ceil(count / 4)) : 1;
+      };
+      const labelRowsForOrder = (orderId, includeApplied = true) => safeArray(labelImportRows).filter(r => String(r.matchedOrderId || "") === String(orderId || "") && (includeApplied || !String(r.status || "").includes("Applied")));
+      const getOrderTrackingList = (order) => {
+        const out = [];
+        getOrderPlants(order).forEach(p => {
+          safeArray(p.shippingTrackingNumbers || p.trackingNumbers).forEach(t => {
+            const n = t?.trackingNumber || t?.number || t;
+            if (n) out.push({ trackingNumber:String(n), carrier:t?.carrier || p.carrier || "Carrier" });
+          });
+          if (p.trackingNumber) out.push({ trackingNumber:String(p.trackingNumber), carrier:p.carrier || "Carrier" });
+        });
+        return out.filter((x, idx, arr) => arr.findIndex(y => y.trackingNumber === x.trackingNumber) === idx);
+      };
+      const isAppliedLabelRow = (row) => String(row?.status || "").includes("Applied");
+      const pendingLabelRowsForOrder = (orderId, skipRowId = "") => safeArray(labelImportRows).filter(r => String(r.matchedOrderId || "") === String(orderId || "") && !isAppliedLabelRow(r) && String(r.id || "") !== String(skipRowId || ""));
+      const savedTrackingCountForOrder = (order) => getOrderTrackingList(order).length;
+      const openTrackingSlotsForOrder = (order, skipRowId = "") => {
+        const expected = Math.max(1, expectedBoxesForOrder(order));
+        const saved = savedTrackingCountForOrder(order);
+        const pending = pendingLabelRowsForOrder(order.orderId, skipRowId).length;
+        return Math.max(0, expected - saved - pending);
+      };
+      const eligibleOrdersForLabelRow = (row) => orders.filter(o => String(row?.matchedOrderId || "") === String(o.orderId || "") || openTrackingSlotsForOrder(o, row?.id) > 0);
+      const labelReviewStats = () => {
+        const rows = safeArray(labelImportRows);
+        const applied = rows.filter(isAppliedLabelRow);
+        const pending = rows.filter(r => !isAppliedLabelRow(r));
+        const ready = pending.filter(r => r.matchedOrderId);
+        const review = pending.filter(r => !r.matchedOrderId);
+        const readyOrders = new Set(ready.map(r => r.matchedOrderId).filter(Boolean));
+        return { total: rows.length, ready: ready.length, review: review.length, applied: applied.length, readyOrders: readyOrders.size };
+      };
+      const clearAllLabelRows = () => {
+        if (confirm("Clear all scanned/imported label rows from this review screen? This does not remove tracking already saved on orders.")) {
+          setLabelImportRows([]);
+          setLabelImportStatus("Shipping label review cleared. Saved tracking on orders was not changed.");
+        }
+      };
+      const matchedLabelOrderGroups = () => orders
+        .map(order => {
+          const rows = labelRowsForOrder(order.orderId, true);
+          const pendingRows = rows.filter(r => !String(r.status || "").includes("Applied"));
+          const expected = expectedBoxesForOrder(order);
+          const platformName = orderPlatformName(order) || (labelImportPlatform !== "Auto" ? labelImportPlatform : "Platform");
+          return { order, rows, pendingRows, expected, platformName };
+        })
+        .filter(g => g.rows.length);
       const applyTrackingRows = (onlyReady = true) => {
         const rows = safeArray(labelImportRows).filter(r => r.trackingNumber && r.matchedOrderId && (!onlyReady || !String(r.status || "").includes("Applied")));
-        if (!rows.length) return alert("No matched tracking rows to apply. Match labels to orders first.");
-        const rowByOrder = rows.reduce((m,r) => { if (!m[r.matchedOrderId]) m[r.matchedOrderId] = r; return m; }, {});
-        const plantIdsByOrder = orders.reduce((m,o) => { if (rowByOrder[o.orderId]) m[o.orderId] = new Set(getOrderPlants(o).map(p => p.id)); return m; }, {});
+        if (!rows.length) return alert("No matched tracking rows to save. Scan/upload labels and match them to orders first.");
+        const rowsByOrder = rows.reduce((m,r) => { (m[r.matchedOrderId] ||= []).push(r); return m; }, {});
+        const warnings = Object.entries(rowsByOrder).map(([orderId, rs]) => {
+          const order = orders.find(o => o.orderId === orderId);
+          if (!order) return null;
+          const expected = expectedBoxesForOrder(order);
+          const platformName = orderPlatformName(order);
+          if (String(platformName || "").toLowerCase().includes("whatnot") && rs.length !== expected) {
+            return `${order.customerName || orderId}: expected ${expected} box label(s), found ${rs.length}`;
+          }
+          return null;
+        }).filter(Boolean);
+        if (warnings.length && !confirm(`Some Whatnot orders do not match the expected 4-plants-per-box count:
+
+${warnings.join("
+")}
+
+Save anyway?`)) return;
+        const plantIdsByOrder = orders.reduce((m,o) => { if (rowsByOrder[o.orderId]) m[o.orderId] = new Set(getOrderPlants(o).map(p => p.id)); return m; }, {});
         const now = new Date().toISOString();
         setPlants(prev => safeArray(prev).map(p => {
           const oid = Object.keys(plantIdsByOrder).find(id => plantIdsByOrder[id].has(p.id));
-          const row = oid ? rowByOrder[oid] : null;
-          return row ? { ...p, trackingNumber: row.trackingNumber, carrier: row.carrier, fulfillmentStatus: "Shipped", shipmentStatus: "Shipped", shippedDate: today(), shippingLabelImportedAt: now, shippingLabelFileName: row.fileName, trackingStatus: "Imported / Tracking Pending", fulfillmentUpdatedAt: now } : p;
+          const orderRows = oid ? safeArray(rowsByOrder[oid]) : [];
+          const first = orderRows[0];
+          const trackingList = orderRows.map((r, idx) => ({ box: idx + 1, trackingNumber: r.trackingNumber, carrier: r.carrier, importedAt: now, source: r.fileName || "Shipping Label Review" }));
+          return first ? { ...p, trackingNumber: first.trackingNumber, carrier: first.carrier, shippingTrackingNumbers: trackingList, trackingNumbers: trackingList, trackingNumbersText: trackingList.map(t => `${t.carrier} ${t.trackingNumber}`).join(" | "), fulfillmentStatus: "Shipped", shipmentStatus: "Shipped", shippedDate: today(), shippingLabelImportedAt: now, shippingLabelFileName: first.fileName, trackingStatus: "Imported / Tracking Pending", fulfillmentUpdatedAt: now } : p;
         }));
         const appliedIds = new Set(rows.map(r => r.id));
         setLabelImportRows(prev => safeArray(prev).map(r => appliedIds.has(r.id) ? { ...r, status:"Applied / Shipped", appliedAt: now } : r));
-        addAudit?.(`Imported tracking and marked ${Object.keys(rowByOrder).length} order(s) shipped from shipping labels`);
-        setLabelImportStatus(`Applied tracking to ${Object.keys(rowByOrder).length} order(s) and marked them shipped.`);
+        const boxCount = rows.length;
+        const orderCount = Object.keys(rowsByOrder).length;
+        addAudit?.(`Saved ${boxCount} tracking label(s) and marked ${orderCount} order(s) shipped from Shipping Label Review`);
+        setLabelImportStatus(`Saved ${boxCount} tracking label(s) across ${orderCount} order(s), then marked those orders shipped.`);
       };
       const updateLabelRow = (id, patch) => setLabelImportRows(prev => safeArray(prev).map(r => r.id === id ? { ...r, ...patch } : r));
       const clearAppliedLabelRows = () => setLabelImportRows(prev => safeArray(prev).filter(r => !String(r.status || "").includes("Applied")));
@@ -17289,49 +17588,139 @@ Cancel keeps this page local/free.`);
           <Row between wrap gap={10}>
             <div>
               <h3 style={{ margin: 0, fontFamily: F.display, color: C.g900 }}>{labelScanMode ? "📷 Scan Shipping Labels" : "🚚 Shipping Label Import + Tracking"}</h3>
-              <p style={{ margin: "4px 0 0", color: C.tx3, fontSize: 12 }}>Upload labels in batch, paste tracking, scan one label, or use Shipping Label Sprint with the MacBook/iPhone camera. V114R uses the proven plant barcode sprint engine plus full-label frame decoding/OCR to auto-match customer/order, carrier, and tracking before marking shipped.</p>
+              <p style={{ margin: "4px 0 0", color: C.tx3, fontSize: 12 }}>Upload or take label photos, upload label PDFs, paste tracking numbers, or use live scan. V117R shows matched customers and tracking numbers together before you save. It hides customers/orders that already have enough tracking labels so the dropdown stays clean.</p>
             </div>
-            <Tag text="V113R" color={C.blue} />
+            <Tag text="V117R" color={C.g600} />
           </Row>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginTop:12 }}>
             <div style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:12 }}>
               <Row gap={8} wrap center>
                 <Sel label="Import Platform" value={labelImportPlatform} onChange={setLabelImportPlatform} options={["Auto", "Whatnot", "Palmstreet"]} />
-                <label style={{ display:"grid", gap:5, fontSize:12, fontWeight:900, color:C.tx2, flex:"1 1 260px" }}>Batch Upload Labels
+                <label style={{ display:"grid", gap:5, fontSize:12, fontWeight:900, color:C.tx2, flex:"1 1 260px" }}>Batch Upload Labels / PDFs
                   <input type="file" multiple accept="application/pdf,image/*,.txt,.csv" onChange={handleShippingLabelFiles} style={{ padding:10, border:`1px solid ${C.bd}`, borderRadius:12, background:C.card }} />
                 </label>
+                <label style={{ display:"grid", gap:5, fontSize:12, fontWeight:900, color:C.tx2, flex:"1 1 220px" }}>Take Label Photo
+                  <input type="file" multiple accept="image/*" capture="environment" onChange={handleShippingLabelFiles} style={{ padding:10, border:`1px solid ${C.bd}`, borderRadius:12, background:C.card }} />
+                </label>
               </Row>
-              <div style={{ fontSize:11, color:C.tx3, marginTop:8, lineHeight:1.45 }}>Best: upload label PDFs downloaded from Whatnot/Palmstreet. For packed boxes, use Shipping Label Sprint on MacBook or iPhone. If the barcode is dense, the app also snaps frames like the plant photo scanner, then reads customer name/address to auto-match.</div>
+              <div style={{ fontSize:11, color:C.tx3, marginTop:8, lineHeight:1.45 }}>Best on mobile: take clear label photos in batch. The app reads barcode text + customer/address OCR, then shows a review card before saving. Live scan stays as a backup when the barcode reads well. Whatnot orders show expected box count using 4 plants per box before you save.</div>
             </div>
             <div style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:12 }}>
               <Inp label="Paste Tracking Numbers" value={manualTrackingText} onChange={setManualTrackingText} placeholder="Paste USPS / UPS / FedEx tracking numbers here..." />
               <Row gap={8} wrap style={{ marginTop:8 }}><Btn sz="sm" onClick={addManualTracking}>Add Manual Tracking</Btn><Btn sz="sm" v={labelScanActive && !labelSprintActive ? "danger" : "soft"} onClick={labelScanActive && !labelSprintActive ? stopLabelScanner : () => startLabelScanner(false)}>{labelScanActive && !labelSprintActive ? "Stop One Scan" : "Scan One Label"}</Btn><Btn sz="sm" v={labelSprintActive ? "danger" : "fill"} onClick={labelSprintActive ? stopLabelScanner : () => startLabelScanner(true)}>{labelSprintActive ? "Stop Sprint" : "Start Shipping Label Sprint"}</Btn><Btn sz="sm" v="soft" disabled={!labelScanActive || labelOcrBusy} onClick={readCustomerNameFromCamera}>{labelOcrBusy ? "Reading Name…" : "Read Customer Name"}</Btn><Btn sz="sm" v="ghost" onClick={clearAppliedLabelRows}>Clear Applied</Btn></Row>
             </div>
           </div>
-          {labelScanActive && <div style={{ marginTop:12, background:"#000", border:`2px solid ${labelSprintActive ? "#97d33e" : C.g300}`, borderRadius:18, padding:10 }}><video ref={scanVideoRef} style={{ width:"100%", maxHeight:360, borderRadius:14, background:"#000" }} muted playsInline /><div style={{ color:"#97d33e", fontSize:12, fontWeight:900, marginTop:8 }}>{labelSprintActive ? "Sprint active with USPS scan boost + customer OCR: hold the full label steady. Barcode reads tracking; OCR reads customer name/address if the order match is unclear. Duplicate scans are ignored." : "Point the camera at the shipping label barcode/tracking number. If it scans but does not match, tap Read Customer Name while the full label is visible."}</div>{labelOcrBusy && <div style={{ marginTop:8, color:"#fff", background:"rgba(151,211,62,.16)", border:"1px solid rgba(151,211,62,.35)", borderRadius:10, padding:8, fontSize:12, fontWeight:900 }}>Reading customer name/address from label… keep it steady.</div>}</div>}
-          {safeArray(labelSprintLog).length > 0 && <div style={{ marginTop:10, display:"grid", gap:6 }}><div style={{ fontWeight:900, color:C.g900, fontSize:12 }}>Shipping Label Sprint Log</div>{safeArray(labelSprintLog).slice(0,8).map(x => <div key={x.id} style={{ background:x.status === "Shipped" ? C.g50 : C.amberBg, border:`1px solid ${x.status === "Shipped" ? C.g200 : C.gold}66`, borderRadius:10, padding:"7px 9px", fontSize:11, color:C.tx2 }}><b>{x.status === "Shipped" ? "✅" : "⚠️"} {x.carrier} {x.trackingNumber}</b> · {x.status}{x.orderId ? ` · ${x.orderId}` : " · needs review"}<div style={{ color:C.tx3 }}>{x.at} · {x.reason}</div></div>)}</div>}
+          <div style={{ marginTop:12, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:12 }}>
+            <Row between wrap gap={10} center>
+              <div>
+                <b style={{ color:C.g900 }}>Free Shipping Label Photo Reader</b>
+                <div style={{ fontSize:11, color:C.tx3, marginTop:2 }}>No paid SDK required. Use Take Label Photo or Batch Upload Label Photos for the most reliable mobile workflow. The app uses free barcode readers plus OCR to read tracking numbers, customer names, and addresses, then shows a review before anything is marked shipped.</div>
+              </div>
+              <Tag text="Free Mode" color={C.g600} />
+            </Row>
+            <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:8 }}>
+              <div style={{ background:C.card, border:`1px solid ${C.bdS}`, borderRadius:12, padding:9, fontSize:11, color:C.tx2 }}><b>1. Photo/PDF</b><br/>Take or upload label photos/PDFs in batch.</div>
+              <div style={{ background:C.card, border:`1px solid ${C.bdS}`, borderRadius:12, padding:9, fontSize:11, color:C.tx2 }}><b>2. Match</b><br/>OCR reads customer/name/address and matches the order.</div>
+              <div style={{ background:C.card, border:`1px solid ${C.bdS}`, borderRadius:12, padding:9, fontSize:11, color:C.tx2 }}><b>3. Confirm</b><br/>Review customer + tracking, then save/mark shipped.</div>
+            </div>
+            <div style={{ fontSize:10, color:C.tx3, marginTop:8 }}>Free engines: ZXing, browser BarcodeDetector when available, Quagga, PDF.js, and Tesseract OCR. Live scan remains available, but label photos are recommended for USPS/UPS/FedEx labels.</div>
+          </div>
+          {labelScanActive && <div style={{ marginTop:12, background:"#000", border:`2px solid ${labelSprintActive ? "#97d33e" : C.g300}`, borderRadius:18, padding:10 }}><video ref={scanVideoRef} style={{ width:"100%", maxHeight:360, borderRadius:14, background:"#000" }} muted playsInline /><div style={{ color:"#97d33e", fontSize:12, fontWeight:900, marginTop:8 }}>{labelSprintActive ? "Sprint active: free barcode/OCR scanners are reading each label. The app adds each scan to Review so you can confirm the customer and Whatnot box count before saving. Duplicate scans are ignored." : "Point the camera at the shipping label barcode/tracking number. If it scans but does not match, tap Read Customer Name while the full label is visible."}</div>{labelOcrBusy && <div style={{ marginTop:8, color:"#fff", background:"rgba(151,211,62,.16)", border:"1px solid rgba(151,211,62,.35)", borderRadius:10, padding:8, fontSize:12, fontWeight:900 }}>Reading customer name/address from label… keep it steady.</div>}</div>}
+          {safeArray(labelSprintLog).length > 0 && <div style={{ marginTop:10, display:"grid", gap:6 }}><div style={{ fontWeight:900, color:C.g900, fontSize:12 }}>Shipping Label Sprint Log</div>{safeArray(labelSprintLog).slice(0,8).map(x => <div key={x.id} style={{ background:x.status === "Ready to Save" ? C.g50 : C.amberBg, border:`1px solid ${x.status === "Ready to Save" ? C.g200 : C.gold}66`, borderRadius:10, padding:"7px 9px", fontSize:11, color:C.tx2 }}><b>{x.status === "Ready to Save" ? "✅" : "⚠️"} {x.carrier} {x.trackingNumber}</b> · {x.status}{x.customerName ? ` · ${x.customerName}` : (x.orderId ? ` · ${x.orderId}` : " · needs review")}<div style={{ color:C.tx3 }}>{x.at} · {x.reason}</div></div>)}</div>}
           {labelImportStatus && <div style={{ marginTop:10, background:C.blueBg, border:`1px solid rgba(26,95,154,.25)`, borderRadius:12, padding:10, color:C.tx2, fontSize:12, whiteSpace:"pre-wrap" }}>{labelImportStatus}</div>}
           {labelOcrPreview && <details style={{ marginTop:8, background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:10 }}><summary style={{ cursor:"pointer", fontWeight:900, color:C.g900, fontSize:12 }}>Customer OCR text preview</summary><pre style={{ whiteSpace:"pre-wrap", fontSize:11, color:C.tx3, marginTop:8 }}>{labelOcrPreview}</pre></details>}
-          {safeArray(labelImportRows).length > 0 && <div style={{ marginTop:12 }}>
-            <Row between center wrap gap={8} style={{ marginBottom:8 }}><div style={{ fontWeight:900, color:C.g900 }}>Review Matched Labels</div><Btn sz="sm" onClick={() => applyTrackingRows(true)}>Apply Tracking + Mark Shipped</Btn></Row>
-            <div className="ld-table-scroll" style={{ border:`1px solid ${C.bd}`, borderRadius:14, overflow:"hidden" }}>
-              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, background:C.card }}>
-                <thead><tr style={{ background:C.g50 }}><th style={{ padding:8, textAlign:"left" }}>Tracking</th><th style={{ padding:8, textAlign:"left" }}>Carrier</th><th style={{ padding:8, textAlign:"left" }}>Matched Order</th><th style={{ padding:8, textAlign:"left" }}>Status</th><th style={{ padding:8, textAlign:"left" }}>Actions</th></tr></thead>
-                <tbody>{safeArray(labelImportRows).slice(0,40).map(row => {
-                  const matchedOrder = orders.find(o => o.orderId === row.matchedOrderId);
-                  return <tr key={row.id} style={{ borderTop:`1px solid ${C.bdS}` }}>
-                    <td style={{ padding:8, verticalAlign:"top" }}><b>{row.trackingNumber}</b><div style={{ fontSize:10, color:C.tx3 }}>{row.fileName}</div>{trackingUrl(row.carrier, row.trackingNumber) && <a href={trackingUrl(row.carrier, row.trackingNumber)} target="_blank" style={{ fontSize:10, color:C.blue, fontWeight:900 }}>Open carrier tracking</a>}</td>
-                    <td style={{ padding:8, verticalAlign:"top" }}>{row.carrier}</td>
-                    <td style={{ padding:8, verticalAlign:"top" }}><select value={row.matchedOrderId || ""} onChange={e => updateLabelRow(row.id, { matchedOrderId:e.target.value, status:e.target.value ? "Ready to Apply" : "Needs Review" })} style={{ width:"100%", padding:8, borderRadius:10, border:`1px solid ${C.bd}` }}><option value="">Needs Review — choose order</option>{orders.map(o => <option key={o.orderId} value={o.orderId}>{o.customerName || "Buyer"} · {o.state || ""} · {o.plants.length} plant(s) · {o.orderId}</option>)}</select><div style={{ fontSize:10, color:C.tx3, marginTop:4 }}>{row.matchReason || (matchedOrder ? "Manual match" : "No match yet")} {row.matchConfidence ? `· score ${row.matchConfidence}` : ""}</div></td>
-                    <td style={{ padding:8, verticalAlign:"top" }}><Tag text={row.status || "Needs Review"} color={String(row.status||"").includes("Applied") ? C.g600 : row.matchedOrderId ? C.blue : C.amber} sm /></td>
-                    <td style={{ padding:8, verticalAlign:"top" }}><Btn sz="sm" v="ghost" onClick={() => setLabelImportRows(prev => safeArray(prev).filter(x => x.id !== row.id))}>Remove</Btn></td>
-                  </tr>;
-                })}</tbody>
-              </table>
-            </div>
-            {safeArray(labelImportRows).length > 40 && <div style={{ fontSize:11, color:C.tx3, marginTop:6 }}>Showing latest 40 label rows. Applied rows are saved locally for review.</div>}
-          </div>}
-        </Card>
+          {safeArray(labelImportRows).length > 0 && (() => {
+            const stats = labelReviewStats();
+            const readyGroups = matchedLabelOrderGroups().filter(g => g.pendingRows.length);
+            const needsReviewRows = safeArray(labelImportRows).filter(r => !r.matchedOrderId && !isAppliedLabelRow(r));
+            const appliedRows = safeArray(labelImportRows).filter(isAppliedLabelRow);
+            const savedGroups = orders.map(order => {
+              const saved = getOrderTrackingList(order);
+              const applied = appliedRows.filter(r => String(r.matchedOrderId || "") === String(order.orderId || ""));
+              return { order, saved, applied, expected: expectedBoxesForOrder(order), platformName: orderPlatformName(order) || "Platform" };
+            }).filter(g => g.saved.length || g.applied.length);
+            return <div style={{ marginTop:12, display:"grid", gap:12 }}>
+              <div style={{ background:C.card, border:`2px solid ${C.g200}`, borderRadius:18, padding:12 }}>
+                <Row between wrap gap={10} center>
+                  <div>
+                    <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>Simple Shipping Label Review</div>
+                    <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Check customer + tracking numbers together. Save only when it looks right.</div>
+                  </div>
+                  <Row gap={6} wrap>
+                    <Tag text={`${stats.readyOrders} customer(s) ready`} color={stats.ready ? C.g600 : C.tx3} />
+                    <Tag text={`${stats.ready} label(s) matched`} color={stats.ready ? C.blue : C.tx3} />
+                    <Tag text={`${stats.review} need review`} color={stats.review ? C.amber : C.g600} />
+                    <Tag text={`${stats.applied} saved`} color={stats.applied ? C.g600 : C.tx3} />
+                  </Row>
+                </Row>
+                <Row gap={8} wrap style={{ marginTop:10 }}>
+                  <Btn sz="sm" onClick={() => applyTrackingRows(true)} disabled={!stats.ready}>Save Ready Tracking + Mark Shipped</Btn>
+                  <Btn sz="sm" v="soft" onClick={clearAppliedLabelRows}>Hide Saved Rows</Btn>
+                  <Btn sz="sm" v="ghost" onClick={clearAllLabelRows}>Clear Review</Btn>
+                </Row>
+              </div>
+
+              {readyGroups.length > 0 && <div style={{ display:"grid", gap:8 }}>
+                <div style={{ fontWeight:900, color:C.g900 }}>✅ Ready to Save</div>
+                {readyGroups.map(g => {
+                  const isWhatnot = String(g.platformName || "").toLowerCase().includes("whatnot");
+                  const savedCount = savedTrackingCountForOrder(g.order);
+                  const totalAfterSave = savedCount + g.pendingRows.length;
+                  const ok = !isWhatnot || totalAfterSave === g.expected;
+                  return <div key={g.order.orderId} style={{ background:ok ? C.g50 : C.amberBg, border:`1px solid ${ok ? C.g200 : C.gold}99`, borderRadius:16, padding:12 }}>
+                    <Row between wrap gap={8} center>
+                      <div>
+                        <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>{g.order.customerName || "Customer"}</div>
+                        <div style={{ fontSize:11, color:C.tx3 }}>{g.platformName || "Platform"} · {g.order.city || ""} {g.order.state || ""} {g.order.zip || ""} · {safeArray(g.order.plants).length} plant(s)</div>
+                      </div>
+                      <Tag text={isWhatnot ? `${totalAfterSave}/${g.expected} box labels` : `${g.pendingRows.length} label(s)`} color={ok ? C.g600 : C.amber} />
+                    </Row>
+                    {savedCount > 0 && <div style={{ marginTop:8, fontSize:11, color:C.tx2, background:C.blueBg, border:`1px solid rgba(26,95,154,.18)`, borderRadius:10, padding:8 }}><b>Already saved on this order:</b> {getOrderTrackingList(g.order).map(t => `${t.carrier || "Carrier"} ${t.trackingNumber}`).join(" · ")}</div>}
+                    <div style={{ marginTop:9, display:"grid", gap:7 }}>{g.pendingRows.map((r, idx) => <div key={r.id} style={{ background:C.card, border:`1px solid ${C.bdS}`, borderRadius:12, padding:"8px 10px", fontSize:12 }}>
+                      <Row between wrap gap={8} center>
+                        <div><b>Box {savedCount + idx + 1}:</b> {r.carrier} <b>{r.trackingNumber}</b><div style={{ fontSize:10, color:C.tx3 }}>{r.fileName || "Label"} · {r.matchReason || "Matched"}</div></div>
+                        {trackingUrl(r.carrier, r.trackingNumber) && <a href={trackingUrl(r.carrier, r.trackingNumber)} target="_blank" style={{ color:C.blue, fontWeight:900, fontSize:11 }}>Track</a>}
+                      </Row>
+                    </div>)}</div>
+                    {!ok && <div style={{ marginTop:8, fontSize:11, fontWeight:900, color:C.amber }}>⚠️ Whatnot rule: 4 plants per box. Expected {g.expected} total box label(s); this order will have {totalAfterSave} after saving. Scan/upload the missing label or save anyway only if you are sure.</div>}
+                  </div>;
+                })}
+              </div>}
+
+              {needsReviewRows.length > 0 && <div style={{ display:"grid", gap:8 }}>
+                <div style={{ fontWeight:900, color:C.g900 }}>⚠️ Needs Review — choose the right customer</div>
+                <div className="ld-table-scroll" style={{ border:`1px solid ${C.bd}`, borderRadius:14, overflow:"hidden" }}>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, background:C.card }}>
+                    <thead><tr style={{ background:C.amberBg }}><th style={{ padding:8, textAlign:"left" }}>Tracking Found</th><th style={{ padding:8, textAlign:"left" }}>Choose Customer / Order</th><th style={{ padding:8, textAlign:"left" }}>Action</th></tr></thead>
+                    <tbody>{needsReviewRows.slice(0,50).map(row => {
+                      const eligible = eligibleOrdersForLabelRow(row);
+                      return <tr key={row.id} style={{ borderTop:`1px solid ${C.bdS}` }}>
+                        <td style={{ padding:8, verticalAlign:"top" }}><b>{row.carrier}</b> {row.trackingNumber}<div style={{ fontSize:10, color:C.tx3 }}>{row.fileName || "Label"}</div></td>
+                        <td style={{ padding:8, verticalAlign:"top" }}>
+                          <select value={row.matchedOrderId || ""} onChange={e => updateLabelRow(row.id, { matchedOrderId:e.target.value, status:e.target.value ? "Ready to Save" : "Needs Review", matchReason:e.target.value ? "Manual customer assignment" : "No match yet" })} style={{ width:"100%", padding:9, borderRadius:10, border:`1px solid ${C.bd}` }}>
+                            <option value="">Choose customer/order with open tracking slot</option>
+                            {eligible.map(o => <option key={o.orderId} value={o.orderId}>{o.customerName || "Buyer"} · {o.state || ""} · {o.plants.length} plant(s) · {String(orderPlatformName(o)||"").includes("Whatnot") ? `${Math.max(0, expectedBoxesForOrder(o) - savedTrackingCountForOrder(o) - pendingLabelRowsForOrder(o.orderId, row.id).length)} open / ${expectedBoxesForOrder(o)} boxes` : "open"} · {o.orderId}</option>)}
+                          </select>
+                          {!eligible.length && <div style={{ marginTop:6, fontSize:11, color:C.amber, fontWeight:900 }}>No open orders left. This usually means every customer already has the expected tracking labels saved or assigned.</div>}
+                          <div style={{ fontSize:10, color:C.tx3, marginTop:4 }}>{row.matchReason || "No confident customer match from label text"}</div>
+                        </td>
+                        <td style={{ padding:8, verticalAlign:"top" }}><Btn sz="sm" v="ghost" onClick={() => setLabelImportRows(prev => safeArray(prev).filter(x => x.id !== row.id))}>Remove</Btn></td>
+                      </tr>;
+                    })}</tbody>
+                  </table>
+                </div>
+              </div>}
+
+              {savedGroups.length > 0 && <details style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:14, padding:10 }}>
+                <summary style={{ cursor:"pointer", fontWeight:900, color:C.g900 }}>✅ Saved Tracking / Already Shipped</summary>
+                <div style={{ marginTop:8, display:"grid", gap:7 }}>{savedGroups.slice(0,30).map(g => <div key={g.order.orderId} style={{ background:C.card, border:`1px solid ${C.bdS}`, borderRadius:12, padding:9, fontSize:12 }}>
+                  <b>{g.order.customerName || "Customer"}</b> · {g.platformName || "Platform"} · {g.order.state || ""} · {safeArray(g.order.plants).length} plant(s)
+                  <div style={{ marginTop:4, display:"grid", gap:3 }}>{g.saved.map((t,i) => <div key={`${t.trackingNumber}-${i}`}>Box {i + 1}: {t.carrier || "Carrier"} <b>{t.trackingNumber}</b></div>)}</div>
+                </div>)}</div>
+              </details>}
+            </div>;
+          })()}
+          </Card>
         <Card style={{ marginBottom: 14, borderTop: `4px solid ${C.g700}` }}>
           <Row between wrap gap={10}>
             <div>
@@ -17363,6 +17752,7 @@ Cancel keeps this page local/free.`);
               const hasInsulation = ps.some(p => p.insulationAdded);
               const hasPaperwork = ps.some(p => p.paperworkAdded);
               const docChecked = ps.some(p => p.stateDocChecked);
+              const trackList = getOrderTrackingList(order);
               return <Card key={order.orderId} style={{ borderLeft: `5px solid ${statusColor(status)}`, background: chosen ? C.g50 : C.card }}>
                 <Row between wrap gap={10}>
                   <Row gap={9} center>
@@ -17382,7 +17772,7 @@ Cancel keeps this page local/free.`);
                 <div style={{ marginTop: 10, padding: 10, background: C.cardAlt, borderRadius: 10, fontSize: 12, color: C.tx2 }}>
                   {order.plants.map(p => <div key={p.id} style={{ padding: "3px 0" }}><b>{p.plantId || ""}</b> · {p.name} {p.potSize ? `· ${p.potSize}` : ""} · {$(p.salePrice)}</div>)}
                 </div>
-                {ps.some(p => p.trackingNumber) && <div style={{ marginTop:8, padding:9, borderRadius:10, background:C.blueBg, border:`1px solid rgba(26,95,154,.20)`, fontSize:12, color:C.tx2 }}><b>Tracking:</b> {ps.find(p => p.trackingNumber)?.carrier || "Carrier"} {ps.find(p => p.trackingNumber)?.trackingNumber}{trackingUrl(ps.find(p => p.trackingNumber)?.carrier, ps.find(p => p.trackingNumber)?.trackingNumber) && <a href={trackingUrl(ps.find(p => p.trackingNumber)?.carrier, ps.find(p => p.trackingNumber)?.trackingNumber)} target="_blank" style={{ marginLeft:8, color:C.blue, fontWeight:900 }}>Track</a>}</div>}
+                {trackList.length > 0 && <div style={{ marginTop:8, padding:9, borderRadius:10, background:C.blueBg, border:`1px solid rgba(26,95,154,.20)`, fontSize:12, color:C.tx2 }}><b>Tracking:</b><div style={{ marginTop:5, display:"grid", gap:4 }}>{trackList.map((t, i) => <div key={`${t.trackingNumber}-${i}`}>Box {i + 1}: {t.carrier || "Carrier"} {t.trackingNumber}{trackingUrl(t.carrier, t.trackingNumber) && <a href={trackingUrl(t.carrier, t.trackingNumber)} target="_blank" style={{ marginLeft:8, color:C.blue, fontWeight:900 }}>Track</a>}</div>)}</div></div>}
                 <Row gap={7} wrap style={{ marginTop: 10 }}>
                   <Btn sz="sm" v="soft" onClick={() => printSlip(order)}>Print Packing Slip</Btn>
                   <Btn sz="sm" onClick={() => updateOne(order, { fulfillmentStatus: "Packed", packedAt: new Date().toISOString() })}>Mark Packed</Btn>
