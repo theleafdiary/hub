@@ -1672,6 +1672,7 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
+    /* SHIPPING STATE DOCS PDF FIX — casd_certs RLS/cloud archive save is non-fatal; PDF download continues. */
     /* V106 STEP 1 CLEANUP: removed appended patcher UI, preserved working AI gateway, fixed Local AI model display, disabled heavy archive popup. */
     /* UPDATE 107 AI CONTROL CENTER CONSOLIDATION
        - Makes AI Doctor / Control Center the main setup screen.
@@ -13351,7 +13352,7 @@ Cancel keeps this local/free.`);
         {tab === "nursery" && <Card style={{ background: cardBg, borderColor: line }}><h3>Nursery Performance</h3><ReportTable cols={[{ k: "name", l: "Nursery" }, { k: "spent", l: "Total Spent", right: true, f: r => money(r.spent) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }, { k: "deathRate", l: "Death Rate", right: true, f: r => pct(r.deathRate) }, { k: "avgDays", l: "Avg Days To Sell", right: true, f: r => r.avgDays ?? "—" }]} rows={byNursery} /></Card>}
         {tab === "shows" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Profit Per Live Show</h3><ReportTable cols={[{ k: "show", l: "Show" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Sales", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "avg", l: "Avg Order", right: true, f: r => money(r.avg) }]} rows={showGroups.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Whatnot vs Palmstreet</h3><MiniBar data={byPlatform.filter(p => ["Whatnot", "Palmstreet"].includes(p.platform)).map(p => ({ label: p.platform, value: p.profit }))} labelKey="label" valueKey="value" moneyFmt /><h3 style={{ marginTop: 22 }}>Sales by Date</h3><MiniBar data={salesByDate.slice(-12).map(d => ({ label: d.date, value: d.rev }))} labelKey="label" valueKey="value" moneyFmt /></Card></div>}
         {tab === "customers" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Top Customers / Lifetime Value</h3><ReportTable cols={[{ k: "customer", l: "Customer" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Spend", right: true, f: r => money(r.rev) }, { k: "avg", l: "Avg", right: true, f: r => money(r.avg) }, { k: "rare", l: "Rare Buys", right: true }]} rows={byCustomer.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Customers by State</h3><ReportTable cols={[{ k: "state", l: "State" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }]} rows={customersByState.slice(0, 25)} /></Card></div>}
-        {tab === "legal" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><Row between center><h3>State Docs Compliance</h3><Btn v="outline" onClick={exportLegalCSV}>Download Docs CSV</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>{certStates.map(s => <KPI key={s.state} label={`${s.state} Docs`} value={s.count} color={s.count ? C.g600 : C.amber} />)}</div><div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}><KPI label="Possible Missing Docs" value={Math.max(0, missingDocAlerts)} color={missingDocAlerts > 0 ? C.red : C.g600} /><KPI label="Certificate Range" value={certNums.length ? `${certNums[0]}–${certNums[certNums.length - 1]}` : "None"} color={C.blue} /></div><p style={{ color: textMuted, fontSize: 12 }}>Retention tracker: keep every CA/AZ/TX/LA document for at least 3 years. Use the State Docs archive for the actual PDF downloads.</p></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Certificate Number History</h3><ReportTable cols={[{ k: "num", l: "Doc #", f: r => r.certNumber || r.documentNumber || r.number || "—" }, { k: "state", l: "State", f: r => r.state || r.destinationState || "—" }, { k: "customer", l: "Customer", f: r => r.customerName || r.shipToName || "—" }, { k: "date", l: "Date", f: r => r.createdAt || r.date || "—" }]} rows={certHistory} /></Card></div>}
+        {tab === "legal" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><Row between center><h3>Shipping State Docs Compliance</h3><Btn v="outline" onClick={exportLegalCSV}>Download Docs CSV</Btn></Row><div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>{certStates.map(s => <KPI key={s.state} label={`${s.state} Docs`} value={s.count} color={s.count ? C.g600 : C.amber} />)}</div><div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}><KPI label="Possible Missing Docs" value={Math.max(0, missingDocAlerts)} color={missingDocAlerts > 0 ? C.red : C.g600} /><KPI label="Certificate Range" value={certNums.length ? `${certNums[0]}–${certNums[certNums.length - 1]}` : "None"} color={C.blue} /></div><p style={{ color: textMuted, fontSize: 12 }}>Retention tracker: keep every CA/AZ/TX/LA document for at least 3 years. Use the Shipping State Docs archive for the actual PDF downloads.</p></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Certificate Number History</h3><ReportTable cols={[{ k: "num", l: "Doc #", f: r => r.certNumber || r.documentNumber || r.number || "—" }, { k: "state", l: "State", f: r => r.state || r.destinationState || "—" }, { k: "customer", l: "Customer", f: r => r.customerName || r.shipToName || "—" }, { k: "date", l: "Date", f: r => r.createdAt || r.date || "—" }]} rows={certHistory} /></Card></div>}
         {tab === "options" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Display Options</h3><p style={{ color: textMuted }}>Use Neon mode for a dark Leaf Diary look. Use employee-safe view when screen sharing so cost and profit are hidden.</p><Row gap={8} wrap><Btn onClick={() => setTheme("classic")}>Classic</Btn><Btn v="gold" onClick={() => setTheme("neon")}>Neon Dark</Btn><Btn v="soft" onClick={() => setSafeMode(!safeMode)}>{safeMode ? "Show Money" : "Hide Money"}</Btn></Row></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Exports</h3><p style={{ color: textMuted }}>CSV export, legal archive export, and Print / Save PDF are built in. Browser print can save the report as a PDF.</p><Row gap={8} wrap><Btn v="outline" onClick={exportCSV}>Export Report CSV</Btn><Btn v="outline" onClick={exportLegalCSV}>Export Legal CSV</Btn><Btn v="soft" onClick={() => window.print()}>Print / PDF</Btn></Row></Card></div>}
         <style>{`@media(max-width:900px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: 2fr 1fr 1fr"],div[style*="grid-template-columns: 1.5fr 1fr"],div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}} @media print{button,nav,.no-print{display:none!important;} body{background:#fff!important;} }`}</style>
       </div>;
@@ -15039,7 +15040,7 @@ Cancel keeps this local/free.`);
               ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
               ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
               ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 Buy Smart"], ["tax", "🧾 Tax Center"],
-              ["audit", "🔍 Audit Log"], ["admin", "⚙️ Admin"], ["cleanup", "🧹 Owner Repair Tools"], ["casd", "📜 State Docs"]
+              ["audit", "🔍 Audit Log"], ["admin", "⚙️ Admin"], ["cleanup", "🧹 Owner Repair Tools"], ["casd", "📜 Shipping State Docs"]
             ];
             const employeeChoices = [
               ["emp_dash", "🏠 My Dashboard"], ["aihub", "🤖 AI Help"], ["social", "📣 Social Drafts"], ["liveshow", "🎥 Live Show"], ["receipts", "🧾 Receipts"], ["inv", "🌿 Inventory"],
@@ -15472,7 +15473,7 @@ Cancel keeps this local/free.`);
           const newCert = { id:uid(), certNumber, date:dateStr, destination:dest, consigneeName:consignee.name, consigneeAddress:[consignee.address1,consignee.address2].filter(Boolean).join(", "), consigneePhone:consignee.phone||"", plants:ps, plantCount:ps.length, pdfFilename:filename, ...cloudPdf, createdAt:new Date().toISOString(), createdBy:user.name, autoGenerated:false };
           const mergedArchive = await persistCasdCertArchive([newCert, ...(casdCerts || [])]);
           setCasdCerts(() => mergedArchive);
-          addAudit({ action:`CASD Certificate #${certNumber} manually generated and archived for ${consignee.name} (${dest})`, user:user.name, page:"CASD Certificates" });
+          addAudit({ action:`CASD Certificate #${certNumber} manually generated and archived for ${consignee.name} (${dest})`, user:user.name, page:"Shipping State Docs" });
           const blob=new Blob([pdfBytes],{type:"application/pdf"});
           const url=URL.createObjectURL(blob);
           Object.assign(document.createElement("a"),{href:url,download:filename}).click();
@@ -15510,7 +15511,7 @@ Cancel keeps this local/free.`);
 
       return (
         <div style={{padding:"14px 14px 90px",background:C.bg,minHeight:"100vh"}}>
-          <SHdr icon="📜" title="Plant Shipping State Documents"
+          <SHdr icon="📜" title="Shipping State Docs"
             sub="CA/AZ use the California-Arizona document. TX/LA use FDACS-08270 Consolidation Declaration for Florida Nursery Stock Destined to Texas or Louisiana."
             right={
               <Row gap={8}>
@@ -16718,7 +16719,7 @@ Cancel keeps this page local/free.`);
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkPaperwork} onChange={e => setBulkPaperwork(e.target.checked)} /> Paperwork Added</label>
           </div>
           <Row gap={10} wrap center style={{ marginTop: 10 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkStateDocs} onChange={e => setBulkStateDocs(e.target.checked)} /> State Docs Checked</label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkStateDocs} onChange={e => setBulkStateDocs(e.target.checked)} /> Shipping State Docs Checked</label>
             <Inp label="Bulk Note" value={bulkNote} onChange={setBulkNote} placeholder="Example: Packed by Malasia, waiting for Whatnot label..." />
             <Btn onClick={applyBulk} disabled={!selectedIds.length}>Apply to Selected Orders</Btn>
             <Btn v="ghost" onClick={() => setSelected({})}>Clear Selection</Btn>
@@ -18569,7 +18570,7 @@ Cancel if you want to save money.`);
               const mergedArchive = await persistCasdCertArchive([...(newCerts || []), ...(window.__casdCertsSnapshot || [])]);
               setCasdCerts(() => mergedArchive);
               addAudit({ action:`Auto-generated and archived ${newCerts.length} plant shipping state document(s) for CA/AZ/TX/LA shipments from ${platform} import`, user:user.name, page:"Show Import" });
-              setImportMsg(prev => prev + ` | ✅ ${newCerts.length} state shipping document(s) auto-generated, downloaded, and permanently archived in 📜 State Docs tab. PRINT and place one with each shipment.`);
+              setImportMsg(prev => prev + ` | ✅ ${newCerts.length} state shipping document(s) auto-generated, downloaded, and permanently archived in 📜 Shipping State Docs tab. PRINT and place one with each shipment.`);
             }
           } catch(e) {
             console.error("CASD auto-gen failed:", e);
@@ -19720,7 +19721,7 @@ Cancel if you want to save money.`);
     }
 
     async function saveCasdPdfToCloud(pdfBytes, filename, meta = {}) {
-      /* Real file storage for Plant Shipping State Documents.
+      /* Real file storage for Shipping State Docs.
          The archive row is saved in casd_certs; the PDF file is saved in Supabase Storage.
          If the storage bucket is not created yet, the app falls back to pdfBase64 so the document is still saved. */
       const cleanFilename = safeStorageName(filename);
@@ -19796,18 +19797,26 @@ Cancel if you want to save money.`);
     }
 
     async function persistCasdCertArchive(certs) {
-      /* Save Plant Shipping State Documents in TWO cloud places:
-         1) casd_certs row table for normal archive listing
-         2) app_state.casdCerts backup so refresh still restores records even if the table/bucket is missing
-         Also saves localStorage immediately. */
+      /* Shipping State Docs archive safety fix.
+         IMPORTANT: PDF creation/download must NEVER fail just because Supabase RLS blocks
+         the casd_certs cloud archive row. The legal document is saved locally first, then
+         cloud archive is attempted as best-effort only. */
       const existingLocal = loadCasdCertsFromLocalBackup();
       const liveSnapshot = window.__casdCertsSnapshot || [];
       const merged = mergeCasdCertLists(certs || [], [...existingLocal, ...liveSnapshot]);
+
+      // Always save local first so the PDF/doc record is not lost if cloud RLS rejects casd_certs.
       saveCasdCertsToLocalBackup(merged);
-      const errors = [];
-      try { await cloudUpsertRows("casd_certs", merged); } catch (e) { errors.push("casd_certs: " + (e?.message || String(e))); console.error("CASD table save failed", e); }
-      /* Egress fix: do not duplicate State Doc PDF archive into app_state. casd_certs table + local backup are enough. */
-      if (errors.length === 1) throw new Error("Archive cloud save failed. " + errors.join(" | "));
+
+      try {
+        await cloudUpsertRows("casd_certs", merged);
+        window.__casdArchiveCloudWarning = "";
+      } catch (e) {
+        const msg = "casd_certs cloud archive blocked; saved locally instead: " + (e?.message || String(e));
+        window.__casdArchiveCloudWarning = msg;
+        console.warn("Shipping State Docs cloud archive save failed; continuing with local archive so PDF download still works.", e);
+      }
+
       return merged;
     }
 
