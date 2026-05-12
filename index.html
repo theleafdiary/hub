@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V125R</title>
+  <title>LEAF DIARY - BUSINESS HUB · V130 Clean Market Search</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -1518,6 +1518,20 @@
       max-width:520px;
       min-width:160px;
     }
+    .ld-header-datetime {
+      flex: 0 0 auto;
+      color: #97d33e;
+      background: rgba(151,211,62,.10);
+      border: 1px solid rgba(151,211,62,.36);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 11px;
+      line-height: 1.15;
+      font-weight: 900;
+      white-space: nowrap;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.035);
+    }
     .ld-header-search-input {
       width:100%;
       height:38px;
@@ -1623,6 +1637,13 @@
         min-width:0;
         max-width:none;
       }
+      .ld-header-datetime {
+        font-size: 10px;
+        padding: 5px 7px;
+        max-width: 112px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
       .ld-header-search-input {
         height:38px;
         font-size:13px !important;
@@ -1706,12 +1727,12 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V129R",
-      name: "Quick Start Activity + Google Market Search",
-      date: "2026-05-11",
+      id: "V130R",
+      name: "Clean Market Search + Header Date/Time",
+      date: "2026-05-12",
       base: "V128R Full Activity Audit Log on index (59).html stable backup",
-      safety: "Adds activity-log access and safer Google-first market-price search; home screen business calculations, auth, orders, and shipping docs untouched",
-      nextPhase: "Test market price lookup after Worker V129R deploy; verify Activity Log shortcuts on MacBook + iPhone"
+      safety: "Updates market-price search labels to match the real sources searched and adds live date/time to the header; home screen business calculations, auth, orders, and shipping docs untouched",
+      nextPhase: "Test market price lookup after clean Worker deploy; verify header date/time on MacBook + iPhone"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -2352,8 +2373,8 @@
         };
       }).filter(s => s.priceUSD > 0);
       const trustedSources = sources.filter(s => s.includedInMarketMedian !== false && ["exact","close"].includes(s.potSizeMatchQuality));
-      const whatnot = trustedSources.filter(s => /whatnot/i.test(s.platform)).map(s=>s.priceUSD);
-      const palmstreet = trustedSources.filter(s => /palmstreet/i.test(s.platform)).map(s=>s.priceUSD);
+      const retail = trustedSources.filter(s => !/etsy|ebay/i.test(s.platform)).map(s=>s.priceUSD);
+      const marketplace = trustedSources.filter(s => /etsy|ebay/i.test(s.platform)).map(s=>s.priceUSD);
       const prices = trustedSources.map(s=>s.priceUSD);
       const allPrices = sources.map(s=>s.priceUSD);
       const trustedCount = trustedSources.length;
@@ -2371,8 +2392,8 @@
         dataPointCount: trustedCount,
         excludedByPotSizeCount: sources.length - trustedCount,
         marketMedianPrice: Math.round((phase83Median(prices) || 0) * 100) / 100,
-        whatnotMedian: whatnot.length ? Math.round(phase83Median(whatnot) * 100) / 100 : null,
-        palmstreetMedian: palmstreet.length ? Math.round(phase83Median(palmstreet) * 100) / 100 : null,
+        retailMedian: retail.length ? Math.round(phase83Median(retail) * 100) / 100 : null,
+        marketplaceMedian: marketplace.length ? Math.round(phase83Median(marketplace) * 100) / 100 : null,
         lowestFound: Math.round(((prices.length ? Math.min(...prices) : 0) || 0) * 100) / 100,
         highestFound: Math.round(((prices.length ? Math.max(...prices) : 0) || 0) * 100) / 100,
         allListingsLowestFound: Math.round(((allPrices.length ? Math.min(...allPrices) : 0) || 0) * 100) / 100,
@@ -2393,7 +2414,7 @@
       const altName = /carmel marble/i.test(name) ? String(name).replace(/carmel/ig, "Caramel") : /caramel marble/i.test(name) ? String(name).replace(/caramel/ig, "Carmel") : "";
       const minMargin = Math.round(cfg.minMarginPct);
       const isoDate = today();
-      return `You are a rare plant market pricing analyst for Leaf Diary, a Florida-based plant reseller that sells live on Whatnot and also prices against Google/web retail listings, Etsy, eBay, and independent rare-plant shops.
+      return `You are a rare plant market pricing analyst for Leaf Diary, a Florida-based plant reseller that prices plants against Google/web retail listings, Etsy, eBay, and independent rare-plant shops.
 
 TASK: Research the current retail market price for the following plant and return a structured JSON object with 20 or more real market data points.
 
@@ -2409,22 +2430,20 @@ STRICT POT SIZE RULES:
 - Search exact-size phrases first, for example '${name} ${potNorm}', '${name} ${potNorm} pot', and '${name} ${potNorm} plant'.
 - Do NOT mix 2 inch, 3 inch, 4 inch, 6 inch, starter plug, node cutting, bare-root, gallon, or mature specimen prices into the marketMedianPrice unless they are the same or a clearly close match.
 - Every source must include observedPotSize and potSizeMatch: exact, close, mismatch, or unknown.
-- marketMedianPrice, whatnotMedian, lowestFound, and highestFound must be calculated from exact/close pot-size matches only. Set palmstreetMedian to null; Palmstreet is intentionally excluded because its search results are unreliable for sale-listing pricing.
+- marketMedianPrice, retailMedian, marketplaceMedian, lowestFound, and highestFound must be calculated from exact/close pot-size matches only. Do not calculate medians from blocked live-sale marketplace search results.
 - Still include mismatch/unknown-size listings in dataSources for transparency, but mark them potSizeMatch: mismatch or unknown. Those are excluded from the median.
 
 RESEARCH INSTRUCTIONS:
-Do NOT search Palmstreet and do NOT use Palmstreet as a pricing source. Palmstreet search often returns news/content instead of active plant sale listings.
 Search these sources in this order:
 1. Google/general web product pages for 'buy ${name} ${potNorm} plant price' and '${name} ${potNorm} rooted potted plant for sale'
 2. Independent rare-plant retailer/nursery product pages with visible prices, such as Plant Proper, BWH Plant Co, Canopy Plant Co, Ecuagenera, NSE Tropicals, Steve's Leaves, Gabriella Plants, The Green Escape, Aroid Market, Orange Lake Nursery, and similar stores
 3. Etsy current listings and sold-style listing snippets for '${name} ${potNorm} plant'
 4. eBay sold/completed and current listings for '${name} ${potNorm} houseplant'
-5. Whatnot sold/completed/listing results when available for '${name} ${potNorm}'
 
-Find real individual price data points from sale/product/listing pages only. Prefer sold/completed prices over asking prices when available, but retailer asking prices are acceptable if sold data is sparse. Exclude news articles, care guides, blog posts without sale prices, Pinterest, Facebook posts, Reddit chatter, Palmstreet, damaged plants, no-photo listings, node-only, unrooted cutting, seed, corm, or tissue-culture-only listings unless the plant being priced is clearly that same format.
+Find real individual price data points from sale/product/listing pages only. Prefer sold/completed prices over asking prices when available, but retailer asking prices are acceptable if sold data is sparse. Exclude news articles, care guides, blog posts without sale prices, Pinterest, Facebook posts, Reddit chatter, damaged plants, no-photo listings, node-only, unrooted cutting, seed, corm, or tissue-culture-only listings unless the plant being priced is clearly that same format.
 
 IMPORTANT GATEWAY RULE:
-If your runtime does not have live web search/browsing tools enabled, do NOT estimate or invent prices. Return the JSON format below with dataSources: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and marketNotes: "WEB_SEARCH_NOT_AVAILABLE — Gateway/model answered but could not browse live marketplaces."
+If your runtime does not have live web search/browsing tools enabled, do NOT estimate or invent prices. Return the JSON format below with dataSources: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and marketNotes: "WEB_SEARCH_NOT_AVAILABLE — Gateway/model answered but could not browse live market sources."
 
 RETURN FORMAT — return ONLY this JSON object, no other text:
 {
@@ -2447,8 +2466,8 @@ RETURN FORMAT — return ONLY this JSON object, no other text:
   ],
   "dataPointCount": 0,
   "marketMedianPrice": 0,
-  "whatnotMedian": null,
-  "palmstreetMedian": null,
+  "retailMedian": null,
+  "marketplaceMedian": null,
   "googleRetailMedian": null,
   "lowestFound": 0,
   "highestFound": 0,
@@ -2540,7 +2559,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const fallback = {
         plantName: plant.name || "Plant",
         potSize: plant.potSize || "",
-        dataSources: [], dataPointCount: 0, allSourceCount:0, excludedByPotSizeCount:0, marketMedianPrice: 0, whatnotMedian: null, palmstreetMedian: null,
+        dataSources: [], dataPointCount: 0, allSourceCount:0, excludedByPotSizeCount:0, marketMedianPrice: 0, retailMedian: null, marketplaceMedian: null,
         lowestFound: 0, highestFound: 0, confidenceScore: 0, confidenceNote: reason, dataAge: "stale"
       };
       return { ...calcAIMarketPrice(plant, fallback, settings, allPlants), suggestedPrice:+pps.suggestedPrice || 0, margin:+pps.margin || 0, priceStatus:"fallback", priceReason:reason };
@@ -2636,7 +2655,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     }
     function MarketPriceLoadingPanel({ plant = {}, onCancel }) {
       const [step, setStep] = useState(0);
-      const steps = ["Searching Whatnot sold listings", "Checking Palmstreet listings", "Looking up Etsy, eBay, and web prices", "Analyzing market median + profit guard"];
+      const steps = ["Searching Google/web retail prices", "Checking independent plant shops and nurseries", "Looking up Etsy and eBay prices", "Analyzing market median + profit guard"];
       useEffect(() => {
         const timers = [1000, 3000, 5000, 7000].map((ms, idx) => setTimeout(() => setStep(idx), ms));
         return () => timers.forEach(clearTimeout);
@@ -2649,7 +2668,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             <div style={{ height:7, background:C.g100, borderRadius:99, overflow:"hidden", marginTop:7 }}><div style={{ width:`${i < step ? 100 : i === step ? 62 : 8}%`, height:"100%", background:i <= step ? C.blue : C.bd, borderRadius:99, transition:"width .4s ease" }} /></div>
           </div>)}
         </div>
-        <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:10 }}>Gateway pricing runs only after you click Research. If the Gateway cannot return real marketplace JSON, the app will fall back safely and explain why.</div>
+        <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:10 }}>Gateway pricing runs only after you click Research. It searches Google/web retail, independent plant shops, Etsy, and eBay. If the Gateway cannot return real market-price JSON, the app will fall back safely and explain why.</div>
         {onCancel && <Row style={{ marginTop:10 }}><Btn sz="sm" v="ghost" onClick={onCancel}>Cancel</Btn></Row>}
       </div>;
     }
@@ -2683,8 +2702,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:12 }}>
           <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Market Median</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:28, fontWeight:950 }}>{median ? $(median) : "—"}</div></div>
-          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Whatnot</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>{r.whatnotMedian ? $(r.whatnotMedian) : "—"}</div></div>
-          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Palmstreet</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>{r.palmstreetMedian ? $(r.palmstreetMedian) : "—"}</div></div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Retail Shops</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>{r.retailMedian ? $(r.retailMedian) : "—"}</div></div>
+          <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Etsy / eBay</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:24, fontWeight:950 }}>{r.marketplaceMedian ? $(r.marketplaceMedian) : "—"}</div></div>
           <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:13, padding:10 }}><div style={{ fontSize:10, fontWeight:900, color:C.tx3, textTransform:"uppercase" }}>Range</div><div style={{ fontFamily:F.display, color:C.g900, fontSize:18, fontWeight:950 }}>{r.lowestFound ? `${$(r.lowestFound)} - ${$(r.highestFound)}` : "—"}</div></div>
         </div>
 
@@ -2759,11 +2778,11 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const [mode, setMode] = useState("competitive");
       const [applied, setApplied] = useState(null);
       const basePlant = { id:"qa-mp-panel", plantId:"QA-084", name:"Monstera Deliciosa", potSize:'4"', cost:8, suggestedPrice:15, status:"In Stock", dateAdded:today() };
-      const strongSources = Array.from({ length: 22 }, (_,i)=>({ platform:i % 4 === 0 ? "Whatnot" : i % 4 === 1 ? "Palmstreet" : i % 4 === 2 ? "Etsy" : "eBay", title:`Monstera Deliciosa 4 inch plant listing ${i+1}`, observedPotSize:'4"', potSizeMatch:"exact", url:"https://example.com/source-" + (i+1), priceUSD:20 + (i % 9), type:i % 3 === 0 ? "sold" : "asking", listingDate:today(), evidence:"Listing title includes 4 inch" }));
+      const strongSources = Array.from({ length: 22 }, (_,i)=>({ platform:i % 4 === 0 ? "Google/Web Retail" : i % 4 === 1 ? "Rare Plant Shop" : i % 4 === 2 ? "Etsy" : "eBay", title:`Monstera Deliciosa 4 inch plant listing ${i+1}`, observedPotSize:'4"', potSizeMatch:"exact", url:"https://example.com/source-" + (i+1), priceUSD:20 + (i % 9), type:i % 3 === 0 ? "sold" : "asking", listingDate:today(), evidence:"Listing title includes 4 inch" }));
       const dataByMode = {
-        competitive: calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources, dataPointCount:22, marketMedianPrice:26, whatnotMedian:24, palmstreetMedian:28, confidenceScore:88, dataAge:"recent" }, settings, [basePlant]),
-        at_floor: calcAIMarketPrice({ ...basePlant, cost:11 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources.map(s=>({ ...s, priceUSD:30 + (s.priceUSD % 6) })), dataPointCount:20, marketMedianPrice:32, whatnotMedian:31, palmstreetMedian:34, confidenceScore:82, dataAge:"recent" }, settings, [{ ...basePlant, cost:11 }]),
-        margin_risk: calcAIMarketPrice({ ...basePlant, cost:42, suggestedPrice:45 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources.map(s=>({ ...s, priceUSD:24 + (s.priceUSD % 4) })), dataPointCount:20, marketMedianPrice:26, whatnotMedian:25, palmstreetMedian:28, confidenceScore:85, dataAge:"recent" }, settings, [{ ...basePlant, cost:42 }]),
+        competitive: calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources, dataPointCount:22, marketMedianPrice:26, retailMedian:25, marketplaceMedian:27, confidenceScore:88, dataAge:"recent" }, settings, [basePlant]),
+        at_floor: calcAIMarketPrice({ ...basePlant, cost:11 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources.map(s=>({ ...s, priceUSD:30 + (s.priceUSD % 6) })), dataPointCount:20, marketMedianPrice:32, retailMedian:31, marketplaceMedian:34, confidenceScore:82, dataAge:"recent" }, settings, [{ ...basePlant, cost:11 }]),
+        margin_risk: calcAIMarketPrice({ ...basePlant, cost:42, suggestedPrice:45 }, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:strongSources.map(s=>({ ...s, priceUSD:24 + (s.priceUSD % 4) })), dataPointCount:20, marketMedianPrice:26, retailMedian:25, marketplaceMedian:28, confidenceScore:85, dataAge:"recent" }, settings, [{ ...basePlant, cost:42 }]),
         low_confidence: calcAIMarketPrice(basePlant, { plantName:basePlant.name, potSize:basePlant.potSize, dataSources:[{ platform:"Web", title:"Monstera Deliciosa 4 inch", observedPotSize:'4"', potSizeMatch:"exact", priceUSD:19, type:"asking", listingDate:today() }, { platform:"Etsy", title:"Monstera Deliciosa 6 inch", observedPotSize:'6"', potSizeMatch:"mismatch", priceUSD:21, type:"asking", listingDate:today() }], dataPointCount:2, marketMedianPrice:20, confidenceScore:18, dataAge:"mixed" }, settings, [basePlant]),
       };
       const result = dataByMode[mode] || dataByMode.competitive;
@@ -2820,8 +2839,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         dataSources: [],
         dataPointCount: 0,
         marketMedianPrice: localMedian,
-        whatnotMedian: null,
-        palmstreetMedian: null,
+        retailMedian: null,
+        marketplaceMedian: null,
         lowestFound: 0,
         highestFound: 0,
         confidenceScore: 0,
@@ -5138,6 +5157,18 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const [appSearchHelp, setAppSearchHelp] = useState(null);
       const headerSearchRef = useRef(null);
       const headerSearchInputRef = useRef(null);
+      const [ldHeaderNow, setLdHeaderNow] = useState(() => new Date());
+      useEffect(() => {
+        const timer = setInterval(() => setLdHeaderNow(new Date()), 30000);
+        return () => clearInterval(timer);
+      }, []);
+      const ldHeaderDateTime = (() => {
+        try {
+          return ldHeaderNow.toLocaleString("en-US", { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+        } catch(e) {
+          return "";
+        }
+      })();
       const role = user?.role || "employee";
       const tools = getToolsForRole(role);
       const [simpleMode, setSimpleMode] = useState(() => ldV121ReadSimpleMode());
@@ -5297,6 +5328,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               </button>) : <div className="ld-header-search-help">Type what you need, then choose Ask AI for a suggested page.</div>}
             </div>}
           </div>
+          <div className="ld-header-datetime" title="Current date and time">{ldHeaderDateTime}</div>
           <Row gap={7} center style={{ flexShrink:0 }}>
             {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
             <button className="ld-theme-toggle" onClick={()=>{ if (onToggleTheme) onToggleTheme(); }} aria-label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>{themeMode === "dark" ? "☀️" : "🌙"}</button>
@@ -23018,7 +23050,7 @@ Answer with a practical action plan for Leaf Diary.`;
     function phase4DetectRoute(question = "") {
       const q = String(question || "").toLowerCase();
       const tests = [
-        ["pricing", ["market price", "research market", "market pricing", "price lookup", "competitive price", "sold listings", "etsy sold", "ebay sold", "whatnot sold", "google plant price", "buy plant online"]],
+        ["pricing", ["market price", "research market", "market pricing", "price lookup", "competitive price", "sold listings", "etsy price", "ebay price", "google plant price", "retail plant price", "buy plant online"]],
         ["finance", ["profit", "cash", "bill", "payroll", "tax", "margin", "expense", "owed", "forecast", "money", "loss", "fees", "bank"]],
         ["receipts", ["receipt", "invoice", "ocr", "photo", "scan", "vendor", "walmart", "gas", "category", "document"]],
         ["shows", ["whatnot", "palmstreet", "show", "live", "auction", "opening bid", "run tonight", "seller", "bundle", "clearance"]],
