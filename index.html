@@ -1706,12 +1706,12 @@
        Home screen, auth, AI, imports, pricing, shipping docs, and Supabase logic are not changed.
     */
     const LD_BUILD_INFO = {
-      id: "V128R",
-      name: "Full Activity Audit Log",
+      id: "V129R",
+      name: "Quick Start Activity + Google Market Search",
       date: "2026-05-11",
-      base: "V127A Change Log Note Hotfix on index (59).html stable backup",
-      safety: "Tracks app actions and data changes from this version forward; home screen, auth, pricing, orders logic, and shipping docs untouched",
-      nextPhase: "Test activity logging on MacBook + iPhone, then decide the next business workflow"
+      base: "V128R Full Activity Audit Log on index (59).html stable backup",
+      safety: "Adds activity-log access and safer Google-first market-price search; home screen business calculations, auth, orders, and shipping docs untouched",
+      nextPhase: "Test market price lookup after Worker V129R deploy; verify Activity Log shortcuts on MacBook + iPhone"
     };
     try { window.LEAF_DIARY_BUILD = LD_BUILD_INFO; } catch(e) {}
 
@@ -2393,7 +2393,7 @@
       const altName = /carmel marble/i.test(name) ? String(name).replace(/carmel/ig, "Caramel") : /caramel marble/i.test(name) ? String(name).replace(/caramel/ig, "Carmel") : "";
       const minMargin = Math.round(cfg.minMarginPct);
       const isoDate = today();
-      return `You are a rare plant market pricing analyst for Leaf Diary, a Florida-based plant reseller that sells live on Palmstreet and Whatnot.
+      return `You are a rare plant market pricing analyst for Leaf Diary, a Florida-based plant reseller that sells live on Whatnot and also prices against Google/web retail listings, Etsy, eBay, and independent rare-plant shops.
 
 TASK: Research the current retail market price for the following plant and return a structured JSON object with 20 or more real market data points.
 
@@ -2409,18 +2409,19 @@ STRICT POT SIZE RULES:
 - Search exact-size phrases first, for example '${name} ${potNorm}', '${name} ${potNorm} pot', and '${name} ${potNorm} plant'.
 - Do NOT mix 2 inch, 3 inch, 4 inch, 6 inch, starter plug, node cutting, bare-root, gallon, or mature specimen prices into the marketMedianPrice unless they are the same or a clearly close match.
 - Every source must include observedPotSize and potSizeMatch: exact, close, mismatch, or unknown.
-- marketMedianPrice, whatnotMedian, palmstreetMedian, lowestFound, and highestFound must be calculated from exact/close pot-size matches only.
+- marketMedianPrice, whatnotMedian, lowestFound, and highestFound must be calculated from exact/close pot-size matches only. Set palmstreetMedian to null; Palmstreet is intentionally excluded because its search results are unreliable for sale-listing pricing.
 - Still include mismatch/unknown-size listings in dataSources for transparency, but mark them potSizeMatch: mismatch or unknown. Those are excluded from the median.
 
 RESEARCH INSTRUCTIONS:
+Do NOT search Palmstreet and do NOT use Palmstreet as a pricing source. Palmstreet search often returns news/content instead of active plant sale listings.
 Search these sources in this order:
-1. Whatnot completed/sold listings for '${name} ${potNorm}'
-2. Palmstreet current listings for '${name} ${potNorm}'
-3. Etsy sold/current listings for '${name} ${potNorm} plant'
-4. eBay sold/current listings for '${name} ${potNorm} houseplant'
-5. General web search: 'buy ${name} ${potNorm} online ${new Date().getFullYear()} price'
+1. Google/general web product pages for 'buy ${name} ${potNorm} plant price' and '${name} ${potNorm} rooted potted plant for sale'
+2. Independent rare-plant retailer/nursery product pages with visible prices, such as Plant Proper, BWH Plant Co, Canopy Plant Co, Ecuagenera, NSE Tropicals, Steve's Leaves, Gabriella Plants, The Green Escape, Aroid Market, Orange Lake Nursery, and similar stores
+3. Etsy current listings and sold-style listing snippets for '${name} ${potNorm} plant'
+4. eBay sold/completed and current listings for '${name} ${potNorm} houseplant'
+5. Whatnot sold/completed/listing results when available for '${name} ${potNorm}'
 
-Find at least 20 individual price data points across these sources. Prefer sold/completed prices over asking prices. Exclude listings older than 90 days from the median. Exclude damaged, diseased, no-photo, node-only, unrooted cutting, seed, corm, or tissue-culture-only listings unless the plant being priced is clearly that same format.
+Find real individual price data points from sale/product/listing pages only. Prefer sold/completed prices over asking prices when available, but retailer asking prices are acceptable if sold data is sparse. Exclude news articles, care guides, blog posts without sale prices, Pinterest, Facebook posts, Reddit chatter, Palmstreet, damaged plants, no-photo listings, node-only, unrooted cutting, seed, corm, or tissue-culture-only listings unless the plant being priced is clearly that same format.
 
 IMPORTANT GATEWAY RULE:
 If your runtime does not have live web search/browsing tools enabled, do NOT estimate or invent prices. Return the JSON format below with dataSources: [], dataPointCount: 0, marketMedianPrice: 0, confidenceScore: 0, and marketNotes: "WEB_SEARCH_NOT_AVAILABLE — Gateway/model answered but could not browse live marketplaces."
@@ -2433,8 +2434,8 @@ RETURN FORMAT — return ONLY this JSON object, no other text:
   "searchDate": "${isoDate}",
   "dataSources": [
     {
-      "platform": "Whatnot",
-      "title": "listing title here",
+      "platform": "Google/Web Retail",
+      "title": "retailer/listing title here",
       "priceUSD": 22,
       "type": "sold",
       "listingDate": "${isoDate}",
@@ -2448,6 +2449,7 @@ RETURN FORMAT — return ONLY this JSON object, no other text:
   "marketMedianPrice": 0,
   "whatnotMedian": null,
   "palmstreetMedian": null,
+  "googleRetailMedian": null,
   "lowestFound": 0,
   "highestFound": 0,
   "confidenceScore": 0,
@@ -5628,6 +5630,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         </div>
         <OnboardingChecklist user={user} plants={plants} timecards={timecards} settings={{}} nurseries={[]} setPage={setPage} compact={true} />
         <Phase73EmployeeAITasks plants={plants} receipts={[]} timecards={timecards} users={[]} user={user} setPage={setPage} mode="employee" compact={true} />
+        <ChangeLogQuickCard setPage={setPage} compact={true} />
         <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
           {buttons.map(([label,id,icon,sub]) => <button key={id+label} onClick={()=>setPage(id)} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:22, padding:"18px 16px", textAlign:"left", cursor:"pointer", boxShadow:"0 8px 24px rgba(13,43,26,.07)", fontFamily:F.body }}>
             <Row gap={14} center>
@@ -5743,6 +5746,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <PulseCard icon="📦" label="Orders To Review" value={readyOrders.length} sub="after-show sold groups" color={readyOrders.length ? C.amber : C.g600} page="ship" />
           <PulseCard icon="⚡" label="Plant Actions" value={actionCount} sub="photos, labels, prices, aging" color={actionCount ? C.amber : C.g600} page="plants_ws" />
         </div>
+
+        <ChangeLogQuickCard setPage={setPage} />
 
         {(isOwner || role === "manager") && <Phase80AuctionDailyCard plants={allPlants} settings={settings} role={role} setPage={setPage} compact />}
         {(isOwner || role === "manager") && <Phase81AuctionPicksPanel plants={allPlants} settings={settings} setPage={setPage} compact title="Today's Best Palmstreet Auction Picks" />}
@@ -14373,6 +14378,8 @@ Cancel keeps this local/free.`);
       const [note, setNote] = useState("");
       const [noteStatus, setNoteStatus] = useState("");
       const [filter, setFilter] = useState("");
+      const [dateView, setDateView] = useState("today");
+      const [categoryView, setCategoryView] = useState("all");
       const refresh = () => setRows(combinedRows());
       useEffect(() => { refresh(); const h = () => refresh(); window.addEventListener(LD_CHANGE_LOG_EVENT, h); return () => window.removeEventListener(LD_CHANGE_LOG_EVENT, h); }, [auditLog?.length]);
       const addNote = () => {
@@ -14406,8 +14413,17 @@ Cancel keeps this local/free.`);
         if (/warning|review|safe/.test(x)) return C.amber;
         return C.blue;
       };
-      const visibleRows = rows.filter(r => { const q = String(filter || "").toLowerCase().trim(); if (!q) return true; return [r.message, r.type, r.meta?.by, r.meta?.page, r.meta?.table, r.meta?.key, r.meta?.device].some(v => String(v || "").toLowerCase().includes(q)); });
+      const startOfDay = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
       const rowsToday = rows.filter(r => String(r?.at || "").slice(0,10) === today());
+      const rowsYesterday = rows.filter(r => {
+        const t = new Date(r?.at || 0).getTime();
+        const start = startOfDay(new Date());
+        return t >= start - 86400000 && t < start;
+      });
+      const rowsWeek = rows.filter(r => (Date.now() - new Date(r?.at || 0).getTime()) <= 7*86400000);
+      const baseRowsByDate = dateView === "today" ? rowsToday : dateView === "yesterday" ? rowsYesterday : dateView === "week" ? rowsWeek : rows;
+      const rowsByCategory = baseRowsByDate.filter(r => categoryView === "all" || ldV129ChangeCategory(r) === categoryView || (categoryView === "Needs Review" && /review|warning|error|conflict|fail/i.test(`${r?.type || ""} ${r?.message || ""}`)));
+      const visibleRows = rowsByCategory.filter(r => { const q = String(filter || "").toLowerCase().trim(); if (!q) return true; return [r.message, r.type, r.meta?.by, r.meta?.page, r.meta?.table, r.meta?.key, r.meta?.device, ldV129ChangeCategory(r)].some(v => String(v || "").toLowerCase().includes(q)); });
       const counts = {
         today: rowsToday.length,
         saves: rows.filter(r => /save|sync|backup|snapshot/i.test(r?.type || r?.message || "")).length,
@@ -14449,15 +14465,59 @@ Cancel keeps this local/free.`);
         </Card>
         <Card>
           <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:950, fontSize:20 }}>Recent Activity</div><div style={{ color:C.tx3, fontSize:12 }}>Newest first. Local entries show instantly; team-wide visibility requires Save Changes + Load From Cloud on other devices.</div></div><Tag text={`${rows.length} total`} color={C.blue} /></Row>
+          <Row gap={7} wrap style={{ marginBottom:9 }}>
+            {[['today','Today'],['yesterday','Yesterday'],['week','This Week'],['all','All Time']].map(([v,l]) => <button key={v} onClick={()=>setDateView(v)} style={{ border:`1px solid ${dateView===v ? C.g600 : C.bd}`, background:dateView===v ? C.g50 : C.card, color:C.g900, borderRadius:999, padding:"8px 10px", fontWeight:900, cursor:"pointer", fontSize:12 }}>{l}</button>)}
+          </Row>
+          <Row gap={7} wrap style={{ marginBottom:10 }}>
+            {['all','Plants','Orders','Money','Settings','Cloud','Notes','Needs Review'].map(v => <button key={v} onClick={()=>setCategoryView(v)} style={{ border:`1px solid ${categoryView===v ? C.blue : C.bd}`, background:categoryView===v ? C.blueBg : C.card, color:C.g900, borderRadius:999, padding:"8px 10px", fontWeight:900, cursor:"pointer", fontSize:12 }}>{v}</button>)}
+          </Row>
           <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Search user, page, plant, order, sync, backup, shipping..." style={{ width:"100%", border:`1px solid ${C.bd}`, borderRadius:14, padding:"11px 12px", fontFamily:F.body, fontSize:14, marginBottom:10 }} />
-          {!visibleRows.length ? <div style={{ color:C.tx3, fontSize:14, padding:16, background:C.cardAlt, borderRadius:14 }}>{rows.length ? "No matching activity for that search." : "No changes logged yet. Add a note after the next import, save, or backup."}</div> : <div style={{ display:"grid", gap:8 }}>
+          {!visibleRows.length ? <div style={{ color:C.tx3, fontSize:14, padding:16, background:C.cardAlt, borderRadius:14 }}>{rows.length ? "No matching activity for that search/filter." : "No changes logged yet. Add a note after the next import, save, or backup."}</div> : <div style={{ display:"grid", gap:8 }}>
             {visibleRows.slice(0,160).map(r => <div key={r.id || r.at} style={{ border:`1px solid ${C.bd}`, borderLeft:`6px solid ${typeColor(r.type)}`, borderRadius:14, padding:11, background:C.card }}>
-              <Row between center gap={10}><div style={{ minWidth:0 }}><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>{r.message || r.type || "Logged action"}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3 }}>{new Date(r.at || Date.now()).toLocaleString()} · {r.type || "note"}{r.meta?.by ? ` · ${r.meta.by}` : ""}{r.meta?.page ? ` · ${r.meta.page}` : ""}{r.meta?.table ? ` · ${r.meta.table}` : ""}{r.meta?.summary ? ` · ${r.meta.summary}` : ""}</div></div><Tag text={r.type || "note"} color={typeColor(r.type)} sm /></Row>
+              <Row between center gap={10}><div style={{ minWidth:0 }}><div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>{r.message || r.type || "Logged action"}</div><div style={{ color:C.tx3, fontSize:11, marginTop:3 }}>{new Date(r.at || Date.now()).toLocaleString()} · {ldV129ChangeCategory(r)} · {r.type || "note"}{r.meta?.by ? ` · ${r.meta.by}` : ""}{r.meta?.page ? ` · ${r.meta.page}` : ""}{r.meta?.table ? ` · ${r.meta.table}` : ""}{r.meta?.summary ? ` · ${r.meta.summary}` : ""}</div></div><Tag text={r.type || "note"} color={typeColor(r.type)} sm /></Row>
             </div>)}
           </div>}
         </Card>
         <Card style={{ marginTop:12, background:C.g50, border:`1px solid ${C.g200}` }}><div style={{ fontSize:13, color:C.tx2, lineHeight:1.5 }}><b>Important:</b> This log tracks activity from this version forward. It does not replace Export Backup, and it does not prevent a true conflict if two people edit the same order at the same time. To see another person's changes on another device, Save Changes on their device and Load From Cloud here.</div></Card>
       </div>;
+    }
+
+
+    function ldV129ChangeCategory(row = {}) {
+      const txt = `${row.type || ""} ${row.message || ""} ${row.meta?.table || ""} ${row.meta?.page || ""}`.toLowerCase();
+      if (/plant|inventory|label|photo|barcode/.test(txt)) return "Plants";
+      if (/order|shipping|tracking|shipment|whatnot|palmstreet|casd|state doc/.test(txt)) return "Orders";
+      if (/receipt|expense|bill|payroll|timecard|cash|money|tax/.test(txt)) return "Money";
+      if (/setting|user|role|password|theme|ai|gateway|ollama/.test(txt)) return "Settings";
+      if (/save|load|sync|cloud|backup|snapshot|health/.test(txt)) return "Cloud";
+      if (/note|team_note/.test(txt)) return "Notes";
+      return "General";
+    }
+    function ChangeLogQuickCard({ setPage, compact = false }) {
+      const [rows, setRows] = useState(() => ldReadChangeLog());
+      useEffect(() => {
+        const h = () => setRows(ldReadChangeLog());
+        try { window.addEventListener(LD_CHANGE_LOG_EVENT, h); } catch(e) {}
+        return () => { try { window.removeEventListener(LD_CHANGE_LOG_EVENT, h); } catch(e) {} };
+      }, []);
+      const todayRows = safeArray(rows).filter(r => String(r?.at || "").slice(0,10) === today());
+      const warningRows = todayRows.filter(r => /error|fail|warning|review|conflict|overwrite/i.test(`${r.type || ""} ${r.message || ""}`));
+      const last = todayRows[0] || safeArray(rows)[0];
+      const byCategory = todayRows.reduce((acc,r)=>{ const k = ldV129ChangeCategory(r); acc[k]=(acc[k]||0)+1; return acc; }, {});
+      const cats = Object.entries(byCategory).slice(0,4).map(([k,v]) => `${k}: ${v}`).join(" · ");
+      return <Card style={{ marginBottom:compact ? 10 : 14, borderLeft:`6px solid ${warningRows.length ? C.amber : C.g600}`, background:warningRows.length ? C.amberBg : C.g50 }}>
+        <Row between center wrap gap={10}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:F.display, fontSize:compact ? 18 : 21, fontWeight:950, color:C.g900 }}>🧾 What Changed Today</div>
+            <div style={{ color:C.tx3, fontSize:12, marginTop:3, lineHeight:1.45 }}>{todayRows.length ? `${todayRows.length} action(s) logged today${cats ? ` · ${cats}` : ""}.` : "No activity logged today yet."}</div>
+            {last && <div style={{ marginTop:6, color:C.tx2, fontSize:12, fontWeight:800, lineHeight:1.35 }}>Last: {String(last.message || last.type || "Activity").slice(0,120)}</div>}
+          </div>
+          <Row gap={8} wrap>
+            <Tag text={warningRows.length ? `${warningRows.length} review` : "clean"} color={warningRows.length ? C.amber : C.g600} />
+            <Btn sz="sm" onClick={()=>setPage && setPage("changelog")}>Review Changes</Btn>
+          </Row>
+        </Row>
+      </Card>;
     }
 
     function TeamSyncSafetyCenter({ cloudStatus = "", cloudMsg = "", pendingSyncCount = 0, cloudSafeMode = false, teamSafeSync = false, syncConflict = false, onSave, onLoad, onBackup, onSnapshot, onHealth, onTestCloud, onToggleTeamSync, onToggleSafeMode, onForceSave, setPage, user }) {
@@ -14711,6 +14771,7 @@ Cancel keeps this local/free.`);
       const roleTitle = isOwner ? "Owner guide" : isManager ? "Manager guide" : "Employee guide";
       const workflowCards = [
         { id:"today", icon:"🏠", title:"Today", body:"Start here every morning. It shows the next tasks instead of making you hunt through screens.", action:"Open Today", show:true },
+        { id:"changelog", icon:"🧾", title:"What Changed Today", body:"Review notes, saves, imports, shipping changes, and team activity before closing the app or switching devices.", action:"Review Changes", show:true },
         { id:"plants_ws", icon:"🌿", title:"Inventory", body:`${noPhoto.length} need photos, ${noPrice.length} need prices, ${aging.length} are aging. Use this for plant action queues.`, action:"Open Inventory", show:true },
         { id:"intake_ws", icon:"➕", title:"Add / Intake", body:"Upload invoices, add plants manually, bulk upload existing inventory, then print labels.", action:"Open Intake", show:true },
         { id:"shows_ws", icon:"🎪", title:"Shows", body:`Build the next Whatnot or Palmstreet show. ${showReady.length} plants look show-ready right now.`, action:"Open Shows", show:true },
@@ -22957,7 +23018,7 @@ Answer with a practical action plan for Leaf Diary.`;
     function phase4DetectRoute(question = "") {
       const q = String(question || "").toLowerCase();
       const tests = [
-        ["pricing", ["market price", "research market", "market pricing", "price lookup", "competitive price", "sold listings", "etsy sold", "ebay sold", "whatnot sold"]],
+        ["pricing", ["market price", "research market", "market pricing", "price lookup", "competitive price", "sold listings", "etsy sold", "ebay sold", "whatnot sold", "google plant price", "buy plant online"]],
         ["finance", ["profit", "cash", "bill", "payroll", "tax", "margin", "expense", "owed", "forecast", "money", "loss", "fees", "bank"]],
         ["receipts", ["receipt", "invoice", "ocr", "photo", "scan", "vendor", "walmart", "gas", "category", "document"]],
         ["shows", ["whatnot", "palmstreet", "show", "live", "auction", "opening bid", "run tonight", "seller", "bundle", "clearance"]],
