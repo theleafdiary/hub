@@ -8,7 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V212 Show Builder Storage Quota Fix</title>
+  <title>LEAF DIARY - BUSINESS HUB · V214 Local Sale Customer Capture</title>
+  <!-- V214 — Local Sale Customer Capture: adds full customer/contact/address fields to Local Sale workflow and accounting reports. -->
+  <!-- V213 — Local Sale Accounting: adds Mark Local Sale workflow, payment method capture, sold dates, local sale flags, and accounting report breakdowns. -->
   <!-- V211 — Mobile startup fix: removed extra JSX brace after Labels date card. Added immediate local save for mobile edits/photos before cloud sync. -->
   <!-- V210 — AI Tools moved out of the top header. AI/helper pages are now accessed from + Add and Search, keeping the mobile header clean. -->
   <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
@@ -11059,7 +11061,25 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const photoCameraRef = useRef(null);
       const photoUploadRef = useRef(null);
       const [photoMsg, setPhotoMsg] = useState("");
+      const [localSaleOpen, setLocalSaleOpen] = useState(false);
+      const [localSale, setLocalSale] = useState({
+        salePrice: String(p.salePrice || p.suggestedPrice || ""),
+        paymentMethod: p.paymentMethod || p.payMethod || "Cash",
+        cardLast4: p.cardLast4 || "",
+        paymentReference: p.paymentReference || p.transactionId || p.cardLast4 || "",
+        customerName: p.customerName || p.buyerName || p.recipientName || "",
+        customerEmail: p.customerEmail || p.email || "",
+        customerPhone: p.customerPhone || p.phone || "",
+        customerAddress1: p.customerAddress1 || p.address1 || p.shippingAddress1 || "",
+        customerAddress2: p.customerAddress2 || p.address2 || p.shippingAddress2 || "",
+        customerCity: p.customerCity || p.city || p.shippingCity || "",
+        customerState: p.customerState || p.state || p.shippingState || "",
+        customerZip: p.customerZip || p.zip || p.shippingZip || "",
+        saleDate: p.saleDate || p.soldDate || today(),
+        notes: ""
+      });
       const updE = f => v => setEdit(prev => ({ ...prev, [f]: v }));
+      const updLocalSale = f => v => setLocalSale(prev => ({ ...prev, [f]: v }));
       const updCost = v => {
         const cost = +v || 0;
         const sp = sprice(cost);
@@ -11070,6 +11090,83 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         });
       };
       const updPrice = v => setEdit(prev => ({ ...prev, suggestedPrice: v, margin: marg(+prev.cost || 0, +v || 0) }));
+      const localSalePriceNum = moneyNum(localSale.salePrice || edit.salePrice || edit.suggestedPrice || 0);
+      const localSaleProfit = +(localSalePriceNum - (+edit.cost || 0)).toFixed(2);
+      const markLocalSalePaid = () => {
+        const salePrice = moneyNum(localSale.salePrice || edit.salePrice || edit.suggestedPrice || 0);
+        if (!salePrice || salePrice <= 0) {
+          alert("Enter the local sale price first.");
+          return;
+        }
+        const soldIso = new Date().toISOString();
+        const saleDate = localSale.saleDate || today();
+        const method = localSale.paymentMethod || "Cash";
+        const customer = (localSale.customerName || "").trim();
+        const customerEmail = (localSale.customerEmail || "").trim();
+        const customerPhone = (localSale.customerPhone || "").trim();
+        const customerAddress1 = (localSale.customerAddress1 || "").trim();
+        const customerAddress2 = (localSale.customerAddress2 || "").trim();
+        const customerCity = (localSale.customerCity || "").trim();
+        const customerState = (localSale.customerState || "").trim().toUpperCase();
+        const customerZip = (localSale.customerZip || "").trim();
+        const payRef = (localSale.paymentReference || localSale.cardLast4 || "").trim();
+        const orderNo = `LOCAL-${edit.plantId || edit.plantCode || plantId}-${saleDate.replace(/-/g, "")}-${Date.now().toString().slice(-5)}`;
+        const existingNotes = String(edit.notes || "").trim();
+        const customerBits = [customer, customerPhone, customerEmail].filter(Boolean).join(" · ");
+        const saleNote = `Local sale recorded ${saleDate}. Paid by ${method}${localSale.cardLast4 ? " ending " + localSale.cardLast4 : ""}${payRef && payRef !== localSale.cardLast4 ? " · ref " + payRef : ""}${customerBits ? " · customer " + customerBits : ""}.`;
+        const saved = {
+          ...edit,
+          status: "Sold",
+          salePrice,
+          suggestedPrice: edit.suggestedPrice || salePrice,
+          platform: "Local Pickup",
+          paymentMethod: method,
+          payMethod: method,
+          paymentStatus: "Paid",
+          paymentReceived: true,
+          cardLast4: localSale.cardLast4 || edit.cardLast4 || "",
+          paymentReference: payRef || edit.paymentReference || "",
+          transactionId: payRef || edit.transactionId || "",
+          customerName: customer || edit.customerName || "Local Customer",
+          customerEmail: customerEmail || edit.customerEmail || edit.email || "",
+          email: customerEmail || edit.email || "",
+          customerPhone: customerPhone || edit.customerPhone || edit.phone || "",
+          phone: customerPhone || edit.phone || "",
+          customerAddress1: customerAddress1 || edit.customerAddress1 || edit.address1 || "",
+          customerAddress2: customerAddress2 || edit.customerAddress2 || edit.address2 || "",
+          customerCity: customerCity || edit.customerCity || edit.city || "",
+          customerState: customerState || edit.customerState || edit.state || "",
+          customerZip: customerZip || edit.customerZip || edit.zip || "",
+          address1: customerAddress1 || edit.address1 || "",
+          address2: customerAddress2 || edit.address2 || "",
+          city: customerCity || edit.city || "",
+          state: customerState || edit.state || "",
+          zip: customerZip || edit.zip || "",
+          fullShippingAddress: [customer || edit.customerName || "Local Customer", customerAddress1 || edit.address1 || "", customerAddress2 || edit.address2 || "", customerCity || edit.city || "", customerState || edit.state || "", customerZip || edit.zip || ""].filter(Boolean).join(", "),
+          buyerName: customer || edit.buyerName || edit.customerName || "Local Customer",
+          recipientName: customer || edit.recipientName || edit.customerName || "Local Customer",
+          localSaleCustomerCaptured: !!(customer || customerEmail || customerPhone || customerAddress1),
+          saleDate,
+          soldDate: saleDate,
+          soldAt: soldIso,
+          saleDateTime: soldIso,
+          orderCreatedAt: soldIso,
+          paidAt: soldIso,
+          localSale: true,
+          saleSource: "Local Sale",
+          showName: "Local Sale",
+          orderNumber: edit.orderNumber || orderNo,
+          localSaleOrderNumber: orderNo,
+          soldBy: user?.name || "",
+          notes: localSale.notes ? [existingNotes, saleNote, localSale.notes].filter(Boolean).join("\n") : [existingNotes, saleNote].filter(Boolean).join("\n"),
+          margin: marg(+edit.cost || 0, salePrice)
+        };
+        setEdit(saved);
+        setPlants(pp => pp.map(x => x.id === plantId ? saved : x));
+        addAudit({ action: `Local sale recorded: ${edit.plantId || ""} ${edit.name} sold for $${salePrice} by ${method}${customer ? " for " + customer : ""}`, user: user.name, page: "Inventory" });
+        alert(`${edit.name} marked Sold. Payment recorded as ${method}${customer ? " for " + customer : ""}.`);
+        onBack();
+      };
       const handlePhotoFile = async file => {
         if (!file) return;
         setPhotoMsg("Uploading photo...");
@@ -11092,9 +11189,28 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         setPhotoMsg("Photo removed. Click Save Changes to keep removal.");
       };
       const saveEdit = () => {
-        const saved = { ...edit, margin: marg(+edit.cost || 0, +edit.suggestedPrice || 0) };
+        const soldNow = String(edit.status || "") === "Sold";
+        const salePrice = moneyNum(edit.salePrice || edit.suggestedPrice || 0);
+        const soldIso = edit.soldAt || edit.saleDateTime || (soldNow ? new Date().toISOString() : "");
+        const saleDate = edit.saleDate || edit.soldDate || (soldNow ? today() : "");
+        const paymentMethod = edit.paymentMethod || edit.payMethod || (soldNow && (edit.platform === "Cash" || edit.platform === "Local Pickup") ? "Cash" : "");
+        const saved = {
+          ...edit,
+          margin: marg(+edit.cost || 0, +edit.suggestedPrice || salePrice || 0),
+          ...(soldNow ? {
+            salePrice: salePrice || edit.salePrice || edit.suggestedPrice || 0,
+            saleDate,
+            soldDate: saleDate,
+            soldAt: soldIso,
+            saleDateTime: edit.saleDateTime || soldIso,
+            paymentMethod,
+            payMethod: paymentMethod,
+            paymentStatus: edit.paymentStatus || (paymentMethod ? "Paid" : ""),
+            paymentReceived: edit.paymentReceived || !!paymentMethod
+          } : {})
+        };
         setPlants(pp => pp.map(x => x.id === plantId ? saved : x));
-        addAudit({ action: `Edited ${edit.name} — cost $${edit.cost}, price $${edit.suggestedPrice}, status: ${edit.status}`, user: user.name, page: "Inventory" });
+        addAudit({ action: `Edited ${edit.name} — cost $${edit.cost}, price $${edit.suggestedPrice}, status: ${edit.status}${paymentMethod ? ", payment: " + paymentMethod : ""}`, user: user.name, page: "Inventory" });
         onBack();
       };
 
@@ -11114,7 +11230,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               <h1 style={{ fontFamily: F.display, fontSize: 20, color: C.g900, margin: 0 }}>{edit.name}</h1>
             </div>
           </Row>
-          <Row gap={8}>
+          <Row gap={8} wrap>
+            {String(edit.status || "") !== "Sold" && <Btn v="gold" onClick={() => setLocalSaleOpen(true)}>💵 Local Sale</Btn>}
             <Btn v="ghost" onClick={onBack}>Cancel</Btn>
             <Btn onClick={saveEdit}>{"💾 Save Changes"}</Btn>
           </Row>
@@ -11199,6 +11316,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
                 <Inp label="Shipping Cost" type="number" value={edit.shippingCost || ""} onChange={updE("shippingCost")} placeholder="0.00" />
                 <Sel label="Platform" value={edit.platform || ""} onChange={updE("platform")} options={["", ...PLATFORMS]} />
+                <Sel label="Payment Method" value={edit.paymentMethod || edit.payMethod || ""} onChange={v => setEdit(prev => ({ ...prev, paymentMethod:v, payMethod:v }))} options={["", ...PAY_METHS]} />
+                <Inp label="Sold Date" type="date" value={edit.saleDate || edit.soldDate || ""} onChange={v => setEdit(prev => ({ ...prev, saleDate:v, soldDate:v }))} />
               </div>
             </Card>}
 
@@ -11212,6 +11331,47 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+            <Card style={{ background: localSaleOpen ? C.g50 : C.card, border: `1px solid ${localSaleOpen ? C.g300 : C.bd}` }}>
+              <Row between center wrap gap={8} style={{ marginBottom: localSaleOpen ? 12 : 0 }}>
+                <div>
+                  <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 15 }}>💵 Local Sale / Cash Sale</div>
+                  <div style={{ fontSize: 11, color: C.tx3, marginTop: 3 }}>Marks this plant Sold, removes it from active inventory, and records how you were paid for reports.</div>
+                </div>
+                <Btn sz="sm" v={localSaleOpen ? "ghost" : "gold"} onClick={() => setLocalSaleOpen(v => !v)}>{localSaleOpen ? "Close" : "Mark Sold"}</Btn>
+              </Row>
+              {localSaleOpen && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <Inp label="Sale Price Collected" type="number" value={localSale.salePrice} onChange={updLocalSale("salePrice")} placeholder="0.00" />
+                  <Sel label="How You Got Paid" value={localSale.paymentMethod} onChange={updLocalSale("paymentMethod")} options={PAY_METHS} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <Inp label="Sale Date" type="date" value={localSale.saleDate} onChange={updLocalSale("saleDate")} />
+                  <Inp label="Card Last 4" value={localSale.cardLast4} onChange={v => updLocalSale("cardLast4")(String(v || "").replace(/\D/g, "").slice(0,4))} placeholder="optional" />
+                </div>
+                <Inp label="Payment Reference / Transaction ID" value={localSale.paymentReference} onChange={updLocalSale("paymentReference")} placeholder="Venmo/Zelle/check/ref #" />
+                <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:12, padding:10 }}>
+                  <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:14, marginBottom:8 }}>Customer Info for Local Sale</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                    <Inp label="Customer Name" value={localSale.customerName} onChange={updLocalSale("customerName")} placeholder="Local Customer" />
+                    <Inp label="Phone" value={localSale.customerPhone} onChange={updLocalSale("customerPhone")} placeholder="352-000-0000" />
+                    <Inp label="Email" value={localSale.customerEmail} onChange={updLocalSale("customerEmail")} placeholder="customer@email.com" />
+                    <Inp label="State" value={localSale.customerState} onChange={v => updLocalSale("customerState")(String(v || "").toUpperCase().slice(0,2))} placeholder="FL" />
+                    <Inp label="Address 1" value={localSale.customerAddress1} onChange={updLocalSale("customerAddress1")} placeholder="optional" />
+                    <Inp label="Address 2" value={localSale.customerAddress2} onChange={updLocalSale("customerAddress2")} placeholder="optional" />
+                    <Inp label="City" value={localSale.customerCity} onChange={updLocalSale("customerCity")} placeholder="optional" />
+                    <Inp label="ZIP" value={localSale.customerZip} onChange={updLocalSale("customerZip")} placeholder="optional" />
+                  </div>
+                </div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: C.tx3 }}>Sale Note<textarea value={localSale.notes} onChange={e => updLocalSale("notes")(e.target.value)} placeholder="Optional note, pickup details, receipt note..." style={{ width:"100%", marginTop:4, minHeight:62, border:`1px solid ${C.bd}`, borderRadius:10, padding:10, fontFamily:F.body, fontSize:13 }} /></label>
+                <div style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 12, padding: 10 }}>
+                  <Row between><span style={{ fontSize: 12, color: C.tx3 }}>Collected</span><b style={{ color: C.g700 }}>{$(localSalePriceNum)}</b></Row>
+                  <Row between><span style={{ fontSize: 12, color: C.tx3 }}>Cost</span><b>{$(+edit.cost || 0)}</b></Row>
+                  <Row between><span style={{ fontSize: 12, color: C.tx3 }}>Estimated profit before expenses</span><b style={{ color: localSaleProfit >= 0 ? C.g700 : C.red }}>{$(localSaleProfit)}</b></Row>
+                </div>
+                <Btn v="gold" onClick={markLocalSalePaid}>✅ Mark Sold + Record Payment</Btn>
+              </div>}
+            </Card>
 
             <Card>
               <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 14, marginBottom: 12 }}>{"📍 Status & Location"}</div>
@@ -16750,6 +16910,15 @@ Cancel keeps this local/free.`);
         return { platform: pl, count: pp.length, rev, cost, fee, profit: rev - cost - fee, avg: pp.length ? rev / pp.length : 0 };
       }).filter(x => x.count > 0).sort((a, b) => b.rev - a.rev);
       const bestPlatform = byPlatform[0]?.platform || "None yet";
+      const paymentLabelOf = p => safeName(p.paymentMethod || p.payMethod || p.paymentType || p.paymentSource || (p.localSale ? "Cash" : "Unknown"));
+      const byPaymentMethod = groupBy(sold, p => paymentLabelOf(p), key => ({ paymentMethod:key, count:0, rev:0, cost:0, profit:0, localCount:0 })).map(g => {
+        g.items.forEach(p => { g.count++; g.rev += revOf(p); g.cost += costOf(p); g.profit += profitOf(p); if (p.localSale || p.platform === "Local Pickup" || p.platform === "Cash") g.localCount++; });
+        g.avg = g.count ? g.rev / g.count : 0;
+        return g;
+      }).sort((a,b) => b.rev - a.rev);
+      const localSold = sold.filter(p => p.localSale || p.platform === "Local Pickup" || p.platform === "Cash");
+      const localSoldRev = localSold.reduce((s,p) => s + revOf(p), 0);
+      const localSoldProfit = localSold.reduce((s,p) => s + profitOf(p), 0);
       const genusMap = {};
       plants.forEach(p => {
         const g = gOf(p.name);
@@ -16813,6 +16982,8 @@ Cancel keeps this local/free.`);
         ["Leaf Diary Report", tab, rangeLabel], ["Sales", soldRev], ["Net Profit", netProfit], ["Inventory Value", stockVal], ["Dead/Damaged Loss", lostVal], [],
         ["Top Plant", "Sales", "Revenue", "Profit"], ...bestSellingPlants.map(p => [p.name, p.count, p.rev, p.profit]), [],
         ["Nursery", "Spent", "Profit", "ROI", "Death Rate"], ...byNursery.map(n => [n.name, n.spent, n.profit, n.roi, n.deathRate]), [],
+        ["Payment Method", "Sales", "Local Sales", "Collected", "Profit"], ...byPaymentMethod.map(p => [p.paymentMethod, p.count, p.localCount, p.rev, p.profit]), [],
+        ["Recent Local Sales", "Plant ID", "Plant", "Customer", "Phone", "Email", "Address", "Payment", "Reference", "Collected"], ...localSold.slice().sort((a,b)=>String(b.soldAt || b.soldDate || "").localeCompare(String(a.soldAt || a.soldDate || ""))).slice(0,100).map(p => [p.saleDate || p.soldDate || dateKey(saleDateOf(p)), p.plantId || "", toTC(p.name || ""), p.customerName || p.buyerName || "Local Customer", p.customerPhone || p.phone || "", p.customerEmail || p.email || "", [p.customerAddress1 || p.address1 || "", p.customerAddress2 || p.address2 || "", p.customerCity || p.city || "", p.customerState || p.state || "", p.customerZip || p.zip || ""].filter(Boolean).join(" "), p.paymentMethod || p.payMethod || "Unknown", p.paymentReference || p.transactionId || p.cardLast4 || "", revOf(p)]), [],
         ["State Doc", "Count"], ...certStates.map(s => [s.state, s.count])
       ]);
       const exportLegalCSV = () => exportRows([["Doc #", "State", "Customer", "Date", "File"], ...certs.map(c => [c.certNumber || c.documentNumber || c.number || "", c.state || c.destinationState || "", c.customerName || c.shipToName || "", c.createdAt || c.date || "", c.fileUrl || c.downloadUrl || "Stored in archive"])]);
@@ -16839,7 +17010,7 @@ Cancel keeps this local/free.`);
       };
       const ReportTable = ({ cols, rows }) => <div style={{ overflowX: "auto", border: `1px solid ${line}`, borderRadius: 12 }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, color: textMain }}><thead style={{ background: cardAlt }}><tr>{cols.map(c => <th key={c.k} style={{ textAlign: c.right ? "right" : "left", padding: "10px 12px", color: textMuted, textTransform: "uppercase", fontSize: 10, letterSpacing: .5 }}>{c.l}</th>)}</tr></thead><tbody>{rows.length ? rows.map((r, i) => <tr key={i} style={{ borderTop: `1px solid ${line}` }}>{cols.map(c => <td key={c.k} style={{ padding: "10px 12px", textAlign: c.right ? "right" : "left" }}>{c.f ? c.f(r) : r[c.k]}</td>)}</tr>) : <tr><td colSpan={cols.length} style={{ padding: 30, color: textMuted, textAlign: "center" }}>No data yet.</td></tr>}</tbody></table></div>;
       const tabs = [
-        ["executive", "🚀 Executive"], ["charts", "📊 Charts"], ["plants", "🌿 Plants"], ["nursery", "🏪 Nurseries"], ["shows", "🎪 Shows"], ["customers", "👥 Customers"], ["legal", "📜 Legal"], ["options", "⚙️ Options"]
+        ["executive", "🚀 Executive"], ["charts", "📊 Charts"], ["accounting", "💵 Accounting"], ["plants", "🌿 Plants"], ["nursery", "🏪 Nurseries"], ["shows", "🎪 Shows"], ["customers", "👥 Customers"], ["legal", "📜 Legal"], ["options", "⚙️ Options"]
       ];
       return <div style={{ padding: "14px 14px 90px", background: pageBg, minHeight: "100vh", color: textMain }}>
         <SHdr icon="📈" title="Reports & Analytics Pro" sub={`Showing ${rangeLabel} · true profit after fees, COGS, expenses, and payroll`}
@@ -16853,6 +17024,21 @@ Cancel keeps this local/free.`);
           <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12 }}><LineChart data={trend.slice(-30)} valueKey="revenue" valueKey2="expense" title="Revenue vs Expenses Trend" /><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Top Alerts</div><div style={{ display: "flex", flexDirection: "column", gap: 9 }}>{missingDocAlerts > 0 && <Tag text={`${missingDocAlerts} possible missing state docs`} color={C.red} />}{discountCandidates.length > 0 && <Tag text={`${discountCandidates.length} plants should be discounted`} color={C.amber} />}{reorderCandidates.length > 0 && <Tag text={`${reorderCandidates.length} genera may need reorder`} color={C.blue} />}{slowestMovers.length > 0 && <Tag text={`${slowestMovers[0].days} days oldest in-stock plant`} color={C.purple} />}</div></Card></div>
         </div>}
         {tab === "charts" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><LineChart data={trend.slice(-45)} valueKey="revenue" title="Revenue Line Chart" /><LineChart data={trend.slice(-45)} valueKey="profit" valueKey2="expense" title="Profit vs Expenses" /><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Platform Pie Chart</div><Donut data={byPlatform} /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Nursery Profit</div><MiniBar data={byNursery.slice(0, 8).map(n => ({ label: n.name, value: n.profit }))} labelKey="label" valueKey="value" moneyFmt /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Inventory Age</div><MiniBar data={ageBuckets.map(b => ({ label: b.label, value: b.count }))} labelKey="label" valueKey="value" /></Card><Card style={{ background: cardBg, borderColor: line }}><div style={{ fontFamily: F.display, fontWeight: 800, marginBottom: 12 }}>Dead/Damaged Loss by Genus</div><MiniBar data={byGenus.filter(g => g.dead > 0).map(g => ({ label: g.genus, value: g.dead })).slice(0, 8)} labelKey="label" valueKey="value" /></Card></div>}
+        {tab === "accounting" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+          <Card style={{ background: cardBg, borderColor: line }}>
+            <h3>Local Sales Accounting</h3>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:10, marginBottom:12 }}>
+              <KPI label="Local Sales" value={money(localSoldRev)} sub={`${localSold.length} plants`} color={C.gold} />
+              <KPI label="Local Profit" value={money(localSoldProfit)} sub="after COGS/fees" color={localSoldProfit >= 0 ? C.g600 : C.red} />
+              <KPI label="Payment Types" value={byPaymentMethod.length} sub="cash/card/apps" color={C.blue} />
+            </div>
+            <ReportTable cols={[{ k:"paymentMethod", l:"Payment Method" }, { k:"count", l:"Sales", right:true }, { k:"localCount", l:"Local", right:true }, { k:"rev", l:"Collected", right:true, f:r=>money(r.rev) }, { k:"profit", l:"Profit", right:true, f:r=>money(r.profit) }, { k:"avg", l:"Avg", right:true, f:r=>money(r.avg) }]} rows={byPaymentMethod} />
+          </Card>
+          <Card style={{ background: cardBg, borderColor: line }}>
+            <h3>Recent Local Sales</h3>
+            <ReportTable cols={[{ k:"soldDate", l:"Date", f:r=>r.saleDate || r.soldDate || dateKey(saleDateOf(r)) }, { k:"plantId", l:"ID" }, { k:"name", l:"Plant", f:r=>toTC(r.name) }, { k:"customerName", l:"Customer", f:r=>r.customerName || r.buyerName || "Local Customer" }, { k:"contact", l:"Contact", f:r=>[r.customerPhone || r.phone || "", r.customerEmail || r.email || ""].filter(Boolean).join(" / ") || "—" }, { k:"paymentMethod", l:"Paid By", f:r=>r.paymentMethod || r.payMethod || "Unknown" }, { k:"salePrice", l:"Collected", right:true, f:r=>money(revOf(r)) }]} rows={localSold.slice().sort((a,b)=>String(b.soldAt || b.soldDate || "").localeCompare(String(a.soldAt || a.soldDate || ""))).slice(0,30)} />
+          </Card>
+        </div>}
         {tab === "plants" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Best Selling Plants</h3><ReportTable cols={[{ k: "name", l: "Plant" }, { k: "count", l: "Sold", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={bestSellingPlants} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Highest Profit Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "truePro", l: "Profit", right: true, f: r => money(r.truePro) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }]} rows={perPlant.slice(0, 10)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Slowest Moving Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Price", right: true, f: r => money(r.suggestedPrice) }]} rows={slowestMovers} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Lowest Margin / Discount</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "expectedMargin", l: "Margin", right: true, f: r => pct(r.expectedMargin) }, { k: "cost", l: "Cost", right: true, f: r => money(r.cost) }]} rows={lowestMargin} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Discounted</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Current Price", right: true, f: r => money(r.suggestedPrice) }]} rows={discountCandidates} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Reordered</h3><ReportTable cols={[{ k: "genus", l: "Genus" }, { k: "sellThru", l: "Sell-Through", right: true, f: r => pct(r.sellThru) }, { k: "inStock", l: "Left", right: true }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={reorderCandidates} /></Card></div>}
         {tab === "nursery" && <Card style={{ background: cardBg, borderColor: line }}><h3>Nursery Performance</h3><ReportTable cols={[{ k: "name", l: "Nursery" }, { k: "spent", l: "Total Spent", right: true, f: r => money(r.spent) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }, { k: "deathRate", l: "Death Rate", right: true, f: r => pct(r.deathRate) }, { k: "avgDays", l: "Avg Days To Sell", right: true, f: r => r.avgDays ?? "—" }]} rows={byNursery} /></Card>}
         {tab === "shows" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Profit Per Live Show</h3><ReportTable cols={[{ k: "show", l: "Show" }, { k: "count", l: "Orders", right: true }, { k: "rev", l: "Sales", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "avg", l: "Avg Order", right: true, f: r => money(r.avg) }]} rows={showGroups.slice(0, 25)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Whatnot vs Palmstreet</h3><MiniBar data={byPlatform.filter(p => ["Whatnot", "Palmstreet"].includes(p.platform)).map(p => ({ label: p.platform, value: p.profit }))} labelKey="label" valueKey="value" moneyFmt /><h3 style={{ marginTop: 22 }}>Sales by Date</h3><MiniBar data={salesByDate.slice(-12).map(d => ({ label: d.date, value: d.rev }))} labelKey="label" valueKey="value" moneyFmt /></Card></div>}
@@ -19647,7 +19833,7 @@ Cancel keeps this local/free.`);
       const saleCount = (plants || []).filter(isSaleRecord).length;
       const historicalCount = (plants || []).filter(isHistoricalSale).length;
       const matchedSaleCount = Math.max(0, saleCount - historicalCount);
-      const clearSaleFields = p => ({ ...p, status: p.status === "Sold" ? "In Stock" : p.status, salePrice: "", soldDate: "", platform: "", shippingCost: "", customerUsername: "", customerName: "", customerState: "", buyerName: "", recipientName: "", orderNumber: "", orderNo: "", saleImportKey: "", saleLegacyKey: "", sourceFileName: "", importedAt: "", paymentFee: 0, palmstreetFee: 0, taxAmount: 0, sellerIncome: 0, refundAmount: 0, historicalImport: false, matchStatus: "", rawProductVariant: "" });
+      const clearSaleFields = p => ({ ...p, status: p.status === "Sold" ? "In Stock" : p.status, salePrice: "", soldDate: "", saleDate: "", soldAt: "", platform: "", shippingCost: "", paymentMethod: "", payMethod: "", paymentReference: "", transactionId: "", cardLast4: "", paymentStatus: "", paymentReceived: false, localSale: false, localSaleCustomerCaptured: false, customerUsername: "", customerName: "", customerEmail: "", customerPhone: "", customerAddress1: "", customerAddress2: "", customerCity: "", customerState: "", customerZip: "", email: "", phone: "", address1: "", address2: "", city: "", state: "", zip: "", buyerName: "", recipientName: "", orderNumber: "", orderNo: "", saleImportKey: "", saleLegacyKey: "", sourceFileName: "", importedAt: "", paymentFee: 0, palmstreetFee: 0, taxAmount: 0, sellerIncome: 0, refundAmount: 0, historicalImport: false, matchStatus: "", rawProductVariant: "" });
       const clearCustomerFields = p => ({ ...p, customerUsername: "", customerName: "", customerState: "", buyerName: "", recipientName: "" });
       const requireDeleteConfirm = () => { if (confirmText !== "DELETE") { setActionMsg("Type DELETE exactly before using bulk delete tools."); return false; } return true; };
       const runBulkDelete = async (kind) => {
