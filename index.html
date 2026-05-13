@@ -2553,7 +2553,9 @@
     try { window.LEAF_DIARY_VISUAL_CLEANUP = { version: "V167R", phase: "Phase 29 Final Duplicate Button Cleanup", noNewPages: true, backendTouched: false, productionBackup: true, issueLog: true, workflowDoneTracker: true, duplicateButtonCleanup: true }; } catch(e) {}
     try { window.LEAF_DIARY_PRODUCTION_BACKUP = { version: "V167R", label: "Leaf Diary Duplicate Button Cleanup", backendFreeze: true, lockedPricingGateway: "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai", expectedPricingWorker: "v112-strict-comparable-match-guard", createdAt: "2026-05-12", rule: "Do not touch Worker, Gateway, Supabase, pricing, imports, or data structure from this build." }; } catch(e) {}
     try { window.LEAF_DIARY_DUPLICATE_CLEANUP = { version:"V167R", rule:"One visible button per job; old duplicate tools are still available inside Advanced or after Start Step 1.", noNewPages:true, backendTouched:false }; } catch(e) {}
-    try { window.LEAF_DIARY_STANDARD_UPLOAD = { version:"V168R", phase:"Phase 30 Standard Upload Experience", rule:"Every upload should clearly offer Take Photo, Choose From Camera Roll, and file/PDF support when relevant.", noNewPages:true, backendTouched:false }; } catch(e) {}
+    
+    try { window.LEAF_DIARY_V197_INVOICE_COUNT_CHECK = { version:"V197", feature:"Invoice plant count double-check", rule:"AI line items and expanded plant records are shown before saving so missing plants do not create missing inventory, labels, or accounting errors.", noNewPages:true, backendTouched:false }; } catch(e) {}
+try { window.LEAF_DIARY_STANDARD_UPLOAD = { version:"V168R", phase:"Phase 30 Standard Upload Experience", rule:"Every upload should clearly offer Take Photo, Choose From Camera Roll, and file/PDF support when relevant.", noNewPages:true, backendTouched:false }; } catch(e) {}
     try { window.LEAF_DIARY_UPLOAD_PERFECTION_V181 = { version:"V181R", phase:"Phase 43 Upload System Perfection", requiredPattern:["Take Photo","Choose From Camera Roll / File","Preview","Continue or Read","Retake / Choose Different"], appliesTo:["plant invoices","business receipts","plant photos","shipping label photos","show sales files"], noNewPages:true, backendTouched:false }; } catch(e) {}
     try { window.LEAF_DIARY_INVENTORY_PERFECTION_V182 = { version:"V182R", phase:"Phase 44 Inventory Perfection", rule:"Inventory must answer: what do I own, what did it cost, what number is it, what should it sell for, what is blocking it, and what is next?", noNewPages:true, backendTouched:false, masterPage:"plants_ws" }; } catch(e) {}
     try { window.LEAF_DIARY_LABELS_PHOTOS_PERFECTION_V183 = { version:"V183R", phase:"Phase 45 Labels & Photos Perfection", rule:"Labels & Photos must answer: what needs a label, what needs a photo, what barcode should I scan, and what is ready for show?", noNewPages:true, backendTouched:false, masterPage:"labels_ws" }; } catch(e) {}
@@ -9747,14 +9749,20 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings = {}, setSettings }) {
       const [step, setStep] = useState("upload");
       const [img, setImg] = useState(null);
+      const [invoicePages, setInvoicePages] = useState([]);
+      const [expectedPlantCount, setExpectedPlantCount] = useState("");
       const [parsed, setParsed] = useState(null);
       const [rows, setRows] = useState([]);
       const [loading, setLoading] = useState(false);
       const [err, setErr] = useState(null);
       const [selN, setSelN] = useState(null);
-      const fRef = useRef(), cRef = useRef();
+      const fRef = useRef(), cRef = useRef(), pdfRef = useRef();
       const purchaseTraining = phase101GetTraining(settings);
       useEffect(() => { if (nurseries.length && !selN) setSelN(nurseries[0]); }, [nurseries]);
+      const invoiceLineCount = data => safeArray(data?.plants).length;
+      const invoiceUnitCount = data => safeArray(data?.plants).reduce((sum, p) => sum + Math.max(1, parseInt(p?.quantity || 1, 10) || 1), 0);
+      const expectedCountNum = () => { const n = parseInt(String(expectedPlantCount || "").replace(/[^0-9]/g, ""), 10); return Number.isFinite(n) && n > 0 ? n : 0; };
+      const plantCountMatches = count => !expectedCountNum() || expectedCountNum() === (+count || 0);
       const load = async f => {
         if (!f) return;
         setErr(null);
@@ -9762,35 +9770,52 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const fileType = String(f.type || "").toLowerCase();
         const allowedInvoiceFile = /image\//.test(fileType) || fileType === "application/pdf" || /\.(png|jpe?g|webp|heic|heif|pdf)$/i.test(fileName);
         if (!allowedInvoiceFile) { setErr("Unsupported invoice file. Use a photo, image, or PDF."); return; }
-        if (f.type === "application/pdf") {
+        if (fileType === "application/pdf" || /\.pdf$/i.test(fileName)) {
           try {
             const r = new FileReader();
             r.onload = async function () {
               try {
                 const typedarray = new Uint8Array(this.result);
-                const pdfjsLib = window['pdfjs-dist/build/pdf'];
+                const pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+                if (!pdfjsLib) throw new Error('PDF reader did not load yet. Refresh and try again, or take a photo of the invoice.');
                 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
                 const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                const page = await pdf.getPage(1);
-                const viewport = page.getViewport({ scale: 2.0 });
-                const canvas = document.createElement("canvas");
-                const ctx = canvas.getContext("2d");
-                canvas.width = viewport.width;
-                canvas.height = viewport.height;
-                await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                const renderedPages = [];
+                const MAX_PDF_PAGES = Math.min(pdf.numPages || 1, 25);
 
-                // Downscale if still too large
-                const MAX_DIM = 1600;
-                let w = canvas.width, h = canvas.height;
-                if (w > MAX_DIM || h > MAX_DIM) {
-                  const scale = Math.min(MAX_DIM / w, MAX_DIM / h);
-                  const smallCanvas = document.createElement("canvas");
-                  smallCanvas.width = w * scale;
-                  smallCanvas.height = h * scale;
-                  smallCanvas.getContext("2d").drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
-                  setImg(smallCanvas.toDataURL("image/jpeg", 0.8));
-                } else {
-                  setImg(canvas.toDataURL("image/jpeg", 0.8));
+                for (let pageNum = 1; pageNum <= MAX_PDF_PAGES; pageNum++) {
+                  const page = await pdf.getPage(pageNum);
+                  const baseViewport = page.getViewport({ scale: 1 });
+                  const targetWidth = 1900;
+                  const renderScale = Math.max(1.8, Math.min(2.8, targetWidth / Math.max(1, baseViewport.width)));
+                  const viewport = page.getViewport({ scale: renderScale });
+                  const canvas = document.createElement("canvas");
+                  const ctx = canvas.getContext("2d");
+                  canvas.width = Math.floor(viewport.width);
+                  canvas.height = Math.floor(viewport.height);
+                  await page.render({ canvasContext: ctx, viewport }).promise;
+
+                  // Keep each PDF page separate. Do NOT only scan page 1.
+                  // Large multi-page nursery invoices were being cut off when converted to one preview image.
+                  const MAX_DIM = 2400;
+                  let outCanvas = canvas;
+                  let w = canvas.width, h = canvas.height;
+                  if (w > MAX_DIM || h > MAX_DIM) {
+                    const scale = Math.min(MAX_DIM / w, MAX_DIM / h);
+                    const smallCanvas = document.createElement("canvas");
+                    smallCanvas.width = Math.max(1, Math.floor(w * scale));
+                    smallCanvas.height = Math.max(1, Math.floor(h * scale));
+                    smallCanvas.getContext("2d").drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
+                    outCanvas = smallCanvas;
+                  }
+                  renderedPages.push(outCanvas.toDataURL("image/jpeg", 0.88));
+                }
+
+                if (!renderedPages.length) throw new Error("No pages were found in this PDF.");
+                setInvoicePages(renderedPages);
+                setImg(renderedPages[0]);
+                if ((pdf.numPages || 1) > MAX_PDF_PAGES) {
+                  setErr(`PDF has ${pdf.numPages} pages. First ${MAX_PDF_PAGES} pages loaded. Split the invoice if plants are after page ${MAX_PDF_PAGES}.`);
                 }
                 setStep("preview");
               } catch (err) {
@@ -9817,7 +9842,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               canvas.width = w; canvas.height = h;
               const ctx = canvas.getContext("2d");
               ctx.drawImage(imgObj, 0, 0, w, h);
-              const resizedB64 = canvas.toDataURL("image/jpeg", 0.7);
+              const resizedB64 = canvas.toDataURL("image/jpeg", 0.82);
+              setInvoicePages([resizedB64]);
               setImg(resizedB64);
               setStep("preview");
             };
@@ -9832,22 +9858,63 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         if (!selN) { setErr("Select a nursery first."); return; }
         setLoading(true); setErr(null); setStep("scanning");
         try {
-          const b64 = img.split(",")[1];
-          const { data, error } = await supabase.functions.invoke('process-invoice', {
-            body: { imageBase64: b64 }
-          });
-          if (error) throw error;
-          if (data && data._serverError) throw new Error(data._serverError);
-          const result = data;
+          const pagesToScan = (invoicePages && invoicePages.length) ? invoicePages : (img ? [img] : []);
+          if (!pagesToScan.length) throw new Error("No invoice image or PDF pages are ready to scan.");
+
+          const pageResults = [];
+          const pageErrors = [];
+          for (let pi = 0; pi < pagesToScan.length; pi++) {
+            const pageImg = pagesToScan[pi];
+            const b64 = String(pageImg || "").split(",")[1];
+            if (!b64) { pageErrors.push(`Page ${pi + 1}: image data missing`); continue; }
+            try {
+              const { data, error } = await supabase.functions.invoke('process-invoice', {
+                body: { imageBase64: b64, pdfPageNumber: pi + 1, pdfPageCount: pagesToScan.length }
+              });
+              if (error) throw error;
+              if (data && data._serverError) throw new Error(data._serverError);
+              pageResults.push({ ...(data || {}), _pdfPage: pi + 1 });
+            } catch (pageErr) {
+              pageErrors.push(`Page ${pi + 1}: ${pageErr?.message || String(pageErr)}`);
+            }
+          }
+
+          if (!pageResults.length) throw new Error(pageErrors.join(" | ") || "No PDF pages could be scanned.");
+          const allInvoicePlants = pageResults.flatMap((r, pi) => (r.plants || []).map(p => ({ ...p, _pdfPage: r._pdfPage || (pi + 1) })));
+          if (!allInvoicePlants.length) throw new Error(`The invoice scan found 0 plants across ${pageResults.length} scanned page(s). Try a clearer PDF/photo or split the invoice pages.`);
+
+          const totalsSource = pageResults.find(r => +r.total) || pageResults[pageResults.length - 1] || pageResults[0] || {};
+          const result = {
+            ...totalsSource,
+            nurseryName: pageResults.find(r => r.nurseryName)?.nurseryName || totalsSource.nurseryName || selN?.name || "",
+            invoiceNumber: pageResults.find(r => r.invoiceNumber)?.invoiceNumber || totalsSource.invoiceNumber || "",
+            invoiceDate: pageResults.find(r => r.invoiceDate)?.invoiceDate || totalsSource.invoiceDate || "",
+            plants: allInvoicePlants,
+            pdfPageCount: pagesToScan.length,
+            scannedPageCount: pageResults.length,
+            rawLineItemCount: allInvoicePlants.length,
+            expandedPlantCount: allInvoicePlants.reduce((sum, p) => sum + Math.max(1, parseInt(p?.quantity || 1, 10) || 1), 0),
+            expectedPlantCount: expectedCountNum(),
+            pagePlantCounts: pageResults.map((r, idx) => ({ page: r._pdfPage || idx + 1, lineItems: safeArray(r.plants).length, plantCount: safeArray(r.plants).reduce((sum, p) => sum + Math.max(1, parseInt(p?.quantity || 1, 10) || 1), 0) })),
+            pageErrors
+          };
           setParsed(result);
+          if (pageErrors.length) setErr(`Partial PDF scan warning: ${pageErrors.join(" | ")}`);
+
           let ctr = getNextId(plants, selN.code);
           const mapped = (result.plants || []).flatMap((p, li) => Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
             ctr++; const cost = +p.costPerPlant || 0, sp = sprice(cost);
             const potGuess = phase101InferPotSize(p, selN.code, settings);
-            const intakeNotes = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
-            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true };
+            const intakeNotesBase = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
+            const pageNote = p._pdfPage ? `PDF page ${p._pdfPage}.` : "";
+            const intakeNotes = [pageNote, intakeNotesBase].filter(Boolean).join(" ");
+            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "" };
           }));
-          setRows(mapped); setStep("review");
+          setRows(mapped);
+          if (expectedCountNum() && expectedCountNum() !== mapped.length) {
+            setErr(`Plant count warning: you expected ${expectedCountNum()} plants, but AI created ${mapped.length} plant record(s). Review before saving so inventory, labels, and accounting stay correct.`);
+          }
+          setStep("review");
         } catch (e) { setErr("Scan failed: " + e.message); setStep("preview"); }
         finally { setLoading(false); }
       };
@@ -9867,8 +9934,16 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         addAudit && addAudit({ action:`Remembered ${correctionRows.length} purchase intake correction(s)`, user:user.name, page:"Purchase Intake" });
         alert(`Saved ${correctionRows.length} correction(s) to Receipt Reader Training.`);
       };
-      const save = () => { setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid() }))]); addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name}`, user: user.name, page: "Invoice Upload" }); setStep("done"); };
-      const reset = () => { setStep("upload"); setImg(null); setParsed(null); setRows([]); setErr(null); };
+      const save = () => {
+        if (expectedCountNum() && expectedCountNum() !== rows.length) {
+          const ok = confirm(`Plant count mismatch! Expected ${expectedCountNum()} plants, but Leaf Diary is about to save ${rows.length}. Save anyway?`);
+          if (!ok) return;
+        }
+        setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid(), expectedPlantCountAtIntake: expectedCountNum() || "", invoicePlantCountVerified: !expectedCountNum() || expectedCountNum() === rows.length }))]);
+        addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name}${expectedCountNum() ? ` (expected ${expectedCountNum()})` : ""}`, user: user.name, page: "Invoice Upload" });
+        setStep("done");
+      };
+      const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setExpectedPlantCount(""); setParsed(null); setRows([]); setErr(null); };
       if (!nurseries.length) return <div style={{ padding: "60px", textAlign: "center", background: C.bg, minHeight: "100vh" }}><div style={{ fontSize: 40, marginBottom: 12 }}>🏪</div><h2 style={{ fontFamily: F.display, color: C.g900 }}>Add a nursery first</h2></div>;
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="📸" title="Buy Plants / Upload Invoice" sub="AI reads every plant, cost, and detail automatically" />
@@ -9880,7 +9955,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <Card style={{ border: `2px solid ${C.g200}`, borderRadius: 18, padding: 16, background: C.card }}>
             <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:5 }}>Upload plant invoice</div>
             <div style={{ fontSize:13, color:C.tx3, lineHeight:1.45, marginBottom:12 }}>Use this only for nursery or supplier plant purchases. This workflow creates plant numbers and labels. Gas, supplies, and shipping receipts go to Money → Add Receipt.</div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:12 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:12 }}>
               <button type="button" onClick={e => { e.stopPropagation(); cRef.current && cRef.current.click(); }} style={{ border:`2px solid ${C.g600}`, borderRadius:18, padding:"24px 14px", background:C.g50, color:C.g900, cursor:"pointer", textAlign:"center", fontFamily:F.body, fontWeight:900 }}>
                 <div style={{ fontSize:38, marginBottom:8 }}>📷</div>
                 <div>Take Invoice Photo</div>
@@ -9888,21 +9963,32 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               </button>
               <button type="button" onClick={e => { e.stopPropagation(); fRef.current && fRef.current.click(); }} style={{ border:`2px solid ${C.blue}`, borderRadius:18, padding:"24px 14px", background:C.blueBg, color:C.g900, cursor:"pointer", textAlign:"center", fontFamily:F.body, fontWeight:900 }}>
                 <div style={{ fontSize:38, marginBottom:8 }}>🖼️</div>
-                <div>Choose From Camera Roll / File</div>
-                <div style={{ fontSize:12, color:C.tx3, marginTop:4, fontWeight:700 }}>Pick a saved photo, screenshot, image, or PDF.</div>
+                <div>Choose Photo</div>
+                <div style={{ fontSize:12, color:C.tx3, marginTop:4, fontWeight:700 }}>Pick a saved photo or screenshot from Camera Roll.</div>
+              </button>
+              <button type="button" onClick={e => { e.stopPropagation(); pdfRef.current && pdfRef.current.click(); }} style={{ border:`2px solid ${C.gold}`, borderRadius:18, padding:"24px 14px", background:C.goldBg, color:C.g900, cursor:"pointer", textAlign:"center", fontFamily:F.body, fontWeight:900 }}>
+                <div style={{ fontSize:38, marginBottom:8 }}>📄</div>
+                <div>Choose PDF / File</div>
+                <div style={{ fontSize:12, color:C.tx3, marginTop:4, fontWeight:700 }}>Use this for saved PDF invoices from Files or email.</div>
               </button>
             </div>
+            <div style={{ marginTop:12, padding:12, borderRadius:14, background:C.g50, border:`1px solid ${C.g200}`, color:C.tx1, fontSize:12, lineHeight:1.45 }}>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:15, marginBottom:6 }}>Plant count double-check</div>
+              <div style={{ color:C.tx3, marginBottom:8 }}>Optional but recommended: type the total number of physical plants you bought from the invoice. After AI reads it, Leaf Diary will compare the count before saving inventory.</div>
+              <Inp label="Expected Total Plants" value={expectedPlantCount} onChange={setExpectedPlantCount} placeholder="Example: 48" />
+            </div>
             <div style={{ marginTop:12, padding:12, borderRadius:14, background:C.cardAlt, border:`1px solid ${C.bd}`, color:C.tx3, fontSize:12, lineHeight:1.45 }}>
-              Standard upload flow: select photo/PDF → preview → scan → review plants/costs → create plant numbers → print labels.
+              Standard upload flow: take photo, choose photo, or choose PDF/file → preview → scan → review plants/costs → create plant numbers → print labels.
             </div>
           </Card>
-          <input ref={fRef} type="file" accept="image/*,application/pdf,.pdf" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+          <input ref={fRef} type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.heic,.heif" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+          <input ref={pdfRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
           <input ref={cRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
         </div>}
         {step === "preview" && img && <div style={{ display: "flex", gap: 20, maxWidth: 860 }}>
           <div style={{ flex: 1 }}><img src={img} alt="Invoice" style={{ width: "100%", maxHeight: 480, objectFit: "contain", borderRadius: 10, border: `1px solid ${C.bd}` }} /></div>
           <div style={{ width: 240 }}>
-            <Card style={{ marginBottom: 10 }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, marginBottom: 5 }}>Ready to scan</div><p style={{ fontSize: 12, color: C.tx3 }}>Nursery: <b>{selN?.name}</b></p></Card>
+            <Card style={{ marginBottom: 10 }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, marginBottom: 5 }}>Ready to scan</div><p style={{ fontSize: 12, color: C.tx3 }}>Nursery: <b>{selN?.name}</b></p>{invoicePages.length > 1 && <p style={{ fontSize: 12, color: C.g700, fontWeight: 900 }}>PDF pages ready: {invoicePages.length}. The scan will read every page, not just page 1.</p>}{expectedCountNum() > 0 && <p style={{ fontSize:12, color:C.tx1, fontWeight:900 }}>Expected plant count: {expectedCountNum()} plants. Leaf Diary will compare this after scanning.</p>}</Card>
             {err && <div style={{ background: C.redBg, borderRadius: 7, padding: 10, color: C.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
             <Btn full onClick={scan} style={{ marginBottom: 8 }}>🔍 Scan with AI</Btn>
             <Btn full v="ghost" onClick={reset}>Use Different File</Btn>
@@ -9911,7 +9997,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {step === "scanning" && <div style={{ textAlign: "center", padding: "80px", maxWidth: 380, margin: "0 auto" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🔍</div>
           <h2 style={{ fontFamily: F.display, color: C.g900, marginBottom: 8 }}>Reading invoice…</h2>
-          <p style={{ color: C.tx3 }}>Extracting every plant and detail</p>
+          <p style={{ color: C.tx3 }}>Extracting every plant and detail{invoicePages.length > 1 ? ` from ${invoicePages.length} PDF pages` : ""}</p>
           <style>{`@keyframes ld{0%,80%,100%{transform:scale(.7);opacity:.4}40%{transform:scale(1.2);opacity:1}}`}</style>
           <Row gap={6} style={{ justifyContent: "center", marginTop: 20 }}>{[0, 1, 2].map(i => <div key={i} style={{ width: 9, height: 9, borderRadius: "50%", background: C.g400, animation: `ld 1.2s ease-in-out ${i * .2}s infinite` }} />)}</Row>
         </div>}
@@ -9921,6 +10007,24 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               <div><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15 }}>{parsed.nurseryName || selN?.name}</div><div style={{ fontSize: 12, color: C.tx3 }}>Invoice #{parsed.invoiceNumber || "—"} · {parsed.invoiceDate || "—"}</div></div>
               <Row gap={12} center>{[["Subtotal", $(parsed.subtotal)], ["Tax", $(parsed.tax)], ["Ship", $(parsed.shipping)], ["Total", $(parsed.total)]].map(([l, v]) => <div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 9, color: C.tx3, fontWeight: 700, textTransform: "uppercase" }}>{l}</div><div style={{ fontWeight: 700, color: C.g800, fontSize: 13 }}>{v}</div></div>)}<Tag text={`${rows.length} plants`} color={C.g700} />{rows.some(r => r.needsPotSizeReview) && <Tag text={`${rows.filter(r => r.needsPotSizeReview).length} pot size assumed`} color={C.amber} />}</Row>
             </Row>
+          </Card>
+          <Card style={{ marginBottom:12, background: expectedCountNum() && expectedCountNum() !== rows.length ? C.amberBg : C.g50, border:`2px solid ${expectedCountNum() && expectedCountNum() !== rows.length ? C.amber : C.g300}` }}>
+            <Row between wrap gap={10} center>
+              <div>
+                <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18 }}>🧮 Plant Count Check</div>
+                <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Leaf Diary expands quantities into individual plant records before saving inventory and labels.</div>
+              </div>
+              <Row gap={10} wrap center>
+                <Tag text={`AI line items: ${parsed.rawLineItemCount || invoiceLineCount(parsed)}`} color={C.blue} />
+                <Tag text={`Plant records to save: ${rows.length}`} color={C.g700} />
+                {expectedCountNum() > 0 && <Tag text={`Expected: ${expectedCountNum()}`} color={plantCountMatches(rows.length) ? C.g700 : C.amber} />}
+              </Row>
+            </Row>
+            {parsed.pagePlantCounts && parsed.pagePlantCounts.length > 1 && <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:8 }}>
+              {parsed.pagePlantCounts.map(pg => <div key={pg.page} style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:12, padding:9, fontSize:12 }}><b>Page {pg.page}</b><br/><span style={{ color:C.tx3 }}>{pg.lineItems} line item(s) · {pg.plantCount} plant(s)</span></div>)}
+            </div>}
+            {expectedCountNum() > 0 && expectedCountNum() !== rows.length && <div style={{ marginTop:10, background:C.amberBg, border:`1px solid ${C.amber}`, borderRadius:12, padding:10, color:C.amber, fontSize:12, fontWeight:900 }}>⚠️ Count mismatch: you expected {expectedCountNum()} plants but the AI found {rows.length}. Do not save until you review the table, add missing rows manually, or rescan/split the invoice.</div>}
+            {(!expectedCountNum() || expectedCountNum() === rows.length) && <div style={{ marginTop:10, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:10, color:C.g700, fontSize:12, fontWeight:900 }}>✅ Count looks ready. Still review plant names, quantities, costs, and pot sizes before saving.</div>}
           </Card>
           {rows.some(r => r.needsPotSizeReview || r.potSizeConfidence === "rule" || r.potSizeCorrected) && <Card style={{ marginBottom: 12, background: rows.some(r => r.needsPotSizeReview) ? C.amberBg : C.g50, border: `1px solid ${rows.some(r => r.needsPotSizeReview) ? C.amber : C.g300}40` }}>
             <Row between wrap center gap={10}>
@@ -9949,7 +10053,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {step === "done" && <div style={{ textAlign: "center", padding: "80px", maxWidth: 420, margin: "0 auto" }}>
           <div style={{ fontSize: 56, marginBottom: 16 }}>🌱</div>
           <h2 style={{ fontFamily: F.display, color: C.g900, marginBottom: 8 }}>Plants Added!</h2>
-          <p style={{ color: C.tx3, marginBottom: 22 }}>{rows.length} plants saved with unique IDs.</p>
+          <p style={{ color: C.tx3, marginBottom: 22 }}>{rows.length} plants saved with unique IDs{expectedCountNum() ? ` · expected count was ${expectedCountNum()}` : ""}.</p>
           <Btn onClick={reset}>Upload Another Invoice</Btn>
         </div>}
       </div>;
@@ -27871,3 +27975,5 @@ ${local.summary || "Fallback completed."}`;
 </body>
 
 </html>
+
+<!-- V195R — PDF Invoice Upload Fix: separate Choose PDF/File input + robust PDF.js detection. Backend/Gateway untouched. -->
