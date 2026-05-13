@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V193 Reset + Startup Repair Fix</title>
+  <title>LEAF DIARY - BUSINESS HUB · V200 Paste Plant Receipt Intake</title>
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -9753,6 +9753,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const [loading, setLoading] = useState(false);
       const [err, setErr] = useState(null);
       const [selN, setSelN] = useState(null);
+      const [pasteText, setPasteText] = useState("");
+      const [expectedPlantCount, setExpectedPlantCount] = useState("");
+      const [expectedReceiptTotal, setExpectedReceiptTotal] = useState("");
+      const [pasteSummary, setPasteSummary] = useState(null);
       const fRef = useRef(), cRef = useRef(), pdfRef = useRef();
       const purchaseTraining = phase101GetTraining(settings);
       useEffect(() => { if (nurseries.length && !selN) setSelN(nurseries[0]); }, [nurseries]);
@@ -9847,6 +9851,155 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           r.readAsDataURL(f);
         }
       };
+      const moneyFromText = v => {
+        if (v === null || v === undefined) return 0;
+        const cleaned = String(v).replace(/,/g, "").replace(/[^0-9.\-]/g, "");
+        const n = parseFloat(cleaned);
+        return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+      };
+      const cleanPasteLine = line => String(line || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+      const isReceiptNoiseLine = line => {
+        const l = cleanPasteLine(line).toLowerCase();
+        if (!l) return true;
+        if (/^(subtotal|tax|total|cashier|payment id|order id|order employee|method|auth id|reference id|aid|cvm|hide details|view the privacy|no refunds|mastercard|visa|amex|discover|card:|the leaf diary|following)$/.test(l)) return true;
+        if (/^(https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.)/.test(l)) return true;
+        if (/clover\.com|online receipt|perfect choice gdns|perfect choice nursery|southwest ranches|sw 186th|receipt$/.test(l)) return true;
+        if (/^\+?1?\s*\(?\d{3}\)?[-\s.]?\d{3}[-\s.]?\d{4}$/.test(l)) return true;
+        if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(l)) return true;
+        if (/^\d+\/\d+$/.test(l)) return true;
+        if (/^page\s*\d+/i.test(l)) return true;
+        if (/^[-–—]?\$?\d[\d,]*(?:\.\d{2})?\s*(?:off)?$/i.test(l) && /off/i.test(l)) return true;
+        if (/^\d+%\s*off/i.test(l)) return true;
+        return false;
+      };
+      const looksPlantName = line => {
+        const l = cleanPasteLine(line);
+        if (isReceiptNoiseLine(l)) return false;
+        if (/^[-–—]?\$/.test(l)) return false;
+        if (l.length < 3) return false;
+        if (!/[a-zA-Z]/.test(l)) return false;
+        return true;
+      };
+      const extractReceiptTotals = raw => {
+        const compact = String(raw || "").replace(/\s+/g, " ");
+        const readNear = label => {
+          const re = new RegExp(label + "\\s*\\$?\\s*([0-9][0-9,]*(?:\\s*\\.\\s*\\d{2}|\\.\\d{2})?)", "i");
+          const m = compact.match(re);
+          return m ? moneyFromText(m[1]) : 0;
+        };
+        const subtotal = readNear("Subtotal");
+        const tax = readNear("Tax(?:\\s*\\(Removed\\))?");
+        let total = readNear("Total");
+        if (!total) {
+          const m = compact.match(/Total\s*\$\s*([0-9][0-9,]*)\s*\.\s*(\d{2})/i);
+          if (m) total = moneyFromText(`${m[1]}.${m[2]}`);
+        }
+        let discount = 0;
+        const discountMatch = compact.match(/(?:\d+%\s*Off|Discount)\s*-?\$?\s*([0-9][0-9,]*(?:\.\d{2})?)/i);
+        if (discountMatch) discount = moneyFromText(discountMatch[1]);
+        return { subtotal, tax, discount, total };
+      };
+      const parsePlantQuantity = name => {
+        let cleaned = cleanPasteLine(name);
+        let qty = 1;
+        const m = cleaned.match(/\s+(?:x|×)\s*(\d+)\s*$/i);
+        if (m) {
+          qty = Math.max(1, parseInt(m[1], 10) || 1);
+          cleaned = cleaned.replace(/\s+(?:x|×)\s*\d+\s*$/i, "").trim();
+        }
+        return { name: cleaned, qty };
+      };
+      const parsePastedInvoiceText = raw => {
+        const lines = String(raw || "").split(/\r?\n/).map(cleanPasteLine).filter(Boolean);
+        const totals = extractReceiptTotals(raw);
+        const direct = [];
+        const prices = [];
+        const names = [];
+        const skipPriceContext = /subtotal|total|tax|off|discount|mastercard|visa|cashier|payment|auth|reference/i;
+        for (const line of lines) {
+          const inline = line.match(/^(.+?)\s+\$\s*([0-9][0-9,]*(?:\.\d{2})?)\s*$/);
+          if (inline && looksPlantName(inline[1]) && !skipPriceContext.test(inline[1])) {
+            direct.push({ name:inline[1], price:moneyFromText(inline[2]), sourceLine:line });
+            continue;
+          }
+          const pureMoney = line.match(/^\$\s*([0-9][0-9,]*(?:\.\d{2})?)\s*$/);
+          if (pureMoney) {
+            const val = moneyFromText(pureMoney[1]);
+            if (val > 0 && val < 1000) prices.push(val);
+            continue;
+          }
+          if (looksPlantName(line)) names.push(line);
+        }
+        const paired = [];
+        const maxPairs = Math.min(prices.length, names.length);
+        for (let i = 0; i < maxPairs; i++) paired.push({ name:names[i], price:prices[i], sourceLine:names[i] });
+        const all = [...direct, ...paired].filter(x => x.name && x.price > 0);
+        const plants = [];
+        all.forEach((item, idx) => {
+          const q = parsePlantQuantity(item.name);
+          const qty = q.qty || 1;
+          const costEach = Math.round((item.price / qty) * 100) / 100;
+          plants.push({ name:q.name, quantity:qty, costPerPlant:costEach, pasteLine:item.sourceLine || item.name, pasteRow:idx + 1 });
+        });
+        const lineSubtotal = Math.round(plants.reduce((s,p)=>s + (+p.costPerPlant || 0) * Math.max(1, +p.quantity || 1), 0) * 100) / 100;
+        const total = totals.total || Math.round((lineSubtotal - (totals.discount || 0) + (totals.tax || 0)) * 100) / 100;
+        return {
+          nurseryName: selN?.name || "Pasted Invoice",
+          invoiceNumber: `PASTE-${new Date().toISOString().slice(0,10)}`,
+          invoiceDate: today(),
+          subtotal: totals.subtotal || lineSubtotal,
+          discount: totals.discount || 0,
+          tax: totals.tax || 0,
+          shipping: 0,
+          total,
+          pastedLineCount: lines.length,
+          pastedPriceCount: prices.length + direct.length,
+          pastedNameCount: names.length + direct.length,
+          plants,
+          pasteSource: "copy-paste",
+          rawPastedText: raw
+        };
+      };
+      const buildRowsFromInvoicePlants = result => {
+        let ctr = getNextId(plants, selN.code);
+        return (result.plants || []).flatMap((p, li) => Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
+          ctr++;
+          const cost = +p.costPerPlant || 0, sp = sprice(cost);
+          const potGuess = phase101InferPotSize(p, selN.code, settings);
+          const intakeNotesBase = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
+          const pageNote = p._pdfPage ? `PDF page ${p._pdfPage}.` : "";
+          const pasteNote = p.pasteRow ? `Pasted row ${p.pasteRow}.` : "";
+          const intakeNotes = [pageNote, pasteNote, intakeNotesBase].filter(Boolean).join(" ");
+          const plantId = pid(selN.code, ctr);
+          return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "" };
+        }));
+      };
+      const parsePasteNow = () => {
+        if (!selN) { setErr("Select a nursery first."); return; }
+        if (!pasteText.trim()) { setErr("Paste the receipt/invoice text first."); return; }
+        try {
+          const result = parsePastedInvoiceText(pasteText);
+          if (!result.plants.length) throw new Error("No plant lines were found. Paste the full receipt text with plant names and prices, then try again.");
+          const mapped = buildRowsFromInvoicePlants(result);
+          setParsed(result);
+          setRows(mapped);
+          setPasteSummary({ lineItems: result.plants.length, plantRecords: mapped.length, subtotal: result.subtotal, discount: result.discount, tax: result.tax, total: result.total });
+          setErr(null);
+          setStep("review");
+        } catch(e) {
+          setErr("Paste parse failed: " + (e?.message || String(e)));
+        }
+      };
+      const nextRowPlantId = () => {
+        const base = getNextId(plants, selN.code);
+        const nums = rows.map(r => String(r.plantId || "").match(/(\d+)$/)).filter(Boolean).map(m => +m[1] || 0);
+        return pid(selN.code, Math.max(base, ...nums) + 1);
+      };
+      const addManualLine = () => {
+        const plantId = nextRowPlantId();
+        const cost = 0, sp = sprice(cost);
+        setRows(pr => [...pr, { _k:`manual-${Date.now()}`, plantId, plantCode:plantId, barcodeValue:plantId, barcodeType:"CODE128", nurseryCode:selN.code, nurseryName:selN.name, name:"", botanicalName:"", potSize:purchaseTraining.defaultPotSize || '4"', potSizeConfidence:"manual", potSizeSourceText:"manual", potSizeRuleId:"", potSizeNote:"Manual line added during receipt review.", needsPotSizeReview:false, cost, suggestedPrice:sp, salePrice:"", shippingCost:"", margin:marg(cost, sp), status:"In Stock", invoiceNumber:parsed?.invoiceNumber || "", invoiceDate:parsed?.invoiceDate || today(), invoiceSubtotal:parsed?.subtotal || "", invoiceDiscount:parsed?.discount || "", invoiceTax:parsed?.tax || "", invoiceTotal:parsed?.total || "", dateAdded:today(), platform:"", rack:"", shelf:"", notes:"Manual line added after receipt check.", labelPrinted:false, addedBy:user.name, purchaseIntakeTrained:true }]);
+      };
       const scan = async () => {
         if (!selN) { setErr("Select a nursery first."); return; }
         setLoading(true); setErr(null); setStep("scanning");
@@ -9890,16 +10043,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           setParsed(result);
           if (pageErrors.length) setErr(`Partial PDF scan warning: ${pageErrors.join(" | ")}`);
 
-          let ctr = getNextId(plants, selN.code);
-          const mapped = (result.plants || []).flatMap((p, li) => Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
-            ctr++; const cost = +p.costPerPlant || 0, sp = sprice(cost);
-            const potGuess = phase101InferPotSize(p, selN.code, settings);
-            const intakeNotesBase = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
-            const pageNote = p._pdfPage ? `PDF page ${p._pdfPage}.` : "";
-            const intakeNotes = [pageNote, intakeNotesBase].filter(Boolean).join(" ");
-            return { _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "" };
-          }));
-          setRows(mapped); setStep("review");
+          const mapped = buildRowsFromInvoicePlants(result);
+          setRows(mapped); setPasteSummary(null); setStep("review");
         } catch (e) { setErr("Scan failed: " + e.message); setStep("preview"); }
         finally { setLoading(false); }
       };
@@ -9919,8 +10064,20 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         addAudit && addAudit({ action:`Remembered ${correctionRows.length} purchase intake correction(s)`, user:user.name, page:"Purchase Intake" });
         alert(`Saved ${correctionRows.length} correction(s) to Receipt Reader Training.`);
       };
-      const save = () => { setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid() }))]); addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name}`, user: user.name, page: "Invoice Upload" }); setStep("done"); };
-      const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setParsed(null); setRows([]); setErr(null); };
+      const save = () => {
+        const expectedN = parseInt(expectedPlantCount, 10);
+        const actualN = rows.length;
+        const lineTotal = Math.round(rows.reduce((s,r)=>s + (+r.cost || 0), 0) * 100) / 100;
+        const expectedTotalN = moneyFromText(expectedReceiptTotal);
+        const receiptTotalN = moneyFromText(parsed?.total);
+        const countBad = Number.isFinite(expectedN) && expectedN > 0 && expectedN !== actualN;
+        const totalBad = expectedTotalN > 0 && Math.abs(expectedTotalN - (receiptTotalN || lineTotal)) > .02;
+        if ((countBad || totalBad) && !confirm(`Receipt check warning:\n${countBad ? `Expected ${expectedN} plants but review has ${actualN}.\n` : ""}${totalBad ? `Expected receipt total ${$(expectedTotalN)} but parsed total is ${$(receiptTotalN || lineTotal)}.\n` : ""}Save anyway?`)) return;
+        setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid(), receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: parsed?.total || "", receiptLineCostTotal: lineTotal }))]);
+        addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name} · receipt total ${$(parsed?.total || lineTotal)}`, user: user.name, page: "Invoice Upload" });
+        setStep("done");
+      };
+      const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); };
       if (!nurseries.length) return <div style={{ padding: "60px", textAlign: "center", background: C.bg, minHeight: "100vh" }}><div style={{ fontSize: 40, marginBottom: 12 }}>🏪</div><h2 style={{ fontFamily: F.display, color: C.g900 }}>Add a nursery first</h2></div>;
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="📸" title="Buy Plants / Upload Invoice" sub="AI reads every plant, cost, and detail automatically" />
@@ -9950,8 +10107,19 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               </button>
             </div>
             <div style={{ marginTop:12, padding:12, borderRadius:14, background:C.cardAlt, border:`1px solid ${C.bd}`, color:C.tx3, fontSize:12, lineHeight:1.45 }}>
-              Standard upload flow: take photo, choose photo, or choose PDF/file → preview → scan → review plants/costs → create plant numbers → print labels.
+              Standard upload flow: take photo, choose photo, choose PDF/file, or paste receipt text → preview/review → verify plant count + receipt total → create plant numbers → print labels.
             </div>
+          </Card>
+          <Card style={{ marginTop:14, border:`2px solid ${C.g300}`, borderRadius:18, padding:16, background:C.g50 }}>
+            <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:5 }}>✍️ Paste full receipt data</div>
+            <div style={{ fontSize:13, color:C.tx3, lineHeight:1.45, marginBottom:10 }}>Use this when the PDF/AI misses plants. Paste the entire Clover receipt or spreadsheet text. The app will pair plant names with prices, expand quantities like <b>x 4</b>, and show the total count before anything is saved.</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+              <Inp label="Expected total plants" value={expectedPlantCount} onChange={setExpectedPlantCount} placeholder="Example: 159" type="number" />
+              <Inp label="Expected receipt total" value={expectedReceiptTotal} onChange={setExpectedReceiptTotal} placeholder="Example: 3429.45" type="number" />
+            </div>
+            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={`Paste receipt text here...\nExample:\n$25.00\n$25.00\nMonstera Peru Var\nMonstera Peru Var\nPhilodendron Pluto Mint 6\" x 4 $180.00`} style={{ width:"100%", minHeight:170, border:`1.5px solid ${C.bd}`, borderRadius:14, padding:12, fontFamily:F.mono, fontSize:12, lineHeight:1.4, background:"#fff" }} />
+            {err && <div style={{ background:C.redBg, border:`1px solid ${C.red}40`, color:C.red, borderRadius:12, padding:10, marginTop:10, fontSize:12, fontWeight:800 }}>{err}</div>}
+            <Row gap={8} wrap style={{ marginTop:10 }}><Btn onClick={parsePasteNow}>🔍 Parse Pasted Receipt</Btn><Btn v="ghost" onClick={()=>{ setPasteText(""); setPasteSummary(null); }}>Clear Paste</Btn></Row>
           </Card>
           <input ref={fRef} type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.heic,.heif" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
           <input ref={pdfRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
@@ -9980,12 +10148,29 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               <Row gap={12} center>{[["Subtotal", $(parsed.subtotal)], ["Tax", $(parsed.tax)], ["Ship", $(parsed.shipping)], ["Total", $(parsed.total)]].map(([l, v]) => <div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 9, color: C.tx3, fontWeight: 700, textTransform: "uppercase" }}>{l}</div><div style={{ fontWeight: 700, color: C.g800, fontSize: 13 }}>{v}</div></div>)}<Tag text={`${rows.length} plants`} color={C.g700} />{rows.some(r => r.needsPotSizeReview) && <Tag text={`${rows.filter(r => r.needsPotSizeReview).length} pot size assumed`} color={C.amber} />}</Row>
             </Row>
           </Card>
+          <Card style={{ marginBottom:12, background: expectedPlantCount && parseInt(expectedPlantCount,10) !== rows.length ? C.amberBg : C.card, border:`2px solid ${expectedPlantCount && parseInt(expectedPlantCount,10) !== rows.length ? C.amber : C.g300}` }}>
+            <Row between wrap center gap={12}>
+              <div>
+                <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>🧮 Receipt Count + Accounting Check</div>
+                <div style={{ fontSize:12, color:C.tx3, marginTop:4 }}>Do not save until the plant count and receipt total match your paper/PDF receipt.</div>
+              </div>
+              <Row gap={10} wrap center>
+                <Tag text={`Found ${rows.length} plants`} color={expectedPlantCount && parseInt(expectedPlantCount,10) !== rows.length ? C.amber : C.g600} />
+                {expectedPlantCount && <Tag text={`Expected ${expectedPlantCount}`} color={parseInt(expectedPlantCount,10) === rows.length ? C.g600 : C.red} />}
+                <Tag text={`Line cost ${$(rows.reduce((s,r)=>s + (+r.cost || 0), 0))}`} color={C.blue} />
+                {expectedReceiptTotal && <Tag text={`Receipt total ${$(moneyFromText(expectedReceiptTotal))}`} color={Math.abs(moneyFromText(expectedReceiptTotal) - moneyFromText(parsed?.total || rows.reduce((s,r)=>s + (+r.cost || 0), 0))) <= .02 ? C.g600 : C.red} />}
+              </Row>
+            </Row>
+            {pasteSummary && <div style={{ marginTop:10, fontSize:12, color:C.tx3, lineHeight:1.45 }}>Paste summary: {pasteSummary.lineItems} line item(s), {pasteSummary.plantRecords} individual plant record(s), subtotal {$(pasteSummary.subtotal)}, discount {$(pasteSummary.discount)}, tax {$(pasteSummary.tax)}, total {$(pasteSummary.total)}.</div>}
+            {expectedPlantCount && parseInt(expectedPlantCount,10) !== rows.length && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}40`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>Count mismatch. Add missing plant lines below or fix the table before saving to inventory.</div>}
+          </Card>
           {rows.some(r => r.needsPotSizeReview || r.potSizeConfidence === "rule" || r.potSizeCorrected) && <Card style={{ marginBottom: 12, background: rows.some(r => r.needsPotSizeReview) ? C.amberBg : C.g50, border: `1px solid ${rows.some(r => r.needsPotSizeReview) ? C.amber : C.g300}40` }}>
             <Row between wrap center gap={10}>
               <div><div style={{ fontFamily:F.display, fontWeight:700, color:C.g900, fontSize:15 }}>🧾 Receipt Reader Training Applied</div><div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>{purchaseTraining.defaultPotSize || '4"'} is the default when size is missing. Rule matches are marked in the Pot column. Assumed sizes should be verified before saving.</div></div>
               <Row gap={8} wrap>{rows.some(r => r.potSizeCorrected) && <Btn sz="sm" v="soft" onClick={rememberPotCorrections}>Remember Corrections</Btn>}<Btn sz="sm" v="ghost" onClick={() => alert("Open Plants → Receipt Reader Training from the menu to add nursery-specific invoice rules.")}>Training Rules</Btn></Row>
             </Row>
           </Card>}
+          <Row gap={8} wrap style={{ marginBottom:10 }}><Btn sz="sm" v="soft" onClick={addManualLine}>➕ Add Missing Plant Line</Btn><Btn sz="sm" v="ghost" onClick={()=>setPasteText((pasteText || "") + "\n")}>Paste More Text</Btn></Row>
           <div style={{ maxHeight: 420, overflowY: "auto", border: `1px solid ${C.bd}`, borderRadius: 9 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead style={{ position: "sticky", top: 0, background: C.cardAlt, zIndex: 1 }}><tr>{["Plant & ID", "Pot", "Cost", "Price", "Margin", "Status", "Rack", "Shelf", ""].map(h => <th key={h} style={{ padding: "8px 9px", textAlign: "left", color: C.tx3, fontWeight: 700, fontSize: 10, letterSpacing: .4, textTransform: "uppercase", borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead>
