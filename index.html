@@ -8,10 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V211 Barcode Scan Match Repair</title>
-  <!-- V211 — Barcode Scan Match Repair. Scanner now matches the visible label code such as PC-155 across plantId, plantCode, barcodeValue, SKU, code, URLs, PC155, PC-0155, and similar variants. -->
-  <!-- V212 — Photo Price Quick Edit + cleaner photo screens. After scanning a plant for photos, owner/manager can set Sell For price, see cost/profit, and save price without opening Inventory. Help text moved into popups on photo screens. -->
-  <!-- V213 — Added 5 inch pot size to all pot-size dropdowns and invoice/training rules. -->
+  <title>LEAF DIARY - BUSINESS HUB · V209 Mobile Portrait Fix</title>
   <!-- V210 — AI Tools moved out of the top header. AI/helper pages are now accessed from + Add and Search, keeping the mobile header clean. -->
   <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
   <link rel="apple-touch-icon"
@@ -3004,7 +3001,7 @@
     const PLATFORMS = ["Palmstreet", "Whatnot", "Shopify", "Cash", "Local Pickup", "Trade", "Other"];
     const PAY_METHS = ["Cash", "Credit Card", "Debit Card", "Check", "PayPal", "Venmo", "Zelle", "Wise", "Other"];
     const EXP_CATS = ["Plant Inventory", "Soil & Amendments", "Pots & Containers", "Packaging", "Labels & Printers", "Heat/Cold Packs", "Shipping Supplies", "Palmstreet Fees", "Whatnot Fees", "Shopify Fees", "Gas & Mileage", "Software & Website", "Advertising", "Payroll", "Rent & Utilities", "Equipment", "Bank Fees", "Taxes", "Other"];
-    const POT_SIZES = ['2"', '3"', '4"', '5"', '6"', '8"', '10"', '12"', "1 gal", "2 gal", "3 gal", "5 gal", "7 gal", "10 gal", "15 gal"];
+    const POT_SIZES = ['2"', '3"', '4"', '6"', '8"', '10"', '12"', "1 gal", "2 gal", "3 gal", "5 gal", "7 gal", "10 gal", "15 gal"];
     const GENERA = ["Aglaonema", "Alocasia", "Anthurium", "Begonia", "Caladium", "Epipremnum", "Hoya", "Monstera", "Peperomia", "Philodendron", "Scindapsus", "Syngonium", "Tillandsia", "Other"];
     const BILL_CATS = ["Platform Fee", "Software", "Rent", "Utilities", "Internet", "Phone", "Insurance", "Loan", "Supplier", "Payroll", "Taxes", "Other"];
     const BILL_FREQ = ["One-Time", "Weekly", "Monthly", "Quarterly", "Annually"];
@@ -4432,8 +4429,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       rules: [
         { id: "pt-4in", nurseryCode: "*", type: "potSize", match: "4IN", value: '4"', notes: "Common 4 inch invoice shorthand", enabled: true, createdAt: "system" },
         { id: "pt-4inch", nurseryCode: "*", type: "potSize", match: "4 INCH", value: '4"', notes: "Common 4 inch wording", enabled: true, createdAt: "system" },
-        { id: "pt-5in", nurseryCode: "*", type: "potSize", match: "5IN", value: '5"', notes: "Common 5 inch invoice shorthand", enabled: true, createdAt: "system" },
-        { id: "pt-5inch", nurseryCode: "*", type: "potSize", match: "5 INCH", value: '5"', notes: "Common 5 inch wording", enabled: true, createdAt: "system" },
         { id: "pt-4quote", nurseryCode: "*", type: "potSize", match: '4"', value: '4"', notes: "Exact quote size", enabled: true, createdAt: "system" },
         { id: "pt-6in", nurseryCode: "*", type: "potSize", match: "6IN", value: '6"', notes: "Common 6 inch invoice shorthand", enabled: true, createdAt: "system" },
         { id: "pt-6inch", nurseryCode: "*", type: "potSize", match: "6 INCH", value: '6"', notes: "Common 6 inch wording", enabled: true, createdAt: "system" },
@@ -12623,95 +12618,19 @@ ${JSON.stringify(payload, null, 2)}`;
     ══════════════════════════════════════════════════════════ */
     const LABELIFE_BARCODE_TYPE = "CODE128";
     const LABELIFE_HEADERS = ["Plant Number", "Plant Name", "Pot Size", "Suggested Price", "Barcode Value", "Barcode Type", "Nursery Code", "Date Added", "Status"];
-    /* V211 — Barcode Scan Match Repair
-       Problem fixed: Labelife labels can scan/print bold, curve on pots, or return values like PC155, PC-0155, URL text, or a plain visible code.
-       Rule: the app must find the plant by the visible label number (example PC-155) across all known plant code fields.
-       No backend/schema/Gateway/Supabase change. */
-    const labelifeActualPlantNumber = p => String(p?.plantId || p?.plantCode || p?.barcodeValue || p?.labelCode || p?.plantNumber || p?.sku || p?.code || "").trim();
-    const labelifePlantNumber = p => String(p?.plantId || p?.plantCode || p?.barcodeValue || p?.labelCode || p?.plantNumber || p?.sku || p?.code || "").trim();
+    const labelifeActualPlantNumber = p => String(p?.plantId || p?.plantCode || "").trim();
+    const labelifePlantNumber = p => String(p?.plantId || p?.plantCode || p?.barcodeValue || "").trim();
     const labelifeBarcodeValue = p => labelifePlantNumber(p);
-    const labelifeNormalizeCode = v => String(v || "")
-      .trim()
-      .toUpperCase()
-      .replace(/[–—]/g, "-")
-      .replace(/^\s*(?:LD|PLANT|CODE|SCAN|ID)\s*[:#-]\s*/i, "")
-      .replace(/\s+/g, "");
+    const labelifeNormalizeCode = v => String(v || "").trim().toUpperCase().replace(/[–—]/g, "-").replace(/\s+/g, "");
     const labelifeLooseCode = v => labelifeNormalizeCode(v).replace(/[^A-Z0-9]/g, "");
-    const labelifeCanonicalCode = v => {
-      const loose = labelifeLooseCode(v);
-      if (!loose) return "";
-      const m = loose.match(/^([A-Z]{1,8})0*(\d{1,8})$/);
-      if (m) return `${m[1]}${String(parseInt(m[2], 10))}`;
-      const m2 = loose.match(/^0*(\d{1,8})$/);
-      if (m2) return String(parseInt(m2[1], 10));
-      return loose;
-    };
-    const labelifeExtractCodeFromText = v => {
-      const raw = String(v || "").trim();
-      if (!raw) return "";
-      const decoded = (() => { try { return decodeURIComponent(raw); } catch(e) { return raw; } })();
-      const candidates = [decoded, raw]
-        .concat(String(decoded).split(/[?&#/\|,;
-
-	 ]+/))
-        .map(x => String(x || "").trim())
-        .filter(Boolean);
-      for (const c of candidates) {
-        const cleaned = c.replace(/^\s*(?:LD|PLANT|CODE|SCAN|ID)\s*[:#-]\s*/i, "").trim();
-        const hit = cleaned.match(/([A-Z]{1,8})\s*[-_ ]?\s*0*(\d{1,8})/i);
-        if (hit && !/^(HTTP|HTTPS|WWW|COM|NET|ORG)$/i.test(hit[1])) return `${hit[1].toUpperCase()}-${parseInt(hit[2], 10)}`;
-      }
-      const loose = labelifeLooseCode(decoded);
-      const hit = loose.match(/([A-Z]{1,8})0*(\d{1,8})/);
-      if (hit && !/^(HTTP|HTTPS|WWW|COM|NET|ORG)$/i.test(hit[1])) return `${hit[1].toUpperCase()}-${parseInt(hit[2], 10)}`;
-      return raw;
-    };
-    const labelifeCodeCandidates = v => {
-      const raw = String(v || "").trim();
-      const extracted = labelifeExtractCodeFromText(raw);
-      const arr = [raw, extracted, labelifeNormalizeCode(raw), labelifeNormalizeCode(extracted), labelifeLooseCode(raw), labelifeLooseCode(extracted), labelifeCanonicalCode(raw), labelifeCanonicalCode(extracted)]
-        .map(x => String(x || "").trim())
-        .filter(Boolean);
-      return Array.from(new Set(arr));
-    };
-    const labelifePlantLookupValues = p => [
-      p?.plantId, p?.plantCode, p?.barcodeValue, p?.labelCode, p?.plantNumber, p?.plant_id,
-      p?.sku, p?.code, p?.id, p?.scannerCode, p?.qrCode, p?.qrValue, p?.displayCode
-    ].filter(v => String(v || "").trim());
     function findPlantByLabelifeBarcode(plants = [], code = "") {
-      const codeCandidates = labelifeCodeCandidates(code);
-      if (!codeCandidates.length) return null;
-      const exactSet = new Set(codeCandidates.map(labelifeNormalizeCode).filter(Boolean));
-      const looseSet = new Set(codeCandidates.map(labelifeLooseCode).filter(Boolean));
-      const canonSet = new Set(codeCandidates.map(labelifeCanonicalCode).filter(Boolean));
+      const exact = labelifeNormalizeCode(code);
+      const loose = labelifeLooseCode(code);
+      if (!exact && !loose) return null;
       const rows = safeArray(plants);
-      const scorePlant = p => {
-        const vals = labelifePlantLookupValues(p);
-        for (const v of vals) if (exactSet.has(labelifeNormalizeCode(v))) return 100;
-        for (const v of vals) if (looseSet.has(labelifeLooseCode(v))) return 90;
-        for (const v of vals) if (canonSet.has(labelifeCanonicalCode(v))) return 80;
-        return 0;
-      };
-      let best = null;
-      let bestScore = 0;
-      let tied = false;
-      for (const p of rows) {
-        const score = scorePlant(p);
-        if (score > bestScore) { best = p; bestScore = score; tied = false; }
-        else if (score && score === bestScore) { tied = true; }
-      }
-      if (best && !tied) return best;
-      const numericOnly = codeCandidates.map(labelifeLooseCode).map(x => (x.match(/\d{1,8}$/) || [""])[0]).filter(Boolean);
-      if (numericOnly.length) {
-        const uniqueNumeric = [];
-        rows.forEach(p => {
-          const vals = labelifePlantLookupValues(p);
-          if (vals.some(v => numericOnly.includes((labelifeLooseCode(v).match(/\d{1,8}$/) || [""])[0]))) uniqueNumeric.push(p);
-        });
-        const uniqueIds = Array.from(new Map(uniqueNumeric.map(p => [String(p?.id || labelifePlantNumber(p) || JSON.stringify(p)), p])).values());
-        if (uniqueIds.length === 1) return uniqueIds[0];
-      }
-      return null;
+      let found = rows.find(p => [p.plantId, p.plantCode, p.barcodeValue].some(v => labelifeNormalizeCode(v) === exact));
+      if (found) return found;
+      return rows.find(p => [p.plantId, p.plantCode, p.barcodeValue].some(v => labelifeLooseCode(v) === loose)) || null;
     }
 
     /* UPDATE 43 — iPhone/Safari scanner fallback helpers
@@ -13255,10 +13174,6 @@ ${JSON.stringify(payload, null, 2)}`;
       const [scanMsg, setScanMsg] = useState("");
       const [scanError, setScanError] = useState("");
       const [foundPlant, setFoundPlant] = useState(null);
-      const [sellForPrice, setSellForPrice] = useState("");
-      const [priceMsg, setPriceMsg] = useState("");
-      const [priceError, setPriceError] = useState("");
-      const [showHelp, setShowHelp] = useState(false);
       const [lastCode, setLastCode] = useState("");
       const [saving, setSaving] = useState(false);
       const [sprintMsg, setSprintMsg] = useState("");
@@ -13279,35 +13194,6 @@ ${JSON.stringify(payload, null, 2)}`;
       const preferBarcodePhoto = isIOS && !hasNativeScanner;
       const detectorFormats = ["code_128", "code_39", "ean_13", "qr_code", "data_matrix"];
       const sprintCount = completed.filter(r => String(r.sessionStartedAt || "") === sessionStartedAt).length;
-      const ldPhotoMoney = v => {
-        const n = Number(String(v ?? "").replace(/[^0-9.-]/g, ""));
-        return Number.isFinite(n) ? n : 0;
-      };
-      const ldCurrentSellFor = p => {
-        const raw = p?.sellForPrice ?? p?.salePrice ?? p?.suggestedPrice ?? p?.listPrice ?? p?.price ?? "";
-        const n = ldPhotoMoney(raw);
-        return n ? n.toFixed(2) : "";
-      };
-      const photoCost = foundPlant ? ldPhotoMoney(foundPlant.trueCost ?? foundPlant.costEachAfterDiscount ?? foundPlant.cost ?? foundPlant.unitCost ?? foundPlant.purchaseCost ?? foundPlant.invoiceCost ?? foundPlant.wholesaleCost ?? 0) : 0;
-      const photoSell = ldPhotoMoney(sellForPrice);
-      const photoProfit = photoSell - photoCost;
-      const savePhotoSellPrice = () => {
-        if (!foundPlant || !setPlants) return;
-        const amount = ldPhotoMoney(sellForPrice);
-        if (!amount || amount <= 0) { setPriceError("Enter the Sell For price first."); setPriceMsg(""); return; }
-        const plantNumberNow = labelifePlantNumber(foundPlant);
-        const updatedAt = new Date().toISOString();
-        setPlants(prev => safeArray(prev).map(p => {
-          const sameId = foundPlant.id && p.id === foundPlant.id;
-          const samePlantNumber = plantNumberNow && labelifeNormalizeCode(labelifePlantNumber(p)) === labelifeNormalizeCode(plantNumberNow);
-          if (!sameId && !samePlantNumber) return p;
-          return { ...p, sellForPrice:amount, salePrice:amount, suggestedPrice:amount, listPrice:amount, price:amount, priceUpdatedAt:updatedAt, priceUpdatedBy:user?.name || user?.email || "Photo workflow", priceUpdatedFrom:"photo_price_quick_edit" };
-        }));
-        setFoundPlant(fp => fp ? { ...fp, sellForPrice:amount, salePrice:amount, suggestedPrice:amount, listPrice:amount, price:amount, priceUpdatedAt:updatedAt, priceUpdatedFrom:"photo_price_quick_edit" } : fp);
-        setPriceError("");
-        setPriceMsg(`Sell For price saved at $${amount.toFixed(2)}. Profit shows $${(amount - photoCost).toFixed(2)} before fees.`);
-        addAudit && addAudit({ action:`Updated Sell For price to $${amount.toFixed(2)} while taking photos for ${plantNumberNow || foundPlant.name || "plant"}`, user:user?.name || "Unknown", page:"Take Plant Photos Fast" });
-      };
       const saveCompleted = row => {
         const next = [row, ...completed].slice(0, 25);
         setCompleted(next);
@@ -13342,14 +13228,11 @@ ${JSON.stringify(payload, null, 2)}`;
         if (!plant) {
           setFoundPlant(null);
           setScanStatus("notfound");
-          setScanError(`No plant found for barcode: ${code}. I also tried visible-code matching like PC-155 / PC155 / PC-0155. Type the printed code on the label to search manually, or reprint this label if the code is wrong.`);
+          setScanError(`No plant found for barcode: ${code}`);
           return;
         }
         stopScanner();
         setFoundPlant(plant);
-        setSellForPrice(ldCurrentSellFor(plant));
-        setPriceMsg("");
-        setPriceError("");
         setManualCode(code);
         setScanStatus("found");
         setScanError("");
@@ -13487,8 +13370,6 @@ ${JSON.stringify(payload, null, 2)}`;
             photoData = { photoBase64: base64, photoUploadedAt: new Date().toISOString(), photoUploadFallbackReason: cloudErr?.message || String(cloudErr || "Cloud upload failed") };
           }
           const updatedAt = new Date().toISOString();
-          const priceAmount = ldPhotoMoney(sellForPrice);
-          const pricePatch = priceAmount > 0 ? { sellForPrice:priceAmount, salePrice:priceAmount, suggestedPrice:priceAmount, listPrice:priceAmount, price:priceAmount, priceUpdatedAt:updatedAt, priceUpdatedBy:user?.name || user?.email || "Photo workflow", priceUpdatedFrom:"photo_save_quick_edit" } : {};
           let savedName = foundPlant.name || "Plant";
           setPlants(prev => safeArray(prev).map(p => {
             const sameId = foundPlant.id && p.id === foundPlant.id;
@@ -13497,7 +13378,6 @@ ${JSON.stringify(payload, null, 2)}`;
             savedName = p.name || savedName;
             return {
               ...p,
-              ...pricePatch,
               ...photoData,
               photoAddedBy: user?.name || user?.email || "Take Plant Photos Fast",
               photoSource: "fast_photo_sprint_barcode",
@@ -13514,9 +13394,6 @@ ${JSON.stringify(payload, null, 2)}`;
           addAudit && addAudit({ action:`Take Plant Photos Fast saved photo for ${plantNumberNow || codeNow}`, user:user?.name || "Unknown", page:"Take Plant Photos Fast" });
           setSprintMsg(`Saved ${savedName} · ${plantNumberNow || codeNow}. ${autoNext ? "Ready for next scan." : "Tap Scan Next when ready."}`);
           setFoundPlant(null);
-          setSellForPrice("");
-          setPriceMsg("");
-          setPriceError("");
           setManualCode("");
           setLastCode("");
           setScanStatus("idle");
@@ -13543,25 +13420,18 @@ ${JSON.stringify(payload, null, 2)}`;
       };
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
         <input ref={barcodePhotoInputRef} type="file" accept="image/*" capture="environment" onChange={handleBarcodePhotoInput} aria-label="Take barcode label photo" style={{ position:"absolute", opacity:0, width:1, height:1, pointerEvents:"none" }} />
-        {showHelp && <div style={{ position:"fixed", inset:0, zIndex:1800, background:"rgba(0,0,0,.58)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={()=>setShowHelp(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.card, border:`1px solid ${C.g200}`, borderRadius:24, padding:18, maxWidth:520, width:"100%", boxShadow:"0 24px 80px rgba(0,0,0,.35)" }}>
-            <div style={{ fontFamily:F.display, fontSize:26, color:C.g900, fontWeight:950, marginBottom:8 }}>Photo + Price Workflow</div>
-            <ol style={{ color:C.tx2, fontSize:14, lineHeight:1.55, paddingLeft:20, marginTop:0 }}>
-              <li>Scan or type the plant label code.</li><li>Confirm the plant name and number.</li><li>Set only the <b>Sell For</b> price if needed.</li><li>Check cost and profit.</li><li>Take the plant photo. The price saves with the photo.</li>
-            </ol>
-            <button onClick={()=>setShowHelp(false)} style={{ width:"100%", background:"#000", color:"#97d33e", border:"none", borderRadius:999, padding:"12px 14px", fontWeight:950, cursor:"pointer" }}>Close Help</button>
-          </div>
-        </div>}
         <div className="ld-photo-sprint-hero">
           <Row between center wrap gap={12}>
-            <div><div style={{ fontSize:42 }}>⚡</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900, marginTop:5 }}>Take Plant Photos Fast</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Scan label → set Sell For price → take photo → next.</div></div>
+            <div><div style={{ fontSize:42 }}>⚡</div><div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900, marginTop:5 }}>Take Plant Photos Fast</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Scan label → take/upload photo → save → next plant. Built for high-volume photo days.</div></div>
             <Row gap={8} wrap>
               <button type="button" className="ld-iphone-barcode-primary" onClick={openBarcodePhotoPicker}>📱 Take Label Photo</button>
               {scanStatus === "scanning" ? <button onClick={stopScanner} style={{ background:C.red, color:"#fff", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Stop Camera</button> : <button onClick={startScanner} className="ld-live-scan-secondary">{preferBarcodePhoto ? "Live Scan (Mac/Android)" : "Start Live Scan"}</button>}
-              <button onClick={()=>setPage("scanlabel")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Regular Scanner</button><button onClick={()=>setShowHelp(true)} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Help</button>
+              <button onClick={()=>setPage("scanlabel")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Regular Scanner</button>
             </Row>
           </Row>
-          <div style={{ marginTop:12, color:"rgba(255,255,255,.72)", fontSize:12, fontWeight:800 }}>Need instructions? Tap Help.</div>
+          <div style={{ marginTop:15, background:"rgba(151,211,62,.12)", border:"1px solid rgba(151,211,62,.3)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
+            Plant numbers stay the same. Barcode must equal the plant number. Sprint Mode only attaches photos to matched plants.
+          </div>
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
@@ -13571,10 +13441,27 @@ ${JSON.stringify(payload, null, 2)}`;
           <KPI label="Auto Next" value={autoNext ? "On" : "Off"} sub="after save" color={autoNext ? C.g600 : C.tx3} />
         </div>
 
-        <Row between center wrap gap={8} style={{ marginBottom:14 }}>
-          <div style={{ color:C.tx3, fontSize:12, fontWeight:850 }}>Photo mode is simplified. Help is in the popup, not spread across the page.</div>
-          <Btn v="soft" onClick={()=>setShowHelp(true)}>How This Works</Btn>
-        </Row>
+        <Card style={{ marginBottom:14, background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`6px solid ${C.g600}`, padding:"13px 14px" }}>
+          <Row gap={10} center>
+            <div style={{ width:38, height:38, borderRadius:14, background:C.g100, color:C.g800, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>＊</div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>Employee note: this screen is for fast plant photos.</div>
+              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:2 }}>Scan the barcode on the plant label, take the photo, wait for the saved message, then move to the next plant. You do not need to type the plant number or search for the plant.</div>
+            </div>
+          </Row>
+        </Card>
+
+        <Card style={{ marginBottom:14, background:C.blueBg, border:`1px solid ${C.blue}44`, borderLeft:`6px solid ${C.blue}`, padding:"13px 14px" }}>
+          <Row gap={10} center>
+            <div style={{ width:38, height:38, borderRadius:14, background:C.card, color:C.blue, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>📱</div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>iPhone note — use this first</div>
+              <div style={{ color:C.tx2, fontSize:12, lineHeight:1.45, marginTop:2 }}>On iPhone, tap <b>iPhone Barcode Photo</b> first. Take a close photo of the barcode label. The app finds the plant. Then take the actual plant photo. Live Scan is mainly for MacBook/Android.</div>
+            </div>
+          </Row>
+        </Card>
+
+        <MacBookIphoneCameraNote />
 
         <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:14 }}>
           <div style={{ display:"grid", gap:14 }}>
@@ -13608,26 +13495,15 @@ ${JSON.stringify(payload, null, 2)}`;
                 <div style={{ fontFamily:F.display, fontSize:24, color:C.g900, fontWeight:900 }}>{foundPlant.name || "Unnamed Plant"}</div>
                 <div style={{ color:C.tx3, fontSize:12, marginTop:4 }}>{plantNumber} · {foundPlant.potSize || "pot size missing"} · {foundPlant.status || "status missing"}</div>
               </div>
-              <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12, marginBottom:10 }}>
-                <div style={{ fontSize:11, color:C.tx3, fontWeight:900, textTransform:"uppercase", marginBottom:8 }}>Price Check</div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10 }}>
-                  <div><div style={{ fontSize:10, color:C.tx3, fontWeight:900 }}>COST</div><div style={{ fontWeight:950, color:C.tx1 }}>${photoCost.toFixed(2)}</div></div>
-                  <div><div style={{ fontSize:10, color:C.tx3, fontWeight:900 }}>SELL FOR</div><input value={sellForPrice} onChange={e=>{ setSellForPrice(e.target.value); setPriceMsg(""); setPriceError(""); }} placeholder="0.00" inputMode="decimal" style={{ width:"100%", padding:"9px 10px", border:`1.5px solid ${C.bd}`, borderRadius:12, fontSize:16, fontWeight:950 }} /></div>
-                  <div><div style={{ fontSize:10, color:C.tx3, fontWeight:900 }}>PROFIT</div><div style={{ fontWeight:950, color:photoProfit >= 0 ? C.g600 : C.red }}>${photoProfit.toFixed(2)}</div></div>
-                </div>
-                <Row gap={8} wrap><Btn sz="sm" onClick={savePhotoSellPrice}>Save Price</Btn><div style={{ color:C.tx3, fontSize:11, fontWeight:800 }}>Photo save also saves this price.</div></Row>
-                {priceMsg && <div style={{ marginTop:8, color:C.g800, fontSize:12, fontWeight:900 }}>{priceMsg}</div>}
-                {priceError && <div style={{ marginTop:8, color:C.red, fontSize:12, fontWeight:900 }}>{priceError}</div>}
-              </div>
-              <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:"9px 10px", color:C.tx2, fontSize:12, lineHeight:1.4, marginBottom:10 }}><b>Next:</b> take the photo. Price + photo save to this plant.</div>
+              <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:12, padding:"9px 10px", color:C.tx2, fontSize:12, lineHeight:1.4, marginBottom:10 }}><b>Next:</b> take the photo. After it saves, the app clears this plant and gets ready for the next barcode.</div>
               <Row gap={8} wrap>
                 <label className="ld-photo-file-btn">📷 Take Photo<input type="file" accept="image/*" capture="environment" disabled={saving} onChange={e=>saveSprintPhoto(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
                 <label className="ld-photo-file-btn soft">🖼️ Upload<input type="file" accept="image/*" disabled={saving} onChange={e=>saveSprintPhoto(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
-                <Btn v="outline" onClick={()=>{ setFoundPlant(null); setSellForPrice(""); setPriceMsg(""); setPriceError(""); setManualCode(""); setScanStatus("idle"); }}>Wrong Plant</Btn>
+                <Btn v="outline" onClick={()=>{ setFoundPlant(null); setManualCode(""); setScanStatus("idle"); }}>Wrong Plant</Btn>
               </Row>
             </div> : <Card style={{ borderLeft:`5px solid ${C.blue}` }}>
               <div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:900 }}>Ready for scan</div>
-              <div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:5 }}>Scan a label to start. Tap Help for instructions.</div>
+              <div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginTop:5 }}>Start the camera, scan the plant label, confirm the plant, then take a photo. After saving, Sprint Mode clears the plant and prepares for the next one.</div>
             </Card>}
 
             <Card style={{ padding:16 }}>
@@ -13675,10 +13551,6 @@ ${JSON.stringify(payload, null, 2)}`;
       const [scanMsg, setScanMsg] = useState("");
       const [scanError, setScanError] = useState("");
       const [foundPlant, setFoundPlant] = useState(null);
-      const [sellForPrice, setSellForPrice] = useState("");
-      const [priceMsg, setPriceMsg] = useState("");
-      const [priceError, setPriceError] = useState("");
-      const [showHelp, setShowHelp] = useState(false);
       const [photoSaving, setPhotoSaving] = useState(false);
       const [photoMsg, setPhotoMsg] = useState("");
       const [photoError, setPhotoError] = useState("");
@@ -13690,35 +13562,6 @@ ${JSON.stringify(payload, null, 2)}`;
       const allPlants = safeArray(plants);
       const inStock = allPlants.filter(p => p.status === "In Stock");
       const noPhoto = inStock.filter(p => !(p.photoUrl || p.photoBase64 || p.imageUrl));
-      const ldPhotoMoney = v => {
-        const n = Number(String(v ?? "").replace(/[^0-9.-]/g, ""));
-        return Number.isFinite(n) ? n : 0;
-      };
-      const ldCurrentSellFor = p => {
-        const raw = p?.sellForPrice ?? p?.salePrice ?? p?.suggestedPrice ?? p?.listPrice ?? p?.price ?? "";
-        const n = ldPhotoMoney(raw);
-        return n ? n.toFixed(2) : "";
-      };
-      const photoCost = foundPlant ? ldPhotoMoney(foundPlant.trueCost ?? foundPlant.costEachAfterDiscount ?? foundPlant.cost ?? foundPlant.unitCost ?? foundPlant.purchaseCost ?? foundPlant.invoiceCost ?? foundPlant.wholesaleCost ?? 0) : 0;
-      const photoSell = ldPhotoMoney(sellForPrice);
-      const photoProfit = photoSell - photoCost;
-      const savePhotoSellPrice = () => {
-        if (!foundPlant || !setPlants) return;
-        const amount = ldPhotoMoney(sellForPrice);
-        if (!amount || amount <= 0) { setPriceError("Enter the Sell For price first."); setPriceMsg(""); return; }
-        const plantNumberNow = labelifePlantNumber(foundPlant);
-        const updatedAt = new Date().toISOString();
-        setPlants(prev => safeArray(prev).map(p => {
-          const sameId = foundPlant.id && p.id === foundPlant.id;
-          const samePlantNumber = plantNumberNow && labelifeNormalizeCode(labelifePlantNumber(p)) === labelifeNormalizeCode(plantNumberNow);
-          if (!sameId && !samePlantNumber) return p;
-          return { ...p, sellForPrice:amount, salePrice:amount, suggestedPrice:amount, listPrice:amount, price:amount, priceUpdatedAt:updatedAt, priceUpdatedBy:user?.name || user?.email || "Photo workflow", priceUpdatedFrom:"scan_label_price_quick_edit" };
-        }));
-        setFoundPlant(fp => fp ? { ...fp, sellForPrice:amount, salePrice:amount, suggestedPrice:amount, listPrice:amount, price:amount, priceUpdatedAt:updatedAt, priceUpdatedFrom:"scan_label_price_quick_edit" } : fp);
-        setPriceError("");
-        setPriceMsg(`Sell For price saved at $${amount.toFixed(2)}. Profit shows $${(amount - photoCost).toFixed(2)} before fees.`);
-        addAudit && addAudit({ action:`Updated Sell For price to $${amount.toFixed(2)} while adding a photo for ${plantNumberNow || foundPlant.name || "plant"}`, user:user?.name || "Unknown", page:"Scan Label + Add Photo" });
-      };
       const hasNativeScanner = ldHasNativeBarcodeScanner();
       const hasLibraryScanner = ldHasZxingScanner();
       const canLiveScanner = hasNativeScanner || hasLibraryScanner;
@@ -13758,9 +13601,6 @@ ${JSON.stringify(payload, null, 2)}`;
         if (plant) {
           stopScanner();
           setFoundPlant(plant);
-          setSellForPrice(ldCurrentSellFor(plant));
-          setPriceMsg("");
-          setPriceError("");
           setManualCode(code);
           setScanStatus("found");
           setScanMsg(`Found ${plant.name || "Plant"} from ${source}.`);
@@ -13772,7 +13612,7 @@ ${JSON.stringify(payload, null, 2)}`;
         } else {
           setFoundPlant(null);
           setScanStatus("notfound");
-          setScanError(`No plant found for barcode: ${code}. I also tried visible-code matching like PC-155 / PC155 / PC-0155. Type the printed code on the label to search manually, or reprint this label if the code is wrong.`);
+          setScanError(`No plant found for barcode: ${code}`);
         }
       };
       const manualLookup = () => handleCode(manualCode, "manual lookup");
@@ -13911,8 +13751,6 @@ ${JSON.stringify(payload, null, 2)}`;
             photoData = { photoBase64: base64, photoUploadedAt: new Date().toISOString(), photoUploadFallbackReason: cloudErr?.message || String(cloudErr || "Cloud upload failed") };
           }
           const updatedAt = new Date().toISOString();
-          const priceAmount = ldPhotoMoney(sellForPrice);
-          const pricePatch = priceAmount > 0 ? { sellForPrice:priceAmount, salePrice:priceAmount, suggestedPrice:priceAmount, listPrice:priceAmount, price:priceAmount, priceUpdatedAt:updatedAt, priceUpdatedBy:user?.name || user?.email || "Photo workflow", priceUpdatedFrom:"photo_save_quick_edit" } : {};
           let savedName = foundPlant.name || "Plant";
           setPlants(prev => safeArray(prev).map(p => {
             const sameId = foundPlant.id && p.id === foundPlant.id;
@@ -13921,7 +13759,6 @@ ${JSON.stringify(payload, null, 2)}`;
             savedName = p.name || savedName;
             return {
               ...p,
-              ...pricePatch,
               ...photoData,
               photoAddedBy: user?.name || user?.email || "Scan Label",
               photoSource: "scan_label_barcode",
@@ -13933,7 +13770,7 @@ ${JSON.stringify(payload, null, 2)}`;
               updatedAt
             };
           }));
-          const nextFound = { ...foundPlant, ...pricePatch, ...photoData, photoAddedBy: user?.name || user?.email || "Scan Label", photoSource:"scan_label_barcode", photoBarcodeCode:codeNow, needsPhoto:false, status: foundPlant.status === "Needs Photo" ? "In Stock" : foundPlant.status, updatedAt };
+          const nextFound = { ...foundPlant, ...photoData, photoAddedBy: user?.name || user?.email || "Scan Label", photoSource:"scan_label_barcode", photoBarcodeCode:codeNow, needsPhoto:false, status: foundPlant.status === "Needs Photo" ? "In Stock" : foundPlant.status, updatedAt };
           setFoundPlant(nextFound);
           setPhotoPreview(photoData.photoUrl || photoData.photoBase64 || "");
           setPhotoMsg(`Photo saved to ${savedName} · ${plantNumberNow || codeNow} (${storageMode}).`);
@@ -13960,29 +13797,22 @@ ${JSON.stringify(payload, null, 2)}`;
       const recentClick = row => { setManualCode(row.code); handleCode(row.code, "recent scan"); };
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1050, margin:"0 auto", fontFamily:F.body }}>
         <input ref={barcodePhotoInputRef} type="file" accept="image/*" capture="environment" onChange={handleBarcodePhotoInput} aria-label="Take barcode label photo" style={{ position:"absolute", opacity:0, width:1, height:1, pointerEvents:"none" }} />
-        {showHelp && <div style={{ position:"fixed", inset:0, zIndex:1800, background:"rgba(0,0,0,.58)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={()=>setShowHelp(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:C.card, border:`1px solid ${C.g200}`, borderRadius:24, padding:18, maxWidth:520, width:"100%", boxShadow:"0 24px 80px rgba(0,0,0,.35)" }}>
-            <div style={{ fontFamily:F.display, fontSize:26, color:C.g900, fontWeight:950, marginBottom:8 }}>Photo + Price Workflow</div>
-            <ol style={{ color:C.tx2, fontSize:14, lineHeight:1.55, paddingLeft:20, marginTop:0 }}>
-              <li>Scan or type the plant label code.</li><li>Confirm the plant name and number.</li><li>Set only the <b>Sell For</b> price if needed.</li><li>Check cost and profit.</li><li>Take the plant photo. The price saves with the photo.</li>
-            </ol>
-            <button onClick={()=>setShowHelp(false)} style={{ width:"100%", background:"#000", color:"#97d33e", border:"none", borderRadius:999, padding:"12px 14px", fontWeight:950, cursor:"pointer" }}>Close Help</button>
-          </div>
-        </div>}
         <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #97d33e", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
           <Row between center wrap gap={12}>
             <div style={{ minWidth:0 }}>
               <div style={{ fontSize:42 }}>📷</div>
               <div style={{ fontFamily:F.display, fontSize:30, color:"#97d33e", fontWeight:900, marginTop:5 }}>Scan Label + Add Photo</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Scan label → set Sell For price → take photo.</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Scan the Labelife CODE128 barcode, confirm the plant, then take or upload a photo. No typing plant numbers.</div>
             </div>
             <Row gap={8} wrap>
               <button type="button" className="ld-iphone-barcode-primary" onClick={openBarcodePhotoPicker}>📱 Take Label Photo</button>
               <button onClick={startScanner} className="ld-live-scan-secondary">{preferBarcodePhoto ? "Live Scan (Mac/Android)" : "Start Live Scan"}</button>
-              <button onClick={()=>setPage("barcodeqa")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Barcode QA</button><button onClick={()=>setShowHelp(true)} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Help</button>
+              <button onClick={()=>setPage("barcodeqa")} style={{ background:"rgba(255,255,255,.12)", color:"#fff", border:"1px solid rgba(255,255,255,.22)", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>Barcode QA</button>
             </Row>
           </Row>
-          <div style={{ marginTop:12, color:"rgba(255,255,255,.72)", fontSize:12, fontWeight:800 }}>Need instructions? Tap Help.</div>
+          <div style={{ marginTop:15, background:"rgba(151,211,62,.12)", border:"1px solid rgba(151,211,62,.3)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
+            The barcode should read the same value as the plant number, like P-044. After the app finds the plant, take or upload a photo and it saves to that exact plant.
+          </div>
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
@@ -14029,21 +13859,10 @@ ${JSON.stringify(payload, null, 2)}`;
                   <div style={{ background:C.cardAlt, border:`1px solid ${C.bd}`, borderRadius:14, padding:10 }}><div style={{ fontSize:10, color:C.tx3, fontWeight:900, textTransform:"uppercase" }}>Status</div><div style={{ fontWeight:900, color:C.tx1 }}>{foundPlant.status || "—"}</div></div>
                 </div>
                 <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:10, fontSize:12, color:C.tx2 }}><b>Barcode:</b> {lastCode || plantNumber}<br/><b>Type:</b> {foundPlant.barcodeType || LABELIFE_BARCODE_TYPE}</div>
-                <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:12 }}>
-                  <div style={{ fontSize:11, color:C.tx3, fontWeight:900, textTransform:"uppercase", marginBottom:8 }}>Price Check</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10 }}>
-                    <div><div style={{ fontSize:10, color:C.tx3, fontWeight:900 }}>COST</div><div style={{ fontWeight:950, color:C.tx1 }}>${photoCost.toFixed(2)}</div></div>
-                    <div><div style={{ fontSize:10, color:C.tx3, fontWeight:900 }}>SELL FOR</div><input value={sellForPrice} onChange={e=>{ setSellForPrice(e.target.value); setPriceMsg(""); setPriceError(""); }} placeholder="0.00" inputMode="decimal" style={{ width:"100%", padding:"9px 10px", border:`1.5px solid ${C.bd}`, borderRadius:12, fontSize:16, fontWeight:950 }} /></div>
-                    <div><div style={{ fontSize:10, color:C.tx3, fontWeight:900 }}>PROFIT</div><div style={{ fontWeight:950, color:photoProfit >= 0 ? C.g600 : C.red }}>${photoProfit.toFixed(2)}</div></div>
-                  </div>
-                  <Row gap={8} wrap><Btn sz="sm" onClick={savePhotoSellPrice}>Save Price</Btn><div style={{ color:C.tx3, fontSize:11, fontWeight:800 }}>Photo save also saves this price.</div></Row>
-                  {priceMsg && <div style={{ marginTop:8, color:C.g800, fontSize:12, fontWeight:900 }}>{priceMsg}</div>}
-                  {priceError && <div style={{ marginTop:8, color:C.red, fontSize:12, fontWeight:900 }}>{priceError}</div>}
-                </div>
               </div>
               <div className="ld-scan-photo-panel">
                 <div style={{ fontFamily:F.display, color:C.g900, fontSize:19, fontWeight:900, marginBottom:8 }}>📸 Add Photo To This Plant</div>
-                <div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginBottom:10 }}>Take photo. Price + photo save to <b>{plantNumber}</b>.</div>
+                <div style={{ color:C.tx3, fontSize:12, lineHeight:1.45, marginBottom:10 }}>Take a new photo or upload one from your phone. It saves to <b>{plantNumber}</b> only.</div>
                 {(photoPreview || foundPlant.photoUrl || foundPlant.photoBase64 || foundPlant.imageUrl) && <img className="ld-scan-photo-preview" alt={(foundPlant.name || "Plant") + " photo preview"} src={photoPreview || foundPlant.photoUrl || foundPlant.photoBase64 || foundPlant.imageUrl} />}
                 <Row gap={8} wrap style={{ marginTop:12 }}>
                   <label className="ld-photo-file-btn">📷 Take Plant Photo<input type="file" accept="image/*" capture="environment" disabled={photoSaving} onChange={e=>savePhotoToFoundPlant(e.target.files && e.target.files[0])} style={{ display:"none" }} /></label>
@@ -14056,11 +13875,11 @@ ${JSON.stringify(payload, null, 2)}`;
               <Row gap={8} wrap style={{ marginTop:12 }}>
                 <Btn onClick={openInventoryForPlant}>Open In Inventory</Btn>
                 <Btn v="soft" onClick={copyPlantNumber}>Copy Plant Number</Btn>
-                <Btn v="outline" onClick={()=>{ setFoundPlant(null); setSellForPrice(""); setPriceMsg(""); setPriceError(""); setManualCode(""); setLastCode(""); setScanStatus("idle"); setScanError(""); setPhotoMsg(""); setPhotoError(""); setPhotoPreview(""); }}>Scan Again</Btn>
+                <Btn v="outline" onClick={()=>{ setFoundPlant(null); setManualCode(""); setLastCode(""); setScanStatus("idle"); setScanError(""); setPhotoMsg(""); setPhotoError(""); setPhotoPreview(""); }}>Scan Again</Btn>
               </Row>
             </div> : <Card style={{ borderLeft:`5px solid ${C.blue}` }}>
               <div style={{ fontFamily:F.display, color:C.g900, fontSize:21, fontWeight:900, marginBottom:8 }}>No plant selected yet</div>
-              <div style={{ color:C.tx3, fontSize:12, lineHeight:1.45 }}>Scan a label to start. Tap Help for instructions.</div>
+              <div style={{ color:C.tx3, fontSize:12, lineHeight:1.45 }}>Scan a barcode or type the code manually. The app checks plantId, plantCode, and barcodeValue. After confirmation, take/upload the plant photo.</div>
             </Card>}
 
             <Card style={{ padding:16 }}>
@@ -14194,8 +14013,7 @@ ${JSON.stringify(payload, null, 2)}`;
           const mktDiv = p.marketAvg ? '<div class="mkt">Market avg $' + p.marketAvg + '</div>' : "";
           return '<div class="label ' + mc + '"><div class="name">' + toTC(p.name) + '</div><div class="pot">' + (p.potSize || "") + (p.dateAdded ? ' &nbsp;•&nbsp; ' + fDate(p.dateAdded) : '') + '</div><div class="id">🌿 ' + p.plantId + '</div><div class="row">' + costSpan + '<span class="price">$' + (+p.suggestedPrice || 0).toFixed(2) + '</span></div>' + mktDiv + '<div class="logo">LEAF DIARY</div></div>';
         }).join("");
-        w.document.write('<!DOCTYPE html><html><head><title>Leaf Diary Labels</title><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Mono&display=swap" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#fff;padding:10px}.grid{display:flex;flex-wrap:wrap;gap:8px}.label{width:190px;border:1.5px solid #236B42;border-radius:8px;padding:11px;break-inside:avoid}.name{font-family:"Playfair Display",serif;font-size:12px;font-weight:700;color:#0D2B1A;line-height:1.3;margin-bottom:2px}.pot{font-size:10px;color:#6A8C76;margin-bottom:5px}.id{font-family:"DM Mono",monospace;font-size:9px;color:#3FAD6A;border-top:1px solid #E3F7EB;padding-top:5px;margin-top:4px}.row{display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px solid #E3F7EB}.cost{font-size:9px;color:#6A8C76}.price{font-size:15px;font-weight:700;color:#0D2B1A}.mkt{font-size:9px;color:#9DDEB4;margin-top:3px}.logo{font-size:7px;color:#C5EFD5;text-align:center;margin-top:5px;letter-spacing:2px}.margin-hi{border-left:3px solid #3FAD6A}.margin-lo{border-left:3px solid #BE3535}.margin-ok{border-left:3px solid #B07D10}@media print{body{padding:2px}}</style></head><body><div class="grid">' + labelHTML + '</div><script>window.onload=function(){window.print();}<\/script><!-- V212 CHECK: Photo screens now show Sell For price, cost, profit, and help popup; long instructions reduced. -->
-</body></html>');
+        w.document.write('<!DOCTYPE html><html><head><title>Leaf Diary Labels</title><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Mono&display=swap" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#fff;padding:10px}.grid{display:flex;flex-wrap:wrap;gap:8px}.label{width:190px;border:1.5px solid #236B42;border-radius:8px;padding:11px;break-inside:avoid}.name{font-family:"Playfair Display",serif;font-size:12px;font-weight:700;color:#0D2B1A;line-height:1.3;margin-bottom:2px}.pot{font-size:10px;color:#6A8C76;margin-bottom:5px}.id{font-family:"DM Mono",monospace;font-size:9px;color:#3FAD6A;border-top:1px solid #E3F7EB;padding-top:5px;margin-top:4px}.row{display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px solid #E3F7EB}.cost{font-size:9px;color:#6A8C76}.price{font-size:15px;font-weight:700;color:#0D2B1A}.mkt{font-size:9px;color:#9DDEB4;margin-top:3px}.logo{font-size:7px;color:#C5EFD5;text-align:center;margin-top:5px;letter-spacing:2px}.margin-hi{border-left:3px solid #3FAD6A}.margin-lo{border-left:3px solid #BE3535}.margin-ok{border-left:3px solid #B07D10}@media print{body{padding:2px}}</style></head><body><div class="grid">' + labelHTML + '</div><script>window.onload=function(){window.print();}<\/script></body></html>');
         markPrinted();
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
@@ -22267,8 +22085,7 @@ Cancel keeps this page local/free.`);
       const clearAppliedLabelRows = () => setLabelImportRows(prev => safeArray(prev).filter(r => !String(r.status || "").includes("Applied")));
       const printSlip = (order) => {
         const care = [...new Set(order.plants.map(p => p.name))].map(n => `<li><b>${n}:</b> Bright indirect light. Water when the top inch is lightly dry. Avoid direct sun after shipping.</li>`).join("");
-        const html = `<html><head><title>Packing Slip ${order.orderId}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#123}h1{letter-spacing:2px;margin:0}.row{display:flex;justify-content:space-between;gap:20px}.box{border:1px solid #bbb;padding:12px;margin:14px 0}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:7px;text-align:left}.check{font-size:14px;line-height:2}</style></head><body><div class="row"><div><h1>LEAF DIARY</h1><p>Rare Plant Specialist<br/>theleafdiary.com</p></div><div><h2>PACKING SLIP</h2><p>${order.soldDate}</p></div></div><hr/><div class="box"><b>CUSTOMER / SHIP TO</b><br/>${order.customerName}<br/>${order.address1 || ""}<br/>${order.address2 || ""}<br/>${order.city || ""} ${order.state || ""} ${order.zip || ""}</div><table><tr><th>Plant</th><th>Pot</th><th>ID</th><th>Price</th></tr>${order.plants.map(p => `<tr><td>${p.name}</td><td>${p.potSize || ""}</td><td>${p.plantId || ""}</td><td>$${(+p.salePrice || 0).toFixed(2)}</td></tr>`).join("")}</table><div class="box check"><b>Packing Checklist</b><br/>☐ Correct plant(s) pulled<br/>☐ Plant condition checked<br/>☐ Wrapped safely<br/>☐ Insulation added if needed<br/>☐ Heat pack added if needed<br/>☐ CA/AZ/TX/LA paperwork added if required<br/>☐ Ready for Palmstreet/Whatnot label</div><div class="box"><b>Care Notes</b><ul>${care}</ul></div><p>Thank you for your order! Questions? @theleafdiary</p><script>window.print()<\/script><!-- V212 CHECK: Photo screens now show Sell For price, cost, profit, and help popup; long instructions reduced. -->
-</body></html>`;
+        const html = `<html><head><title>Packing Slip ${order.orderId}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#123}h1{letter-spacing:2px;margin:0}.row{display:flex;justify-content:space-between;gap:20px}.box{border:1px solid #bbb;padding:12px;margin:14px 0}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:7px;text-align:left}.check{font-size:14px;line-height:2}</style></head><body><div class="row"><div><h1>LEAF DIARY</h1><p>Rare Plant Specialist<br/>theleafdiary.com</p></div><div><h2>PACKING SLIP</h2><p>${order.soldDate}</p></div></div><hr/><div class="box"><b>CUSTOMER / SHIP TO</b><br/>${order.customerName}<br/>${order.address1 || ""}<br/>${order.address2 || ""}<br/>${order.city || ""} ${order.state || ""} ${order.zip || ""}</div><table><tr><th>Plant</th><th>Pot</th><th>ID</th><th>Price</th></tr>${order.plants.map(p => `<tr><td>${p.name}</td><td>${p.potSize || ""}</td><td>${p.plantId || ""}</td><td>$${(+p.salePrice || 0).toFixed(2)}</td></tr>`).join("")}</table><div class="box check"><b>Packing Checklist</b><br/>☐ Correct plant(s) pulled<br/>☐ Plant condition checked<br/>☐ Wrapped safely<br/>☐ Insulation added if needed<br/>☐ Heat pack added if needed<br/>☐ CA/AZ/TX/LA paperwork added if required<br/>☐ Ready for Palmstreet/Whatnot label</div><div class="box"><b>Care Notes</b><ul>${care}</ul></div><p>Thank you for your order! Questions? @theleafdiary</p><script>window.print()<\/script></body></html>`;
         const w = window.open("", "_blank");
         w.document.write(html);
         w.document.close();
@@ -28826,7 +28643,6 @@ ${local.summary || "Fallback completed."}`;
     const root = ReactDOM.createRoot(container);
     root.render(React.createElement(LeafDiaryErrorBoundary, null, React.createElement(App)));
   </script>
-<!-- V212 CHECK: Photo screens now show Sell For price, cost, profit, and help popup; long instructions reduced. -->
 </body>
 
 </html>
