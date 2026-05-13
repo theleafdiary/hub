@@ -8,7 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V203 Quantity Discount Accounting Fix</title>
+  <title>LEAF DIARY - BUSINESS HUB · V204 Nursery Confirm + Receipt Profile Fix</title>
+  <!-- V204 — Nursery Confirm + Receipt Profile Fix. Built from stable index (70). -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -9757,9 +9758,15 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const [expectedPlantCount, setExpectedPlantCount] = useState("");
       const [expectedReceiptTotal, setExpectedReceiptTotal] = useState("");
       const [pasteSummary, setPasteSummary] = useState(null);
+      const [paymentMethodOverride, setPaymentMethodOverride] = useState("");
+      const [cardLast4Override, setCardLast4Override] = useState("");
       const fRef = useRef(), cRef = useRef(), pdfRef = useRef();
       const purchaseTraining = phase101GetTraining(settings);
       useEffect(() => { if (nurseries.length && !selN) setSelN(nurseries[0]); }, [nurseries]);
+      const confirmInvoiceNursery = (sourceLabel = "this plant invoice") => {
+        const nurseryName = selN?.name || "the selected nursery";
+        return window.confirm(`Before importing ${sourceLabel}, confirm the nursery.\n\nAre you sure these plants came from \"${nurseryName}\"?\n\nThis matters because plant costs, accounting totals, card records, and labels will be saved under this nursery.`);
+      };
       const load = async f => {
         if (!f) return;
         setErr(null);
@@ -9858,6 +9865,32 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
       };
       const cleanPasteLine = line => String(line || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+      const detectInvoiceReceiptProfile = raw => {
+        const selected = `${selN?.name || ""} ${selN?.code || ""}`.toLowerCase();
+        const text = String(raw || "").toLowerCase();
+        const isPerfectChoiceSelected = /perfect\s*choice|\bpc\b/.test(selected);
+        const looksPerfectChoiceReceipt = /perfect\s*choice\s*(gdns|gardens|nursery)|perfectchoicenursery|clover\.com\/p\//i.test(text);
+        if (isPerfectChoiceSelected || looksPerfectChoiceReceipt) {
+          return {
+            id: "perfect_choice_clover_v1",
+            label: "Perfect Choice Clover receipt",
+            nurseryOnly: "Perfect Choice Nursery",
+            selectedNurseryMatches: isPerfectChoiceSelected,
+            discountMode: "receipt_only_order_percent_discount",
+            quantityMode: "x_quantity_means_line_total",
+            note: "This parser profile is for Perfect Choice Clover receipts only. It uses x Qty as total line price and only spreads an order discount when the receipt explicitly shows an order-level percent discount like 10% Off."
+          };
+        }
+        return {
+          id: "generic_paste_v1",
+          label: "Generic pasted plant receipt",
+          nurseryOnly: "Any nursery",
+          selectedNurseryMatches: true,
+          discountMode: "explicit_receipt_discount_only",
+          quantityMode: "x_quantity_means_line_total_when_present",
+          note: "Generic parser. We will add nursery-specific profiles as we train each nursery receipt style."
+        };
+      };
       const isReceiptNoiseLine = line => {
         const l = cleanPasteLine(line).toLowerCase();
         if (!l) return true;
@@ -9917,10 +9950,25 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           if (m) total = moneyFromText(`${m[1]}.${m[2]}`);
         }
         let discount = 0;
-        const discountMatch = compact.match(/(?:\d+%\s*Off|Discount)\s*-?\$?\s*([0-9][0-9,]*(?:\.\d{2})?)/i);
-        if (discountMatch) discount = moneyFromText(discountMatch[1]);
+        let discountPercent = 0;
+        let discountLabel = "";
+        let hasOrderWideDiscount = false;
+        const percentDiscountMatch = compact.match(/(\d+(?:\.\d+)?)%\s*Off\s*-?\$?\s*([0-9][0-9,]*(?:\.\d{2})?)/i);
+        if (percentDiscountMatch) {
+          discountPercent = Math.max(0, parseFloat(percentDiscountMatch[1]) || 0);
+          discount = moneyFromText(percentDiscountMatch[2]);
+          discountLabel = `${discountPercent}% Off`;
+          hasOrderWideDiscount = discount > 0;
+        } else {
+          const genericDiscountMatch = compact.match(/(?:Order\s*)?Discount\s*-?\$?\s*([0-9][0-9,]*(?:\.\d{2})?)/i);
+          if (genericDiscountMatch) {
+            discount = moneyFromText(genericDiscountMatch[1]);
+            discountLabel = "Discount";
+            hasOrderWideDiscount = discount > 0;
+          }
+        }
         const payment = extractReceiptPayment(raw);
-        return { subtotal, tax, discount, total, ...payment };
+        return { subtotal, tax, discount, discountPercent, discountLabel, hasOrderWideDiscount, total, ...payment };
       };
       const parsePlantQuantity = name => {
         let cleaned = cleanPasteLine(name);
@@ -9935,6 +9983,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const parsePastedInvoiceText = raw => {
         const lines = String(raw || "").split(/\r?\n/).map(cleanPasteLine).filter(Boolean);
         const totals = extractReceiptTotals(raw);
+        const receiptProfile = detectInvoiceReceiptProfile(raw);
         const direct = [];
         const prices = [];
         const names = [];
@@ -9975,8 +10024,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         });
         const lineSubtotal = Math.round(rawPlants.reduce((s,p)=>s + (+p.originalLineTotal || 0), 0) * 100) / 100;
         const receiptSubtotal = totals.subtotal || lineSubtotal;
-        const discount = Math.round((totals.discount || 0) * 100) / 100;
-        const discountRate = receiptSubtotal > 0 && discount > 0 ? Math.min(.95, Math.max(0, discount / receiptSubtotal)) : 0;
+        const discount = totals.hasOrderWideDiscount ? Math.round((totals.discount || 0) * 100) / 100 : 0;
+        const discountRate = receiptSubtotal > 0 && discount > 0 ? Math.min(.95, Math.max(0, (totals.discountPercent ? totals.discountPercent / 100 : discount / receiptSubtotal))) : 0;
         const plants = rawPlants.map(p => {
           const qty = Math.max(1, +p.quantity || 1);
           const originalEach = Math.round((+p.originalCostPerPlant || 0) * 100) / 100;
@@ -10003,6 +10052,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           discountedLineSubtotal,
           discount,
           discountRate,
+          discountPercent: totals.discountPercent || 0,
+          discountLabel: totals.discountLabel || "",
+          hasOrderWideDiscount: !!totals.hasOrderWideDiscount,
+          receiptProfileId: receiptProfile.id,
+          receiptProfileLabel: receiptProfile.label,
+          receiptProfileNurseryOnly: receiptProfile.nurseryOnly,
+          receiptProfileNote: receiptProfile.note,
           tax: totals.tax || 0,
           shipping: 0,
           total,
@@ -10032,19 +10088,25 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           const pasteNote = p.pasteRow ? `Pasted row ${p.pasteRow}.` : "";
           const intakeNotes = [pageNote, pasteNote, intakeNotesBase].filter(Boolean).join(" ");
           const plantId = pid(selN.code, ctr);
-          return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, originalCostBeforeDiscount, receiptDiscountRate, receiptDiscountPerPlant, receiptLineTotalBeforeDiscount, receiptLineTotalAfterDiscount, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", invoicePaymentMethod: result.paymentMethod || "", invoiceCardLast4: result.cardLast4 || "", paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "" };
+          return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, originalCostBeforeDiscount, receiptDiscountRate, receiptDiscountPerPlant, receiptLineTotalBeforeDiscount, receiptLineTotalAfterDiscount, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", invoicePaymentMethod: result.paymentMethod || "", invoiceCardLast4: result.cardLast4 || "", paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "", receiptProfileId: result.receiptProfileId || "", receiptProfileLabel: result.receiptProfileLabel || "", receiptProfileNurseryOnly: result.receiptProfileNurseryOnly || "", receiptDiscountLabel: result.discountLabel || "", receiptHasOrderWideDiscount: !!result.hasOrderWideDiscount };
         }));
       };
       const parsePasteNow = () => {
         if (!selN) { setErr("Select a nursery first."); return; }
         if (!pasteText.trim()) { setErr("Paste the receipt/invoice text first."); return; }
+        if (!confirmInvoiceNursery("this pasted receipt")) return;
         try {
           const result = parsePastedInvoiceText(pasteText);
           if (!result.plants.length) throw new Error("No plant lines were found. Paste the full receipt text with plant names and prices, then try again.");
           const mapped = buildRowsFromInvoicePlants(result);
           setParsed(result);
           setRows(mapped);
-          setPasteSummary({ lineItems: result.plants.length, plantRecords: mapped.length, subtotal: result.subtotal, lineSubtotalBeforeDiscount: result.lineSubtotalBeforeDiscount || result.subtotal, discountedLineSubtotal: result.discountedLineSubtotal || 0, discount: result.discount, discountRate: result.discountRate || 0, tax: result.tax, total: result.total, paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "" });
+          setPaymentMethodOverride(result.paymentMethod || "");
+          setCardLast4Override(result.cardLast4 || "");
+          if (result.receiptProfileId === "perfect_choice_clover_v1" && setSettings) {
+            setSettings(prev => ({ ...prev, receiptFormatProfiles:{ ...(prev.receiptFormatProfiles || {}), [selN?.code || "PC"]:{ id:result.receiptProfileId, label:result.receiptProfileLabel, nurseryName:selN?.name || "Perfect Choice Nursery", note:result.receiptProfileNote, updatedAt:new Date().toISOString() } } }));
+          }
+          setPasteSummary({ lineItems: result.plants.length, plantRecords: mapped.length, subtotal: result.subtotal, lineSubtotalBeforeDiscount: result.lineSubtotalBeforeDiscount || result.subtotal, discountedLineSubtotal: result.discountedLineSubtotal || 0, discount: result.discount, discountRate: result.discountRate || 0, discountLabel: result.discountLabel || "", hasOrderWideDiscount: !!result.hasOrderWideDiscount, receiptProfileLabel: result.receiptProfileLabel || "", receiptProfileNote: result.receiptProfileNote || "", tax: result.tax, total: result.total, paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "" });
           setErr(null);
           setStep("review");
         } catch(e) {
@@ -10059,7 +10121,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const addManualLine = () => {
         const plantId = nextRowPlantId();
         const cost = 0, sp = sprice(cost);
-        setRows(pr => [...pr, { _k:`manual-${Date.now()}`, plantId, plantCode:plantId, barcodeValue:plantId, barcodeType:"CODE128", nurseryCode:selN.code, nurseryName:selN.name, name:"", botanicalName:"", potSize:purchaseTraining.defaultPotSize || '4"', potSizeConfidence:"manual", potSizeSourceText:"manual", potSizeRuleId:"", potSizeNote:"Manual line added during receipt review.", needsPotSizeReview:false, cost, suggestedPrice:sp, salePrice:"", shippingCost:"", margin:marg(cost, sp), status:"In Stock", invoiceNumber:parsed?.invoiceNumber || "", invoiceDate:parsed?.invoiceDate || today(), invoiceSubtotal:parsed?.subtotal || "", invoiceDiscount:parsed?.discount || "", invoiceTax:parsed?.tax || "", invoiceTotal:parsed?.total || "", dateAdded:today(), platform:"", rack:"", shelf:"", notes:"Manual line added after receipt check.", labelPrinted:false, addedBy:user.name, purchaseIntakeTrained:true }]);
+        setRows(pr => [...pr, { _k:`manual-${Date.now()}`, plantId, plantCode:plantId, barcodeValue:plantId, barcodeType:"CODE128", nurseryCode:selN.code, nurseryName:selN.name, name:"", botanicalName:"", potSize:purchaseTraining.defaultPotSize || '4"', potSizeConfidence:"manual", potSizeSourceText:"manual", potSizeRuleId:"", potSizeNote:"Manual line added during receipt review.", needsPotSizeReview:false, cost, suggestedPrice:sp, salePrice:"", shippingCost:"", margin:marg(cost, sp), status:"In Stock", invoiceNumber:parsed?.invoiceNumber || "", invoiceDate:parsed?.invoiceDate || today(), invoiceSubtotal:parsed?.subtotal || "", invoiceDiscount:parsed?.discount || "", invoiceTax:parsed?.tax || "", invoiceTotal:parsed?.total || "", dateAdded:today(), platform:"", rack:"", shelf:"", notes:"Manual line added after receipt check.", labelPrinted:false, addedBy:user.name, purchaseIntakeTrained:true, receiptProfileId:parsed?.receiptProfileId || "", receiptProfileLabel:parsed?.receiptProfileLabel || "", invoicePaymentMethod:paymentMethodOverride || parsed?.paymentMethod || "", invoiceCardLast4:cardLast4Override || parsed?.cardLast4 || "", paymentMethod:paymentMethodOverride || parsed?.paymentMethod || "", cardLast4:cardLast4Override || parsed?.cardLast4 || "" }]);
       };
       const scan = async () => {
         if (!selN) { setErr("Select a nursery first."); return; }
@@ -10134,7 +10196,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const countBad = Number.isFinite(expectedN) && expectedN > 0 && expectedN !== actualN;
         const totalBad = expectedTotalN > 0 && Math.abs(expectedTotalN - (receiptTotalN || lineTotal)) > .02;
         if ((countBad || totalBad) && !confirm(`Receipt check warning:\n${countBad ? `Expected ${expectedN} plants but review has ${actualN}.\n` : ""}${totalBad ? `Expected receipt total ${$(expectedTotalN)} but parsed total is ${$(receiptTotalN || lineTotal)}.\n` : ""}Save anyway?`)) return;
-        setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid(), receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: parsed?.total || "", receiptLineCostTotal: lineTotal, receiptSubtotalParsed: parsed?.subtotal || "", receiptDiscountParsed: parsed?.discount || "", receiptDiscountRate: parsed?.discountRate || r.receiptDiscountRate || 0, receiptDiscountApplied: !!(parsed?.discountRate || r.receiptDiscountRate), originalCostBeforeDiscount: r.originalCostBeforeDiscount || r.cost, invoicePaymentMethod: parsed?.paymentMethod || r.invoicePaymentMethod || "", invoiceCardLast4: parsed?.cardLast4 || r.invoiceCardLast4 || "", paymentMethod: parsed?.paymentMethod || r.paymentMethod || "", cardLast4: parsed?.cardLast4 || r.cardLast4 || "" }))]);
+        const finalPaymentMethod = paymentMethodOverride || parsed?.paymentMethod || "";
+        const finalCardLast4 = cardLast4Override || parsed?.cardLast4 || "";
+        if (finalPaymentMethod && !/cash/i.test(finalPaymentMethod) && !/^\d{4}$/.test(String(finalCardLast4 || "")) && !confirm(`Payment method is ${finalPaymentMethod}, but card last 4 is missing. Save anyway?`)) return;
+        setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid(), receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: parsed?.total || "", receiptLineCostTotal: lineTotal, receiptSubtotalParsed: parsed?.subtotal || "", receiptDiscountParsed: parsed?.discount || "", receiptDiscountRate: parsed?.discountRate || r.receiptDiscountRate || 0, receiptDiscountApplied: !!(parsed?.discountRate || r.receiptDiscountRate), receiptDiscountLabel: parsed?.discountLabel || r.receiptDiscountLabel || "", receiptHasOrderWideDiscount: !!(parsed?.hasOrderWideDiscount || r.receiptHasOrderWideDiscount), receiptProfileId: parsed?.receiptProfileId || r.receiptProfileId || "", receiptProfileLabel: parsed?.receiptProfileLabel || r.receiptProfileLabel || "", receiptProfileNurseryOnly: parsed?.receiptProfileNurseryOnly || r.receiptProfileNurseryOnly || "", originalCostBeforeDiscount: r.originalCostBeforeDiscount || r.cost, invoicePaymentMethod: finalPaymentMethod || r.invoicePaymentMethod || "", invoiceCardLast4: finalCardLast4 || r.invoiceCardLast4 || "", paymentMethod: finalPaymentMethod || r.paymentMethod || "", cardLast4: finalCardLast4 || r.cardLast4 || "" }))]);
         if (typeof setExpenses === "function") {
           const invoiceExpenseId = `plant-invoice-${parsed?.invoiceNumber || "paste"}-${Date.now()}`;
           setExpenses(prev => [...(prev || []), {
@@ -10147,8 +10212,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             subtotal: +(parsed?.subtotal || parsed?.lineSubtotalBeforeDiscount || lineTotal || 0),
             discount: +(parsed?.discount || 0),
             tax: +(parsed?.tax || 0),
-            paymentMethod: parsed?.paymentMethod || "",
-            cardLast4: parsed?.cardLast4 || "",
+            paymentMethod: finalPaymentMethod || "",
+            cardLast4: finalCardLast4 || "",
+            receiptProfileId: parsed?.receiptProfileId || "",
+            receiptProfileLabel: parsed?.receiptProfileLabel || "",
+            discountLabel: parsed?.discountLabel || "",
+            hasOrderWideDiscount: !!parsed?.hasOrderWideDiscount,
             invoiceNumber: parsed?.invoiceNumber || "",
             receiptType: "Plant Invoice",
             plantCount: actualN,
@@ -10158,10 +10227,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             addedBy: user.name
           }]);
         }
-        addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name} · receipt total ${$(parsed?.total || lineTotal)}${parsed?.paymentMethod ? ` · ${parsed.paymentMethod}${parsed.cardLast4 ? " ending " + parsed.cardLast4 : ""}` : ""}`, user: user.name, page: "Invoice Upload" });
+        addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name} · receipt total ${$(parsed?.total || lineTotal)}${finalPaymentMethod ? ` · ${finalPaymentMethod}${finalCardLast4 ? " ending " + finalCardLast4 : ""}` : ""}${parsed?.receiptProfileLabel ? ` · ${parsed.receiptProfileLabel}` : ""}`, user: user.name, page: "Invoice Upload" });
         setStep("done");
       };
-      const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); };
+      const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); setPaymentMethodOverride(""); setCardLast4Override(""); };
       if (!nurseries.length) return <div style={{ padding: "60px", textAlign: "center", background: C.bg, minHeight: "100vh" }}><div style={{ fontSize: 40, marginBottom: 12 }}>🏪</div><h2 style={{ fontFamily: F.display, color: C.g900 }}>Add a nursery first</h2></div>;
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="📸" title="Buy Plants / Upload Invoice" sub="AI reads every plant, cost, and detail automatically" />
@@ -10193,6 +10262,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             <div style={{ marginTop:12, padding:12, borderRadius:14, background:C.cardAlt, border:`1px solid ${C.bd}`, color:C.tx3, fontSize:12, lineHeight:1.45 }}>
               Standard upload flow: take photo, choose photo, choose PDF/file, or paste receipt text → preview/review → verify plant count + receipt total → create plant numbers → print labels.
             </div>
+            <div style={{ marginTop:10, background:C.amberBg, border:`1px solid ${C.amber}40`, borderRadius:12, padding:10, color:C.amber, fontSize:12, fontWeight:900, lineHeight:1.4 }}>Before any upload or paste import, Leaf Diary will ask you to confirm the selected nursery. This protects your nursery records, accounting, and labels from being saved under the wrong supplier.</div>
           </Card>
           <Card style={{ marginTop:14, border:`2px solid ${C.g300}`, borderRadius:18, padding:16, background:C.g50 }}>
             <div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:5 }}>✍️ Paste full receipt data</div>
@@ -10205,9 +10275,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             {err && <div style={{ background:C.redBg, border:`1px solid ${C.red}40`, color:C.red, borderRadius:12, padding:10, marginTop:10, fontSize:12, fontWeight:800 }}>{err}</div>}
             <Row gap={8} wrap style={{ marginTop:10 }}><Btn onClick={parsePasteNow}>🔍 Parse Pasted Receipt</Btn><Btn v="ghost" onClick={()=>{ setPasteText(""); setPasteSummary(null); }}>Clear Paste</Btn></Row>
           </Card>
-          <input ref={fRef} type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.heic,.heif" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-          <input ref={pdfRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-          <input ref={cRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => { load(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+          <input ref={fRef} type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.heic,.heif" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; if (f && confirmInvoiceNursery(f.name || "this invoice file")) load(f); e.target.value = ""; }} />
+          <input ref={pdfRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; if (f && confirmInvoiceNursery(f.name || "this invoice file")) load(f); e.target.value = ""; }} />
+          <input ref={cRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; if (f && confirmInvoiceNursery(f.name || "this invoice file")) load(f); e.target.value = ""; }} />
         </div>}
         {step === "preview" && img && <div style={{ display: "flex", gap: 20, maxWidth: 860 }}>
           <div style={{ flex: 1 }}><img src={img} alt="Invoice" style={{ width: "100%", maxHeight: 480, objectFit: "contain", borderRadius: 10, border: `1px solid ${C.bd}` }} /></div>
@@ -10245,9 +10315,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
                 {expectedReceiptTotal && <Tag text={`Receipt total ${$(moneyFromText(expectedReceiptTotal))}`} color={Math.abs(moneyFromText(expectedReceiptTotal) - moneyFromText(parsed?.total || rows.reduce((s,r)=>s + (+r.cost || 0), 0))) <= .02 ? C.g600 : C.red} />}
               </Row>
             </Row>
-            {pasteSummary && <div style={{ marginTop:10, fontSize:12, color:C.tx3, lineHeight:1.45 }}>Paste summary: {pasteSummary.lineItems} line item(s), {pasteSummary.plantRecords} individual plant record(s), subtotal {$(pasteSummary.subtotal)}, discount {$(pasteSummary.discount)}{pasteSummary.discountRate ? ` (${Math.round(pasteSummary.discountRate * 1000) / 10}% spread across every plant cost)` : ""}, discounted plant cost total {$(pasteSummary.discountedLineSubtotal || (pasteSummary.subtotal - pasteSummary.discount))}, tax {$(pasteSummary.tax)}, total {$(pasteSummary.total)}{pasteSummary.paymentMethod ? `, payment ${pasteSummary.paymentMethod}${pasteSummary.cardLast4 ? " ending " + pasteSummary.cardLast4 : ""}` : ""}.</div>}
+            {pasteSummary && <div style={{ marginTop:10, fontSize:12, color:C.tx3, lineHeight:1.45 }}>Paste summary: {pasteSummary.lineItems} line item(s), {pasteSummary.plantRecords} individual plant record(s), profile {pasteSummary.receiptProfileLabel || "Generic"}, subtotal {$(pasteSummary.subtotal)}, discount {$(pasteSummary.discount)}{pasteSummary.discountRate ? ` (${Math.round(pasteSummary.discountRate * 1000) / 10}% spread across every plant cost because the receipt explicitly shows ${pasteSummary.discountLabel || "an order discount"})` : " (no order-wide discount found on this receipt)"}, discounted plant cost total {$(pasteSummary.discountedLineSubtotal || (pasteSummary.subtotal - pasteSummary.discount))}, tax {$(pasteSummary.tax)}, total {$(pasteSummary.total)}{(paymentMethodOverride || pasteSummary.paymentMethod) ? `, payment ${paymentMethodOverride || pasteSummary.paymentMethod}${(cardLast4Override || pasteSummary.cardLast4) ? " ending " + (cardLast4Override || pasteSummary.cardLast4) : ""}` : ""}.</div>}
             {expectedPlantCount && parseInt(expectedPlantCount,10) !== rows.length && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}40`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>Count mismatch. Add missing plant lines below or fix the table before saving to inventory.</div>}
-            {pasteSummary && pasteSummary.paymentMethod && !pasteSummary.cardLast4 && !/cash/i.test(pasteSummary.paymentMethod) && <div style={{ marginTop:10, background:C.amberBg, border:`1px solid ${C.amber}40`, borderRadius:12, padding:10, color:C.amber, fontSize:12, fontWeight:900 }}>Payment method found ({pasteSummary.paymentMethod}) but card last 4 was not detected. Add it before saving if you need clean accounting records.</div>}
+            {parsed && <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+              <label style={{ fontSize:11, color:C.tx3, fontWeight:900 }}>Payment Method<input value={paymentMethodOverride} onChange={e=>setPaymentMethodOverride(e.target.value)} placeholder="Mastercard / Visa / Cash" style={{ width:"100%", marginTop:4, padding:9, border:`1px solid ${C.bd}`, borderRadius:10 }} /></label>
+              <label style={{ fontSize:11, color:C.tx3, fontWeight:900 }}>Card Last 4<input value={cardLast4Override} onChange={e=>setCardLast4Override(e.target.value.replace(/\D/g, "").slice(0,4))} placeholder="4519" style={{ width:"100%", marginTop:4, padding:9, border:`1px solid ${C.bd}`, borderRadius:10 }} /></label>
+            </div>}
+            {pasteSummary && (paymentMethodOverride || pasteSummary.paymentMethod) && !(cardLast4Override || pasteSummary.cardLast4) && !/cash/i.test(paymentMethodOverride || pasteSummary.paymentMethod) && <div style={{ marginTop:10, background:C.amberBg, border:`1px solid ${C.amber}40`, borderRadius:12, padding:10, color:C.amber, fontSize:12, fontWeight:900 }}>Payment method found ({paymentMethodOverride || pasteSummary.paymentMethod}) but card last 4 was not detected. Add it before saving if you need clean accounting records.</div>}
           </Card>
           {rows.some(r => r.needsPotSizeReview || r.potSizeConfidence === "rule" || r.potSizeCorrected) && <Card style={{ marginBottom: 12, background: rows.some(r => r.needsPotSizeReview) ? C.amberBg : C.g50, border: `1px solid ${rows.some(r => r.needsPotSizeReview) ? C.amber : C.g300}40` }}>
             <Row between wrap center gap={10}>
