@@ -9750,7 +9750,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const [step, setStep] = useState("upload");
       const [img, setImg] = useState(null);
       const [invoicePages, setInvoicePages] = useState([]);
-      const [invoicePdfTextPages, setInvoicePdfTextPages] = useState([]);
       const [expectedPlantCount, setExpectedPlantCount] = useState("");
       const [parsed, setParsed] = useState(null);
       const [rows, setRows] = useState([]);
@@ -9764,112 +9763,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const invoiceUnitCount = data => safeArray(data?.plants).reduce((sum, p) => sum + Math.max(1, parseInt(p?.quantity || 1, 10) || 1), 0);
       const expectedCountNum = () => { const n = parseInt(String(expectedPlantCount || "").replace(/[^0-9]/g, ""), 10); return Number.isFinite(n) && n > 0 ? n : 0; };
       const plantCountMatches = count => !expectedCountNum() || expectedCountNum() === (+count || 0);
-
-      // V198: Clover / nursery PDFs often contain selectable text. Use that first so multi-page invoices
-      // do not hang on 10+ image AI calls. If text parsing finds plants, the scan completes instantly.
-      const parseMoneyValue = v => {
-        const n = parseFloat(String(v || "").replace(/[$,\s]/g, ""));
-        return Number.isFinite(n) ? n : 0;
-      };
-      const isInvoicePriceLine = line => /^-?\$\s*[0-9][0-9,]*(?:\.\d{2})?$/.test(String(line || "").trim());
-      const cleanInvoicePlantName = name => String(name || "")
-        .replace(/\s+/g, " ")
-        .replace(/\s+\$[0-9,]+(?:\.\d{2})?$/g, "")
-        .trim();
-      const isNoiseInvoiceLine = line => {
-        const t = String(line || "").trim();
-        if (!t) return true;
-        if (/^https?:\/\//i.test(t)) return true;
-        if (/^\d+\/\d+$/.test(t)) return true;
-        if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(t)) return true;
-        if (/^(PERFECT CHOICE|FOLLOWING|SOUTHWEST|HTTP|www\.|Cashier|Payment ID|Order ID|Order Employee|Hide Details|Card:|Method:|Auth ID|Reference ID|AID:|CVM:|View the Privacy|Clover|NO REFUNDS|The Leaf Diary|theleafdiary|MASTER|MASTERCARD|Total\s*\$|Subtotal|Tax|10% Off)$/i.test(t)) return true;
-        if (/^(\+1|[0-9]{3,}|M$)/i.test(t)) return true;
-        if (/\b(Online Receipt|Privacy Policies|NO GUARANTEE)\b/i.test(t)) return true;
-        if (/\$\s*[0-9,.]+\s*Off/i.test(t)) return true;
-        if (/^[-–]?\$/.test(t) && !isInvoicePriceLine(t)) return true;
-        return false;
-      };
-      const addInvoiceNameLine = (names, line) => {
-        const t = cleanInvoicePlantName(line);
-        if (!t || isNoiseInvoiceLine(t) || isInvoicePriceLine(t)) return;
-        const prev = names[names.length - 1] || "";
-        // Some Clover PDFs wrap a long plant name onto the next line. Join obvious continuations.
-        if (prev && (/Mini\s*$/i.test(prev) || /"Mini\s*$/i.test(prev) || /^Monstera"?\s+Var/i.test(t) || /^Var\b/i.test(t))) {
-          names[names.length - 1] = cleanInvoicePlantName(prev + " " + t);
-        } else {
-          names.push(t);
-        }
-      };
-      const parseCloverPdfTextPages = (textPages = []) => {
-        const pageSummaries = [];
-        const plantsOut = [];
-        let invoiceDate = "";
-        let invoiceNumber = "";
-        let subtotal = 0;
-        let total = 0;
-        safeArray(textPages).forEach((pageText, idx) => {
-          const lines = String(pageText || "").split(/\r?\n+/).map(x => x.trim()).filter(Boolean);
-          const names = [];
-          const prices = [];
-          let afterTotals = false;
-          lines.forEach(line => {
-            const t = String(line || "").trim();
-            if (!invoiceDate) {
-              const dm = t.match(/\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/);
-              if (dm) invoiceDate = dm[1];
-            }
-            if (!invoiceNumber) {
-              const im = t.match(/(?:Payment ID|Order ID)\s*:?\s*([A-Z0-9]+)/i);
-              if (im) invoiceNumber = im[1];
-            }
-            if (/^Subtotal$/i.test(t)) { afterTotals = true; return; }
-            if (/^Total\s*\$/i.test(t)) { afterTotals = true; total = parseMoneyValue(t); return; }
-            if (/^10% Off$/i.test(t) || /^Tax/i.test(t)) { afterTotals = true; return; }
-            if (afterTotals) {
-              if (/^Total\s*\$/i.test(t)) total = parseMoneyValue(t);
-              return;
-            }
-            if (isInvoicePriceLine(t)) {
-              if (/^-/.test(t)) return; // discount line
-              const val = parseMoneyValue(t);
-              if (val >= 3 && val < 1000) prices.push(val);
-              return;
-            }
-            addInvoiceNameLine(names, t);
-          });
-          const count = Math.min(names.length, prices.length);
-          for (let i = 0; i < count; i++) {
-            let rawName = cleanInvoicePlantName(names[i]);
-            let qty = 1;
-            const qm = rawName.match(/\s+x\s*(\d+)\s*$/i);
-            if (qm) {
-              qty = Math.max(1, parseInt(qm[1], 10) || 1);
-              rawName = cleanInvoicePlantName(rawName.replace(/\s+x\s*\d+\s*$/i, ""));
-            }
-            if (!rawName || isNoiseInvoiceLine(rawName)) continue;
-            const lineTotal = prices[i] || 0;
-            const unitCost = qty > 1 ? Math.round((lineTotal / qty) * 100) / 100 : lineTotal;
-            plantsOut.push({ name: rawName, quantity: qty, cost: unitCost, lineTotal, _pdfPage: idx + 1, _source: "pdf-text" });
-          }
-          pageSummaries.push({ page: idx + 1, lineItems: count, plantCount: plantsOut.filter(p => p._pdfPage === idx + 1).reduce((sum, p) => sum + (parseInt(p.quantity || 1, 10) || 1), 0), namesFound: names.length, pricesFound: prices.length });
-        });
-        const expandedPlantCount = plantsOut.reduce((sum, p) => sum + Math.max(1, parseInt(p.quantity || 1, 10) || 1), 0);
-        return {
-          nurseryName: selN?.name || "",
-          invoiceDate,
-          invoiceNumber,
-          subtotal,
-          total,
-          plants: plantsOut,
-          pdfPageCount: safeArray(textPages).length,
-          scannedPageCount: safeArray(textPages).length,
-          rawLineItemCount: plantsOut.length,
-          expandedPlantCount,
-          expectedPlantCount: expectedCountNum(),
-          pagePlantCounts: pageSummaries,
-          parsedBy: "PDF text parser"
-        };
-      };
       const load = async f => {
         if (!f) return;
         setErr(null);
@@ -9888,18 +9781,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
                 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
                 const pdf = await pdfjsLib.getDocument(typedarray).promise;
                 const renderedPages = [];
-                const textPages = [];
                 const MAX_PDF_PAGES = Math.min(pdf.numPages || 1, 25);
 
                 for (let pageNum = 1; pageNum <= MAX_PDF_PAGES; pageNum++) {
                   const page = await pdf.getPage(pageNum);
-                  try {
-                    const textContent = await page.getTextContent();
-                    textPages.push((textContent.items || []).map(it => String(it.str || "").trim()).filter(Boolean).join("
-"));
-                  } catch (textErr) {
-                    textPages.push("");
-                  }
                   const baseViewport = page.getViewport({ scale: 1 });
                   const targetWidth = 1900;
                   const renderScale = Math.max(1.8, Math.min(2.8, targetWidth / Math.max(1, baseViewport.width)));
@@ -9928,7 +9813,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
 
                 if (!renderedPages.length) throw new Error("No pages were found in this PDF.");
                 setInvoicePages(renderedPages);
-                setInvoicePdfTextPages(textPages);
                 setImg(renderedPages[0]);
                 if ((pdf.numPages || 1) > MAX_PDF_PAGES) {
                   setErr(`PDF has ${pdf.numPages} pages. First ${MAX_PDF_PAGES} pages loaded. Split the invoice if plants are after page ${MAX_PDF_PAGES}.`);
@@ -9960,7 +9844,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               ctx.drawImage(imgObj, 0, 0, w, h);
               const resizedB64 = canvas.toDataURL("image/jpeg", 0.82);
               setInvoicePages([resizedB64]);
-              setInvoicePdfTextPages([]);
               setImg(resizedB64);
               setStep("preview");
             };
@@ -9977,35 +9860,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         try {
           const pagesToScan = (invoicePages && invoicePages.length) ? invoicePages : (img ? [img] : []);
           if (!pagesToScan.length) throw new Error("No invoice image or PDF pages are ready to scan.");
-
-          // V198 no-hang path: if the PDF has a text layer, parse it locally instead of sending 10 pages to AI.
-          if (safeArray(invoicePdfTextPages).some(t => String(t || "").trim())) {
-            const parsedTextResult = parseCloverPdfTextPages(invoicePdfTextPages);
-            if (safeArray(parsedTextResult.plants).length) {
-              const result = parsedTextResult;
-              setParsed(result);
-              let ctr = (plants || []).filter(p => p.nurseryCode === selN.code).length;
-              const mapped = [];
-              result.plants.forEach((p, li) => {
-                const qty = Math.max(1, parseInt(p.quantity || 1, 10) || 1);
-                const cost = +p.cost || 0;
-                const sp = suggest(cost);
-                const potGuess = phase101GuessPotSize(p.name || "", p.potSize || "", purchaseTraining);
-                for (let qi = 0; qi < qty; qi++) {
-                  ctr++;
-                  const pageNote = p._pdfPage ? `PDF page ${p._pdfPage}.` : "";
-                  const intakeNotes = `${pageNote} PDF text parser. Review before saving.`.trim();
-                  mapped.push({ _k: `${li}-${qi}`, plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "" });
-                }
-              });
-              setRows(mapped);
-              if (expectedCountNum() && expectedCountNum() !== mapped.length) {
-                setErr(`Plant count warning: you expected ${expectedCountNum()} plants, but Leaf Diary parsed ${mapped.length} plant record(s) from PDF text. Review before saving.`);
-              }
-              setStep("review");
-              return;
-            }
-          }
 
           const pageResults = [];
           const pageErrors = [];
@@ -10089,7 +9943,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name}${expectedCountNum() ? ` (expected ${expectedCountNum()})` : ""}`, user: user.name, page: "Invoice Upload" });
         setStep("done");
       };
-      const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setInvoicePdfTextPages([]); setExpectedPlantCount(""); setParsed(null); setRows([]); setErr(null); };
+      const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setExpectedPlantCount(""); setParsed(null); setRows([]); setErr(null); };
       if (!nurseries.length) return <div style={{ padding: "60px", textAlign: "center", background: C.bg, minHeight: "100vh" }}><div style={{ fontSize: 40, marginBottom: 12 }}>🏪</div><h2 style={{ fontFamily: F.display, color: C.g900 }}>Add a nursery first</h2></div>;
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="📸" title="Buy Plants / Upload Invoice" sub="AI reads every plant, cost, and detail automatically" />
@@ -10134,7 +9988,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {step === "preview" && img && <div style={{ display: "flex", gap: 20, maxWidth: 860 }}>
           <div style={{ flex: 1 }}><img src={img} alt="Invoice" style={{ width: "100%", maxHeight: 480, objectFit: "contain", borderRadius: 10, border: `1px solid ${C.bd}` }} /></div>
           <div style={{ width: 240 }}>
-            <Card style={{ marginBottom: 10 }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, marginBottom: 5 }}>Ready to scan</div><p style={{ fontSize: 12, color: C.tx3 }}>Nursery: <b>{selN?.name}</b></p>{invoicePages.length > 1 && <p style={{ fontSize: 12, color: C.g700, fontWeight: 900 }}>PDF pages ready: {invoicePages.length}. The scan will read every page. If text is detected, Leaf Diary uses the fast PDF parser instead of waiting on AI page-by-page.</p>}{expectedCountNum() > 0 && <p style={{ fontSize:12, color:C.tx1, fontWeight:900 }}>Expected plant count: {expectedCountNum()} plants. Leaf Diary will compare this after scanning.</p>}</Card>
+            <Card style={{ marginBottom: 10 }}><div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, marginBottom: 5 }}>Ready to scan</div><p style={{ fontSize: 12, color: C.tx3 }}>Nursery: <b>{selN?.name}</b></p>{invoicePages.length > 1 && <p style={{ fontSize: 12, color: C.g700, fontWeight: 900 }}>PDF pages ready: {invoicePages.length}. The scan will read every page, not just page 1.</p>}{expectedCountNum() > 0 && <p style={{ fontSize:12, color:C.tx1, fontWeight:900 }}>Expected plant count: {expectedCountNum()} plants. Leaf Diary will compare this after scanning.</p>}</Card>
             {err && <div style={{ background: C.redBg, borderRadius: 7, padding: 10, color: C.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
             <Btn full onClick={scan} style={{ marginBottom: 8 }}>🔍 Scan with AI</Btn>
             <Btn full v="ghost" onClick={reset}>Use Different File</Btn>
@@ -10143,7 +9997,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {step === "scanning" && <div style={{ textAlign: "center", padding: "80px", maxWidth: 380, margin: "0 auto" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🔍</div>
           <h2 style={{ fontFamily: F.display, color: C.g900, marginBottom: 8 }}>Reading invoice…</h2>
-          <p style={{ color: C.tx3 }}>Extracting every plant and detail{invoicePages.length > 1 ? ` from ${invoicePages.length} PDF pages` : ""}</p>{safeArray(invoicePdfTextPages).some(t => String(t || "").trim()) && <p style={{ color: C.g700, fontWeight: 900, fontSize: 12, marginTop: 8 }}>PDF text detected — using fast no-hang receipt parser first.</p>}
+          <p style={{ color: C.tx3 }}>Extracting every plant and detail{invoicePages.length > 1 ? ` from ${invoicePages.length} PDF pages` : ""}</p>
           <style>{`@keyframes ld{0%,80%,100%{transform:scale(.7);opacity:.4}40%{transform:scale(1.2);opacity:1}}`}</style>
           <Row gap={6} style={{ justifyContent: "center", marginTop: 20 }}>{[0, 1, 2].map(i => <div key={i} style={{ width: 9, height: 9, borderRadius: "50%", background: C.g400, animation: `ld 1.2s ease-in-out ${i * .2}s infinite` }} />)}</Row>
         </div>}
