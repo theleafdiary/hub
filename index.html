@@ -11,6 +11,7 @@
   <title>LEAF DIARY - BUSINESS HUB · V214 Local Sale Customer Capture</title>
   <!-- V214 — Local Sale Customer Capture: adds full customer/contact/address fields to Local Sale workflow and accounting reports. -->
   <!-- V213 — Local Sale Accounting: adds Mark Local Sale workflow, payment method capture, sold dates, local sale flags, and accounting report breakdowns. -->
+  <!-- V215 — Sold Plant Search Fix: Inventory search now finds sold/archive plants by plant number, barcode, name, customer, and order number while keeping All Plants as active stock when search is empty. -->
   <!-- V211 — Mobile startup fix: removed extra JSX brace after Labels date card. Added immediate local save for mobile edits/photos before cloud sync. -->
   <!-- V210 — AI Tools moved out of the top header. AI/helper pages are now accessed from + Add and Search, keeping the mobile header clean. -->
   <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
@@ -11642,9 +11643,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         setShowDupes(false);
       };
       const list = plants.filter(p => {
-        const q = search.toLowerCase(), days = dHeld(p.dateAdded);
+        const q = search.toLowerCase().trim(), days = dHeld(p.dateAdded);
         const ageOk = fAge === "All" || (fAge === "30+" && days >= 30) || (fAge === "60+" && days >= 60) || (fAge === "fresh" && days < 30);
-        return (!q || p.name.toLowerCase().includes(q) || (p.plantId || "").toLowerCase().includes(q)) && (fs === "All" || p.status === fs) && (fn === "All" || p.nurseryCode === fn) && (fg === "All" || gOf(p.name) === fg) && ageOk;
+        const searchHaystack = [
+          p.name, p.plantId, p.plantCode, p.barcodeValue, p.orderNumber, p.localSaleOrderNumber,
+          p.customerName, p.buyerName, p.recipientName, p.customerPhone, p.customerEmail
+        ].map(v => String(v || "")).join(" ").toLowerCase();
+        return (!q || searchHaystack.includes(q)) && (fs === "All" || p.status === fs) && (fn === "All" || p.nurseryCode === fn) && (fg === "All" || gOf(p.name) === fg) && ageOk;
       }).sort((a, b) => { let av = a[sortF] || 0, bv = b[sortF] || 0; if (typeof av === "string") { av = av.toLowerCase(); bv = bv.toLowerCase(); } return sortD === "asc" ? av > bv ? 1 : -1 : av < bv ? 1 : -1; });
       const inStockPlants = safeArray(plants).filter(p => String(p.status || "").trim() === "In Stock");
       const soldPlants = safeArray(plants).filter(p => String(p.status || "").trim() === "Sold");
@@ -11663,11 +11668,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         { id:"Problem Plants", icon:"⚠️", label:"Problem Plants", count:problemPlants.length, color:C.red, sub:"needs review" },
         { id:"Sold / Archive", icon:"✅", label:"Sold / Archive", count:soldPlants.length, color:C.tx3, sub:"sold records" }
       ];
+      const hasInventorySearch = search.trim().length > 0;
       const matchesActionView = p => {
         const status = String(p.status || "").trim();
         const price = +p.suggestedPrice || +p.listPrice || +p.price || 0;
         const marginPct = ((+p.cost || 0) > 0 && price > 0) ? marg(+p.cost, price) : 100;
-        if (actionView === "All Plants") return status === "In Stock";
+        if (actionView === "All Plants") return hasInventorySearch ? true : status === "In Stock";
         if (actionView === "Need Photos") return status === "In Stock" && !p.photoUrl && !p.photoBase64;
         if (actionView === "Need Price") return status === "In Stock" && !price;
         if (actionView === "Aging") return status === "In Stock" && (dHeld(p.dateAdded) || 0) >= 30;
