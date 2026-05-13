@@ -8,7 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V207 Import Batch Label Fix</title>
+  <title>LEAF DIARY - BUSINESS HUB · V209 Mobile Portrait Fix</title>
+  <!-- V210 — AI Tools moved out of the top header. AI/helper pages are now accessed from + Add and Search, keeping the mobile header clean. -->
   <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
@@ -67,8 +68,9 @@
     }
 
     div, section, article, header, footer, main, aside, nav, p, span, label, h1, h2, h3, h4, h5, h6, button, td, th {
-      overflow-wrap: anywhere;
-      word-break: break-word;
+      /* V209: never force normal words to break one letter at a time on iPhone portrait */
+      overflow-wrap: break-word;
+      word-break: normal;
     }
 
     img, canvas, video, svg {
@@ -2407,6 +2409,128 @@
       .ld-production-taptest-card { padding:13px !important; }
     }
 
+
+    /* V209 — iPhone portrait layout repair
+       Fixes the mobile-only issue where text collapsed into one-letter vertical columns.
+       Cause: the old global mobile hardening allowed every word to break anywhere and flex rows could shrink text columns to almost zero width.
+       Safe scope: layout/CSS only. No data, Supabase, AI Gateway, imports, exports, labels, pricing, or business logic changed. */
+    @media (max-width: 760px) {
+      html, body, #root {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+      }
+
+      body {
+        width: 100% !important;
+      }
+
+      .ld-page,
+      .ld-scroll-page,
+      .page-scroll-safe,
+      .pg-pad {
+        max-width: 100vw !important;
+        overflow-x: hidden !important;
+      }
+
+      .ld-page div,
+      .ld-page p,
+      .ld-page span,
+      .ld-page label,
+      .ld-page h1,
+      .ld-page h2,
+      .ld-page h3,
+      .ld-page h4,
+      .ld-scroll-page div,
+      .ld-scroll-page p,
+      .ld-scroll-page span,
+      .page-scroll-safe div,
+      .page-scroll-safe p,
+      .page-scroll-safe span {
+        word-break: normal !important;
+        overflow-wrap: break-word !important;
+        hyphens: none !important;
+      }
+
+      .ld-row {
+        max-width: 100% !important;
+        min-width: 0 !important;
+      }
+
+      .ld-page .ld-row[style*="justify-content: space-between"],
+      .ld-scroll-page .ld-row[style*="justify-content: space-between"],
+      .page-scroll-safe .ld-row[style*="justify-content: space-between"],
+      .ld-page .ld-row[style*="flex-wrap: wrap"],
+      .ld-scroll-page .ld-row[style*="flex-wrap: wrap"],
+      .page-scroll-safe .ld-row[style*="flex-wrap: wrap"] {
+        flex-wrap: wrap !important;
+      }
+
+      .ld-page .ld-row[style*="justify-content: space-between"] > [style*="flex: 1"],
+      .ld-scroll-page .ld-row[style*="justify-content: space-between"] > [style*="flex: 1"],
+      .page-scroll-safe .ld-row[style*="justify-content: space-between"] > [style*="flex: 1"],
+      .ld-page .ld-row[style*="flex-wrap: wrap"] > [style*="flex: 1"],
+      .ld-scroll-page .ld-row[style*="flex-wrap: wrap"] > [style*="flex: 1"],
+      .page-scroll-safe .ld-row[style*="flex-wrap: wrap"] > [style*="flex: 1"] {
+        flex: 1 1 min(100%, 250px) !important;
+        min-width: min(100%, 220px) !important;
+      }
+
+      .ld-page .ld-row > button,
+      .ld-scroll-page .ld-row > button,
+      .page-scroll-safe .ld-row > button {
+        flex-shrink: 0;
+      }
+
+      /* The exact area shown in the screenshot: workflow header + action buttons. */
+      .ld-inline-workflow-panel > .ld-row:first-child {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+      }
+
+      .ld-inline-workflow-panel > .ld-row:first-child > .ld-row {
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+
+      .ld-inline-workflow-panel > .ld-row:first-child > .ld-row:last-child {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+      }
+
+      .ld-inline-workflow-panel > .ld-row:first-child > .ld-row:last-child button,
+      .ld-inline-workflow-panel button {
+        width: 100% !important;
+        white-space: normal !important;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+      }
+
+      .ld-workspace-card .ld-row {
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+      }
+
+      .ld-workspace-card .ld-row > div:first-child,
+      .ld-workspace-card .ld-row > span:last-child {
+        flex: 0 0 auto !important;
+      }
+
+      .ld-workspace-card .ld-row > div:nth-child(2) {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+      }
+    }
+
+    @media (max-width: 390px) {
+      .ld-inline-workflow-panel > .ld-row:first-child > .ld-row:last-child {
+        grid-template-columns: 1fr !important;
+      }
+    }
+
 </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js">
     /* V194 — READYORDERS STARTUP FIX
@@ -4289,7 +4413,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       return <button onClick={onClick} disabled={disabled} style={{ ...VS[v], padding: pad, fontSize: fs, fontWeight: 600, borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer", fontFamily: F.body, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", opacity: disabled ? .5 : 1, width: full ? "100%" : undefined, justifyContent: full ? "center" : undefined, transition: "opacity .12s", ...s }}>{children}</button>;
     }
     const Card = ({ children, style: s = {}, onClick }) => <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "16px 20px", cursor: onClick ? "pointer" : undefined, ...s }}>{children}</div>;
-    const Row = ({ children, gap = 10, wrap, center, between, end, className, style: s = {} }) => <div className={className} style={{ display: "flex", gap, flexWrap: wrap ? "wrap" : undefined, alignItems: center ? "center" : end ? "flex-end" : undefined, justifyContent: between ? "space-between" : undefined, ...s }}>{children}</div>;
+    const Row = ({ children, gap = 10, wrap, center, between, end, className, style: s = {} }) => <div className={className ? `ld-row ${className}` : "ld-row"} style={{ display: "flex", gap, flexWrap: wrap ? "wrap" : undefined, alignItems: center ? "center" : end ? "flex-end" : undefined, justifyContent: between ? "space-between" : undefined, ...s }}>{children}</div>;
 
     function KPI({ label, value, sub, color, onClick }) {
       return <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "14px 14px", flex: 1, minWidth: 100, borderTop: `3px solid ${color || C.g500}`, cursor: onClick ? "pointer" : undefined }}>
@@ -6476,8 +6600,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
             <button className="ld-theme-toggle" onClick={()=>{ if (onToggleTheme) onToggleTheme(); }} aria-label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>{themeMode === "dark" ? "☀️" : "🌙"}</button>
             <button onClick={()=>{ setPageHelpOpen(true); setAiMenuOpen(false); setAddOpen(false); setMenuOpen(false); setHeaderSearchOpen(false); }} title="How to use this page" aria-label="How to use this page" style={{ background:"#111", color:"#97d33e", border:"2px solid rgba(151,211,62,.85)", borderRadius:999, width:40, height:40, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontWeight:950, fontSize:18, fontFamily:F.body, boxShadow: pageHelpOpen ? "0 0 18px rgba(151,211,62,.7)" : "0 0 10px rgba(151,211,62,.22)", padding:0 }}>i</button>
-            <button onClick={()=>{ setAiMenuOpen(p=>!p); setAddOpen(false); setMenuOpen(false); setHeaderSearchOpen(false); setPageHelpOpen(false); }} title="AI tools" aria-label="AI tools" style={{ background:"#050505", color:"#97d33e", border:"2px solid #97d33e", borderRadius:999, width:40, height:40, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", boxShadow: aiMenuOpen ? "0 0 18px rgba(151,211,62,.7)" : "0 0 10px rgba(151,211,62,.28)", padding:0 }}><AIChipIcon /></button>
-            <button onClick={()=>{ setMenuOpen(p=>!p); setHeaderSearchOpen(false); }} aria-label="Open navigation menu" style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
+            <button onClick={()=>{ setMenuOpen(p=>!p); setAiMenuOpen(false); setHeaderSearchOpen(false); }} aria-label="Open navigation menu" style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
           </Row>
         </div>
 
@@ -6571,6 +6694,27 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
                 ]).map(item => <button key={item.id} onClick={()=>openPage(item.id)} style={{ background:"#111", border:"1px solid rgba(255,255,255,.14)", color:"#fff", borderRadius:14, padding:"13px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900, minHeight:74 }}><div style={{ fontSize:13, lineHeight:1.15 }}>{item.icon} {item.title}</div><div style={{ fontSize:10, color:"rgba(255,255,255,.55)", fontWeight:700, marginTop:4, lineHeight:1.25 }}>{item.sub}</div></button>)}
               </div>
               <div style={{ marginTop:12, padding:"10px 11px", borderRadius:14, background:"rgba(151,211,62,.08)", border:"1px solid rgba(151,211,62,.22)", color:"rgba(255,255,255,.72)", fontSize:11, lineHeight:1.35 }}><b style={{ color:"#97d33e" }}>Guided mode:</b> These buttons no longer dump you straight into old tools. They open the correct master page, show the steps, then you tap <b>Start Step 1</b> when ready.</div>
+
+              <div style={{ marginTop:14 }}>
+                <div style={{ fontSize:12, fontWeight:900, color:"#97d33e", letterSpacing:.7, textTransform:"uppercase", marginBottom:9 }}>AI / Helper Pages</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:9 }}>
+                  {(isOwner ? [
+                    { id:"dataai", icon:"💬", title:"Ask Business AI", sub:"Ask questions about Leaf Diary" },
+                    { id:"aihub", icon:"🤖", title:"AI Center", sub:"Daily checks and recommendations" },
+                    { id:"ollamadoctor", icon:"🩺", title:"AI Doctor", sub:"Fix or test the AI connection" },
+                    { id:"airouter", icon:"🧭", title:"AI Routing", sub:"Choose how AI tasks run" }
+                  ] : isManager ? [
+                    { id:"dataai", icon:"💬", title:"Ask Business AI", sub:"Operational helper" },
+                    { id:"aihub", icon:"🤖", title:"AI Center", sub:"Smart recommendations" }
+                  ] : [
+                    { id:"dataai", icon:"💬", title:"Ask Leaf Diary AI", sub:"Ask where to go or what to do" }
+                  ]).map(item => <button key={item.id} onClick={()=>{ setAddOpen(false); openPage(item.id); }} style={{ background:"#111", border:"1px solid rgba(151,211,62,.24)", color:"#fff", borderRadius:14, padding:"12px 10px", textAlign:"left", fontFamily:F.body, cursor:"pointer", fontWeight:900, minHeight:68 }}>
+                    <div style={{ fontSize:13, lineHeight:1.15 }}>{item.icon} {item.title}</div>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.55)", fontWeight:700, marginTop:4, lineHeight:1.25 }}>{item.sub}</div>
+                  </button>)}
+                </div>
+                <div style={{ marginTop:10, color:"rgba(255,255,255,.52)", fontSize:11, lineHeight:1.35 }}>AI tools were moved here so the top header stays clean on mobile. You can also type AI in the search box.</div>
+              </div>
             </div>
 
             {isOwner && cloudControls && <div style={{ marginTop:0, paddingTop:0 }}>
