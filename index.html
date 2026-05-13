@@ -8,12 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V212 Bulk Done No Tracking</title>
+  <title>LEAF DIARY - BUSINESS HUB · V209 Mobile Portrait Fix</title>
   <!-- V210 — AI Tools moved out of the top header. AI/helper pages are now accessed from + Add and Search, keeping the mobile header clean. -->
-  <!-- V212 — Shipping bulk complete without tracking. Adds a safe way to mark selected/visible shipments packed + done/no tracking so they leave the open queue. -->
-  <!-- V213 — Shipping Open Queue Truth Fix. Shipping KPIs and queues now count only open/unshipped work; completed/no-tracking orders no longer show as to-pack. -->
-  <!-- V215 — Shipping Stage Workflow Fix. Adds Ready to Pack, Packed/Ready, and Completed Shipments as separate stages so finished orders do not look like work still waiting. -->
-  <!-- V215 — Shipping Docs + Mobile Save Menu. State docs stay protected in a 3-year archive and mobile header save/load/backup/sync tools collapse into one Save menu. -->
+  <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -2535,120 +2532,6 @@
     }
 
 
-    /* V212 — Bulk Done / No Tracking shipping queue cleanup. */
-    /* V215 — Mobile Save Menu + 3-Year State Doc Archive Banner */
-    .ld-save-menu-wrap {
-      position: relative;
-      flex-shrink: 0;
-    }
-    .ld-save-menu-btn {
-      background: #97d33e;
-      color: #000;
-      border: 2px solid #97d33e;
-      border-radius: 999px;
-      min-height: 40px;
-      padding: 8px 12px;
-      font-family: 'DM Sans', system-ui, sans-serif;
-      font-weight: 950;
-      font-size: 13px;
-      cursor: pointer;
-      white-space: nowrap !important;
-      box-shadow: 0 8px 24px rgba(151,211,62,.18);
-    }
-    .ld-save-menu-panel {
-      position: absolute;
-      top: calc(100% + 8px);
-      right: 0;
-      width: min(360px, calc(100vw - 16px));
-      background: #050505;
-      color: #fff;
-      border: 1px solid rgba(151,211,62,.45);
-      border-radius: 18px;
-      box-shadow: 0 22px 70px rgba(0,0,0,.58);
-      padding: 10px;
-      z-index: 980;
-    }
-    .ld-save-menu-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-    .ld-save-menu-action {
-      background: #111;
-      color: #fff;
-      border: 1px solid rgba(255,255,255,.14);
-      border-radius: 14px;
-      padding: 11px 10px;
-      min-height: 44px;
-      text-align: left;
-      font-family: 'DM Sans', system-ui, sans-serif;
-      font-weight: 900;
-      font-size: 12px;
-      cursor: pointer;
-      white-space: normal !important;
-    }
-    .ld-save-menu-action.primary {
-      background: #97d33e;
-      color: #000;
-      border-color: #97d33e;
-    }
-    .ld-save-menu-note {
-      margin-top: 9px;
-      padding: 9px 10px;
-      border-radius: 13px;
-      background: rgba(151,211,62,.10);
-      border: 1px solid rgba(151,211,62,.24);
-      color: rgba(255,255,255,.74);
-      font-size: 11px;
-      line-height: 1.35;
-      font-weight: 750;
-    }
-    .ld-state-doc-archive-note {
-      background: #FFF9EC;
-      border: 1px solid rgba(176,125,16,.35);
-      border-left: 6px solid #B07D10;
-      border-radius: 18px;
-      padding: 12px 13px;
-      color: #304D3A;
-      font-size: 12px;
-      line-height: 1.45;
-      font-weight: 850;
-      margin: 10px 0 12px;
-    }
-    @media (max-width: 760px) {
-      .ld-save-menu-btn {
-        width: 44px !important;
-        min-width: 44px !important;
-        height: 40px !important;
-        padding: 0 !important;
-        font-size: 0 !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-      }
-      .ld-save-menu-btn::before {
-        content: "💾";
-        font-size: 18px;
-        line-height: 1;
-      }
-      .ld-save-menu-panel {
-        position: fixed;
-        top: 58px;
-        left: 8px;
-        right: 8px;
-        width: auto;
-        max-height: 72vh;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-      }
-      .ld-save-menu-grid { grid-template-columns: 1fr 1fr; }
-      .ld-save-menu-action { text-align: center; font-size: 12px !important; }
-    }
-    @media (max-width: 390px) {
-      .ld-save-menu-grid { grid-template-columns: 1fr; }
-    }
-
-
     /* V211 — Mobile portrait card text repair
        Stops iPhone portrait from squeezing action-card text into one-letter vertical columns.
        CSS/layout only: no data, Supabase, Worker, import, export, pricing, or AI logic changes. */
@@ -4376,38 +4259,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       });
       return Object.values(map).sort((a,b) => String(b.soldDate).localeCompare(String(a.soldDate)));
     };
-    /* V213 SHIPPING OPEN QUEUE TRUTH FIX
-       Sold plants stay in sales history, but Shipping must only count open work.
-       Orders marked Shipped or Done / No Tracking should leave the pack/tracking queue. */
-    const ldNormShipStatus = v => String(v || "").trim().toLowerCase();
-    const LD_STATE_DOC_STATES = ["CA", "TX", "AZ", "LA", "HI"];
-    const ldStateDocRequired = state => LD_STATE_DOC_STATES.includes(String(state || "").trim().toUpperCase());
-    const ldPlantShippingDone = p => {
-      const status = ldNormShipStatus(p?.fulfillmentStatus || p?.shipmentStatus || p?.trackingStatus || "");
-      const shipment = ldNormShipStatus(p?.shipmentStatus || "");
-      if (status === "shipped" || status === "done") return true;
-      if (status.includes("done") || status.includes("shipped")) return true;
-      if (shipment.includes("done") || shipment.includes("shipped")) return true;
-      if (p?.noTrackingNeeded || p?.completedWithoutTrackingAt) return true;
-      return false;
-    };
-    const ldOrderPlants = (order, plants = []) => safeArray(plants).filter(p => safeArray(order?.plants).some(x => x.id === p.id));
-    const ldOrderShippingStatus = (order, plants = []) => {
-      const ps = ldOrderPlants(order, plants);
-      if (ps.length && ps.every(ldPlantShippingDone)) return "Shipped";
-      const allReady = ps.length && ps.every(p => ldPlantShippingDone(p) || ["Ready for Platform", "Platform Ready"].includes(String(p.fulfillmentStatus || p.shipmentStatus || "")));
-      const allPacked = ps.length && ps.every(p => ldPlantShippingDone(p) || ["Packed", "Ready for Platform", "Platform Ready"].includes(String(p.fulfillmentStatus || p.shipmentStatus || "")) || p.packedAt || p.platformReadyAt);
-      if (allReady) return "Ready for Platform";
-      if (allPacked) return "Packed";
-      return "Needs Packing";
-    };
-    const ldReadyToPackOrders = (plants = []) => groupSalesIntoOrders(plants).filter(o => ldOrderShippingStatus(o, plants) === "Needs Packing");
-    const ldPackedReadyOrders = (plants = []) => groupSalesIntoOrders(plants).filter(o => ["Packed", "Ready for Platform"].includes(ldOrderShippingStatus(o, plants)));
-    const ldShippingCompletedOrders = (plants = []) => groupSalesIntoOrders(plants).filter(o => ldOrderShippingStatus(o, plants) === "Shipped");
-    const ldShippingOpenOrders = (plants = []) => [...ldReadyToPackOrders(plants), ...ldPackedReadyOrders(plants)];
-    const ldTrackingNeededOrders = (plants = []) => ldShippingOpenOrders(plants).filter(o => ldOrderPlants(o, plants).some(p => !p.trackingNumber && !p.noTrackingNeeded));
-    const ldStateDocShipmentOrders = (plants = []) => ldShippingOpenOrders(plants).filter(o => ldStateDocRequired(o.state));
-    const ldOpenStateDocOrders = (plants = []) => ldStateDocShipmentOrders(plants).filter(o => ldOrderPlants(o, plants).some(p => !p.stateDocChecked && !p.paperworkAdded));
     const trackingUrl = (carrier, number) => {
       if (!number) return "";
       const n = encodeURIComponent(number);
@@ -4422,8 +4273,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const due14 = bills.filter(b => b.status !== "Paid" && daysUntil(b.dueDate) <= 14).reduce((s,b)=>s+(+b.amount||0),0);
       const payrollWeek = timecards.filter(t => dateInLast(t.date, 7)).reduce((s,t)=>s+(+t.totalPay||0),0);
       if (balance && balance < due14 + payrollWeek) alerts.push({ id:"cash-low", severity:"critical", title:"Cash is tight", body:`Bank balance ${$(balance)} is lower than bills/payroll due soon (${$(due14 + payrollWeek)}).`, actionLabel:"Open Cash Flow", actionPage:"cashflow" });
-      const ready = ldShippingOpenOrders(plants);
-      if (ready.length) alerts.push({ id:"sold-review", severity:"info", title:"Open shipping queue", body:`${ready.length} order group(s) are still open: ready to pack, packed/ready, or missing completion cleanup.`, actionLabel:"Open Shipping", actionPage:"orders_ws" });
+      const ready = groupSalesIntoOrders(plants);
+      if (ready.length) alerts.push({ id:"sold-review", severity:"info", title:"Sold plants imported", body:`${ready.length} sold order group(s) are saved from Palmstreet/Whatnot. Shipping stays inside the platform.`, actionLabel:"Review Sold Plants", actionPage:"ship" });
       const old = plants.filter(p => p.status === "In Stock" && dHeld(p.dateAdded) >= 60);
       if (old.length) alerts.push({ id:"aging", severity:"warning", title:"Aging inventory", body:`${old.length} plant(s) are 60+ days old and may need discounting.`, actionLabel:"Discount Engine", actionPage:"discounts" });
       const quarantine = plants.filter(p => ["Quarantine","Pest/Disease"].includes(p.healthStatus));
@@ -6655,14 +6506,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const [menuOpen, setMenuOpen] = useState(false);
       const [addOpen, setAddOpen] = useState(false);
       const [aiMenuOpen, setAiMenuOpen] = useState(false);
-      const [saveMenuOpen, setSaveMenuOpen] = useState(false);
       const [pageHelpOpen, setPageHelpOpen] = useState(false);
       const [menuSearch, setMenuSearch] = useState("");
       const [headerSearch, setHeaderSearch] = useState("");
       const [headerSearchOpen, setHeaderSearchOpen] = useState(false);
       const [appSearchHelp, setAppSearchHelp] = useState(null);
       const headerSearchRef = useRef(null);
-      const saveMenuRef = useRef(null);
       const headerSearchInputRef = useRef(null);
       const role = user?.role || "employee";
       const tools = getToolsForRole(role);
@@ -6680,7 +6529,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         setMenuOpen(false);
         setAddOpen(false);
         setAiMenuOpen(false);
-        setSaveMenuOpen(false);
         setMenuSearch("");
       };
       const phaseStatusItems = Array.isArray(cloudControls.phaseStatusItems) ? cloudControls.phaseStatusItems : [];
@@ -6793,8 +6641,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       };
       useEffect(() => {
         const closeOnOutside = ev => {
-          if (headerSearchRef.current && !headerSearchRef.current.contains(ev.target)) setHeaderSearchOpen(false);
-          if (saveMenuRef.current && !saveMenuRef.current.contains(ev.target)) setSaveMenuOpen(false);
+          if (!headerSearchRef.current) return;
+          if (!headerSearchRef.current.contains(ev.target)) setHeaderSearchOpen(false);
         };
         document.addEventListener("pointerdown", closeOnOutside, true);
         document.addEventListener("touchstart", closeOnOutside, true);
@@ -6853,29 +6701,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           </div>
           <Row gap={7} center style={{ flexShrink:0 }}>
             {billAlerts > 0 && <button onClick={()=>openPage("bills")} style={{ background:C.red, border:"none", borderRadius:20, padding:"5px 9px", fontSize:12, color:"#fff", fontWeight:900, cursor:"pointer" }}>📅 {billAlerts}</button>}
-            {isOwner && cloudControls && <div className="ld-save-menu-wrap" ref={saveMenuRef}>
-              <button className="ld-save-menu-btn" onClick={()=>{ setSaveMenuOpen(p=>!p); setPageHelpOpen(false); setAiMenuOpen(false); setAddOpen(false); setMenuOpen(false); setHeaderSearchOpen(false); }} aria-expanded={saveMenuOpen} aria-label="Open save, load, backup, and sync menu">💾 Save{cloudControls.pendingSyncCount ? ` ${cloudControls.pendingSyncCount}` : ""}</button>
-              {saveMenuOpen && <div className="ld-save-menu-panel">
-                <div style={{ color:"#97d33e", fontWeight:950, fontSize:13, margin:"2px 2px 9px" }}>Save / Load / Backup / Sync</div>
-                <div className="ld-save-menu-grid">
-                  {cloudControls.saveChanges && <button className="ld-save-menu-action primary" onClick={()=>{ setSaveMenuOpen(false); cloudControls.saveChanges(); }}>💾 Save Changes{cloudControls.pendingSyncCount ? ` (${cloudControls.pendingSyncCount})` : ""}</button>}
-                  {cloudControls.loadFromCloud && <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); cloudControls.loadFromCloud(); }}>⬇️ Load Cloud</button>}
-                  {cloudControls.backup && <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); cloudControls.backup(); }}>📥 Backup</button>}
-                  {cloudControls.restore && <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); cloudControls.restore(); }}>📤 Restore</button>}
-                  {cloudControls.toggleTeamSync && <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); cloudControls.toggleTeamSync(); }}>{cloudControls.teamSafeSync ? "👥 Team Sync ON" : "👥 Team Sync OFF"}</button>}
-                  {cloudControls.toggleSafeMode && <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); cloudControls.toggleSafeMode(); }}>{cloudControls.cloudSafeMode ? "🛡️ Safe Mode ON" : "☁️ Cloud ON"}</button>}
-                  <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); openPage("teamsync"); }}>🆘 Sync Help</button>
-                  <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); openPage("changelog"); }}>🧾 Changes</button>
-                  {cloudControls.phase1Health && <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); cloudControls.phase1Health(); }}>🩺 Health</button>}
-                  {cloudControls.phase1Snapshot && <button className="ld-save-menu-action" onClick={()=>{ setSaveMenuOpen(false); cloudControls.phase1Snapshot(); }}>🧯 Snapshot</button>}
-                  {cloudControls.forceSave && <button className="ld-save-menu-action" style={{ borderColor:"#BE3535" }} onClick={()=>{ setSaveMenuOpen(false); cloudControls.forceSave(); }}>⚠️ Force Save</button>}
-                </div>
-                <div className="ld-save-menu-note">Tip: before uploading a new HTML file, use Backup, then Save Changes. Other devices should use Load Cloud after you save.</div>
-              </div>}
-            </div>}
             <button className="ld-theme-toggle" onClick={()=>{ if (onToggleTheme) onToggleTheme(); }} aria-label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>{themeMode === "dark" ? "☀️" : "🌙"}</button>
-            <button onClick={()=>{ setPageHelpOpen(true); setAiMenuOpen(false); setSaveMenuOpen(false); setAddOpen(false); setMenuOpen(false); setHeaderSearchOpen(false); }} title="How to use this page" aria-label="How to use this page" style={{ background:"#111", color:"#97d33e", border:"2px solid rgba(151,211,62,.85)", borderRadius:999, width:40, height:40, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontWeight:950, fontSize:18, fontFamily:F.body, boxShadow: pageHelpOpen ? "0 0 18px rgba(151,211,62,.7)" : "0 0 10px rgba(151,211,62,.22)", padding:0 }}>i</button>
-            <button onClick={()=>{ setMenuOpen(p=>!p); setAiMenuOpen(false); setSaveMenuOpen(false); setHeaderSearchOpen(false); }} aria-label="Open navigation menu" style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
+            <button onClick={()=>{ setPageHelpOpen(true); setAiMenuOpen(false); setAddOpen(false); setMenuOpen(false); setHeaderSearchOpen(false); }} title="How to use this page" aria-label="How to use this page" style={{ background:"#111", color:"#97d33e", border:"2px solid rgba(151,211,62,.85)", borderRadius:999, width:40, height:40, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontWeight:950, fontSize:18, fontFamily:F.body, boxShadow: pageHelpOpen ? "0 0 18px rgba(151,211,62,.7)" : "0 0 10px rgba(151,211,62,.22)", padding:0 }}>i</button>
+            <button onClick={()=>{ setMenuOpen(p=>!p); setAiMenuOpen(false); setHeaderSearchOpen(false); }} aria-label="Open navigation menu" style={{ background:"rgba(255,255,255,.18)", border:"none", borderRadius:10, padding:"8px 12px", cursor:"pointer", color:"#fff", fontSize:17, fontWeight:900, fontFamily:F.body }}>☰</button>
           </Row>
         </div>
 
@@ -7328,7 +7156,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const aging60 = inStock.filter(p => (dHeld(p.dateAdded) || 0) >= 60);
       const readyForShow = inStock.filter(p => (p.photoUrl || p.photoBase64) && (+p.suggestedPrice || +p.listPrice || +p.price) && p.labelPrinted !== false);
       const readyOrders = groupSalesIntoOrders(allPlants);
-      const openShippingOrders = ldShippingOpenOrders(allPlants);
       const receiptsNeedReview = allReceipts.filter(r => {
         const status = String(r.reviewStatus || r.review_status || r.status || "").toLowerCase();
         return status.includes("review") || (!r.category && !r.mainCategory && !r.main_category);
@@ -7367,7 +7194,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const auctionDaily = phase80BuildAuctionDailyTasks({ plants:allPlants, settings, role });
       if (isOwner || role === "manager") auctionDaily.tasks.forEach(t => addTask(t.icon, t.title, t.body, t.page, t.button, t.sev || t.level || "info"));
       if (due7.length && isOwner) addTask("📅", "Pay or review bills due this week", `${due7.length} bill(s) due in 7 days totaling ${$(due7Total)}.`, "bills", "Open Bills", "critical");
-      if (openShippingOrders.length) addTask("📦", "Shipping queue needs cleanup", `${openShippingOrders.length} open order group(s) still need packing, platform-ready, tracking, or Done / No Tracking cleanup.`, "orders_ws", "Open Shipping", openShippingOrders.length > 5 ? "critical" : "warning");
+      if (readyOrders.length) addTask("📦", "Review sold orders from shows", `${readyOrders.length} sold order group(s) need review after platform import.`, "ship", "Open Orders", readyOrders.length > 5 ? "critical" : "warning");
       if (noPhoto.length) addTask("⚡", "Run Take Plant Photos Fast", `${noPhoto.length} plant(s) are blocked from show-ready status because they need photos.`, "photosprint", "Take Plant Photos", "warning");
       if (needsLabel.length) addTask("🏷️", "Print needed labels", `${needsLabel.length} plant(s) need labels before staging or selling.`, "labels", "Print Labels", "info");
       if (noPrice.length) addTask("💲", "Set missing prices", `${noPrice.length} plant(s) need a price before they can be used in a show.`, "inv", "Price Plants", "warning");
@@ -7742,12 +7569,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const sold = plants.filter(p => p.status === "Sold");
       const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
       const readyOrders = groupSalesIntoOrders(plants);
-      const readyToPackOrders = ldReadyToPackOrders(plants);
-      const packedReadyOrders = ldPackedReadyOrders(plants);
-      const completedShippingOrders = ldShippingCompletedOrders(plants);
-      const openShippingOrders = ldShippingOpenOrders(plants);
-      const trackingNeededOrders = ldTrackingNeededOrders(plants);
-      const openStateDocOrders = ldOpenStateDocOrders(plants);
       const month = monthKey();
       const soldMonth = sold.filter(p => monthKey(plantSaleDate(p)) === month);
       const monthSales = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
@@ -7757,9 +7578,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const canOpen = id => tools.some(t => t.id === id) || WORKSPACES.some(w => w.id === id);
       const open = id => canOpen(id) && setPage(id);
       const pack = {
-        today:{ icon:"🏠", title:"Today", sub:"Daily command center.", hero:"What are you doing right now?", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["No Photos",noPhoto.length,"fix before show"],["Orders To Pack",openShippingOrders.length,"open queue"],["Month Sales",$(monthSales),"sold this month"]], sections:[
+        today:{ icon:"🏠", title:"Today", sub:"Daily command center.", hero:"What are you doing right now?", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["No Photos",noPhoto.length,"fix before show"],["Orders To Pack",readyOrders.length,"sold groups"],["Month Sales",$(monthSales),"sold this month"]], sections:[
           { title:"Daily Jobs", items:[["Buy Plants / Upload Invoice","upload","🌿","Add nursery purchases, create plant numbers, then print labels"],["Print Labels","labels","🏷️","Print barcode labels for new or missing-label plants"],["Take Plant Photos","photosprint","📸","Scan label, take photo, save, and move to the next plant"],["Build Show","shows_ws","🎪","Build Whatnot or Palmstreet show from ready inventory"],["Upload Show Sales","showimport","📥","Import sold CSV after the live show"],["Pack Orders","packorders","📦","Pack sold plants and prepare shipment"],["Scan Tracking","shiplabels","🔎","Scan/photo shipping label and match tracking"],["Add Receipt","receipts","🧾","Gas, supplies, shipping materials, or business expense"]] },
-          { title:"Needs Attention", items:[["Plants Missing Photos","labels_ws","📸","Fix photo blockers before a show"],["Open Shipping Queue","orders_ws","📦","Pack, mark platform-ready, or clear Done / No Tracking"],["Receipts To Review","money_ws","🧾","Confirm receipt category and totals"],["Advanced / Owner Tools","admin_ws","⚙️","AI, sync, backup, settings, and hidden old screens"]] }
+          { title:"Needs Attention", items:[["Plants Missing Photos","labels_ws","📸","Fix photo blockers before a show"],["Orders To Ship","orders_ws","📦","Review sold groups and tracking"],["Receipts To Review","money_ws","🧾","Confirm receipt category and totals"],["Advanced / Owner Tools","admin_ws","⚙️","AI, sync, backup, settings, and hidden old screens"]] }
         ]},
         intake_ws:{ icon:"➕", title:"Add / Intake", sub:"One clean workflow for invoices, manual adds, existing inventory, and labels.", hero:"Buy plants → add plants → assign numbers → print labels", color:"#97d33e", kpis:[["Invoice Upload","📸","photo first"],["Manual Add","✏️","quick entry"],["Archive","📋","past invoices"],["Labels","🏷️","print next"]], sections:[
           { title:"Add New Plants", items:[["Buy Plants / Upload Invoice","upload","📸","Use camera/photo to add nursery purchases"],["Add Plants Manually","manual","✏️","Quick entry for small buys"],["Receipt / Invoice Archive","history","📋","Review past uploads"],["Teach Receipt Reader","invoicetrainer","🧾","Owner rules for sizes and receipts"]] },
@@ -7779,9 +7600,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Needs Attention", items:[["Missing Photos Before Show","labels_ws","📸","Send plants without photos to Labels & Photos"],["Price Missing Plants","plants_ws","💲","Open Inventory to fix missing prices"],["Send Orders To Shipping","orders_ws","📦","Move sold orders into packing and tracking"]] },
           { title:"History + Owner Review", items:[["Show History / Reports","reports","📈","Review sales, sell-through, profit, and what worked"],["Tips / Commissions","commissions","🤝","Review employee tips and commission payouts"],["Hidden Old Show Tools","admin_ws","⚙️","Advanced auctions, bundles, and old show tools live under Advanced"]] }
         ]},
-        orders_ws:{ icon:"📦", title:"Shipping", sub:"Ready to pack, packed/ready, completed shipments, and protected state documents are separated so finished boxes do not look like open work.", hero:"Ready to pack → packed / ready → shipped / completed → state docs archived 3 years", color:"#68d8ff", kpis:[["Ready To Pack",readyToPackOrders.length,"not packed yet"],["Packed / Ready",packedReadyOrders.length,"packed, needs finish"],["Docs Needed",openStateDocOrders.length,`${stateDocShipmentOrders.length} CA/TX/AZ/LA/HI open`],["Completed Shipments",completedShippingOrders.length,"done / archived"]], notice:<div className="ld-state-doc-archive-note"><b>State Docs Rule:</b> CA, TX, AZ, LA, and HI paperwork records are legal shipping docs. Keep them for 3 years. The archive currently has <b>{archivedStateDocs.length}</b> saved document(s), and the app protects the archive from normal cleanup.</div>, sections:[
-          { title:"Ready To Pack", items:[["Pack Orders","packorders","📦","Only orders that are not packed yet should live here"],["Take Shipping Label Photo","shiplabels","📷","Take or upload a label photo after the box is packed"],["Scan Tracking","shiplabels","🔎","Scan, paste, or type the tracking number"],["Match Tracking To Customer","ship","✅","Confirm the tracking belongs to the right buyer and plant"]] },
-          { title:"State Docs + Finish", items:[["Shipping State Docs","casd","📜",`Docs needed on ${openStateDocOrders.length} open order(s); archive keeps records for 3 years`],["Packed / Ready Orders","ship","🚚","Review boxes already packed and finish tracking/completion"],["Completed Shipments","customers","✅","Orders already shipped or marked Done / No Tracking"]] },
+        orders_ws:{ icon:"📦", title:"Shipping", sub:"One page for every shipping job: pack orders, capture label/tracking, match customers, mark shipped, and review problems.", hero:"Pack order → capture label/tracking → match customer → mark shipped → next box", color:"#68d8ff", kpis:[["Orders To Pack",readyOrders.length,"sold groups"],["Tracking Needed",readyOrders.length,"confirm before shipped"],["State Docs",casdCerts.length,"paperwork"],["Problems","↩️","refund / DOA"]], sections:[
+          { title:"Start Shipping Work", items:[["Pack Orders","packorders","📦","Pick a sold order, pull the plant, and pack the box"],["Take Shipping Label Photo","shiplabels","📷","Take or upload a label photo so the app can read tracking"],["Scan Tracking","shiplabels","🔎","Scan, paste, or type the tracking number"],["Match Tracking To Customer","ship","✅","Confirm the tracking belongs to the right buyer and plant"]] },
+          { title:"Finish Orders", items:[["Mark / Review Shipped","customers","✅","Save shipped status only after tracking is matched"],["Shipped Archive","customers","📚","Look up past customers, tracking, and shipped boxes"],["Shipping State Docs","casd","📜","Create or review required state paperwork when needed"]] },
           { title:"Fix Shipping Problems", items:[["Refunds / Problems","refunds","↩️","Track DOA, claims, lost packages, and follow-up"],["What Still Needs Shipping?","dataai","💬","Owner helper for unresolved packing/tracking work"],["Hidden Old Shipping Tools","admin_ws","⚙️","Old scanners and deep tools stay in Advanced"]] }
         ]},
         money_ws:{ icon:"💵", title:"Money", sub:"Receipts, expenses, bills, payroll, profit, and taxes.", hero:"Gas or supplies receipt → Add Receipt. Plant invoice → Inventory so plant numbers are created.", color:"#f5c542", kpis:[["Inventory Cost",$(invCost),"in stock"],["Month Sales",$(monthSales),"sold"],["Receipts",receipts.length,"saved"],["Bills",bills.filter(b=>b.status!=="Paid").length,"open"]], sections:[
@@ -8161,7 +7982,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         plants_ws: ["Use Buy Plants / Upload Invoice only when the paper/photo contains plant purchases that need inventory records.", "Take an invoice photo or choose one from Camera Roll/file, then review plant names, costs, quantities, and pot sizes.", "Saving a plant invoice should create unique plant numbers and send the next job to Print Labels.", "Gas, tools, shipping supplies, Walmart/office purchases, and normal receipts go to Money → Add Receipt, not Inventory."],
         labels_ws: ["Print labels for new plants first.", "Put the label on the correct plant before scanning.", "Use Scan Label + Take Photo to connect the physical plant to the inventory record.", "Work Missing Photos before a live show so the show export is ready."],
         shows_ws: ["Build the show only from plants that already have labels, photos, and prices.", "Export the show list before going live so the order matches your table.", "After the live show, upload the Whatnot/Palmstreet sales file.", "Review sold matches, tips, and commissions, then send completed orders to Shipping."],
-        orders_ws: ["Ready To Pack means not boxed yet.", "Packed / Ready means the box is packed but still needs tracking or completion.", "Completed Shipments means shipped or Done / No Tracking and should not stay in the work queue.", "State Docs are legal paperwork for CA, TX, AZ, LA, and HI shipments. Keep them archived for 3 years and never erase them during normal cleanup."],
+        orders_ws: ["Pack orders from the Pack Orders section.", "Take a shipping label photo or scan/paste the tracking number.", "Confirm the buyer/customer match before marking shipped.", "Use State Docs when a shipment requires plant paperwork."],
         money_ws: ["Use Add Receipt for gas, supplies, shipping materials, tools, office purchases, and normal business expenses.", "Do not upload plant purchase invoices here unless you only want an expense; plant invoices belong in Inventory because they create plant numbers and labels.", "Every receipt upload should offer Take Photo and Choose From Camera Roll/File, then confirm vendor, date, total, payment method, and category.", "Owners review bills, payroll, cash flow, profit, and taxes from this page."],
         buy_ws: ["Use What Should I Buy? only after inventory, sales, and costs are current.", "Check what sold fastest and what made the most profit per slot.", "Do not buy more low-margin plants just because they are cheap.", "Use Cash Flow before spending big money on inventory."],
         admin_ws: ["Use Advanced only for setup, backup, AI, sync, troubleshooting, and old tools.", "Employees should not use this page for daily work.", "Export a backup before imports, repairs, or uploading a new HTML version.", "Use Hidden Old Screens only when you need the detailed legacy tool."]
@@ -9333,22 +9154,21 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const sold7 = sold.filter(p => dateInLast(plantSaleDate(p), 7));
       const sold30 = sold.filter(p => dateInLast(plantSaleDate(p), 30));
       const buyers = new Set(sold.map(p => p.customerUsername || p.customerName).filter(Boolean));
+      const stateDocStates = ["CA","AZ","TX","LA","HI"];
       const orderPlants = order => safeArray(plants).filter(p => safeArray(order.plants).some(x => x.id === p.id));
       const orderStatus = order => {
-        const s = ldOrderShippingStatus(order, plants);
-        if (s === "Shipped") return "Completed";
-        if (s === "Ready for Platform") return "Packed / Ready";
-        if (s === "Packed") return "Packed";
-        return "Ready To Pack";
+        const ps = orderPlants(order);
+        const statuses = ps.map(p => p.fulfillmentStatus || "");
+        if (ps.length && statuses.every(s => s === "Shipped" || s === "Done")) return "Done";
+        if (ps.length && statuses.every(s => ["Ready for Platform", "Shipped", "Done"].includes(s))) return "Ready";
+        if (ps.length && statuses.every(s => ["Packed", "Ready for Platform", "Shipped", "Done"].includes(s))) return "Packed";
+        return "Needs Review";
       };
-      const statusColor = s => s === "Completed" ? C.g600 : s === "Packed / Ready" ? C.blue : s === "Packed" ? C.gold : C.red;
-      const needsDoc = order => ldStateDocRequired(order.state);
-      const openOrders = ldShippingOpenOrders(plants);
-      const packOrders = ldReadyToPackOrders(plants);
-      const packedReadyOrders2 = ldPackedReadyOrders(plants);
-      const completedOrders2 = ldShippingCompletedOrders(plants);
-      const docOrders = ldStateDocShipmentOrders(plants);
-      const openDocOrders = ldOpenStateDocOrders(plants);
+      const statusColor = s => s === "Done" ? C.g600 : s === "Ready" ? C.blue : s === "Packed" ? C.gold : C.red;
+      const needsDoc = order => stateDocStates.includes(String(order.state || "").toUpperCase());
+      const openOrders = orders.filter(o => orderStatus(o) !== "Done");
+      const packOrders = orders.filter(o => ["Needs Review", "Packed", "Ready"].includes(orderStatus(o)));
+      const docOrders = orders.filter(needsDoc);
       const refundCount = safeArray(refunds).filter(r => !String(r.status || "").toLowerCase().includes("closed") && !String(r.status || "").toLowerCase().includes("resolved")).length;
       const commissionRows = safeArray(settings.showCommissions);
       const unpaidCommissions = commissionRows.filter(c => !c.paidAt && String(c.status || "Unpaid") !== "Paid");
@@ -9363,10 +9183,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const recentOrders = [...orders].sort((a,b)=>String(b.soldDate || "").localeCompare(String(a.soldDate || ""))).slice(0,10);
       const importantTasks = [
         { show:true, icon:"📥", title:"Import show sales", body:"Upload the Whatnot or Palmstreet CSV first. The import screen already asks who hosted the show, commission percent, and tips.", button:"Import Sales", tab:"import", color:C.blue },
-        { show:openOrders.length>0, icon:"✅", title:"Open shipping work", body:`${openOrders.length} order group(s) still need packing, tracking, platform-ready, or completion cleanup.`, button:"Open Review", tab:"review", color:openOrders.length>8?C.red:C.amber },
-        { show:packOrders.length>0, icon:"📦", title:"Ready to pack", body:`${packOrders.length} order group(s) are not boxed yet. Print slips, check plants, heat packs, and paperwork.`, button:"Pack Orders", tab:"pack", color:C.g600 },
+        { show:openOrders.length>0, icon:"✅", title:"Review sold orders", body:`${openOrders.length} sold order group(s) need review, packing, or platform-ready status.`, button:"Open Review", tab:"review", color:openOrders.length>8?C.red:C.amber },
+        { show:packOrders.length>0, icon:"📦", title:"Pack orders", body:`${packOrders.length} order group(s) are not marked done yet. Print slips, check plants, heat packs, and paperwork.`, button:"Pack Orders", tab:"pack", color:C.g600 },
         { show:openOrders.length>0, icon:"🚚", title:"Ship orders", body:"Use one guided page for paperwork, tracking, and final shipped confirmation so you do not jump between five tools.", button:"Ship Orders", tab:"shiporders", color:C.blue },
-        { show:openDocOrders.length>0, icon:"📜", title:"Check shipping paperwork", body:`${openDocOrders.length} open order group(s) need CA/TX/AZ/LA/HI paperwork checked. Archive copies must be kept 3 years.`, button:"Paperwork", tab:"paperwork", color:C.purple },
+        { show:docOrders.length>0, icon:"📜", title:"Check shipping paperwork", body:`${docOrders.length} order group(s) are going to CA, AZ, TX, LA, or HI and may need paperwork checked.`, button:"Paperwork", tab:"paperwork", color:C.purple },
         { show:unpaidCommissions.length>0 && canOwner, icon:"🤝", title:"Review employee pay", body:`${unpaidCommissions.length} commission record(s) may still need to be paid or marked paid.`, button:"Employee Pay", tab:"pay", color:C.gold },
         { show:refundCount>0 && canManage, icon:"↩️", title:"Resolve refunds", body:`${refundCount} open refund/problem record(s) need review.`, button:"Refunds", tab:"refunds", color:C.red }
       ].filter(t => t.show);
@@ -9449,7 +9269,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:12 }}>
             <KPI label="Open Orders" value={openOrders.length} sub="not done" color={openOrders.length?C.amber:C.g600} />
             <KPI label="To Pack" value={packOrders.length} sub="active boxes" color={packOrders.length?C.g600:C.tx3} />
-            <KPI label="Docs Needed" value={openDocOrders.length} sub={`${docOrders.length} CA/TX/AZ/LA/HI orders`} color={openDocOrders.length?C.purple:C.g600} />
+            <KPI label="State Docs" value={docOrders.length} sub="CA/AZ/TX/LA/HI" color={docOrders.length?C.purple:C.g600} />
             <KPI label="Shipped" value={orders.filter(o => orderStatus(o) === "Done").length} sub="completed" color={C.blue} />
             <KPI label="Refunds" value={refundCount} sub="open problems" color={refundCount?C.red:C.g600} />
           </div>
@@ -9467,9 +9287,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               <div style={{ color, fontWeight:900, fontSize:11, marginTop:8 }}>{button} →</div>
             </button>)}
           </div>
-          <div className="ld-state-doc-archive-note"><b>State Docs Rule:</b> CA, TX, AZ, LA, and HI paperwork is a protected 3-year archive. Do not delete these records during cleanup. Saved archive count: <b>{safeArray(casdCerts).length}</b>.</div>
           <Card style={{ borderTop:`4px solid ${C.blue}`, marginBottom:12 }}>
-            <Row between center wrap gap={10} style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20 }}>Orders Needing Shipping Work</div><div style={{ color:C.tx3, fontSize:12 }}>This keeps packing, docs, and tracking in one visible checklist. Completed shipments stay out of the work queue.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={()=>setPage("shiplabels")}>Add Tracking</Btn><Btn sz="sm" v="soft" onClick={()=>setTab("paperwork")}>State Docs</Btn></Row></Row>
+            <Row between center wrap gap={10} style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20 }}>Orders Needing Shipping Work</div><div style={{ color:C.tx3, fontSize:12 }}>This keeps packing, docs, and tracking in one visible checklist.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={()=>setPage("shiplabels")}>Add Tracking</Btn><Btn sz="sm" v="soft" onClick={()=>setTab("paperwork")}>State Docs</Btn></Row></Row>
             {openOrders.length ? openOrders.slice(0,12).map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:18, color:C.g800, fontWeight:800 }}>No open shipping work found. Imported orders marked shipped/done will not clutter this list.</div>}
           </Card>
           <Card style={{ background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`5px solid ${C.g600}` }}>
@@ -9484,7 +9303,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
 
         {tab === "refunds" && <div><Card style={{ marginBottom:12, borderLeft:`5px solid ${C.red}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Refunds And Problems</div><div style={{ fontSize:12, color:C.tx3 }}>Track damaged plants, customer issues, refunds, and replacements after the show.</div></div><Tag text={`${refundCount} open`} color={refundCount?C.red:C.g600}/></Row></Card><RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} /></div>}
 
-        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:".9fr 1.1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>📜 Shipping State Docs</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Use this to check state paperwork for CA, TX, AZ, LA, and Hawaii. These documents are retained for 3 years in the protected archive and should never be erased during normal cleanup.</p><div className="ld-state-doc-archive-note">Open docs needed: <b>{openDocOrders.length}</b> · Shipments going to doc states: <b>{docOrders.length}</b> · Saved document archive: <b>{safeArray(casdCerts).length}</b></div><div style={{ marginTop:10 }}>{docOrders.length ? docOrders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:14, color:C.g800, fontWeight:800 }}>No current sold orders found for state paperwork review.</div>}</div></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}>{canOwner ? <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} /> : <div style={{ padding:20, color:C.tx3 }}>Paperwork generator is owner-only.</div>}</Card></div>}
+        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:".9fr 1.1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>📜 Shipping State Docs</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Use this to check state paperwork for CA, AZ, TX, LA, and Hawaii. This is a reminder layer only — the original certificate generator remains below.</p><div style={{ marginTop:10 }}>{docOrders.length ? docOrders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:14, color:C.g800, fontWeight:800 }}>No current sold orders found for state paperwork review.</div>}</div></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}>{canOwner ? <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} /> : <div style={{ padding:20, color:C.tx3 }}>Paperwork generator is owner-only.</div>}</Card></div>}
 
         <style>{`@media(max-width:760px){.ld-orders-workflow div[style*="grid-template-columns:repeat(4,1fr)"],.ld-orders-workflow div[style*="grid-template-columns: repeat(4,1fr)"],.ld-orders-workflow div[style*="grid-template-columns:1.1fr"],.ld-orders-workflow div[style*="grid-template-columns: 1fr 1fr"],.ld-orders-workflow div[style*="grid-template-columns:1fr 1fr"],.ld-orders-workflow div[style*="grid-template-columns:.85fr"],.ld-orders-workflow div[style*="grid-template-columns:.9fr"],.ld-orders-workflow div[style*="grid-template-columns:repeat(3,1fr)"],.ld-orders-workflow div[style*="grid-template-columns: repeat(3,1fr)"],.ld-orders-workflow div[style*="grid-template-columns:repeat(2,1fr)"]{grid-template-columns:1fr!important}.ld-orders-tabs{padding-left:2px}.ld-orders-workflow table{font-size:11px!important}}`}</style>
       </div>;
@@ -20141,7 +19960,7 @@ Cancel keeps this local/free.`);
         <Card style={{ marginBottom: 14, background: C.goldBg, border: `1.5px solid ${C.gold}66` }}>
           <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 18, marginBottom: 8 }}>Backup First</div>
           <p style={{ fontSize: 13, color: C.tx2, lineHeight: 1.65, margin: 0 }}>
-            These buttons are for real cleanup while you are logged in as owner. They update the app state and sync to Supabase. Download a backup from the Save menu before deleting anything. Shipping State Docs are protected legal records and stay in the 3-year archive; normal cleanup must not erase them.
+            These buttons are for real cleanup while you are logged in as owner. They update the app state and sync to Supabase. Download a backup from the cloud bar before deleting anything.
           </p>
         </Card>
 
@@ -20177,14 +19996,14 @@ Cancel keeps this local/free.`);
        Safe after-show packing layer. Local checklist only.
        Does not change platform shipping, database schema, or import logic.
     ══════════════════════════════════════════════════════════ */
-    function OrderPackingBoard({ plants = [], setPlants, user, setPage, casdCerts = [], addAudit }) {
+    function OrderPackingBoard({ plants = [], user, setPage, casdCerts = [] }) {
       const role = user?.role || "employee";
       const canManage = role === "owner" || role === "manager";
       const [tab, setTab] = useState("queue");
-      const orders = ldReadyToPackOrders(plants).sort((a,b)=>String(b.soldDate || "").localeCompare(String(a.soldDate || "")));
+      const orders = groupSalesIntoOrders(plants).sort((a,b)=>String(b.soldDate || "").localeCompare(String(a.soldDate || "")));
       const recentOrders = orders.filter(o => dateInLast(o.soldDate, 14));
       const activeOrders = recentOrders.length ? recentOrders : orders.slice(0, 50);
-      const statesNeedDocs = LD_STATE_DOC_STATES;
+      const statesNeedDocs = ["CA","AZ","TX","LA","HI"];
       const coldStates = ["AK","CO","CT","IA","ID","IL","IN","KS","MA","ME","MI","MN","MO","MT","ND","NE","NH","NJ","NY","OH","PA","RI","SD","UT","VT","WA","WI","WV","WY"];
       const docOrders = activeOrders.filter(o => statesNeedDocs.includes(String(o.state || "").toUpperCase()));
       const coldOrders = activeOrders.filter(o => coldStates.includes(String(o.state || "").toUpperCase()));
@@ -20200,23 +20019,6 @@ Cancel keeps this local/free.`);
       const totalSteps = Math.max(1, activeOrders.length * 6);
       const progress = Math.min(100, Math.round((doneSteps / totalSteps) * 100));
       const hasStateDocArchive = (order) => safeArray(casdCerts).some(c => String(c.consigneeName || "").toLowerCase().includes(String(order.customerName || order.customerUsername || "").toLowerCase()) || String(c.destination || "").toUpperCase() === String(order.state || "").toUpperCase());
-      const packedReadyCount = ldPackedReadyOrders(plants).length;
-      const completedCount = ldShippingCompletedOrders(plants).length;
-      const markPackedInApp = (order) => {
-        if (!setPlants) return;
-        const plantIds = new Set(safeArray(order?.plants).map(p => p.id));
-        const now = new Date().toISOString();
-        setPlants(prev => safeArray(prev).map(p => plantIds.has(p.id) ? { ...p, fulfillmentStatus:"Packed", shipmentStatus:"Packed", packedAt:now, fulfillmentUpdatedAt:now } : p));
-        addAudit?.({ action:`Marked packing complete for ${order.customerName || order.customerUsername || order.orderId}`, user:user?.name || "Leaf Diary", page:"Pack Orders" });
-      };
-      const markDoneNoTrackingFromPack = (order) => {
-        if (!setPlants) return;
-        if (!window.confirm(`Move ${order.customerName || order.customerUsername || "this order"} to Completed Shipments without saving tracking?`)) return;
-        const plantIds = new Set(safeArray(order?.plants).map(p => p.id));
-        const now = new Date().toISOString();
-        setPlants(prev => safeArray(prev).map(p => plantIds.has(p.id) ? { ...p, fulfillmentStatus:"Done", shipmentStatus:"Done - No Tracking", trackingStatus:"No Tracking Saved", noTrackingNeeded:true, completedWithoutTrackingAt:now, shippedDate:today(), fulfillmentUpdatedAt:now, fulfillmentNote:p.fulfillmentNote || "Packed and completed outside Leaf Diary — no tracking number saved in app." } : p));
-        addAudit?.({ action:`Marked shipment completed without tracking for ${order.customerName || order.customerUsername || order.orderId}`, user:user?.name || "Leaf Diary", page:"Pack Orders" });
-      };
       const exportPackingCsv = () => {
         const rows = [["Order", "Buyer", "Username", "State", "Sold Date", "Plant ID", "Plant Name", "Pot Size", "Sale Price", "Paperwork", "Heat/Cold Check", "Packed Local", "Platform Ready"]];
         activeOrders.forEach((o, oi) => safeArray(o.plants).forEach(p => rows.push([
@@ -20263,11 +20065,6 @@ Cancel keeps this local/free.`);
             <StepBox order={order} step="paperwork" label={needsDoc ? "Add paperwork" : "Paperwork not flagged"} sub={needsDoc ? (hasStateDocArchive(order) ? "Archive has matching state clue" : "Open Shipping State Docs if needed") : "No CA/AZ/TX/LA/HI flag"} color={needsDoc ? C.purple : C.g600} />
             <StepBox order={order} step="ready" label="Ready in platform" sub="Final shipping/label stays in Whatnot/Palmstreet" color={C.g600} />
           </div>
-          <Row gap={8} wrap style={{ marginBottom:10 }}>
-            <Btn sz="sm" onClick={() => markPackedInApp(order)}>Mark Packed</Btn>
-            <Btn sz="sm" v="soft" onClick={() => markDoneNoTrackingFromPack(order)}>Completed / No Tracking</Btn>
-            <Btn sz="sm" v="outline" onClick={() => setPage("ship")}>Open Packed / Ready</Btn>
-          </Row>
           <details style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:"9px 10px" }}>
             <summary style={{ cursor:"pointer", fontWeight:900, color:C.g900 }}>Plant list</summary>
             <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:6 }}>{safeArray(order.plants).map((p, idx) => <Row key={(p.id || p.plantId || p.name || idx)} between center style={{ borderBottom:`1px solid ${C.bdS}`, paddingBottom:6 }}><div><b style={{ fontSize:12 }}>{p.plantId || "No ID"} · {p.name || "Plant"}</b><div style={{ fontSize:10, color:C.tx3 }}>{p.potSize || "No size"}</div></div><span style={{ fontWeight:900, color:C.g600 }}>{$(p.salePrice || 0)}</span></Row>)}</div>
@@ -20278,20 +20075,20 @@ Cancel keeps this local/free.`);
         {[ ["1", "Confirm the order", "Match buyer username, sold group, and plant IDs before packing."], ["2", "Pull and inspect", "Pull the right plants, inspect leaves/roots, and remove bad leaves if needed."], ["3", "Paperwork check", "CA/AZ/TX/LA/HI should trigger paperwork review before shipment."], ["4", "Weather check", "Cold destination states should get insulation or heat-pack decision before label scan."], ["5", "Pack safely", "Use padding, secure pot/roots, and avoid crushing leaves."], ["6", "Finish in platform", "Actual shipping label and tracking stay inside Whatnot/Palmstreet/Shopify." ] ].map(([n,t,b]) => <Card key={n} style={{ borderLeft:`5px solid ${C.g600}` }}><div style={{ fontSize:12, color:C.tx3, fontWeight:900, textTransform:"uppercase" }}>Step {n}</div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>{t}</div><p style={{ margin:"6px 0 0", fontSize:13, color:C.tx2, lineHeight:1.45 }}>{b}</p></Card>)}
       </div>;
       return <div className="ld-page ld-packing-board" style={{ padding:"14px 14px 110px", background:C.bg, minHeight:"100vh", fontFamily:F.body }}>
-        <SHdr icon="📦" title="Pack Orders" sub="Ready To Pack only. Once an order is packed, mark it Packed so it leaves this queue." right={<Row gap={8} wrap><Btn v="soft" onClick={()=>setPage("orders_ws")}>Orders</Btn>{canManage && <Btn v="outline" onClick={()=>setPage("showimport")}>Import Sales</Btn>}<Btn onClick={exportPackingCsv}>Export CSV</Btn></Row>} />
+        <SHdr icon="📦" title="Pack Orders" sub="After-show packing checklist. Local checkmarks only — shipping labels and tracking still stay inside the selling platforms." right={<Row gap={8} wrap><Btn v="soft" onClick={()=>setPage("orders_ws")}>Orders</Btn>{canManage && <Btn v="outline" onClick={()=>setPage("showimport")}>Import Sales</Btn>}<Btn onClick={exportPackingCsv}>Export CSV</Btn></Row>} />
         <Card style={{ marginBottom:14, background:"#000", color:"#fff", border:"2px solid #68d8ff", borderRadius:24 }}>
-          <Row between center wrap gap={12}><div><div style={{ fontFamily:F.display, fontSize:26, color:"#68d8ff", fontWeight:900 }}>Pack orders without guessing</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)", marginTop:4 }}>Import sales first. This board should only show orders still waiting to be boxed. Packed or completed boxes live in Shipping under Packed / Ready or Completed Shipments.</div></div><div style={{ minWidth:160 }}><div style={{ fontSize:11, color:"rgba(255,255,255,.62)", fontWeight:900, marginBottom:5 }}>Local Packing Progress</div><div style={{ height:10, background:"rgba(255,255,255,.14)", borderRadius:999, overflow:"hidden" }}><div style={{ height:"100%", width:`${progress}%`, background:"#68d8ff" }} /></div><div style={{ fontSize:11, color:"rgba(255,255,255,.66)", marginTop:5 }}>{progress}% checked today</div></div></Row>
+          <Row between center wrap gap={12}><div><div style={{ fontFamily:F.display, fontSize:26, color:"#68d8ff", fontWeight:900 }}>Pack orders without guessing</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)", marginTop:4 }}>Import sales first, then use this board to pull, inspect, paperwork-check, and pack each sold group.</div></div><div style={{ minWidth:160 }}><div style={{ fontSize:11, color:"rgba(255,255,255,.62)", fontWeight:900, marginBottom:5 }}>Local Packing Progress</div><div style={{ height:10, background:"rgba(255,255,255,.14)", borderRadius:999, overflow:"hidden" }}><div style={{ height:"100%", width:`${progress}%`, background:"#68d8ff" }} /></div><div style={{ fontSize:11, color:"rgba(255,255,255,.66)", marginTop:5 }}>{progress}% checked today</div></div></Row>
         </Card>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:12 }}>
-          <KPI label="Ready To Pack" value={activeOrders.length} sub="not packed yet" color={activeOrders.length ? C.amber : C.g600} />
-          <KPI label="Plants In Pack Queue" value={activeOrders.reduce((s,o)=>s+safeArray(o.plants).length,0)} sub="waiting to box" color={C.blue} />
-          <KPI label="Packed / Ready" value={packedReadyCount} sub="already packed" color={packedReadyCount ? C.blue : C.g600} />
-          <KPI label="Completed Shipments" value={completedCount} sub="done / archived" color={completedCount ? C.g600 : C.tx3} />
+          <KPI label="Orders To Pack" value={notPacked.length} sub="recent/active sold groups" color={notPacked.length ? C.amber : C.g600} />
+          <KPI label="Plants Sold" value={activeOrders.reduce((s,o)=>s+safeArray(o.plants).length,0)} sub="in packing queue" color={C.blue} />
+          <KPI label="Paperwork Checks" value={docOrders.length} sub="CA/AZ/TX/LA/HI" color={docOrders.length ? C.purple : C.g600} />
+          <KPI label="Cold Pack Checks" value={coldOrders.length} sub="cold-weather states" color={coldOrders.length ? C.blue : C.g600} />
         </div>
         <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:8, marginBottom:12 }}>
           {[["queue","📦","Packing Queue"],["steps","✅","Pack Steps"],["paperwork","📜","Paperwork"],["weather","🌡️","Heat/Cold"],["export","⬇️","Export"]].map(([id,icon,label]) => <button key={id} onClick={()=>setTab(id)} style={{ flex:"0 0 auto", background:tab===id?"#000":C.card, color:tab===id?"#68d8ff":C.tx2, border:`1.5px solid ${tab===id?"#68d8ff":C.bd}`, borderRadius:999, padding:"10px 13px", fontWeight:900, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{icon} {label}</button>)}
         </div>
-        {tab === "queue" && <div>{activeOrders.length ? activeOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ textAlign:"center", padding:44 }}><div style={{ fontSize:42 }}>📦</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No orders waiting to be packed</h2><p style={{ color:C.tx3 }}>If the boxes are already packed or shipped, check Packed / Ready or Completed Shipments instead of this packing queue.</p><Row gap={8} wrap style={{ justifyContent:"center" }}><Btn onClick={()=>setPage("ship")}>Open Packed / Ready</Btn><Btn v="soft" onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Row></Card>}</div>}
+        {tab === "queue" && <div>{activeOrders.length ? activeOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ textAlign:"center", padding:44 }}><div style={{ fontSize:42 }}>📦</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No sold orders found</h2><p style={{ color:C.tx3 }}>Import a Whatnot or Palmstreet show first, then come back here to pack sold groups.</p><Btn onClick={()=>setPage("showimport")}>Import Show Sales</Btn></Card>}</div>}
         {tab === "steps" && <PackingGuide />}
         {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>State paperwork review</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>This flags states that often need extra shipping paperwork. Use the full Shipping State Docs tool for certificates. This board does not generate documents.</p><Row gap={8} wrap><Btn onClick={()=>setPage("casd")}>Open Shipping State Docs</Btn><Btn v="soft" onClick={()=>setTab("queue")}>Back To Queue</Btn></Row></Card><div>{docOrders.length ? docOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ background:C.g50 }}><b>No flagged state paperwork orders in this queue.</b><p style={{ color:C.tx3, fontSize:13 }}>No CA, AZ, TX, LA, or HI sold groups found in recent active orders.</p></Card>}</div></div>}
         {tab === "weather" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.blue}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>Heat / cold packing check</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.5 }}>This is a destination-state reminder only. Check the actual weather before deciding on heat packs, insulation, hold-for-weather, or Monday shipping.</p><Tag text="Reminder layer only" color={C.blue} /></Card><div>{coldOrders.length ? coldOrders.map((o,i)=><OrderCard key={o.orderId || i} order={o} i={i}/>) : <Card style={{ background:C.g50 }}><b>No cold-state reminder orders in this queue.</b><p style={{ color:C.tx3, fontSize:13 }}>Still check weather manually before shipping sensitive plants.</p></Card>}</div></div>}
@@ -21764,16 +21561,25 @@ Cancel keeps this page local/free.`);
       useEffect(() => { try { localStorage.setItem("ld_whatnot_shipment_rows", JSON.stringify(safeArray(whatnotShipmentRows).slice(0, 120))); } catch(e) {} }, [whatnotShipmentRows]);
       const orders = groupSalesIntoOrders(plants);
       const getOrderPlants = (order) => plants.filter(p => order.plants.some(x => x.id === p.id));
-      const orderFulfillment = (order) => ldOrderShippingStatus(order, plants);
-      const needsStateDoc = (order) => ldStateDocRequired(order.state);
+      const orderFulfillment = (order) => {
+        const ps = getOrderPlants(order);
+        const statuses = ps.map(p => p.fulfillmentStatus || "");
+        const allShipped = ps.length && statuses.every(s => s === "Shipped" || s === "Done");
+        const allReady = ps.length && statuses.every(s => ["Ready for Platform", "Shipped", "Done"].includes(s));
+        const allPacked = ps.length && statuses.every(s => ["Packed", "Ready for Platform", "Shipped", "Done"].includes(s));
+        if (allShipped) return "Shipped";
+        if (allReady) return "Ready for Platform";
+        if (allPacked) return "Packed";
+        return "Needs Packing";
+      };
+      const needsStateDoc = (order) => ["CA", "AZ", "TX", "LA"].includes(String(order.state || "").toUpperCase());
       const visibleOrders = orders.filter(o => {
         const status = orderFulfillment(o);
         if (view === "open") return status !== "Shipped";
-        if (view === "needs") return status === "Needs Packing";
         if (view === "packed") return status === "Packed";
         if (view === "ready") return status === "Ready for Platform";
         if (view === "shipped") return status === "Shipped";
-        if (view === "docs") return status !== "Shipped" && needsStateDoc(o);
+        if (view === "docs") return needsStateDoc(o);
         return true;
       });
       const selectedIds = Object.keys(selected).filter(k => selected[k]);
@@ -21789,13 +21595,7 @@ Cancel keeps this page local/free.`);
         const finalPatch = { ...patch, fulfillmentUpdatedAt: now };
         if (patch.fulfillmentStatus === "Packed") finalPatch.packedAt = now;
         if (patch.fulfillmentStatus === "Ready for Platform") finalPatch.platformReadyAt = now;
-        if (patch.fulfillmentStatus === "Shipped" || patch.fulfillmentStatus === "Done") finalPatch.shippedDate = today();
-        if (patch.fulfillmentStatus === "Done") {
-          finalPatch.noTrackingNeeded = true;
-          finalPatch.completedWithoutTrackingAt = now;
-          finalPatch.shipmentStatus = finalPatch.shipmentStatus || "Done - No Tracking";
-          finalPatch.trackingStatus = finalPatch.trackingStatus || "No Tracking Saved";
-        }
+        if (patch.fulfillmentStatus === "Shipped") finalPatch.shippedDate = today();
         setPlants(prev => prev.map(p => plantIds.has(p.id) ? { ...p, ...finalPatch } : p));
         addAudit?.(`Updated fulfillment for ${chosen.length} order(s) to ${patch.fulfillmentStatus || "edited"}`);
       };
@@ -21813,30 +21613,6 @@ Cancel keeps this page local/free.`);
         setBulkNote("");
         setSelected({});
       };
-      const markOrdersDoneNoTracking = (orderIds, label = "selected") => {
-        const ids = safeArray(orderIds).filter(Boolean);
-        if (!ids.length) return alert("Select at least one order first.");
-        const message = `Mark ${ids.length} ${label} order(s) as packed + done without saving a tracking number?\n\nUse this only when the order is already finished in Whatnot/Palmstreet/Shopify and you just need it removed from the Leaf Diary shipping queue.`;
-        if (!window.confirm(message)) return;
-        const note = bulkNote || "Packed and completed outside Leaf Diary — no tracking number saved in app.";
-        updateOrders(ids, {
-          fulfillmentStatus: "Done",
-          shipmentStatus: "Done - No Tracking",
-          trackingStatus: "No Tracking Saved",
-          noTrackingNeeded: true,
-          heatPackAdded: bulkHeat,
-          includesHeatPack: bulkHeat,
-          insulationAdded: bulkInsulation,
-          paperworkAdded: bulkPaperwork,
-          stateDocChecked: bulkStateDocs,
-          fulfillmentNote: note
-        });
-        setBulkNote("");
-        setSelected({});
-      };
-      const selectAllVisibleOrders = () => setOrdersSelected(visibleOrders, true);
-      const markSelectedDoneNoTracking = () => markOrdersDoneNoTracking(selectedIds, "selected");
-      const markVisibleDoneNoTracking = () => markOrdersDoneNoTracking(visibleOrders.map(o => o.orderId), "visible");
       const updateOne = (order, patch) => updateOrders([order.orderId], patch);
       const buildLabelRowsFromText = (text, fileName = "Manual Entry") => {
         const rawText = String(text || "");
@@ -22341,17 +22117,16 @@ Cancel keeps this page local/free.`);
       const statusColor = s => s === "Shipped" ? C.g600 : s === "Ready for Platform" ? C.blue : s === "Packed" ? C.gold : C.red;
       const counts = {
         open: orders.filter(o => orderFulfillment(o) !== "Shipped").length,
-        needs: orders.filter(o => orderFulfillment(o) === "Needs Packing").length,
         packed: orders.filter(o => orderFulfillment(o) === "Packed").length,
         ready: orders.filter(o => orderFulfillment(o) === "Ready for Platform").length,
         shipped: orders.filter(o => orderFulfillment(o) === "Shipped").length,
-        docs: orders.filter(o => orderFulfillment(o) !== "Shipped" && needsStateDoc(o)).length
+        docs: orders.filter(needsStateDoc).length
       };
       return <div className="ld-page page-scroll-safe" style={{ padding: "14px 14px 130px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon={labelScanMode ? "📷" : "📦"} title={labelScanMode ? "Scan Tracking" : "Order Fulfillment"} sub={labelScanMode ? "Use the camera sprint, batch label upload, or manual paste to add tracking and mark orders shipped." : "Work each stage separately: Ready To Pack, Packed/Ready, and Completed Shipments. Finished orders should live in Completed, not the open queue."} right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={exportFulfillmentCsv}>Export Queue CSV</Btn><Btn sz="sm" onClick={() => setOrdersSelected(visibleOrders, true)}>Select Visible</Btn></Row>} />
+        <SHdr icon={labelScanMode ? "📷" : "📦"} title={labelScanMode ? "Scan Tracking" : "Order Fulfillment"} sub={labelScanMode ? "Use the camera sprint, batch label upload, or manual paste to add tracking and mark orders shipped." : "Bulk pack sold orders from Palmstreet and Whatnot. Import shipping labels, add tracking, mark shipped, pull plants, print slips, and check paperwork."} right={<Row gap={8} wrap><Btn sz="sm" v="soft" onClick={exportFulfillmentCsv}>Export Queue CSV</Btn><Btn sz="sm" onClick={() => setOrdersSelected(visibleOrders, true)}>Select Visible</Btn></Row>} />
         <Card style={{ marginBottom: 12, background: C.g50, border: `1px solid ${C.g200}` }}>
           <Row wrap gap={8}>
-            {[["open", `Open ${counts.open}`], ["needs", `Ready To Pack ${counts.needs}`], ["packed", `Packed ${counts.packed}`], ["ready", `Ready ${counts.ready}`], ["docs", `Needs Docs ${counts.docs}`], ["shipped", `Completed ${counts.shipped}`], ["all", "All Orders"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} style={{ padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${view === id ? C.g700 : C.bd}`, background: view === id ? C.g700 : C.card, color: view === id ? "#fff" : C.tx2, fontWeight: 800, fontFamily: F.body, cursor: "pointer", fontSize: 12 }}>{label}</button>)}
+            {[["open", `Open ${counts.open}`], ["packed", `Packed ${counts.packed}`], ["ready", `Ready ${counts.ready}`], ["docs", `Needs Docs ${counts.docs}`], ["shipped", `Done ${counts.shipped}`], ["all", "All Orders"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} style={{ padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${view === id ? C.g700 : C.bd}`, background: view === id ? C.g700 : C.card, color: view === id ? "#fff" : C.tx2, fontWeight: 800, fontFamily: F.body, cursor: "pointer", fontSize: 12 }}>{label}</button>)}
           </Row>
         </Card>
         <Card style={{ marginBottom: 14, borderTop: `4px solid ${C.blue}` }}>
@@ -22431,21 +22206,8 @@ Cancel keeps this page local/free.`);
             </div>
             <Tag text={`${selectedIds.length} selected`} color={selectedIds.length ? C.g700 : C.tx3} />
           </Row>
-          <div style={{ marginTop:12, background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:12 }}>
-            <Row between wrap gap={10}>
-              <div style={{ minWidth:0 }}>
-                <div style={{ fontWeight:950, color:C.g900, fontSize:14 }}>Fast cleanup: packed + done without tracking</div>
-                <div style={{ fontSize:12, color:C.tx3, lineHeight:1.35, marginTop:3 }}>Use this when the label/tracking lives in the selling platform and you only need the shipment out of the open Leaf Diary queue.</div>
-              </div>
-              <Row gap={7} wrap center>
-                <Btn sz="sm" v="soft" onClick={selectAllVisibleOrders} disabled={!visibleOrders.length}>Select Visible</Btn>
-                <Btn sz="sm" onClick={markSelectedDoneNoTracking} disabled={!selectedIds.length}>Mark Selected Done / No Tracking</Btn>
-                <Btn sz="sm" v="ghost" onClick={markVisibleDoneNoTracking} disabled={!visibleOrders.length}>Mark All Visible Done</Btn>
-              </Row>
-            </Row>
-          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: 12 }}>
-            <Sel label="Bulk Status" value={bulkStatus} onChange={setBulkStatus} options={["Needs Packing", "Packed", "Ready for Platform", "Shipped", { v:"Done", l:"Done / No Tracking" }]} />
+            <Sel label="Bulk Status" value={bulkStatus} onChange={setBulkStatus} options={["Needs Packing", "Packed", "Ready for Platform", "Shipped"]} />
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkHeat} onChange={e => setBulkHeat(e.target.checked)} /> Heat Pack Added</label>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkInsulation} onChange={e => setBulkInsulation(e.target.checked)} /> Insulation Added</label>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: C.tx2 }}><input type="checkbox" checked={bulkPaperwork} onChange={e => setBulkPaperwork(e.target.checked)} /> Paperwork Added</label>
@@ -22495,7 +22257,6 @@ Cancel keeps this page local/free.`);
                   <Btn sz="sm" v="outline" onClick={() => updateOne(order, { insulationAdded: !hasInsulation })}>{hasInsulation ? "Remove Insulation" : "Insulation Added"}</Btn>
                   <Btn sz="sm" v="outline" onClick={() => updateOne(order, { paperworkAdded: !hasPaperwork, stateDocChecked: needsStateDoc(order) ? true : docChecked })}>{hasPaperwork ? "Paperwork Done ✓" : "Paperwork Added"}</Btn>
                   <Btn sz="sm" v="ghost" onClick={() => updateOne(order, { fulfillmentStatus: "Shipped", shippedDate: today() })}>Mark Done/Shipped</Btn>
-                  <Btn sz="sm" v="soft" onClick={() => markOrdersDoneNoTracking([order.orderId], "this")}>Done / No Tracking</Btn>
                 </Row>
                 <Row gap={8} wrap center style={{ marginTop: 10 }}>
                   <Inp label="Order Note" value={orderNotes[order.orderId] ?? (ps.find(p => p.fulfillmentNote)?.fulfillmentNote || "")} onChange={v => setOrderNotes(prev => ({ ...prev, [order.orderId]: v }))} placeholder="Packing note for this order..." />
@@ -28792,7 +28553,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "runshow" && <RunShowWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
           {page === "showcommand" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
           {page === "showprep" && <ShowPrepPullList plants={plants} user={user} setPage={navigate} />}
-          {page === "packorders" && <OrderPackingBoard plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} addAudit={addAudit} />}
+          {page === "packorders" && <OrderPackingBoard plants={plants} user={user} setPage={navigate} casdCerts={casdCerts} />}
           {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
