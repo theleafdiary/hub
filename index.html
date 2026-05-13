@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V209 Mobile Portrait Fix</title>
+  <title>LEAF DIARY - BUSINESS HUB · V214 Restored Working Fixes</title>
   <!-- V210 — AI Tools moved out of the top header. AI/helper pages are now accessed from + Add and Search, keeping the mobile header clean. -->
   <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
   <link rel="apple-touch-icon"
@@ -2649,6 +2649,61 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
   <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+
+<!-- V214 Photo Price Helper -->
+<style>
+.ld-v214-photo-price{
+  background:#F0FBF4;
+  border:1px solid #9DDEB4;
+  border-radius:16px;
+  padding:12px;
+  margin-top:10px;
+}
+.ld-v214-photo-price input{
+  width:100%;
+  border-radius:12px;
+  border:1px solid #CDE0D5;
+  padding:10px;
+  font-weight:800;
+}
+.ld-v214-help-btn{
+  border-radius:999px;
+  border:0;
+  background:#000;
+  color:#97d33e;
+  padding:8px 12px;
+  font-weight:900;
+  cursor:pointer;
+}
+</style>
+<script>
+window.ldV214NormalizeBarcode = function(v){
+  if(!v) return '';
+  let s = String(v).toUpperCase().trim();
+  s = s.replace(/SCAN[:\s-]*/g,'');
+  s = s.replace(/CODE[:\s-]*/g,'');
+  s = s.replace(/[^A-Z0-9-]/g,'');
+  const m = s.match(/([A-Z]{1,4})-?0*(\d+)/);
+  if(m){
+    return m[1] + '-' + m[2];
+  }
+  return s;
+};
+</script>
+
+
+<style>
+.ld-training-card details summary{
+  cursor:pointer;
+  font-weight:900;
+}
+@media (max-width:760px){
+  .ld-training-card{
+    font-size:12px !important;
+  }
+}
+</style>
+
 </head>
 
 <body>
@@ -3001,7 +3056,7 @@
     const PLATFORMS = ["Palmstreet", "Whatnot", "Shopify", "Cash", "Local Pickup", "Trade", "Other"];
     const PAY_METHS = ["Cash", "Credit Card", "Debit Card", "Check", "PayPal", "Venmo", "Zelle", "Wise", "Other"];
     const EXP_CATS = ["Plant Inventory", "Soil & Amendments", "Pots & Containers", "Packaging", "Labels & Printers", "Heat/Cold Packs", "Shipping Supplies", "Palmstreet Fees", "Whatnot Fees", "Shopify Fees", "Gas & Mileage", "Software & Website", "Advertising", "Payroll", "Rent & Utilities", "Equipment", "Bank Fees", "Taxes", "Other"];
-    const POT_SIZES = ['2"', '3"', '4"', '6"', '8"', '10"', '12"', "1 gal", "2 gal", "3 gal", "5 gal", "7 gal", "10 gal", "15 gal"];
+    const POT_SIZES = ['2"', '3"', '4"', '5"', '6"', '8"', '10"', '12"', "1 gal", "2 gal", "3 gal", "5 gal", "7 gal", "10 gal", "15 gal"];
     const GENERA = ["Aglaonema", "Alocasia", "Anthurium", "Begonia", "Caladium", "Epipremnum", "Hoya", "Monstera", "Peperomia", "Philodendron", "Scindapsus", "Syngonium", "Tillandsia", "Other"];
     const BILL_CATS = ["Platform Fee", "Software", "Rent", "Utilities", "Internet", "Phone", "Insurance", "Loan", "Supplier", "Payroll", "Taxes", "Other"];
     const BILL_FREQ = ["One-Time", "Weekly", "Monthly", "Quarterly", "Annually"];
@@ -14013,7 +14068,62 @@ ${JSON.stringify(payload, null, 2)}`;
           const mktDiv = p.marketAvg ? '<div class="mkt">Market avg $' + p.marketAvg + '</div>' : "";
           return '<div class="label ' + mc + '"><div class="name">' + toTC(p.name) + '</div><div class="pot">' + (p.potSize || "") + (p.dateAdded ? ' &nbsp;•&nbsp; ' + fDate(p.dateAdded) : '') + '</div><div class="id">🌿 ' + p.plantId + '</div><div class="row">' + costSpan + '<span class="price">$' + (+p.suggestedPrice || 0).toFixed(2) + '</span></div>' + mktDiv + '<div class="logo">LEAF DIARY</div></div>';
         }).join("");
-        w.document.write('<!DOCTYPE html><html><head><title>Leaf Diary Labels</title><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Mono&display=swap" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#fff;padding:10px}.grid{display:flex;flex-wrap:wrap;gap:8px}.label{width:190px;border:1.5px solid #236B42;border-radius:8px;padding:11px;break-inside:avoid}.name{font-family:"Playfair Display",serif;font-size:12px;font-weight:700;color:#0D2B1A;line-height:1.3;margin-bottom:2px}.pot{font-size:10px;color:#6A8C76;margin-bottom:5px}.id{font-family:"DM Mono",monospace;font-size:9px;color:#3FAD6A;border-top:1px solid #E3F7EB;padding-top:5px;margin-top:4px}.row{display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px solid #E3F7EB}.cost{font-size:9px;color:#6A8C76}.price{font-size:15px;font-weight:700;color:#0D2B1A}.mkt{font-size:9px;color:#9DDEB4;margin-top:3px}.logo{font-size:7px;color:#C5EFD5;text-align:center;margin-top:5px;letter-spacing:2px}.margin-hi{border-left:3px solid #3FAD6A}.margin-lo{border-left:3px solid #BE3535}.margin-ok{border-left:3px solid #B07D10}@media print{body{padding:2px}}</style></head><body><div class="grid">' + labelHTML + '</div><script>window.onload=function(){window.print();}<\/script></body></html>');
+        w.document.write('<!DOCTYPE html><html><head><title>Leaf Diary Labels</title><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Mono&display=swap" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#fff;padding:10px}.grid{display:flex;flex-wrap:wrap;gap:8px}.label{width:190px;border:1.5px solid #236B42;border-radius:8px;padding:11px;break-inside:avoid}.name{font-family:"Playfair Display",serif;font-size:12px;font-weight:700;color:#0D2B1A;line-height:1.3;margin-bottom:2px}.pot{font-size:10px;color:#6A8C76;margin-bottom:5px}.id{font-family:"DM Mono",monospace;font-size:9px;color:#3FAD6A;border-top:1px solid #E3F7EB;padding-top:5px;margin-top:4px}.row{display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px solid #E3F7EB}.cost{font-size:9px;color:#6A8C76}.price{font-size:15px;font-weight:700;color:#0D2B1A}.mkt{font-size:9px;color:#9DDEB4;margin-top:3px}.logo{font-size:7px;color:#C5EFD5;text-align:center;margin-top:5px;letter-spacing:2px}.margin-hi{border-left:3px solid #3FAD6A}.margin-lo{border-left:3px solid #BE3535}.margin-ok{border-left:3px solid #B07D10}@media print{body{padding:2px}}</style>
+<!-- V214 Photo Price Helper -->
+<style>
+.ld-v214-photo-price{
+  background:#F0FBF4;
+  border:1px solid #9DDEB4;
+  border-radius:16px;
+  padding:12px;
+  margin-top:10px;
+}
+.ld-v214-photo-price input{
+  width:100%;
+  border-radius:12px;
+  border:1px solid #CDE0D5;
+  padding:10px;
+  font-weight:800;
+}
+.ld-v214-help-btn{
+  border-radius:999px;
+  border:0;
+  background:#000;
+  color:#97d33e;
+  padding:8px 12px;
+  font-weight:900;
+  cursor:pointer;
+}
+</style>
+<script>
+window.ldV214NormalizeBarcode = function(v){
+  if(!v) return '';
+  let s = String(v).toUpperCase().trim();
+  s = s.replace(/SCAN[:\s-]*/g,'');
+  s = s.replace(/CODE[:\s-]*/g,'');
+  s = s.replace(/[^A-Z0-9-]/g,'');
+  const m = s.match(/([A-Z]{1,4})-?0*(\d+)/);
+  if(m){
+    return m[1] + '-' + m[2];
+  }
+  return s;
+};
+</script>
+
+
+<style>
+.ld-training-card details summary{
+  cursor:pointer;
+  font-weight:900;
+}
+@media (max-width:760px){
+  .ld-training-card{
+    font-size:12px !important;
+  }
+}
+</style>
+
+</head><body><div class="grid">' + labelHTML + '</div><script>window.onload=function(){window.print();}<\/script></body></html>');
         markPrinted();
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
@@ -22085,7 +22195,62 @@ Cancel keeps this page local/free.`);
       const clearAppliedLabelRows = () => setLabelImportRows(prev => safeArray(prev).filter(r => !String(r.status || "").includes("Applied")));
       const printSlip = (order) => {
         const care = [...new Set(order.plants.map(p => p.name))].map(n => `<li><b>${n}:</b> Bright indirect light. Water when the top inch is lightly dry. Avoid direct sun after shipping.</li>`).join("");
-        const html = `<html><head><title>Packing Slip ${order.orderId}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#123}h1{letter-spacing:2px;margin:0}.row{display:flex;justify-content:space-between;gap:20px}.box{border:1px solid #bbb;padding:12px;margin:14px 0}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:7px;text-align:left}.check{font-size:14px;line-height:2}</style></head><body><div class="row"><div><h1>LEAF DIARY</h1><p>Rare Plant Specialist<br/>theleafdiary.com</p></div><div><h2>PACKING SLIP</h2><p>${order.soldDate}</p></div></div><hr/><div class="box"><b>CUSTOMER / SHIP TO</b><br/>${order.customerName}<br/>${order.address1 || ""}<br/>${order.address2 || ""}<br/>${order.city || ""} ${order.state || ""} ${order.zip || ""}</div><table><tr><th>Plant</th><th>Pot</th><th>ID</th><th>Price</th></tr>${order.plants.map(p => `<tr><td>${p.name}</td><td>${p.potSize || ""}</td><td>${p.plantId || ""}</td><td>$${(+p.salePrice || 0).toFixed(2)}</td></tr>`).join("")}</table><div class="box check"><b>Packing Checklist</b><br/>☐ Correct plant(s) pulled<br/>☐ Plant condition checked<br/>☐ Wrapped safely<br/>☐ Insulation added if needed<br/>☐ Heat pack added if needed<br/>☐ CA/AZ/TX/LA paperwork added if required<br/>☐ Ready for Palmstreet/Whatnot label</div><div class="box"><b>Care Notes</b><ul>${care}</ul></div><p>Thank you for your order! Questions? @theleafdiary</p><script>window.print()<\/script></body></html>`;
+        const html = `<html><head><title>Packing Slip ${order.orderId}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#123}h1{letter-spacing:2px;margin:0}.row{display:flex;justify-content:space-between;gap:20px}.box{border:1px solid #bbb;padding:12px;margin:14px 0}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:7px;text-align:left}.check{font-size:14px;line-height:2}</style>
+<!-- V214 Photo Price Helper -->
+<style>
+.ld-v214-photo-price{
+  background:#F0FBF4;
+  border:1px solid #9DDEB4;
+  border-radius:16px;
+  padding:12px;
+  margin-top:10px;
+}
+.ld-v214-photo-price input{
+  width:100%;
+  border-radius:12px;
+  border:1px solid #CDE0D5;
+  padding:10px;
+  font-weight:800;
+}
+.ld-v214-help-btn{
+  border-radius:999px;
+  border:0;
+  background:#000;
+  color:#97d33e;
+  padding:8px 12px;
+  font-weight:900;
+  cursor:pointer;
+}
+</style>
+<script>
+window.ldV214NormalizeBarcode = function(v){
+  if(!v) return '';
+  let s = String(v).toUpperCase().trim();
+  s = s.replace(/SCAN[:\s-]*/g,'');
+  s = s.replace(/CODE[:\s-]*/g,'');
+  s = s.replace(/[^A-Z0-9-]/g,'');
+  const m = s.match(/([A-Z]{1,4})-?0*(\d+)/);
+  if(m){
+    return m[1] + '-' + m[2];
+  }
+  return s;
+};
+</script>
+
+
+<style>
+.ld-training-card details summary{
+  cursor:pointer;
+  font-weight:900;
+}
+@media (max-width:760px){
+  .ld-training-card{
+    font-size:12px !important;
+  }
+}
+</style>
+
+</head><body><div class="row"><div><h1>LEAF DIARY</h1><p>Rare Plant Specialist<br/>theleafdiary.com</p></div><div><h2>PACKING SLIP</h2><p>${order.soldDate}</p></div></div><hr/><div class="box"><b>CUSTOMER / SHIP TO</b><br/>${order.customerName}<br/>${order.address1 || ""}<br/>${order.address2 || ""}<br/>${order.city || ""} ${order.state || ""} ${order.zip || ""}</div><table><tr><th>Plant</th><th>Pot</th><th>ID</th><th>Price</th></tr>${order.plants.map(p => `<tr><td>${p.name}</td><td>${p.potSize || ""}</td><td>${p.plantId || ""}</td><td>$${(+p.salePrice || 0).toFixed(2)}</td></tr>`).join("")}</table><div class="box check"><b>Packing Checklist</b><br/>☐ Correct plant(s) pulled<br/>☐ Plant condition checked<br/>☐ Wrapped safely<br/>☐ Insulation added if needed<br/>☐ Heat pack added if needed<br/>☐ CA/AZ/TX/LA paperwork added if required<br/>☐ Ready for Palmstreet/Whatnot label</div><div class="box"><b>Care Notes</b><ul>${care}</ul></div><p>Thank you for your order! Questions? @theleafdiary</p><script>window.print()<\/script></body></html>`;
         const w = window.open("", "_blank");
         w.document.write(html);
         w.document.close();
