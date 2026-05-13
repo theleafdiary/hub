@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V211 Mobile Startup + Save Fix</title>
+  <title>LEAF DIARY - BUSINESS HUB · V212 Show Builder Storage Quota Fix</title>
   <!-- V211 — Mobile startup fix: removed extra JSX brace after Labels date card. Added immediate local save for mobile edits/photos before cloud sync. -->
   <!-- V210 — AI Tools moved out of the top header. AI/helper pages are now accessed from + Add and Search, keeping the mobile header clean. -->
   <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
@@ -4730,7 +4730,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     }
     function getShowBuilderCount(plants = []) {
       let saved = [];
-      try { saved = JSON.parse(localStorage.getItem("ld_show_builder_ids") || "[]"); } catch(e) { saved = []; }
+      try {
+        const raw = localStorage.getItem("leafDiaryShowBuilderIds") || localStorage.getItem("ld_show_builder_ids") || sessionStorage.getItem("leafDiaryShowBuilderIds") || "[]";
+        saved = JSON.parse(raw || "[]");
+      } catch(e) { saved = []; }
       const marked = safeArray(plants).filter(p => p.showBuilder || p.inShow || p.addedToShow || p.showDraft).length;
       return Math.max(Array.isArray(saved) ? saved.length : 0, marked);
     }
@@ -11930,6 +11933,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       condition: 'New'
     };
     const SHOW_KEY = 'leafDiaryShowBuilderIds';
+    const SHOW_KEY_LEGACY = 'ld_show_builder_ids';
+    let leafDiaryShowBuilderMemoryIds = [];
     const LEAF_DIARY_LOGO_IMAGE = 'https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200';
     const safePlantId = p => (p?.plantId || p?.id || '').toString().trim();
 
@@ -12970,8 +12975,50 @@ ${JSON.stringify(payload, null, 2)}`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 500);
     };
-    const getSavedShowIds = () => { try { return JSON.parse(localStorage.getItem(SHOW_KEY) || '[]'); } catch { return []; } };
-    const saveShowIds = ids => localStorage.setItem(SHOW_KEY, JSON.stringify([...new Set(ids)]));
+    const normalizeShowBuilderIds = ids => Array.from(new Set(safeArray(ids).map(x => String(x || '').trim()).filter(Boolean)));
+    const getSavedShowIds = () => {
+      const memory = normalizeShowBuilderIds(leafDiaryShowBuilderMemoryIds || (typeof window !== 'undefined' ? window.__leafDiaryShowBuilderIds : []));
+      const candidates = [];
+      try { candidates.push(localStorage.getItem(SHOW_KEY)); } catch(e) {}
+      try { candidates.push(localStorage.getItem(SHOW_KEY_LEGACY)); } catch(e) {}
+      try { candidates.push(sessionStorage.getItem(SHOW_KEY)); } catch(e) {}
+      try { candidates.push(sessionStorage.getItem(SHOW_KEY_LEGACY)); } catch(e) {}
+      for (const raw of candidates) {
+        if (!raw) continue;
+        try {
+          const parsed = normalizeShowBuilderIds(JSON.parse(raw));
+          if (parsed.length) {
+            leafDiaryShowBuilderMemoryIds = parsed;
+            try { window.__leafDiaryShowBuilderIds = parsed; } catch(e) {}
+            return parsed;
+          }
+        } catch(e) {}
+      }
+      return memory;
+    };
+    const saveShowIds = ids => {
+      const clean = normalizeShowBuilderIds(ids);
+      leafDiaryShowBuilderMemoryIds = clean;
+      try { window.__leafDiaryShowBuilderIds = clean; } catch(e) {}
+      const payload = JSON.stringify(clean);
+      let localOk = false;
+      try {
+        localStorage.setItem(SHOW_KEY, payload);
+        localStorage.setItem(SHOW_KEY_LEGACY, payload);
+        localOk = true;
+      } catch(e) {
+        // iPhone/localStorage can be full because plant photos are heavy. Never crash the app for a show-cart save.
+        try { localStorage.removeItem(SHOW_KEY); } catch(err) {}
+        try { localStorage.removeItem(SHOW_KEY_LEGACY); } catch(err) {}
+      }
+      let sessionOk = false;
+      try {
+        sessionStorage.setItem(SHOW_KEY, payload);
+        sessionStorage.setItem(SHOW_KEY_LEGACY, payload);
+        sessionOk = true;
+      } catch(e) {}
+      return { ok: localOk || sessionOk, localOk, sessionOk, count: clean.length };
+    };
 
     /* ══════════════════════════════════════════════════════════
        LABELS
@@ -20448,7 +20495,7 @@ Cancel keeps this local/free.`);
         if (showFilter === "genus") setQueue(inStock.filter(p => selectedGenus === "All" || gOf(p.name) === selectedGenus).map(p => p.id));
         if (showFilter === "showbuilder") {
           try {
-            const saved = JSON.parse(localStorage.getItem("ld_show_builder_ids") || "[]");
+            const saved = getSavedShowIds();
             const ids = saved.map(code => (plants.find(p => String(p.plantId || p.plantCode || "").toLowerCase() === String(code).toLowerCase()) || {}).id).filter(Boolean);
             setQueue(ids.length ? ids : inStock.map(p => p.id));
           } catch { setQueue(inStock.map(p => p.id)); }
@@ -22586,9 +22633,16 @@ Cancel keeps this page local/free.`);
       const [dragOverIndex, setDragOverIndex] = useState(null);
       const [draggingIndex, setDraggingIndex] = useState(null);
       const [touchDragActive, setTouchDragActive] = useState(false);
+      const showStorageWarnedRef = useRef(false);
 
 
-      useEffect(() => saveShowIds(ids), [ids]);
+      useEffect(() => {
+        const saveResult = saveShowIds(ids);
+        if (ids.length && saveResult && saveResult.ok === false && !showStorageWarnedRef.current) {
+          showStorageWarnedRef.current = true;
+          setMsg(`Show cart has ${ids.length} plants. Phone storage is full, so the cart is kept for this session. Export before refreshing.`);
+        }
+      }, [ids]);
       useEffect(() => setVisibleLimit(60), [pickSearch, potFilter, photoFilter, statusFilter, priceFilter, hideAdded, viewMode]);
 
       const plantIdOf = p => safePlantId(p);
@@ -22910,7 +22964,24 @@ Cancel keeps this page local/free.`);
         if (!all.length) { setMsg('No In Stock plants found.'); return; }
         if (!confirm(`Add all ${all.length} In Stock plants to this show?`)) return;
         addPlantIds(all);
-        setMsg(`Added all ${all.length} In Stock plants to the show.`);
+        setMsg(`Added all ${all.length} In Stock plants to the show. If phone storage is full, export before refreshing.`);
+      };
+      const exportAllPalmstreetDirect = () => {
+        const allPlants = showablePlants.filter(p => plantIdOf(p));
+        if (!allPlants.length) { alert('No In Stock plants found for Palmstreet export.'); return; }
+        const report = runShowExportGuard(allPlants, 'Palmstreet', { showName });
+        setExportGuard(report);
+        if (report.errors.length) {
+          const details = report.errors.slice(0, 25).join('\n') + (report.errors.length > 25 ? `\n...and ${report.errors.length - 25} more` : '');
+          if (!canOverrideExport || !confirm(`Palmstreet Export Guard found ${report.errors.length} issue(s):\n\n${details}\n\nOwner override: export all anyway?`)) {
+            setMsg('Export All Palmstreet was blocked. Fix the red items or use owner override.');
+            return;
+          }
+        }
+        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
+        downloadCSVFile(`${fileSafe}-all-in-stock-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(allPlants, { showName, privateListing }));
+        try { addAudit && addAudit({ action: `Direct exported all In Stock plants to Palmstreet CSV — ${allPlants.length} plants`, user: user?.name || 'Owner', page: 'Show Builder' }); } catch(e) {}
+        setMsg(`Direct Palmstreet CSV exported for all ${allPlants.length} In Stock plants without saving a giant show cart.`);
       };
       const addShowReady = () => {
         const ready = plants.filter(p => statusOf(p) === 'In Stock' && priceOf(p) > 0 && photoOf(p)).map(plantIdOf).filter(Boolean);
@@ -23009,7 +23080,7 @@ Cancel if you want to save money.`);
 
       return <div style={{ padding: '14px 14px 120px', background: C.bg, minHeight: '100vh' }}>
         <SHdr icon="🎪" title="Show Builder" sub="Smart show planner plus scanner-ready Palmstreet/Whatnot exports. Current CSV order/price rules are preserved."
-          right={<Row gap={6} wrap><Btn onClick={exportWhatnot}>🛒 Export Whatnot CSV</Btn><Btn v="soft" onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear Show</Btn></Row>} />
+          right={<Row gap={6} wrap><Btn onClick={exportWhatnot}>🛒 Export Whatnot CSV</Btn><Btn v="soft" onClick={exportPalmstreet}>🌴 Export Palmstreet CSV</Btn><Btn v="outline" onClick={exportAllPalmstreetDirect}>🌴 Export All In Stock</Btn><Btn v="outline" onClick={exportShowList}>📋 Export Show List</Btn><Btn v="ghost" onClick={clear}>Clear Show</Btn></Row>} />
         {msg && <div style={{ background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 800 }}>{msg}</div>}
         {aiDescReviewOpen && <Modal title="Review AI Plant Descriptions" wide onClose={()=>setAiDescReviewOpen(false)}>
           <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`5px solid ${C.g600}`, borderRadius:14, padding:12, marginBottom:12 }}>
@@ -23206,7 +23277,7 @@ Cancel if you want to save money.`);
                 <div><div style={{ fontFamily: F.display, fontSize: 24, fontWeight: 900 }}>{missingPriceCount}</div><div style={{ fontSize: 11, opacity: .75 }}>Missing Prices</div></div>
               </div>
               <div style={{ marginTop:10, background:'rgba(151,211,62,.14)', border:'1px solid rgba(151,211,62,.35)', borderRadius:12, padding:'9px 10px', fontSize:11, lineHeight:1.35, color:'#D8EEDD', fontWeight:800 }}>▌▌ Bluetooth scanner code = plant number in SKU. Whatnot price stays whole dollars only; Palmstreet price stays as entered.</div>
-              <div style={{ display: 'grid', gap: 8, marginTop: 12 }}><Btn full onClick={exportWhatnot}>Export Whatnot</Btn><Btn full v="soft" onClick={exportPalmstreet}>Export Palmstreet</Btn></div>
+              <div style={{ display: 'grid', gap: 8, marginTop: 12 }}><Btn full onClick={exportWhatnot}>Export Whatnot</Btn><Btn full v="soft" onClick={exportPalmstreet}>Export Palmstreet</Btn><Btn full v="outline" onClick={exportAllPalmstreetDirect}>Export All In Stock Palmstreet</Btn></div>
             </Card>
 
             {(errors.length > 0 || whatnotErrors.length > 0 || missing.length > 0) && <Card style={{ background: C.redBg, border: `1px solid ${C.red}40` }}><div style={{ fontFamily: F.display, fontWeight: 800, color: C.red, fontSize: 16, marginBottom: 8 }}>Fix Before Export</div>{missing.map(id => <div key={id} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Missing inventory plant: {id}</div>)}{errors.slice(0, 6).map((e, i) => <div key={`p-${i}`} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Palmstreet: {e}</div>)}{whatnotErrors.slice(0, 8).map((e, i) => <div key={`w-${i}`} style={{ fontSize: 12, color: C.red, marginBottom: 4 }}>Whatnot: {e}</div>)}</Card>}
