@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V206 Perfect Choice Qty + Discount Fix</title>
+  <title>LEAF DIARY - BUSINESS HUB · V207 Import Batch Label Fix</title>
   <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
@@ -2492,6 +2492,8 @@
     /* V175R PHASE 37 SHIPPING PERFECTION - makes shipping one clear guided workflow: pack orders, capture label/tracking, match customer, mark shipped, archive/review problems. No new pages, no backend/schema changes. */
     /* V176R PHASE 38 SHOW WORKFLOW PERFECTION - makes Shows & Sales one clear guided workflow: build show, export list, sell live, upload sales, review sold matches, send to Shipping, and review tips/commissions. No new pages, no backend/schema changes. */
     /* V185R PHASE 47 SHIPPING PERFECTION - makes Shipping one perfect guided workflow: orders to pack, label photo/tracking scan, customer match, mark shipped, archive, state docs, and shipping problems. No new pages, no backend/schema changes. */
+    /* V207R IMPORT BATCH LABEL FIX - every saved plant invoice creates a label batch, auto-sends only that batch to Labels, and adds a Latest Import button so labels do not default to all inventory. No backend/Gateway/Supabase/pricing changes. */
+    /* V208R LABEL DATE FILTER FIX - Labels page can filter/print by plant added date: today, this week, this month, last 7/30 days, or custom date range. No new page, no backend/Gateway/Supabase/pricing changes. */
     /* V186R PHASE 48 MONEY PERFECTION - makes Money one perfect guided workflow: add receipt/expense/bill, review payroll/commission, cash flow, taxes, and keep plant invoices in Inventory. No new pages, no backend/schema changes. */
     /* V119R-SAFE WHATNOT FULL TRACKING MATCH - rebuilt on working index (59). Adds paste/import Whatnot shipment data + full tracking review without touching home screen. */
     /* V120R CUSTOMER ROW LABEL PHOTO - adds a Take Tracking Photo button on each Whatnot shipment/customer row so tracking can be captured and saved to that exact box. */
@@ -2557,6 +2559,7 @@
     try { window.LEAF_DIARY_STANDARD_UPLOAD = { version:"V168R", phase:"Phase 30 Standard Upload Experience", rule:"Every upload should clearly offer Take Photo, Choose From Camera Roll, and file/PDF support when relevant.", noNewPages:true, backendTouched:false }; } catch(e) {}
     try { window.LEAF_DIARY_UPLOAD_PERFECTION_V181 = { version:"V181R", phase:"Phase 43 Upload System Perfection", requiredPattern:["Take Photo","Choose From Camera Roll / File","Preview","Continue or Read","Retake / Choose Different"], appliesTo:["plant invoices","business receipts","plant photos","shipping label photos","show sales files"], noNewPages:true, backendTouched:false }; } catch(e) {}
     try { window.LEAF_DIARY_INVENTORY_PERFECTION_V182 = { version:"V182R", phase:"Phase 44 Inventory Perfection", rule:"Inventory must answer: what do I own, what did it cost, what number is it, what should it sell for, what is blocking it, and what is next?", noNewPages:true, backendTouched:false, masterPage:"plants_ws" }; } catch(e) {}
+    try { window.LEAF_DIARY_LABEL_DATE_FILTER_V208 = { version:"V208R", feature:"Labels date filter", noNewPages:true, backendTouched:false }; } catch(e) {}
     try { window.LEAF_DIARY_LABELS_PHOTOS_PERFECTION_V183 = { version:"V183R", phase:"Phase 45 Labels & Photos Perfection", rule:"Labels & Photos must answer: what needs a label, what needs a photo, what barcode should I scan, and what is ready for show?", noNewPages:true, backendTouched:false, masterPage:"labels_ws" }; } catch(e) {}
     try { window.LEAF_DIARY_SHOWS_SALES_PERFECTION_V184 = { version:"V184R", phase:"Phase 46 Shows & Sales Perfection", rule:"Shows & Sales must answer: what can I sell, how do I build/export the show, how do I upload sales, what sold, what is unmatched, what needs shipping, and what commission/tips are owed?", noNewPages:true, backendTouched:false, masterPage:"shows_ws" }; } catch(e) {}
     try { window.LEAF_DIARY_SHIPPING_PERFECTION_V185 = { version:"V185R", phase:"Phase 47 Shipping Perfection", rule:"Shipping must answer: what orders need packed, what tracking is missing, how do I capture the label, which customer matches, what is shipped, and what shipping problems need action?", noNewPages:true, backendTouched:false, masterPage:"orders_ws" }; } catch(e) {}
@@ -4882,6 +4885,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        Select many plants, then act on the batch. No schema changes.
     ══════════════════════════════════════════════════════════ */
     const LD_BULK_LABEL_IDS_KEY = "ld_bulk_label_ids";
+    const LD_LAST_IMPORT_LABEL_BATCH_KEY = "ld_last_import_label_batch_v1";
+    function ldReadLastImportLabelBatch() { try { const v = JSON.parse(localStorage.getItem(LD_LAST_IMPORT_LABEL_BATCH_KEY) || "null"); return v && Array.isArray(v.ids) ? v : null; } catch(e) { return null; } }
+    function ldWriteLastImportLabelBatch(batch) { try { if (batch && Array.isArray(batch.ids) && batch.ids.length) { localStorage.setItem(LD_LAST_IMPORT_LABEL_BATCH_KEY, JSON.stringify(batch)); localStorage.setItem(LD_BULK_LABEL_IDS_KEY, JSON.stringify(batch.ids)); } } catch(e) {} }
     function BulkActionsCenter({ plants = [], user, setPage }) {
       const role = user?.role || "employee";
       const canUseBulk = role === "owner" || role === "manager";
@@ -9745,7 +9751,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     /* ══════════════════════════════════════════════════════════
        INVOICE UPLOAD
     ══════════════════════════════════════════════════════════ */
-    function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings = {}, setSettings, expenses = [], setExpenses }) {
+    function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings = {}, setSettings, expenses = [], setExpenses, setPage }) {
       const [step, setStep] = useState("upload");
       const [img, setImg] = useState(null);
       const [invoicePages, setInvoicePages] = useState([]);
@@ -10237,7 +10243,15 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const finalPaymentMethod = paymentMethodOverride || parsed?.paymentMethod || "";
         const finalCardLast4 = cardLast4Override || parsed?.cardLast4 || "";
         if (finalPaymentMethod && !/cash/i.test(finalPaymentMethod) && !/^\d{4}$/.test(String(finalCardLast4 || "")) && !confirm(`Payment method is ${finalPaymentMethod}, but card last 4 is missing. Save anyway?`)) return;
-        setPlants(p => [...p, ...rows.map(({ _k, ...r }) => ({ ...r, id: uid(), receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: parsed?.total || "", receiptLineCostTotal: lineTotal, receiptSubtotalParsed: parsed?.subtotal || "", receiptDiscountParsed: parsed?.discount || "", receiptDiscountRate: parsed?.discountRate || r.receiptDiscountRate || 0, receiptDiscountApplied: !!(parsed?.discountRate || r.receiptDiscountRate), receiptDiscountLabel: parsed?.discountLabel || r.receiptDiscountLabel || "", receiptHasOrderWideDiscount: !!(parsed?.hasOrderWideDiscount || r.receiptHasOrderWideDiscount), receiptProfileId: parsed?.receiptProfileId || r.receiptProfileId || "", receiptProfileLabel: parsed?.receiptProfileLabel || r.receiptProfileLabel || "", receiptProfileNurseryOnly: parsed?.receiptProfileNurseryOnly || r.receiptProfileNurseryOnly || "", originalCostBeforeDiscount: r.originalCostBeforeDiscount || r.cost, invoicePaymentMethod: finalPaymentMethod || r.invoicePaymentMethod || "", invoiceCardLast4: finalCardLast4 || r.invoiceCardLast4 || "", paymentMethod: finalPaymentMethod || r.paymentMethod || "", cardLast4: finalCardLast4 || r.cardLast4 || "" }))]);
+        const importBatchId = `import-${(selN?.code || "NA")}-${Date.now()}`;
+        const importBatchLabel = `${selN?.name || "Plant Invoice"} · ${actualN} plants · ${today()}`;
+        const newPlantRows = rows.map(({ _k, ...r }) => {
+          const newId = uid();
+          return { ...r, id: newId, purchaseBatchId: importBatchId, receiptBatchId: importBatchId, labelBatchId: importBatchId, importBatchId, importBatchName: importBatchLabel, importedAt: new Date().toISOString(), labelPrinted: false, receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: parsed?.total || "", receiptLineCostTotal: lineTotal, receiptSubtotalParsed: parsed?.subtotal || "", receiptDiscountParsed: parsed?.discount || "", receiptDiscountRate: parsed?.discountRate || r.receiptDiscountRate || 0, receiptDiscountApplied: !!(parsed?.discountRate || r.receiptDiscountRate), receiptDiscountLabel: parsed?.discountLabel || r.receiptDiscountLabel || "", receiptHasOrderWideDiscount: !!(parsed?.hasOrderWideDiscount || r.receiptHasOrderWideDiscount), receiptProfileId: parsed?.receiptProfileId || r.receiptProfileId || "", receiptProfileLabel: parsed?.receiptProfileLabel || r.receiptProfileLabel || "", receiptProfileNurseryOnly: parsed?.receiptProfileNurseryOnly || r.receiptProfileNurseryOnly || "", originalCostBeforeDiscount: r.originalCostBeforeDiscount || r.cost, invoicePaymentMethod: finalPaymentMethod || r.invoicePaymentMethod || "", invoiceCardLast4: finalCardLast4 || r.invoiceCardLast4 || "", paymentMethod: finalPaymentMethod || r.paymentMethod || "", cardLast4: finalCardLast4 || r.cardLast4 || "" };
+        });
+        setPlants(p => [...p, ...newPlantRows]);
+        const batchInfo = { id: importBatchId, label: importBatchLabel, nurseryCode: selN?.code || "", nurseryName: selN?.name || "", count: newPlantRows.length, ids: newPlantRows.map(p => p.id), plantIds: newPlantRows.map(p => safePlantId(p)).filter(Boolean), receiptTotal: parsed?.total || lineTotal || 0, createdAt: new Date().toISOString() };
+        ldWriteLastImportLabelBatch(batchInfo);
         if (typeof setExpenses === "function") {
           const invoiceExpenseId = `plant-invoice-${parsed?.invoiceNumber || "paste"}-${Date.now()}`;
           setExpenses(prev => [...(prev || []), {
@@ -10265,7 +10279,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             addedBy: user.name
           }]);
         }
-        addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name} · receipt total ${$(parsed?.total || lineTotal)}${finalPaymentMethod ? ` · ${finalPaymentMethod}${finalCardLast4 ? " ending " + finalCardLast4 : ""}` : ""}${parsed?.receiptProfileLabel ? ` · ${parsed.receiptProfileLabel}` : ""}`, user: user.name, page: "Invoice Upload" });
+        addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN?.name} · label batch ready · receipt total ${$(parsed?.total || lineTotal)}${finalPaymentMethod ? ` · ${finalPaymentMethod}${finalCardLast4 ? " ending " + finalCardLast4 : ""}` : ""}${parsed?.receiptProfileLabel ? ` · ${parsed.receiptProfileLabel}` : ""}`, user: user.name, page: "Invoice Upload" });
         setStep("done");
       };
       const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); setPaymentMethodOverride(""); setCardLast4Override(""); };
@@ -10387,8 +10401,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {step === "done" && <div style={{ textAlign: "center", padding: "80px", maxWidth: 420, margin: "0 auto" }}>
           <div style={{ fontSize: 56, marginBottom: 16 }}>🌱</div>
           <h2 style={{ fontFamily: F.display, color: C.g900, marginBottom: 8 }}>Plants Added!</h2>
-          <p style={{ color: C.tx3, marginBottom: 22 }}>{rows.length} plants saved with unique IDs.</p>
-          <Btn onClick={reset}>Upload Another Invoice</Btn>
+          <p style={{ color: C.tx3, marginBottom: 22 }}>{rows.length} plants saved with unique IDs. This invoice batch was automatically sent to Labels so you can print only these plants.</p>
+          <Row gap={8} wrap style={{ justifyContent:"center" }}><Btn onClick={() => setPage ? setPage("labels") : reset()}>🏷️ Print Labels For This Invoice</Btn><Btn v="ghost" onClick={reset}>Upload Another Invoice</Btn></Row>
         </div>}
       </div>;
     }
@@ -13641,14 +13655,59 @@ ${JSON.stringify(payload, null, 2)}`;
       const [sel, setSel] = useState(new Set());
       const [fn, setFn] = useState("All");
       const [fst, setFst] = useState("In Stock");
-      useEffect(() => { try { const raw = JSON.parse(localStorage.getItem(LD_BULK_LABEL_IDS_KEY) || "[]"); if (Array.isArray(raw) && raw.length) { const rawSet = new Set(raw.map(String)); setSel(new Set(safeArray(plants).filter(p => rawSet.has(String(p.id)) || rawSet.has(String(safePlantId(p)))).map(p => p.id))); localStorage.removeItem(LD_BULK_LABEL_IDS_KEY); } } catch(e) {} }, [plants.length]);
+      const [dateMode, setDateMode] = useState("All");
+      const [dateFrom, setDateFrom] = useState(today());
+      const [dateTo, setDateTo] = useState(today());
+      const [lastImportBatch, setLastImportBatch] = useState(() => ldReadLastImportLabelBatch());
+      useEffect(() => { try { const raw = JSON.parse(localStorage.getItem(LD_BULK_LABEL_IDS_KEY) || "[]"); if (Array.isArray(raw) && raw.length) { const rawSet = new Set(raw.map(String)); const matched = safeArray(plants).filter(p => rawSet.has(String(p.id)) || rawSet.has(String(safePlantId(p)))).map(p => p.id); if (matched.length) setSel(new Set(matched)); localStorage.removeItem(LD_BULK_LABEL_IDS_KEY); } const b = ldReadLastImportLabelBatch(); if (b) setLastImportBatch(b); } catch(e) {} }, [plants.length]);
       const [jobStatus, setJobStatus] = useState(null);
       const [jobResults, setJobResults] = useState([]);
       const showCost = CAN.seeCost(user.role);
       const nurseries = [...new Set(plants.map(p => p.nurseryCode))];
-      const avail = plants.filter(p => (fn === "All" || p.nurseryCode === fn) && (fst === "All" || p.status === fst));
+      const ldLabelPlantDate = p => String(p.dateAdded || p.addedDate || p.createdAt || p.created_at || p.importedAt || p.purchaseDate || "").slice(0,10);
+      const ldDaysAgoKey = n => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0,10); };
+      const ldMonthKey = () => today().slice(0,7);
+      const ldWeekStartKey = () => { const d = new Date(); const day = d.getDay(); const diff = day === 0 ? 6 : day - 1; d.setDate(d.getDate() - diff); return d.toISOString().slice(0,10); };
+      const ldInLabelDateRange = p => {
+        const d = ldLabelPlantDate(p);
+        if (dateMode === "All") return true;
+        if (!d) return false;
+        if (dateMode === "Today") return d === today();
+        if (dateMode === "This Week") return d >= ldWeekStartKey() && d <= today();
+        if (dateMode === "This Month") return d.slice(0,7) === ldMonthKey();
+        if (dateMode === "Last 7 Days") return d >= ldDaysAgoKey(6) && d <= today();
+        if (dateMode === "Last 30 Days") return d >= ldDaysAgoKey(29) && d <= today();
+        if (dateMode === "Custom Range") return (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo);
+        return true;
+      };
+      const avail = plants.filter(p => (fn === "All" || p.nurseryCode === fn) && (fst === "All" || p.status === fst) && ldInLabelDateRange(p));
+      const labelDateSummary = dateMode === "All" ? "All added dates" : dateMode === "Custom Range" ? `${dateFrom || "start"} → ${dateTo || "today"}` : dateMode;
+      const selectDateFiltered = () => setSel(new Set(avail.map(p => p.id)));
       const togAll = () => setSel(sel.size === avail.length ? new Set() : new Set(avail.map(p => p.id)));
       const tog = id => setSel(p => { const s = new Set(p); s.has(id) ? s.delete(id) : s.add(id); return s; });
+      const selectLastImportBatch = () => {
+        const b = ldReadLastImportLabelBatch();
+        const ids = new Set(safeArray(b?.ids).map(String));
+        const plantIds = new Set(safeArray(b?.plantIds).map(String));
+        let matched = safeArray(plants).filter(p => ids.has(String(p.id)) || plantIds.has(String(safePlantId(p))));
+        if (!matched.length && b?.id) matched = safeArray(plants).filter(p => p.importBatchId === b.id || p.purchaseBatchId === b.id || p.labelBatchId === b.id || p.receiptBatchId === b.id);
+        if (!matched.length && b?.receiptTotal) matched = safeArray(plants).filter(p => String(p.dateAdded || "") === today() && (String(p.nurseryCode || "") === String(b.nurseryCode || "")) && Math.abs((+p.receiptTotalParsed || 0) - (+b.receiptTotal || 0)) <= .02);
+        if (!matched.length) { alert("I could not find the latest import batch. Use Inventory filters or select plants manually."); return; }
+        setSel(new Set(matched.map(p => p.id)));
+        setFn("All");
+        setFst("All");
+      };
+      const selectUnprintedFromLastImport = () => {
+        const b = ldReadLastImportLabelBatch();
+        const ids = new Set(safeArray(b?.ids).map(String));
+        const plantIds = new Set(safeArray(b?.plantIds).map(String));
+        let matched = safeArray(plants).filter(p => (ids.has(String(p.id)) || plantIds.has(String(safePlantId(p))) || p.importBatchId === b?.id || p.purchaseBatchId === b?.id || p.labelBatchId === b?.id) && !p.labelPrinted);
+        if (!matched.length && b?.receiptTotal) matched = safeArray(plants).filter(p => String(p.dateAdded || "") === today() && String(p.nurseryCode || "") === String(b.nurseryCode || "") && Math.abs((+p.receiptTotalParsed || 0) - (+b.receiptTotal || 0)) <= .02 && !p.labelPrinted);
+        if (!matched.length) { alert("No unprinted labels found for the latest import batch."); return; }
+        setSel(new Set(matched.map(p => p.id)));
+        setFn("All");
+        setFst("All");
+      };
       const markPrinted = () => { const count = sel.size; setPlants(p => p.map(x => sel.has(x.id) ? { ...x, labelPrinted: true } : x)); setSel(new Set()); if (count) ldEmitNextStep("labels_printed", { body:`${count} label(s) marked printed. Next: photograph or prep plants for the show.` }); };
       const addSelectedToShow = () => {
         const ids = avail.filter(p => sel.has(p.id)).map(p => safePlantId(p)).filter(Boolean);
@@ -13711,7 +13770,7 @@ ${JSON.stringify(payload, null, 2)}`;
         markPrinted();
       };
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="🏷️" title="Labels" sub="Download CSV for Labelife · Barcode value equals plant number · No in-app printing needed"
+        <SHdr icon="🏷️" title="Labels" sub="Print/export labels for selected plants · latest invoice batch is selectable automatically"
           right={sel.size > 0 && <Row className="ld-mobile-action-grid" gap={6} wrap>
             <Btn onClick={exportLabelifeFromLabels}>📥 Labelife CSV {sel.size}</Btn>
             <Btn v="outline" onClick={() => downloadCSV(avail.filter(p => sel.has(p.id)))}>📄 Research CSV</Btn>
@@ -13736,6 +13795,37 @@ ${JSON.stringify(payload, null, 2)}`;
             <div className="ld-mobile-action-grid" style={{ display:"flex", gap:8, flexWrap:"wrap" }}><Btn sz="sm" v="soft" onClick={() => setPage && setPage("labelife")}>Setup Help</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("barcodeqa")}>Barcode QA</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("scanlabel")}>Scan Label</Btn><Btn sz="sm" v="outline" onClick={() => setPage && setPage("photosprint")}>Take Plant Photos</Btn></div>
           </Row>
         </Card>
+        {lastImportBatch && <Card style={{ marginBottom:16, background:C.goldBg, borderLeft:`5px solid ${C.gold}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:19, fontWeight:900 }}>🏷️ Latest Import Label Batch</div>
+              <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:3 }}>{lastImportBatch.label || "Latest plant invoice"} · {lastImportBatch.count || safeArray(lastImportBatch.ids).length} plants. Use this so you print labels only for the plants you just bought, not your whole inventory.</div>
+            </div>
+            <Row gap={8} wrap><Btn sz="sm" onClick={selectLastImportBatch}>Select Latest Import</Btn><Btn sz="sm" v="soft" onClick={selectUnprintedFromLastImport}>Select Unprinted Only</Btn></Row>
+          </Row>
+        </Card>}
+        <Card style={{ marginBottom:16, background:C.card, borderLeft:`5px solid ${C.blue}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0, flex:1 }}>
+              <div style={{ fontFamily:F.display, color:C.g900, fontSize:19, fontWeight:900 }}>📅 Find Labels By Added Date</div>
+              <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:3 }}>Use this when a batch link is missing or you need to reprint labels from a day, week, month, or custom time frame. This filters by the plant's added date so you do not have to search your whole inventory.</div>
+            </div>
+            <Tag text={`${avail.length} matching`} color={C.blue} />
+          </Row>
+          <Row gap={8} wrap style={{ marginTop:12 }}>
+            <select value={dateMode} onChange={e => { setDateMode(e.target.value); setSel(new Set()); }} style={{ padding:"9px 10px", border:`1.5px solid ${C.bd}`, borderRadius:10, fontSize:13, fontFamily:F.body, background:C.card, outline:"none" }}>
+              {["All", "Today", "This Week", "This Month", "Last 7 Days", "Last 30 Days", "Custom Range"].map(x => <option key={x}>{x}</option>)}
+            </select>
+            {dateMode === "Custom Range" && <>
+              <Inp label="From" type="date" value={dateFrom} onChange={setDateFrom} />
+              <Inp label="To" type="date" value={dateTo} onChange={setDateTo} />
+            </>}
+            <Btn sz="sm" onClick={selectDateFiltered}>Select Matching Plants</Btn>
+            <Btn sz="sm" v="soft" onClick={() => { setDateMode("Today"); setFn("All"); setFst("All"); setSel(new Set(plants.filter(p => ldLabelPlantDate(p) === today()).map(p => p.id))); }}>Select Added Today</Btn>
+            <Btn sz="sm" v="outline" onClick={() => { setDateMode("All"); setDateFrom(today()); setDateTo(today()); setSel(new Set()); }}>Clear Date Filter</Btn>
+          </Row>
+          <div style={{ marginTop:8, fontSize:11, color:C.tx3, fontWeight:800 }}>Current date filter: {labelDateSummary}. Nursery/status filters below also apply.</div>
+        </Card>}
         <Row gap={8} wrap style={{ marginBottom: 16 }}>
           <select value={fn} onChange={e => setFn(e.target.value)} style={{ padding: "8px 10px", border: `1.5px solid ${C.bd}`, borderRadius: 8, fontSize: 13, fontFamily: F.body, background: C.card, outline: "none" }}><option value="All">All Nurseries</option>{[...new Set(plants.map(p => p.nurseryCode))].filter(Boolean).map(n => <option key={n}>{n}</option>)}</select>
           <select value={fst} onChange={e => setFst(e.target.value)} style={{ padding: "8px 10px", border: `1.5px solid ${C.bd}`, borderRadius: 8, fontSize: 13, fontFamily: F.body, background: C.card, outline: "none" }}><option value="All">All Statuses</option>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
