@@ -8,8 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
-  <title>LEAF DIARY - BUSINESS HUB · V204 Nursery Confirm + Receipt Profile Fix</title>
-  <!-- V204 — Nursery Confirm + Receipt Profile Fix. Built from stable index (70). -->
+  <title>LEAF DIARY - BUSINESS HUB · V206 Perfect Choice Qty + Discount Fix</title>
+  <!-- V205 — Import Layout Plant Name Fix. Built from stable V204/index (70). Removes rack/shelf from invoice import review and widens plant-name editing. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -9901,8 +9901,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(l)) return true;
         if (/^\d+\/\d+$/.test(l)) return true;
         if (/^page\s*\d+/i.test(l)) return true;
-        if (/^[-–—]?\$?\d[\d,]*(?:\.\d{2})?\s*(?:off)?$/i.test(l) && /off/i.test(l)) return true;
-        if (/^\d+%\s*off/i.test(l)) return true;
+        // Line-item discounts like "$5.00 Off-$5.00" are handled by the Perfect Choice parser.
+        if (/^[-–—]?\$?\d[\d,]*(?:\.\d{2})?\s*(?:off)/i.test(l)) return false;
+        if (/^\d+(?:\.\d+)?%\s*off/i.test(l)) return true;
         return false;
       };
       const looksPlantName = line => {
@@ -9925,7 +9926,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           const lines = text.split(/\r?\n/).map(x => String(x || "").trim()).filter(Boolean);
           for (let i = 0; i < lines.length; i++) {
             if (/\b(mastercard|visa|amex|american express|discover|card)\b/i.test(lines[i])) {
-              for (let j = i; j <= Math.min(i + 3, lines.length - 1); j++) {
+              for (let j = i; j <= Math.min(i + 4, lines.length - 1); j++) {
                 const m = lines[j].match(/\b(\d{4})\b/);
                 if (m && !/\$|total|subtotal|tax|payment id|order id|reference|auth/i.test(lines[j])) { cardLast4 = m[1]; break; }
               }
@@ -9937,10 +9938,11 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       };
       const extractReceiptTotals = raw => {
         const compact = String(raw || "").replace(/\s+/g, " ");
+        const normalizeMoneyText = v => String(v || "").replace(/\s*\.\s*/g, ".").replace(/\s+/g, "");
         const readNear = label => {
           const re = new RegExp(label + "\\s*\\$?\\s*([0-9][0-9,]*(?:\\s*\\.\\s*\\d{2}|\\.\\d{2})?)", "i");
           const m = compact.match(re);
-          return m ? moneyFromText(m[1]) : 0;
+          return m ? moneyFromText(normalizeMoneyText(m[1])) : 0;
         };
         const subtotal = readNear("Subtotal");
         const tax = readNear("Tax(?:\\s*\\(Removed\\))?");
@@ -9973,12 +9975,24 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const parsePlantQuantity = name => {
         let cleaned = cleanPasteLine(name);
         let qty = 1;
+        // Perfect Choice uses the trailing "x4" / "x 4" / "×4" as quantity, and the price is the total for that line.
         const m = cleaned.match(/\s+(?:x|×)\s*(\d+)\s*$/i);
         if (m) {
           qty = Math.max(1, parseInt(m[1], 10) || 1);
           cleaned = cleaned.replace(/\s+(?:x|×)\s*\d+\s*$/i, "").trim();
         }
         return { name: cleaned, qty };
+      };
+      const allocateUnitCostsToCents = (lineTotal, qty) => {
+        const q = Math.max(1, parseInt(qty, 10) || 1);
+        const cents = Math.round((+lineTotal || 0) * 100);
+        const base = Math.floor(cents / q);
+        let remainder = cents - (base * q);
+        return Array.from({ length:q }, () => {
+          const c = base + (remainder > 0 ? 1 : 0);
+          if (remainder > 0) remainder--;
+          return Math.round(c) / 100;
+        });
       };
       const parsePastedInvoiceText = raw => {
         const lines = String(raw || "").split(/\r?\n/).map(cleanPasteLine).filter(Boolean);
@@ -9988,11 +10002,29 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const prices = [];
         const names = [];
         const skipPriceContext = /subtotal|total|tax|off|discount|mastercard|visa|cashier|payment|auth|reference/i;
+        const itemDiscountRe = /^\$?\s*([0-9][0-9,]*(?:\.\d{2})?)\s*Off\s*-?\$?\s*([0-9][0-9,]*(?:\.\d{2})?)\s*$/i;
+        const pushDirectLine = (name, price, sourceLine) => {
+          if (!name || !(+price > 0)) return;
+          direct.push({ name:cleanPasteLine(name), price:Math.round((+price || 0) * 100) / 100, itemDiscount:0, sourceLine });
+        };
         for (const line of lines) {
+          const itemDiscount = line.match(itemDiscountRe);
+          if (itemDiscount) {
+            // Perfect Choice Clover receipt: "$5.00 Off-$5.00" belongs to the previous plant line only.
+            // It is NOT the 10% whole-order discount. It reduces that plant line before the order-wide 10% is applied.
+            const discountValue = moneyFromText(itemDiscount[2] || itemDiscount[1]);
+            const last = direct[direct.length - 1];
+            if (last && discountValue > 0) {
+              last.itemDiscount = Math.round(((+last.itemDiscount || 0) + discountValue) * 100) / 100;
+              last.price = Math.max(0, Math.round(((+last.price || 0) - discountValue) * 100) / 100);
+              last.sourceLine = `${last.sourceLine || last.name} · item discount ${$(discountValue)}`;
+            }
+            continue;
+          }
           // Supports both "Plant Name $40.00" and Clover paste format "Plant Name$40.00".
           const inline = line.match(/^(.+?)\s*\$\s*([0-9][0-9,]*(?:\.\d{2})?)\s*$/);
           if (inline && looksPlantName(inline[1]) && !skipPriceContext.test(inline[1])) {
-            direct.push({ name:inline[1], price:moneyFromText(inline[2]), sourceLine:line });
+            pushDirectLine(inline[1], moneyFromText(inline[2]), line);
             continue;
           }
           const pureMoney = line.match(/^\$\s*([0-9][0-9,]*(?:\.\d{2})?)\s*$/);
@@ -10005,17 +10037,20 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         }
         const paired = [];
         const maxPairs = Math.min(prices.length, names.length);
-        for (let i = 0; i < maxPairs; i++) paired.push({ name:names[i], price:prices[i], sourceLine:names[i] });
+        for (let i = 0; i < maxPairs; i++) paired.push({ name:names[i], price:prices[i], itemDiscount:0, sourceLine:names[i] });
         const all = [...direct, ...paired].filter(x => x.name && x.price > 0);
         const rawPlants = [];
         all.forEach((item, idx) => {
           const q = parsePlantQuantity(item.name);
           const qty = Math.max(1, q.qty || 1);
           const lineTotal = Math.round((+item.price || 0) * 100) / 100;
+          const originalLineTotalBeforeItemDiscount = Math.round(((+item.price || 0) + (+item.itemDiscount || 0)) * 100) / 100;
           const originalCostEach = Math.round((lineTotal / qty) * 100) / 100;
           rawPlants.push({
             name:q.name,
             quantity:qty,
+            originalLineTotalBeforeItemDiscount,
+            itemDiscount:+item.itemDiscount || 0,
             originalLineTotal:lineTotal,
             originalCostPerPlant:originalCostEach,
             pasteLine:item.sourceLine || item.name,
@@ -10025,23 +10060,26 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const lineSubtotal = Math.round(rawPlants.reduce((s,p)=>s + (+p.originalLineTotal || 0), 0) * 100) / 100;
         const receiptSubtotal = totals.subtotal || lineSubtotal;
         const discount = totals.hasOrderWideDiscount ? Math.round((totals.discount || 0) * 100) / 100 : 0;
+        // Important: do not make 10% automatic. Only apply if the pasted receipt explicitly shows the order-level discount.
         const discountRate = receiptSubtotal > 0 && discount > 0 ? Math.min(.95, Math.max(0, (totals.discountPercent ? totals.discountPercent / 100 : discount / receiptSubtotal))) : 0;
         const plants = rawPlants.map(p => {
           const qty = Math.max(1, +p.quantity || 1);
           const originalEach = Math.round((+p.originalCostPerPlant || 0) * 100) / 100;
           const discountedLineTotal = Math.round((+p.originalLineTotal || 0) * (1 - discountRate) * 100) / 100;
-          const discountedEach = Math.round((discountedLineTotal / qty) * 100) / 100;
+          const unitCosts = allocateUnitCostsToCents(discountedLineTotal, qty);
+          const discountedEach = Math.round((unitCosts.reduce((s,n)=>s+n,0) / qty) * 100) / 100;
           const discountPerPlant = Math.round((originalEach - discountedEach) * 100) / 100;
           return {
             ...p,
             costPerPlant:discountedEach,
+            unitCosts,
             discountRate,
             discountPerPlant,
             discountedLineTotal,
             receiptOrderDiscountApplied: discountRate > 0
           };
         });
-        const discountedLineSubtotal = Math.round(plants.reduce((s,p)=>s + (+p.costPerPlant || 0) * Math.max(1, +p.quantity || 1), 0) * 100) / 100;
+        const discountedLineSubtotal = Math.round(plants.reduce((s,p)=>s + (+p.discountedLineTotal || 0), 0) * 100) / 100;
         const total = totals.total || Math.round((receiptSubtotal - discount + (totals.tax || 0)) * 100) / 100;
         return {
           nurseryName: selN?.name || "Pasted Invoice",
@@ -10076,7 +10114,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         let ctr = getNextId(plants, selN.code);
         return (result.plants || []).flatMap((p, li) => Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
           ctr++;
-          const cost = +p.costPerPlant || 0, sp = sprice(cost);
+          const cost = +(Array.isArray(p.unitCosts) ? p.unitCosts[qi] : p.costPerPlant) || 0, sp = sprice(cost);
           const originalCostBeforeDiscount = +p.originalCostPerPlant || cost;
           const receiptDiscountRate = +p.discountRate || 0;
           const receiptDiscountPerPlant = +p.discountPerPlant || 0;
@@ -10088,7 +10126,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           const pasteNote = p.pasteRow ? `Pasted row ${p.pasteRow}.` : "";
           const intakeNotes = [pageNote, pasteNote, intakeNotesBase].filter(Boolean).join(" ");
           const plantId = pid(selN.code, ctr);
-          return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, originalCostBeforeDiscount, receiptDiscountRate, receiptDiscountPerPlant, receiptLineTotalBeforeDiscount, receiptLineTotalAfterDiscount, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", invoicePaymentMethod: result.paymentMethod || "", invoiceCardLast4: result.cardLast4 || "", paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "", receiptProfileId: result.receiptProfileId || "", receiptProfileLabel: result.receiptProfileLabel || "", receiptProfileNurseryOnly: result.receiptProfileNurseryOnly || "", receiptDiscountLabel: result.discountLabel || "", receiptHasOrderWideDiscount: !!result.hasOrderWideDiscount };
+          return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, originalCostBeforeDiscount, receiptDiscountRate, receiptDiscountPerPlant, receiptItemDiscount: +p.itemDiscount || 0, receiptUnitCostAllocated: cost, receiptLineTotalBeforeDiscount, receiptLineTotalAfterDiscount, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", invoicePaymentMethod: result.paymentMethod || "", invoiceCardLast4: result.cardLast4 || "", paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "", receiptProfileId: result.receiptProfileId || "", receiptProfileLabel: result.receiptProfileLabel || "", receiptProfileNurseryOnly: result.receiptProfileNurseryOnly || "", receiptDiscountLabel: result.discountLabel || "", receiptHasOrderWideDiscount: !!result.hasOrderWideDiscount };
         }));
       };
       const parsePasteNow = () => {
@@ -10315,7 +10353,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
                 {expectedReceiptTotal && <Tag text={`Receipt total ${$(moneyFromText(expectedReceiptTotal))}`} color={Math.abs(moneyFromText(expectedReceiptTotal) - moneyFromText(parsed?.total || rows.reduce((s,r)=>s + (+r.cost || 0), 0))) <= .02 ? C.g600 : C.red} />}
               </Row>
             </Row>
-            {pasteSummary && <div style={{ marginTop:10, fontSize:12, color:C.tx3, lineHeight:1.45 }}>Paste summary: {pasteSummary.lineItems} line item(s), {pasteSummary.plantRecords} individual plant record(s), profile {pasteSummary.receiptProfileLabel || "Generic"}, subtotal {$(pasteSummary.subtotal)}, discount {$(pasteSummary.discount)}{pasteSummary.discountRate ? ` (${Math.round(pasteSummary.discountRate * 1000) / 10}% spread across every plant cost because the receipt explicitly shows ${pasteSummary.discountLabel || "an order discount"})` : " (no order-wide discount found on this receipt)"}, discounted plant cost total {$(pasteSummary.discountedLineSubtotal || (pasteSummary.subtotal - pasteSummary.discount))}, tax {$(pasteSummary.tax)}, total {$(pasteSummary.total)}{(paymentMethodOverride || pasteSummary.paymentMethod) ? `, payment ${paymentMethodOverride || pasteSummary.paymentMethod}${(cardLast4Override || pasteSummary.cardLast4) ? " ending " + (cardLast4Override || pasteSummary.cardLast4) : ""}` : ""}.</div>}
+            {pasteSummary && <div style={{ marginTop:10, fontSize:12, color:C.tx3, lineHeight:1.45 }}>Paste summary: {pasteSummary.lineItems} line item(s), {pasteSummary.plantRecords} individual plant record(s), profile {pasteSummary.receiptProfileLabel || "Generic"}, item-level discounts already removed from line costs, receipt subtotal {$(pasteSummary.subtotal)}, order discount {$(pasteSummary.discount)}{pasteSummary.discountRate ? ` (${Math.round(pasteSummary.discountRate * 1000) / 10}% spread across every plant cost because the receipt explicitly shows ${pasteSummary.discountLabel || "an order discount"})` : " (no order-wide discount found on this receipt)"}, final plant cost total {$(pasteSummary.discountedLineSubtotal || (pasteSummary.subtotal - pasteSummary.discount))}, tax {$(pasteSummary.tax)}, total {$(pasteSummary.total)}{(paymentMethodOverride || pasteSummary.paymentMethod) ? `, payment ${paymentMethodOverride || pasteSummary.paymentMethod}${(cardLast4Override || pasteSummary.cardLast4) ? " ending " + (cardLast4Override || pasteSummary.cardLast4) : ""}` : ""}.</div>}
             {expectedPlantCount && parseInt(expectedPlantCount,10) !== rows.length && <div style={{ marginTop:10, background:C.redBg, border:`1px solid ${C.red}40`, borderRadius:12, padding:10, color:C.red, fontSize:12, fontWeight:900 }}>Count mismatch. Add missing plant lines below or fix the table before saving to inventory.</div>}
             {parsed && <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
               <label style={{ fontSize:11, color:C.tx3, fontWeight:900 }}>Payment Method<input value={paymentMethodOverride} onChange={e=>setPaymentMethodOverride(e.target.value)} placeholder="Mastercard / Visa / Cash" style={{ width:"100%", marginTop:4, padding:9, border:`1px solid ${C.bd}`, borderRadius:10 }} /></label>
@@ -10332,16 +10370,14 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <Row gap={8} wrap style={{ marginBottom:10 }}><Btn sz="sm" v="soft" onClick={addManualLine}>➕ Add Missing Plant Line</Btn><Btn sz="sm" v="ghost" onClick={()=>setPasteText((pasteText || "") + "\n")}>Paste More Text</Btn></Row>
           <div style={{ maxHeight: 420, overflowY: "auto", border: `1px solid ${C.bd}`, borderRadius: 9 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead style={{ position: "sticky", top: 0, background: C.cardAlt, zIndex: 1 }}><tr>{["Plant & ID", "Pot", "Cost", "Price", "Margin", "Status", "Rack", "Shelf", ""].map(h => <th key={h} style={{ padding: "8px 9px", textAlign: "left", color: C.tx3, fontWeight: 700, fontSize: 10, letterSpacing: .4, textTransform: "uppercase", borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead>
+              <thead style={{ position: "sticky", top: 0, background: C.cardAlt, zIndex: 1 }}><tr>{["Plant Name & ID", "Pot", "Cost", "Price", "Margin", "Status", ""].map(h => <th key={h} style={{ padding: "8px 9px", textAlign: "left", color: C.tx3, fontWeight: 700, fontSize: 10, letterSpacing: .4, textTransform: "uppercase", borderBottom: `1px solid ${C.bd}` }}>{h}</th>)}</tr></thead>
               <tbody>{rows.map(r => <tr key={r._k} style={{ borderBottom: `1px solid ${C.bdS}` }}>
-                <td style={{ padding: "3px 9px" }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input value={r.name} onChange={e => updR(r._k, "name", e.target.value)} style={{ width: 155, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12, fontFamily: F.body }} /><span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500 }}>{r.plantId}</span></div></td>
+                <td style={{ padding: "5px 9px", minWidth: 360 }}><div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 4 }}><input value={r.name} onChange={e => updR(r._k, "name", e.target.value)} style={{ width: "100%", minWidth: 340, padding: "7px 8px", border: `1px solid ${C.bd}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, fontWeight: 750 }} /><span style={{ fontFamily: F.mono, fontSize: 10, color: C.g500 }}>{r.plantId}</span></div></td>
                 <td style={{ padding: "3px 9px" }}><select value={r.potSize} onChange={e => updR(r._k, "potSize", e.target.value)} style={{ padding: "3px 4px", border: `1px solid ${r.needsPotSizeReview ? C.amber : C.bd}`, borderRadius: 5, fontSize: 11 }}><option value="">—</option>{POT_SIZES.map(s => <option key={s}>{s}</option>)}<option value={'6" Hanging Basket'}>6&quot; Hanging Basket</option><option value={'10" Hanging Basket'}>10&quot; Hanging Basket</option></select>{r.potSizeConfidence && <div style={{ marginTop:3 }}><Tag text={r.potSizeConfidence === "assumed" ? "assumed" : r.potSizeConfidence === "rule" ? "rule" : r.potSizeConfidence === "corrected" ? "corrected" : "ocr"} color={phase101PotConfidenceColor(r.potSizeConfidence)} sm /></div>}</td>
                 <td style={{ padding: "3px 9px" }}><input type="number" value={r.cost} onChange={e => updR(r._k, "cost", e.target.value)} style={{ width: 62, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12 }} /></td>
                 <td style={{ padding: "3px 9px" }}><input type="number" value={r.suggestedPrice} onChange={e => updR(r._k, "suggestedPrice", e.target.value)} style={{ width: 72, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12, color: C.g600, fontWeight: 600 }} /></td>
                 <td style={{ padding: "5px 9px" }}><MBadge m={r.margin} /></td>
                 <td style={{ padding: "3px 9px" }}><select value={r.status} onChange={e => updR(r._k, "status", e.target.value)} style={{ padding: "3px 4px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 11 }}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select></td>
-                <td style={{ padding: "3px 9px" }}><input value={r.rack} onChange={e => updR(r._k, "rack", e.target.value)} placeholder="R1" style={{ width: 40, padding: "3px 5px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 11 }} /></td>
-                <td style={{ padding: "3px 9px" }}><input value={r.shelf} onChange={e => updR(r._k, "shelf", e.target.value)} placeholder="S2" style={{ width: 40, padding: "3px 5px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 11 }} /></td>
                 <td style={{ padding: "5px 9px" }}><button onClick={() => setRows(p => p.filter(x => x._k !== r._k))} style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 15 }}>✕</button></td>
               </tr>)}</tbody>
             </table>
