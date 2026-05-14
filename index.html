@@ -14,6 +14,7 @@
   <!-- V213 — Local Sale Accounting: adds Mark Local Sale workflow, payment method capture, sold dates, local sale flags, and accounting report breakdowns. -->
   <!-- V215 — Sold Plant Search Fix: Inventory search now finds sold/archive plants by plant number, barcode, name, customer, and order number while keeping All Plants as active stock when search is empty. -->
   <!-- V218 — Footer Inventory button now opens Inventory Action Center directly instead of the Inventory workspace hub. -->
+  <!-- V219 — Shipping Profit Reconciliation: sales import stores shipping charged separately from label cost; Shipping can import/paste label costs; Reports shows shipment profit by range/show/day/all time. -->
   <!-- V216 — Sold / Archive inventory queue fix: queue buttons now clear hidden filters; Status Sold opens sold records; sold matching is case-safe. -->
   <!-- V211 — Mobile startup fix: removed extra JSX brace after Labels date card. Added immediate local save for mobile edits/photos before cloud sync. -->
   <!-- V210 — AI Tools moved out of the top header. AI/helper pages are now accessed from + Add and Search, keeping the mobile header clean. -->
@@ -3233,9 +3234,32 @@
       if (platformText) return +(p * ((+fees.defaultPercent || 10) / 100)).toFixed(2);
       return 0;
     };
+    const ldMoney = v => {
+      if (v === null || v === undefined || v === "") return 0;
+      if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+      const n = parseFloat(String(v).replace(/[$,]/g, "").trim());
+      return Number.isFinite(n) ? n : 0;
+    };
+    const ldShippingChargedOf = p => ldMoney(p?.shippingChargedAllocated || p?.shippingCharged || p?.shippingPaidByCustomer || p?.shippingCustomerPaid || p?.shippingCollected || p?.shippingFee || p?.shipping || 0);
+    const ldOrderShippingChargedOf = items => {
+      const arr = safeArray(items);
+      const full = Math.max(0, ...arr.map(p => ldMoney(p.orderShippingCharged || p.shippingChargedOrder || p.orderShippingCollected || 0)));
+      if (full) return full;
+      const allocated = arr.reduce((s,p)=>s + ldMoney(p.shippingChargedAllocated || p.shippingCollectedAllocated || 0), 0);
+      if (allocated) return allocated;
+      return Math.max(0, ...arr.map(p => ldShippingChargedOf(p)));
+    };
+    const ldActualShippingCostOf = p => ldMoney(p?.actualShippingCost || p?.shippingLabelCost || p?.labelCost || p?.postageCost || p?.postagePaid || p?.shippingCostActual || (p?.shippingCostSource === "actual-label-cost" ? p?.shippingCost : 0));
+    const ldOrderActualShippingCostOf = items => {
+      const arr = safeArray(items);
+      const full = Math.max(0, ...arr.map(p => ldMoney(p.orderShippingCost || p.actualOrderShippingCost || p.orderLabelCost || 0)));
+      if (full) return full;
+      return arr.reduce((s,p)=>s + ldActualShippingCostOf(p), 0);
+    };
+    const ldShippingProfitOfOrder = items => ldOrderShippingChargedOf(items) - ldOrderActualShippingCostOf(items);
     const trueProfit = p => {
       const rev = +p.salePrice || +p.suggestedPrice || 0, cost = +p.cost || 0;
-      return rev - cost - platFee(p.platform || "", rev) - (+p.shippingCost || 0);
+      return rev - cost - platFee(p.platform || "", rev) - ldActualShippingCostOf(p);
     };
 
 
@@ -4261,7 +4285,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       (plants || []).filter(p => p.status === "Sold").forEach(p => {
         const key = orderKeyOf(p);
         if (!map[key]) map[key] = { orderId: key, customerName: p.customerName || p.customerUsername || "Unknown Customer", customerUsername: p.customerUsername || "", address1: p.address1 || p.shippingAddress1 || "", address2: p.address2 || p.shippingAddress2 || "", city: p.city || p.shippingCity || "", state: p.state || p.shippingState || "", zip: p.zip || p.shippingZip || "", soldDate: (plantSaleDate(p) || today()).slice(0, 10), plants: [], totalValue: 0 };
-        map[key].plants.push({ id: p.id, name: p.name, potSize: p.potSize, plantId: p.plantId || p.plantCode, salePrice: +p.salePrice || +p.suggestedPrice || 0, trackingNumber: p.trackingNumber || "", carrier: p.carrier || "", shippedDate: p.shippedDate || "", deliveredDate: p.deliveredDate || "", includesHeatPack: !!(p.includesHeatPack || p.heatPackAdded), packingSlipGenerated: !!p.packingSlipGenerated, fulfillmentStatus: p.fulfillmentStatus || p.shipmentStatus || "", packedAt: p.packedAt || "", platformReadyAt: p.platformReadyAt || "", paperworkAdded: !!p.paperworkAdded, stateDocChecked: !!p.stateDocChecked, insulationAdded: !!p.insulationAdded, fulfillmentNote: p.fulfillmentNote || "" });
+        map[key].plants.push({ id: p.id, name: p.name, potSize: p.potSize, plantId: p.plantId || p.plantCode, salePrice: +p.salePrice || +p.suggestedPrice || 0, trackingNumber: p.trackingNumber || "", carrier: p.carrier || "", shippedDate: p.shippedDate || "", deliveredDate: p.deliveredDate || "", includesHeatPack: !!(p.includesHeatPack || p.heatPackAdded), packingSlipGenerated: !!p.packingSlipGenerated, fulfillmentStatus: p.fulfillmentStatus || p.shipmentStatus || "", packedAt: p.packedAt || "", platformReadyAt: p.platformReadyAt || "", paperworkAdded: !!p.paperworkAdded, stateDocChecked: !!p.stateDocChecked, insulationAdded: !!p.insulationAdded, fulfillmentNote: p.fulfillmentNote || "", shippingCharged: ldShippingChargedOf(p), actualShippingCost: ldActualShippingCostOf(p), orderShippingCharged: ldMoney(p.orderShippingCharged || 0), orderShippingCost: ldMoney(p.orderShippingCost || 0), shippingProfit: ldShippingChargedOf(p) - ldActualShippingCostOf(p) });
         map[key].totalValue += (+p.salePrice || +p.suggestedPrice || 0);
       });
       return Object.values(map).sort((a,b) => String(b.soldDate).localeCompare(String(a.soldDate)));
@@ -16942,11 +16966,15 @@ Cancel keeps this local/free.`);
       const timeInRange = timecards.filter(t => inRange(dateFrom(t.date || t.createdAt)));
       const revOf = p => +p.salePrice || +p.suggestedPrice || 0;
       const costOf = p => +p.cost || 0;
-      const profitOf = p => revOf(p) - costOf(p) - platFee(p.platform || "", revOf(p)) - (+p.shippingCost || 0);
+      const profitOf = p => revOf(p) - costOf(p) - platFee(p.platform || "", revOf(p)) - ldActualShippingCostOf(p);
       const soldRev = sold.reduce((s, p) => s + revOf(p), 0);
       const soldFees = sold.reduce((s, p) => s + platFee(p.platform || "", revOf(p)), 0);
       const soldCogs = sold.reduce((s, p) => s + costOf(p), 0);
-      const trueGross = soldRev - soldCogs - soldFees;
+      const shippingOrderGroupsForProfit = Object.values(sold.reduce((m, p) => { const k = orderKeyOf(p); if (!m[k]) m[k] = { orderId:k, items:[] }; m[k].items.push(p); return m; }, {}));
+      const shippingChargedTotal = shippingOrderGroupsForProfit.reduce((sum,o)=>sum + ldOrderShippingChargedOf(o.items), 0);
+      const shippingCostTotal = shippingOrderGroupsForProfit.reduce((sum,o)=>sum + ldOrderActualShippingCostOf(o.items), 0);
+      const shippingProfitTotal = shippingChargedTotal - shippingCostTotal;
+      const trueGross = soldRev - soldCogs - soldFees + shippingProfitTotal;
       const totalExp = expInRange.reduce((s, e) => s + (+e.amount || 0), 0);
       const payrollCost = timeInRange.reduce((s, t) => s + (+t.totalPay || 0), 0);
       const netProfit = trueGross - totalExp - payrollCost;
@@ -16991,6 +17019,34 @@ Cancel keeps this local/free.`);
       const localSold = sold.filter(p => p.localSale || p.platform === "Local Pickup" || p.platform === "Cash");
       const localSoldRev = localSold.reduce((s,p) => s + revOf(p), 0);
       const localSoldProfit = localSold.reduce((s,p) => s + profitOf(p), 0);
+      const shippingOrders = shippingOrderGroupsForProfit.map(o => {
+        const items = o.items || [];
+        const first = items[0] || {};
+        const charged = ldOrderShippingChargedOf(items);
+        const actual = ldOrderActualShippingCostOf(items);
+        const saleTotal = items.reduce((sum,p)=>sum + revOf(p), 0);
+        const profit = charged - actual;
+        return {
+          orderId:o.orderId,
+          date:dateKey(saleDateOf(first)),
+          show:safeName(first.showName || first.liveShowName || first.show || first.showDate || dateKey(saleDateOf(first)) || first.platform || "Unknown Show"),
+          platform:first.platform || "Other",
+          customer:safeName(first.customerName || first.customerUsername || first.buyerName || first.recipientName || "Unknown Customer"),
+          state:String(first.state || first.shippingState || first.customerState || "").toUpperCase(),
+          plants:items.length,
+          saleTotal,
+          shippingCharged:charged,
+          shippingCost:actual,
+          shippingProfit:profit,
+          tracking:items.map(p=>p.trackingNumber).filter(Boolean)[0] || "",
+          carrier:items.map(p=>p.carrier).filter(Boolean)[0] || "",
+          reconciled: actual > 0
+        };
+      }).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+      const shippingByDate = groupBy(shippingOrders, o => o.date, key => ({ date:key, orders:0, charged:0, cost:0, profit:0 })).map(g => { g.items.forEach(o => { g.orders++; g.charged += o.shippingCharged; g.cost += o.shippingCost; g.profit += o.shippingProfit; }); return g; }).sort((a,b)=>a.date.localeCompare(b.date));
+      const shippingByShow = groupBy(shippingOrders, o => o.show, key => ({ show:key, orders:0, charged:0, cost:0, profit:0 })).map(g => { g.items.forEach(o => { g.orders++; g.charged += o.shippingCharged; g.cost += o.shippingCost; g.profit += o.shippingProfit; }); return g; }).sort((a,b)=>b.charged - a.charged);
+      const shippingByPlatform = groupBy(shippingOrders, o => o.platform, key => ({ platform:key, orders:0, charged:0, cost:0, profit:0 })).map(g => { g.items.forEach(o => { g.orders++; g.charged += o.shippingCharged; g.cost += o.shippingCost; g.profit += o.shippingProfit; }); return g; }).sort((a,b)=>b.charged - a.charged);
+      const unreconciledShippingOrders = shippingOrders.filter(o => o.shippingCharged > 0 && o.shippingCost <= 0);
       const genusMap = {};
       plants.forEach(p => {
         const g = gOf(p.name);
@@ -17055,6 +17111,10 @@ Cancel keeps this local/free.`);
         ["Top Plant", "Sales", "Revenue", "Profit"], ...bestSellingPlants.map(p => [p.name, p.count, p.rev, p.profit]), [],
         ["Nursery", "Spent", "Profit", "ROI", "Death Rate"], ...byNursery.map(n => [n.name, n.spent, n.profit, n.roi, n.deathRate]), [],
         ["Payment Method", "Sales", "Local Sales", "Collected", "Profit"], ...byPaymentMethod.map(p => [p.paymentMethod, p.count, p.localCount, p.rev, p.profit]), [],
+        ["Shipping Summary", "Orders", "Shipping Charged", "Actual Label Cost", "Shipping Profit", "Unreconciled Orders"], ["Selected Range", shippingOrders.length, shippingChargedTotal, shippingCostTotal, shippingProfitTotal, unreconciledShippingOrders.length], [],
+        ["Shipping By Show", "Orders", "Charged", "Label Cost", "Profit"], ...shippingByShow.map(r => [r.show, r.orders, r.charged, r.cost, r.profit]), [],
+        ["Shipping By Date", "Orders", "Charged", "Label Cost", "Profit"], ...shippingByDate.map(r => [r.date, r.orders, r.charged, r.cost, r.profit]), [],
+        ["Shipment Detail", "Date", "Order", "Platform", "Customer", "State", "Plants", "Charged", "Label Cost", "Profit", "Tracking"], ...shippingOrders.map(o => [o.date, o.orderId, o.platform, o.customer, o.state, o.plants, o.shippingCharged, o.shippingCost, o.shippingProfit, o.tracking]), [],
         ["Recent Local Sales", "Plant ID", "Plant", "Customer", "Phone", "Email", "Address", "Payment", "Reference", "Collected"], ...localSold.slice().sort((a,b)=>String(b.soldAt || b.soldDate || "").localeCompare(String(a.soldAt || a.soldDate || ""))).slice(0,100).map(p => [p.saleDate || p.soldDate || dateKey(saleDateOf(p)), p.plantId || "", toTC(p.name || ""), p.customerName || p.buyerName || "Local Customer", p.customerPhone || p.phone || "", p.customerEmail || p.email || "", [p.customerAddress1 || p.address1 || "", p.customerAddress2 || p.address2 || "", p.customerCity || p.city || "", p.customerState || p.state || "", p.customerZip || p.zip || ""].filter(Boolean).join(" "), p.paymentMethod || p.payMethod || "Unknown", p.paymentReference || p.transactionId || p.cardLast4 || "", revOf(p)]), [],
         ["State Doc", "Count"], ...certStates.map(s => [s.state, s.count])
       ]);
@@ -17082,7 +17142,7 @@ Cancel keeps this local/free.`);
       };
       const ReportTable = ({ cols, rows }) => <div style={{ overflowX: "auto", border: `1px solid ${line}`, borderRadius: 12 }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, color: textMain }}><thead style={{ background: cardAlt }}><tr>{cols.map(c => <th key={c.k} style={{ textAlign: c.right ? "right" : "left", padding: "10px 12px", color: textMuted, textTransform: "uppercase", fontSize: 10, letterSpacing: .5 }}>{c.l}</th>)}</tr></thead><tbody>{rows.length ? rows.map((r, i) => <tr key={i} style={{ borderTop: `1px solid ${line}` }}>{cols.map(c => <td key={c.k} style={{ padding: "10px 12px", textAlign: c.right ? "right" : "left" }}>{c.f ? c.f(r) : r[c.k]}</td>)}</tr>) : <tr><td colSpan={cols.length} style={{ padding: 30, color: textMuted, textAlign: "center" }}>No data yet.</td></tr>}</tbody></table></div>;
       const tabs = [
-        ["executive", "🚀 Executive"], ["charts", "📊 Charts"], ["accounting", "💵 Accounting"], ["plants", "🌿 Plants"], ["nursery", "🏪 Nurseries"], ["shows", "🎪 Shows"], ["customers", "👥 Customers"], ["legal", "📜 Legal"], ["options", "⚙️ Options"]
+        ["executive", "🚀 Executive"], ["charts", "📊 Charts"], ["accounting", "💵 Accounting"], ["shipping", "🚚 Shipping"], ["plants", "🌿 Plants"], ["nursery", "🏪 Nurseries"], ["shows", "🎪 Shows"], ["customers", "👥 Customers"], ["legal", "📜 Legal"], ["options", "⚙️ Options"]
       ];
       return <div style={{ padding: "14px 14px 90px", background: pageBg, minHeight: "100vh", color: textMain }}>
         <SHdr icon="📈" title="Reports & Analytics Pro" sub={`Showing ${rangeLabel} · true profit after fees, COGS, expenses, and payroll`}
@@ -17110,6 +17170,23 @@ Cancel keeps this local/free.`);
             <h3>Recent Local Sales</h3>
             <ReportTable cols={[{ k:"soldDate", l:"Date", f:r=>r.saleDate || r.soldDate || dateKey(saleDateOf(r)) }, { k:"plantId", l:"ID" }, { k:"name", l:"Plant", f:r=>toTC(r.name) }, { k:"customerName", l:"Customer", f:r=>r.customerName || r.buyerName || "Local Customer" }, { k:"contact", l:"Contact", f:r=>[r.customerPhone || r.phone || "", r.customerEmail || r.email || ""].filter(Boolean).join(" / ") || "—" }, { k:"paymentMethod", l:"Paid By", f:r=>r.paymentMethod || r.payMethod || "Unknown" }, { k:"salePrice", l:"Collected", right:true, f:r=>money(revOf(r)) }]} rows={localSold.slice().sort((a,b)=>String(b.soldAt || b.soldDate || "").localeCompare(String(a.soldAt || a.soldDate || ""))).slice(0,30)} />
           </Card>
+        </div>}
+        {tab === "shipping" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+          <Card style={{ background: cardBg, borderColor: line, gridColumn:"1 / -1" }}>
+            <h3>Shipping Profit</h3>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:10 }}>
+              <KPI label="Shipping Charged" value={money(shippingChargedTotal)} sub={`${shippingOrders.length} shipment/order groups`} color={C.blue} />
+              <KPI label="Actual Label Cost" value={money(shippingCostTotal)} sub="after label cost is entered/imported" color={C.red} />
+              <KPI label="Shipping Profit" value={money(shippingProfitTotal)} sub={shippingProfitTotal >= 0 ? "collected minus label cost" : "shipping loss"} color={shippingProfitTotal >= 0 ? C.g600 : C.red} />
+              <KPI label="Need Label Cost" value={unreconciledShippingOrders.length} sub="charged but no actual cost yet" color={unreconciledShippingOrders.length ? C.gold : C.g600} />
+            </div>
+            <p style={{ color:textMuted, fontSize:12, marginTop:10 }}>Upload show sales first. After you buy labels, use Shipping → Shipping Cost Reconciliation to add the actual label cost. This report then works by today, week, month, year, all time, or custom dates.</p>
+          </Card>
+          <Card style={{ background: cardBg, borderColor: line }}><h3>Shipping By Show</h3><ReportTable cols={[{ k:"show", l:"Show" }, { k:"orders", l:"Orders", right:true }, { k:"charged", l:"Charged", right:true, f:r=>money(r.charged) }, { k:"cost", l:"Label Cost", right:true, f:r=>money(r.cost) }, { k:"profit", l:"Profit", right:true, f:r=>money(r.profit) }]} rows={shippingByShow} /></Card>
+          <Card style={{ background: cardBg, borderColor: line }}><h3>Shipping By Date</h3><ReportTable cols={[{ k:"date", l:"Date" }, { k:"orders", l:"Orders", right:true }, { k:"charged", l:"Charged", right:true, f:r=>money(r.charged) }, { k:"cost", l:"Label Cost", right:true, f:r=>money(r.cost) }, { k:"profit", l:"Profit", right:true, f:r=>money(r.profit) }]} rows={shippingByDate.slice(-60).reverse()} /></Card>
+          <Card style={{ background: cardBg, borderColor: line }}><h3>Shipping By Platform</h3><ReportTable cols={[{ k:"platform", l:"Platform" }, { k:"orders", l:"Orders", right:true }, { k:"charged", l:"Charged", right:true, f:r=>money(r.charged) }, { k:"cost", l:"Label Cost", right:true, f:r=>money(r.cost) }, { k:"profit", l:"Profit", right:true, f:r=>money(r.profit) }]} rows={shippingByPlatform} /></Card>
+          <Card style={{ background: cardBg, borderColor: line }}><h3>Need Actual Label Cost</h3><ReportTable cols={[{ k:"date", l:"Date" }, { k:"orderId", l:"Order" }, { k:"customer", l:"Customer" }, { k:"charged", l:"Charged", right:true, f:r=>money(r.shippingCharged) }, { k:"tracking", l:"Tracking", f:r=>r.tracking || "—" }]} rows={unreconciledShippingOrders.slice(0,50)} /></Card>
+          <Card style={{ background: cardBg, borderColor: line, gridColumn:"1 / -1" }}><h3>Shipment Detail</h3><ReportTable cols={[{ k:"date", l:"Date" }, { k:"orderId", l:"Order" }, { k:"platform", l:"Platform" }, { k:"customer", l:"Customer" }, { k:"state", l:"State" }, { k:"plants", l:"Plants", right:true }, { k:"shippingCharged", l:"Charged", right:true, f:r=>money(r.shippingCharged) }, { k:"shippingCost", l:"Label Cost", right:true, f:r=>money(r.shippingCost) }, { k:"shippingProfit", l:"Profit", right:true, f:r=>money(r.shippingProfit) }, { k:"tracking", l:"Tracking", f:r=>r.tracking || "—" }]} rows={shippingOrders.slice(0,150)} /></Card>
         </div>}
         {tab === "plants" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}><Card style={{ background: cardBg, borderColor: line }}><h3>Best Selling Plants</h3><ReportTable cols={[{ k: "name", l: "Plant" }, { k: "count", l: "Sold", right: true }, { k: "rev", l: "Revenue", right: true, f: r => money(r.rev) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={bestSellingPlants} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Highest Profit Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "truePro", l: "Profit", right: true, f: r => money(r.truePro) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }]} rows={perPlant.slice(0, 10)} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Slowest Moving Plants</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Price", right: true, f: r => money(r.suggestedPrice) }]} rows={slowestMovers} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Lowest Margin / Discount</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "expectedMargin", l: "Margin", right: true, f: r => pct(r.expectedMargin) }, { k: "cost", l: "Cost", right: true, f: r => money(r.cost) }]} rows={lowestMargin} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Discounted</h3><ReportTable cols={[{ k: "plantId", l: "ID" }, { k: "name", l: "Plant", f: r => toTC(r.name) }, { k: "days", l: "Days", right: true }, { k: "suggestedPrice", l: "Current Price", right: true, f: r => money(r.suggestedPrice) }]} rows={discountCandidates} /></Card><Card style={{ background: cardBg, borderColor: line }}><h3>Should Be Reordered</h3><ReportTable cols={[{ k: "genus", l: "Genus" }, { k: "sellThru", l: "Sell-Through", right: true, f: r => pct(r.sellThru) }, { k: "inStock", l: "Left", right: true }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }]} rows={reorderCandidates} /></Card></div>}
         {tab === "nursery" && <Card style={{ background: cardBg, borderColor: line }}><h3>Nursery Performance</h3><ReportTable cols={[{ k: "name", l: "Nursery" }, { k: "spent", l: "Total Spent", right: true, f: r => money(r.spent) }, { k: "profit", l: "Profit", right: true, f: r => money(r.profit) }, { k: "roi", l: "ROI", right: true, f: r => pct(r.roi) }, { k: "deathRate", l: "Death Rate", right: true, f: r => pct(r.deathRate) }, { k: "avgDays", l: "Avg Days To Sell", right: true, f: r => r.avgDays ?? "—" }]} rows={byNursery} /></Card>}
@@ -21852,6 +21929,10 @@ Cancel keeps this page local/free.`);
       const [whatnotShipmentText, setWhatnotShipmentText] = useState("");
       const [whatnotShipmentRows, setWhatnotShipmentRows] = useState(() => { try { return safeArray(JSON.parse(localStorage.getItem("ld_whatnot_shipment_rows") || "[]")).slice(0, 100); } catch(e) { return []; } });
       const [whatnotShipmentStatus, setWhatnotShipmentStatus] = useState("");
+      const [shippingCostText, setShippingCostText] = useState("");
+      const [shippingCostRows, setShippingCostRows] = useState([]);
+      const [shippingCostStatus, setShippingCostStatus] = useState("");
+      const shippingCostFileRef = useRef(null);
       const whatnotShipmentPhotoInputRef = useRef(null);
       const whatnotShipmentPhotoTargetRef = useRef("");
       const scanVideoRef = useRef(null);
@@ -22397,8 +22478,104 @@ Cancel keeps this page local/free.`);
         w.document.close();
         updateOne(order, { packingSlipGenerated: true });
       };
+      const ldParseSimpleCsvRows = (text = "") => {
+        const rows = []; let row = [], val = "", quoted = false;
+        const pushVal = () => { row.push(val); val = ""; };
+        const pushRow = () => { if (row.some(c => String(c || "").trim())) rows.push(row); row = []; };
+        String(text || "").split("").forEach((ch, i, arr) => {
+          const next = arr[i + 1];
+          if (ch === '"' && quoted && next === '"') { val += '"'; arr[i + 1] = ""; }
+          else if (ch === '"') quoted = !quoted;
+          else if (ch === "," && !quoted) pushVal();
+          else if ((ch === "\n" || ch === "\r") && !quoted) { if (ch === "\r" && next === "\n") arr[i + 1] = ""; pushVal(); pushRow(); }
+          else val += ch;
+        });
+        if (val || row.length) { pushVal(); pushRow(); }
+        if (rows.length < 2) return [];
+        const headers = rows[0].map(h => String(h || "").trim());
+        return rows.slice(1).map(r => Object.fromEntries(headers.map((h,i)=>[h, r[i] ?? ""]))).filter(o => Object.values(o).some(v => String(v || "").trim()));
+      };
+      const ldRowVal = (row, names) => {
+        const norm = x => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const map = {}; Object.keys(row || {}).forEach(k => map[norm(k)] = row[k]);
+        for (const n of names) { const v = map[norm(n)]; if (v !== undefined && v !== null && String(v).trim() !== "") return v; }
+        return "";
+      };
+      const buildShippingCostRows = (text, source = "pasted shipping cost import") => {
+        const parsed = ldParseSimpleCsvRows(text);
+        return parsed.map((r, idx) => {
+          const tracking = ldCanonicalTrackingNumber(ldRowVal(r, ["Tracking", "Tracking Number", "tracking_code", "Tracking #", "Label Tracking"]));
+          const orderId = String(ldRowVal(r, ["Order ID", "Order", "Order Number", "Order No", "order_id", "order_no", "Shipment ID", "shipment_id"])).trim();
+          const customer = String(ldRowVal(r, ["Customer", "Buyer", "Recipient", "Name", "Customer Name", "Buyer Username"])).trim();
+          const charged = ldMoney(ldRowVal(r, ["Shipping Charged", "Shipping Collected", "Shipping Paid", "Shipping Paid By Customer", "Shipping Fee", "Shipping Fee Amount", "Postage Charged"]));
+          const actual = ldMoney(ldRowVal(r, ["Actual Shipping Cost", "Label Cost", "Shipping Label Cost", "Postage Cost", "Postage", "Cost", "Amount", "Label Amount", "Total Cost"]));
+          const carrier = String(ldRowVal(r, ["Carrier", "Service", "Shipping Service"])).trim() || ldInferCarrierFromTracking(tracking);
+          const candidates = orders.map(o => {
+            const ps = getOrderPlants(o);
+            const text = `${o.orderId} ${o.customerName || ""} ${o.customerUsername || ""} ${ps.map(p=>`${p.orderNumber || ""} ${p.shipmentId || ""} ${p.trackingNumber || ""} ${p.customerName || ""} ${p.customerUsername || ""}`).join(" ")}`.toLowerCase();
+            let score = 0;
+            if (orderId && String(o.orderId).toLowerCase() === orderId.toLowerCase()) score += 160;
+            if (orderId && text.includes(orderId.toLowerCase())) score += 120;
+            if (tracking && text.includes(tracking.toLowerCase())) score += 130;
+            if (customer && text.includes(customer.toLowerCase())) score += 45;
+            return { order:o, score };
+          }).sort((a,b)=>b.score-a.score);
+          const best = candidates[0];
+          return { id:uid(), source, rowNumber:idx+2, orderId, customer, tracking, carrier, shippingCharged:charged, actualShippingCost:actual, matchedOrderId: best?.score > 40 ? best.order.orderId : "", matchConfidence: best?.score || 0, status: best?.score > 80 ? "Ready" : best?.score > 40 ? "Review" : "Unmatched", raw:r };
+        });
+      };
+      const previewShippingCostImport = () => {
+        const rows = buildShippingCostRows(shippingCostText);
+        setShippingCostRows(rows);
+        const ready = rows.filter(r => r.matchedOrderId && (r.actualShippingCost > 0 || r.shippingCharged > 0)).length;
+        setShippingCostStatus(rows.length ? `Found ${rows.length} shipping row(s). ${ready} ready to apply. Actual label cost updates profit; shipping charged fills missing customer-paid shipping.` : "No shipping rows found. Paste/export a CSV with tracking/order/customer and label cost.");
+      };
+      const applyShippingCostImport = () => {
+        const rows = safeArray(shippingCostRows).filter(r => r.matchedOrderId && (r.actualShippingCost > 0 || r.shippingCharged > 0));
+        if (!rows.length) return alert("No matched shipping-cost rows to apply. Preview the import first.");
+        const byOrder = {};
+        rows.forEach(r => { byOrder[r.matchedOrderId] = r; });
+        const now = new Date().toISOString();
+        setPlants(prev => safeArray(prev).map(p => {
+          const orderId = Object.keys(byOrder).find(id => orders.find(o => o.orderId === id)?.plants?.some(x => x.id === p.id));
+          if (!orderId) return p;
+          const row = byOrder[orderId];
+          const order = orders.find(o => o.orderId === orderId);
+          const count = Math.max(1, order?.plants?.length || 1);
+          const costPerPlant = row.actualShippingCost > 0 ? +(row.actualShippingCost / count).toFixed(4) : ldActualShippingCostOf(p);
+          const chargedPerPlant = row.shippingCharged > 0 ? +(row.shippingCharged / count).toFixed(4) : ldShippingChargedOf(p);
+          return {
+            ...p,
+            shippingCharged: row.shippingCharged > 0 ? chargedPerPlant : (p.shippingCharged || p.shippingFee || p.shippingPaidByCustomer || 0),
+            shippingChargedAllocated: row.shippingCharged > 0 ? chargedPerPlant : (p.shippingChargedAllocated || 0),
+            shippingPaidByCustomer: row.shippingCharged > 0 ? row.shippingCharged : (p.shippingPaidByCustomer || p.shippingFee || 0),
+            orderShippingCharged: row.shippingCharged > 0 ? row.shippingCharged : (p.orderShippingCharged || 0),
+            actualShippingCost: costPerPlant,
+            shippingLabelCost: costPerPlant,
+            shippingCost: costPerPlant,
+            orderShippingCost: row.actualShippingCost > 0 ? row.actualShippingCost : (p.orderShippingCost || 0),
+            shippingCostSource: "actual-label-cost",
+            shippingReconciled: true,
+            shippingReconciledAt: now,
+            shippingCostImportSource: row.source,
+            carrier: row.carrier || p.carrier || "",
+            trackingNumber: row.tracking || p.trackingNumber || ""
+          };
+        }));
+        setShippingCostStatus(`✅ Applied shipping costs to ${rows.length} order(s). Reports → Shipping now shows charged vs actual label cost profit.`);
+        addAudit?.(`Shipping cost reconciliation applied to ${rows.length} order(s).`);
+      };
+      const handleShippingCostFile = ev => {
+        const file = ev?.target?.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => { setShippingCostText(String(e.target.result || "")); setShippingCostStatus(`Loaded ${file.name}. Click Preview Shipping Costs.`); };
+        reader.readAsText(file);
+        try { ev.target.value = ""; } catch(e) {}
+      };
+
       const exportFulfillmentCsv = () => {
-        const rows = [["Order ID", "Customer", "Platform", "State", "Plants", "Value", "Status", "Carrier", "Tracking", "Heat Pack", "Insulation", "Paperwork", "State Doc Checked", "Note"]];
+        const rows = [["Order ID", "Customer", "Platform", "State", "Plants", "Value", "Shipping Charged", "Actual Label Cost", "Shipping Profit", "Status", "Carrier", "Tracking", "Heat Pack", "Insulation", "Paperwork", "State Doc Checked", "Note"]];
         visibleOrders.forEach(o => {
           const ps = getOrderPlants(o);
           rows.push([
@@ -22408,6 +22585,9 @@ Cancel keeps this page local/free.`);
             o.state || "",
             o.plants.map(p => `${p.plantId || ""} ${p.name}`).join(" | "),
             o.totalValue,
+            ldOrderShippingChargedOf(ps),
+            ldOrderActualShippingCostOf(ps),
+            ldShippingProfitOfOrder(ps),
             orderFulfillment(o),
             ps.find(p => p.carrier)?.carrier || "",
             ps.find(p => p.trackingNumber)?.trackingNumber || "",
@@ -22435,6 +22615,36 @@ Cancel keeps this page local/free.`);
             {[["open", `Open ${counts.open}`], ["packed", `Packed ${counts.packed}`], ["ready", `Ready ${counts.ready}`], ["docs", `Needs Docs ${counts.docs}`], ["shipped", `Done ${counts.shipped}`], ["all", "All Orders"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} style={{ padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${view === id ? C.g700 : C.bd}`, background: view === id ? C.g700 : C.card, color: view === id ? "#fff" : C.tx2, fontWeight: 800, fontFamily: F.body, cursor: "pointer", fontSize: 12 }}>{label}</button>)}
           </Row>
         </Card>
+        <Card style={{ marginBottom: 14, borderTop: `4px solid ${C.gold}` }}>
+          <Row between wrap gap={10}>
+            <div>
+              <h3 style={{ margin:0, fontFamily:F.display, color:C.g900 }}>💸 Shipping Cost Reconciliation</h3>
+              <p style={{ margin:"4px 0 0", color:C.tx3, fontSize:12 }}>After the show sales are uploaded, paste or upload the label/postage cost report after you buy labels. This fills Actual Label Cost so Reports → Shipping can show shipping charged, label cost, and shipping profit by show/day/week/month/custom range.</p>
+            </div>
+            <Tag text="After Labels" color={C.gold} />
+          </Row>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginTop:12 }}>
+            <div>
+              <input ref={shippingCostFileRef} type="file" accept=".csv,.txt" onChange={handleShippingCostFile} style={{ marginBottom:8 }} />
+              <textarea value={shippingCostText} onChange={e=>setShippingCostText(e.target.value)} placeholder="Paste shipping label cost CSV here. Best columns: Order ID, Tracking, Customer, Shipping Charged, Label Cost/Postage Cost." style={{ width:"100%", minHeight:140, border:`1px solid ${C.bd}`, borderRadius:12, padding:10, fontFamily:F.body }} />
+              <Row gap={8} wrap style={{ marginTop:8 }}>
+                <Btn onClick={previewShippingCostImport}>Preview Shipping Costs</Btn>
+                <Btn v="dark" onClick={applyShippingCostImport}>Apply Costs to Orders</Btn>
+                <Btn v="soft" onClick={()=>{ setShippingCostText(""); setShippingCostRows([]); setShippingCostStatus(""); }}>Clear</Btn>
+              </Row>
+              {shippingCostStatus && <div style={{ whiteSpace:"pre-wrap", background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:10, color:C.tx2, fontSize:12, marginTop:8 }}>{shippingCostStatus}</div>}
+            </div>
+            <div style={{ maxHeight:270, overflow:"auto", border:`1px solid ${C.bdS}`, borderRadius:12, padding:8, background:C.cardAlt }}>
+              <div style={{ fontWeight:900, color:C.g900, marginBottom:6 }}>Preview</div>
+              {!shippingCostRows.length ? <p style={{ color:C.tx3, fontSize:12 }}>No preview yet.</p> : shippingCostRows.slice(0,30).map(r => <div key={r.id} style={{ background:C.card, border:`1px solid ${r.matchedOrderId ? C.g200 : C.red}44`, borderRadius:10, padding:8, marginBottom:6, fontSize:12 }}>
+                <Row between gap={8}><b>{r.matchedOrderId || "Unmatched"}</b><Tag text={r.status} color={r.matchedOrderId ? C.g600 : C.red} /></Row>
+                <div style={{ color:C.tx3 }}>Customer: {r.customer || "—"} · Tracking: {r.tracking || "—"}</div>
+                <div>Charged {$(r.shippingCharged || 0)} · Label Cost {$(r.actualShippingCost || 0)} · Profit {$(+(r.shippingCharged || 0) - +(r.actualShippingCost || 0))}</div>
+              </div>)}
+            </div>
+          </div>
+        </Card>
+
         <Card style={{ marginBottom: 14, borderTop: `4px solid ${C.blue}` }}>
           <Row between wrap gap={10}>
             <div>
@@ -24046,7 +24256,12 @@ Cancel if you want to save money.`);
           verifiedCost: false,
           suggestedPrice: sale.price,
           salePrice: sale.price,
-          shippingCost: sale.shippingFee || sale.shipping || 0,
+          shippingCharged: sale.shippingFee || sale.shipping || 0,
+          shippingPaidByCustomer: sale.shippingFee || sale.shipping || 0,
+          shippingFee: sale.shippingFee || sale.shipping || 0,
+          shippingCost: 0,
+          actualShippingCost: 0,
+          shippingCostSource: "pending-label-cost",
           trackingNumber: sale.trackingCode || "",
           shipmentId: sale.shipmentId || "",
           platform: sale.platform || platform,
@@ -24230,7 +24445,12 @@ Cancel if you want to save money.`);
             buyerOrderNote: sale.buyerOrderNote || "",
             rawImportJson: JSON.stringify(sale.raw || {}),
             sourceRowNumber: sale.sourceRowNumber || "",
-            shippingCost: sale.shippingFee || sale.shipping || 0,
+            shippingCharged: sale.shippingFee || sale.shipping || 0,
+            shippingPaidByCustomer: sale.shippingFee || sale.shipping || 0,
+            shippingFee: sale.shippingFee || sale.shipping || 0,
+            shippingCost: 0,
+            actualShippingCost: 0,
+            shippingCostSource: "pending-label-cost",
             cost: (+p.cost || 0) || (+sale.costPerItem || 0),
             trackingNumber: sale.trackingCode || p.trackingNumber || "",
             shipmentId: sale.shipmentId || p.shipmentId || "",
