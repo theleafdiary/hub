@@ -10,6 +10,7 @@
   <meta name="theme-color" content="#174D2F" />
   <title>LEAF DIARY - BUSINESS HUB · V222 Show Profit Dashboard</title>
   <!-- V222 — Show Profit Dashboard: adds clear daily, weekly, and per-show profit reporting with sold plant COGS, plant gross profit, shipping profit, fees, expenses, payroll, and true net profit. -->
+  <!-- V224 — Mobile Bundle Import Repair: removes hidden mobile-breaking regex control characters from V223 and keeps bundle quantity show import fix. -->
   <!-- V223 — Bundle Quantity Show Import Fix: show import now expands multi-plant bundle rows into multiple sold inventory units and splits sales/fees/shipping per unit. -->
   <!-- V217 — Local Sale TX Paperwork Alert: local sales to CA/AZ/TX/LA/HI now show state paperwork reminders and save paperwork-required flags. -->
   <!-- V214 — Local Sale Customer Capture: adds full customer/contact/address fields to Local Sale workflow and accounting reports. -->
@@ -3397,19 +3398,19 @@
     function phase92ExtractPotSize(text = "") {
       const raw = String(text || "").replace(/[“”]/g, '"').toLowerCase();
       if (!raw.trim()) return "";
-      const inch = raw.match(/(?:^|)(\d+(?:\.\d+)?)\s*(?:"|in|inch|inches)/);
+      const inch = raw.match(/(?:^|\b)(\d+(?:\.\d+)?)\s*(?:"|in\b|inch|inches)\b/);
       if (inch) return `${parseFloat(inch[1])}"`;
-      const gallon = raw.match(/(?:^|)(\d+(?:\.\d+)?)\s*(?:gal|gallon|gallons)/);
+      const gallon = raw.match(/(?:^|\b)(\d+(?:\.\d+)?)\s*(?:gal\b|gallon|gallons)\b/);
       if (gallon) return `${parseFloat(gallon[1])} gal`;
-      const pot = raw.match(/(?:^|)(\d+(?:\.\d+)?)\s*(?:pot|potted|container)/);
+      const pot = raw.match(/(?:^|\b)(\d+(?:\.\d+)?)\s*(?:pot|potted|container)\b/);
       if (pot) return `${parseFloat(pot[1])}"`;
       return "";
     }
     function phase92NormalizePotSize(value = "") {
       const text = String(value || "").replace(/[“”]/g, '"').trim().toLowerCase();
       const extracted = phase92ExtractPotSize(text) || text;
-      const inch = extracted.match(/(\d+(?:\.\d+)?)\s*(?:"|in|inch|inches)?/i);
-      if (inch && /"|in|inch|pot|container|^\d+(?:\.\d+)?$/.test(extracted)) return { type:"inch", value:+inch[1], label:`${parseFloat(inch[1])}"` };
+      const inch = extracted.match(/(\d+(?:\.\d+)?)\s*(?:"|in\b|inch|inches)?/i);
+      if (inch && /"|in\b|inch|pot|container|^\d+(?:\.\d+)?$/.test(extracted)) return { type:"inch", value:+inch[1], label:`${parseFloat(inch[1])}"` };
       const gal = extracted.match(/(\d+(?:\.\d+)?)\s*(?:gal|gallon|gallons)/i);
       if (gal) return { type:"gallon", value:+gal[1], label:`${parseFloat(gal[1])} gal` };
       return { type:"unknown", value:null, label:String(value || "Unknown size") };
@@ -24160,7 +24161,7 @@ Cancel if you want to save money.`);
       // V223: bundle-aware sales import. One show row can represent 2+ plants, so the importer must
       // remove 2+ inventory records instead of marking only the first matching plant sold.
       const parsePositiveInt = v => {
-        const n = parseInt(String(v ?? "").replace(/[^0-9]/g, ""), 10);
+        const n = parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10);
         return Number.isFinite(n) && n > 0 ? n : 1;
       };
       const inferBundleQuantity = (title, rawQty = 1) => {
@@ -24168,10 +24169,10 @@ Cancel if you want to save money.`);
         if (explicit > 1) return explicit;
         const t = String(title || "").toLowerCase().replace(/[()\[\]{}]/g, " ").replace(/\s+/g, " ").trim();
         const patterns = [
-          /(?:bundle|bundel|bndl|lot|pack|set)\s*(?:of\s*)?(\d{1,2})/i,
-          /(\d{1,2})\s*(?:x|×)/i,
+          /\b(?:bundle|bundel|bndl|lot|pack|set)\s*(?:of\s*)?(\d{1,2})\b/i,
+          /\b(\d{1,2})\s*(?:x|×)\b/i,
           /^\s*(\d{1,2})\s+(?=[a-z])/i,
-          /(\d{1,2})\s*(?:plants?|pcs?|pieces|count)/i
+          /\b(\d{1,2})\s*(?:plants?|pcs?|pieces|count)\b/i
         ];
         for (const re of patterns) {
           const m = t.match(re);
@@ -24180,15 +24181,15 @@ Cancel if you want to save money.`);
         }
         return 1;
       };
-      const saleQuantityForImport = sale => Math.max(1, parsePositiveInt(sale?.quantity || sale?.quantitySold || sale?.bundleQuantity || 1));
+      const saleQuantityForImport = sale => Math.max(1, parsePositiveInt((sale && (sale.quantity || sale.quantitySold || sale.bundleQuantity)) || 1));
       const bundleNameKey = v => String(v || "")
         .toLowerCase()
-        .replace(/(variegated|variegata|variegation)/g, "var")
-        .replace(/(?:bundle|bundel|bndl|lot|pack|set)\s*(?:of\s*)?\d{1,2}/g, " ")
+        .replace(/\b(variegated|variegata|variegation)\b/g, "var")
+        .replace(/\b(?:bundle|bundel|bndl|lot|pack|set)\s*(?:of\s*)?\d{1,2}\b/g, " ")
         .replace(/^\s*\d{1,2}\s+(?=[a-z])/g, " ")
-        .replace(/\d{1,2}\s*(?:x|×|plants?|pcs?|pieces|count)/g, " ")
-        .replace(/[A-Z]{1,4}\s*-?\s*\d{1,4}/ig, " ")
-        .replace(/(?:plant|plants|tc|tissue culture|starter|plug|inch|in|pot)/g, " ")
+        .replace(/\b\d{1,2}\s*(?:x|×|plants?|pcs?|pieces|count)\b/g, " ")
+        .replace(/\b[A-Z]{1,4}\s*-?\s*\d{1,4}\b/ig, " ")
+        .replace(/\b(?:plant|plants|tc|tissue culture|starter|plug|inch|in|pot)\b/g, " ")
         .replace(/[^a-z0-9]+/g, " ")
         .replace(/\s+/g, " ")
         .trim();
@@ -24417,7 +24418,7 @@ Cancel if you want to save money.`);
           rawRows: (rows || []).length,
           validSales: good.length,
           matchedInventory: good.filter(r => !r.duplicate).reduce((sum, r) => sum + (r.bundleMatchCount || (r.matched ? 1 : 0)), 0),
-          unmatched: good.filter(r => !r.duplicate).reduce((sum, r) => sum + (r.bundleMissingCount ?? (!r.matched ? 1 : 0)), 0),
+          unmatched: good.filter(r => !r.duplicate).reduce((sum, r) => sum + (r.bundleMissingCount != null ? r.bundleMissingCount : (!r.matched ? 1 : 0)), 0),
           duplicates: good.filter(r => r.duplicate).length,
           skipped: bad.length,
           grossSales,
@@ -24696,9 +24697,9 @@ Cancel if you want to save money.`);
           return;
         }
 
-        const matchedSales = selected.flatMap(expandSaleToMatchedUnits);
-        const unmatchedSales = selected.flatMap(expandSaleToMissingUnits);
-        const activeImportPlatform = selected[0]?.platform || matched[0]?.platform || platform;
+        const matchedSales = [].concat.apply([], selected.map(expandSaleToMatchedUnits));
+        const unmatchedSales = [].concat.apply([], selected.map(expandSaleToMissingUnits));
+        const activeImportPlatform = (selected[0] && selected[0].platform) || (matched[0] && matched[0].platform) || platform;
         if (importMode === "exact" && unmatchedSales.length) {
           setImportMsg(`Import stopped: Exact Inventory Match Only is on, but ${unmatchedSales.length} inventory unit(s) from bundle/show rows are not matched to current inventory. Match them manually or switch to Historical Import - Save Unmatched.`);
           return;
@@ -24706,7 +24707,7 @@ Cancel if you want to save money.`);
 
         let soldInventory = plants.map(p => {
           const duplicateSale = duplicates.find(s => existingPlantMatchesSale(p, s));
-          const sale = matchedSales.find(r => r.matched?.id === p.id);
+          const sale = matchedSales.find(r => r.matched && r.matched.id === p.id);
           if (!sale && duplicateSale) {
             const cf = customerFieldsFromSale(duplicateSale);
             return {
@@ -24838,7 +24839,7 @@ Cancel if you want to save money.`);
           fileName: fileName || "pasted sales import",
           importedAt: new Date().toISOString(),
           importedBy: user.name,
-          rawRows: importAudit?.rawRows ?? parsed.length,
+          rawRows: importAudit && importAudit.rawRows != null ? importAudit.rawRows : parsed.length,
           validSales: matched.length,
           selectedSales: selected.length,
           matchedInventory: matchedSales.length,
@@ -24872,7 +24873,7 @@ Cancel if you want to save money.`);
               ...s,
               platform: importPlatformForDocs,
               customerState: s.customerState||s.buyerState||s.state||"",
-              potSize: s.matched?.potSize||s.potSize||"",
+              potSize: (s.matched && s.matched.potSize)||s.potSize||"",
             }));
             const shipments = buildCasdShipments(allApplied, { platform: importPlatformForDocs, maxPlantsPerBox: 4 });
             if (!shipments.length) return;
@@ -24921,7 +24922,7 @@ Cancel if you want to save money.`);
 
       const totalRev = matched.filter(r => r.apply && !r.duplicate).reduce((s, r) => s + (+r.price || 0), 0);
       const matched_count = matched.filter(r => r.apply && !r.duplicate).reduce((sum, r) => sum + (r.bundleMatchCount || (r.matched ? 1 : 0)), 0);
-      const unmatched_count = matched.filter(r => r.apply && !r.duplicate).reduce((sum, r) => sum + (r.bundleMissingCount ?? (!r.matched ? 1 : 0)), 0);
+      const unmatched_count = matched.filter(r => r.apply && !r.duplicate).reduce((sum, r) => sum + (r.bundleMissingCount != null ? r.bundleMissingCount : (!r.matched ? 1 : 0)), 0);
       const duplicate_count = matched.filter(r => r.duplicate).length;
       const applied_count = matched.filter(r => r.apply && !r.duplicate).length;
 
