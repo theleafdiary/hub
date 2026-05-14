@@ -15,6 +15,7 @@
   <!-- V223 — Bundle Quantity Show Import Fix: show import now expands multi-plant bundle rows into multiple sold inventory units and splits sales/fees/shipping per unit. -->
   <!-- V225 — Info Tab Instructions Cleanup: moves large how-to/training instructions out of page bodies and into the top ℹ️ help tab so mobile pages stay short. -->
   <!-- V228 — Security Audit Bug Fixes: fixes undefined runtime refs, blocks third-party IP fallback, strengthens CSV exports, and hardens IDs/temp passwords. -->
+  <!-- V230 — Security Lockdown + Sync Menu: public signup removed, gateway token no longer hard-coded, mobile sync controls moved into a labeled dropdown. -->
   <!-- V217 — Local Sale TX Paperwork Alert: local sales to CA/AZ/TX/LA/HI now show state paperwork reminders and save paperwork-required flags. -->
   <!-- V214 — Local Sale Customer Capture: adds full customer/contact/address fields to Local Sale workflow and accounting reports. -->
   <!-- V213 — Local Sale Accounting: adds Mark Local Sale workflow, payment method capture, sold dates, local sale flags, and accounting report breakdowns. -->
@@ -2840,6 +2841,144 @@
         border-radius:9px !important;
       }
     }
+
+
+    /* V230 — Mobile Sync Menu With Labels
+       Header stays small: tap the Synced/Cloud button to open named actions. */
+    .ld-cloud-strip { position:relative; }
+    .ld-cloud-status-button {
+      cursor:pointer;
+      border:0;
+      background:transparent;
+      padding:0;
+      font-family:'DM Sans', system-ui, sans-serif;
+    }
+    .ld-cloud-menu-caret {
+      color:#97d33e;
+      font-size:10px;
+      font-weight:950;
+      margin-left:2px;
+      flex-shrink:0;
+    }
+    .ld-cloud-menu-popover {
+      position:absolute;
+      top:calc(100% + 7px);
+      left:12px;
+      z-index:950;
+      width:min(330px, calc(100vw - 24px));
+      background:#050505;
+      color:#fff;
+      border:1px solid rgba(151,211,62,.48);
+      border-radius:18px;
+      box-shadow:0 22px 60px rgba(0,0,0,.58);
+      padding:10px;
+      font-family:'DM Sans', system-ui, sans-serif;
+    }
+    .ld-cloud-menu-title {
+      color:#97d33e;
+      font-weight:950;
+      font-size:13px;
+      padding:6px 7px 9px;
+      border-bottom:1px solid rgba(255,255,255,.10);
+      margin-bottom:8px;
+    }
+    .ld-cloud-menu-grid {
+      display:grid;
+      grid-template-columns:1fr;
+      gap:7px;
+    }
+    .ld-cloud-menu-btn {
+      width:100%;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.07);
+      color:#fff;
+      padding:10px 11px;
+      min-height:46px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      text-align:left;
+      font-family:'DM Sans', system-ui, sans-serif;
+      cursor:pointer;
+    }
+    .ld-cloud-menu-btn:hover,
+    .ld-cloud-menu-btn:focus-visible {
+      border-color:#97d33e;
+      background:rgba(151,211,62,.13);
+    }
+    .ld-cloud-menu-ico {
+      width:32px;
+      height:32px;
+      border-radius:11px;
+      background:#111;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex-shrink:0;
+      font-size:17px;
+    }
+    .ld-cloud-menu-name {
+      font-size:14px;
+      font-weight:950;
+      color:#fff;
+      line-height:1.12;
+    }
+    .ld-cloud-menu-desc {
+      font-size:10px;
+      color:rgba(255,255,255,.58);
+      font-weight:750;
+      margin-top:2px;
+      line-height:1.25;
+    }
+    .ld-cloud-menu-save { border-color:rgba(151,211,62,.36); }
+    .ld-cloud-menu-sync { border-color:rgba(104,216,255,.32); }
+    .ld-cloud-menu-note {
+      font-size:10px;
+      color:rgba(255,255,255,.48);
+      font-weight:750;
+      padding:9px 7px 3px;
+      line-height:1.35;
+    }
+    @media (max-width: 760px) {
+      .ld-cloud-strip {
+        justify-content:flex-start !important;
+        min-height:36px !important;
+        max-height:none !important;
+        overflow:visible !important;
+        padding:5px 8px !important;
+      }
+      .ld-cloud-status,
+      .ld-cloud-status-button {
+        flex:0 0 auto !important;
+        min-width:104px !important;
+        max-width:150px !important;
+        height:28px !important;
+        padding:0 9px !important;
+        border-radius:999px !important;
+        border:1px solid rgba(151,211,62,.48) !important;
+        background:rgba(151,211,62,.09) !important;
+        display:flex !important;
+        align-items:center !important;
+        gap:5px !important;
+      }
+      .ld-cloud-status-mini {
+        display:inline-block !important;
+        max-width:88px !important;
+        font-size:10px !important;
+        color:#97d33e !important;
+        font-weight:950 !important;
+      }
+      .ld-cloud-status-full { display:none !important; }
+      .ld-cloud-actions { display:none !important; }
+      .ld-cloud-menu-popover {
+        left:8px;
+        right:8px;
+        width:auto;
+        top:calc(100% + 6px);
+      }
+    }
+
 </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js">
     /* V194 — READYORDERS STARTUP FIX
@@ -8547,7 +8686,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        LOGIN
     ══════════════════════════════════════════════════════════ */
     function AuthScreen() {
-      const [isSignup, setIsSignup] = useState(false);
       const [email, setEmail] = useState("");
       const [password, setPassword] = useState("");
       const [err, setErr] = useState("");
@@ -8557,15 +8695,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const handleSubmit = async () => {
         if (!email || !password) { setErr("Enter email and password."); return; }
         setLoading(true); setErr(""); setMsg("");
-        
-        if (isSignup) {
-          const { error } = await supabase.auth.signUp({ email, password });
-          if (error) setErr(error.message);
-          else { setMsg("Account created! Logging you in..."); setIsSignup(false); await supabase.auth.signInWithPassword({ email, password }); }
-        } else {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
-          if (error) setErr(error.message);
-        }
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) setErr(error.message);
         setLoading(false);
       };
 
@@ -8573,7 +8704,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         if (!email) { setErr("Enter your email address first."); return; }
         setLoading(true); setErr(""); setMsg("");
         const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
-        if (error) setErr(error.message); else setMsg("Password reset email sent! Check your inbox.");
+        if (error) setErr(error.message); else setMsg("Password reset email sent. Check your inbox.");
         setLoading(false);
       };
 
@@ -8582,9 +8713,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <div style={{ textAlign: "center", marginBottom: 28 }}>
             <img src="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" alt="Leaf Diary" style={{ height: 46, objectFit: "contain", marginBottom: 12 }} onError={e => e.target.style.display = "none"} />
             <h2 style={{ fontFamily: F.display, fontSize: 22, color: C.g900, margin: 0 }}>Business Hub</h2>
-            <p style={{ fontSize: 11, color: C.tx3, margin: "5px 0 0", letterSpacing: 1.2, textTransform: "uppercase" }}>Secure Access</p>
+            <p style={{ fontSize: 11, color: C.tx3, margin: "5px 0 0", letterSpacing: 1.2, textTransform: "uppercase" }}>Private Team Access</p>
           </div>
           
+          <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:14, padding:"10px 12px", color:C.g800, fontSize:12, lineHeight:1.4, fontWeight:800, marginBottom:14 }}>
+            This app is locked. New users must be created by the owner inside Leaf Diary. Public signup is disabled.
+          </div>
+
           <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 14 }}>
             <Inp label="Email" value={email} onChange={setEmail} type="email" placeholder="you@company.com" onKeyDown={e => e.key === "Enter" && handleSubmit()} />
             <Inp label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" onKeyDown={e => e.key === "Enter" && handleSubmit()} />
@@ -8593,13 +8728,11 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           {err && <div style={{ background: C.redBg, border: `1px solid ${C.red}40`, borderRadius: 8, padding: "8px 12px", color: C.red, fontSize: 12, margin: "10px 0" }}>{err}</div>}
           {msg && <div style={{ background: C.g50, border: `1px solid ${C.g200}`, borderRadius: 8, padding: "8px 12px", color: C.g800, fontSize: 12, margin: "10px 0" }}>{msg}</div>}
           
-          <Btn full v="fill" sz="lg" onClick={handleSubmit} disabled={loading} style={{ marginTop: 14 }}>{loading ? "Please wait..." : isSignup ? "Create Account →" : "Sign In →"}</Btn>
+          <Btn full v="fill" sz="lg" onClick={handleSubmit} disabled={loading} style={{ marginTop: 14 }}>{loading ? "Please wait..." : "Sign In →"}</Btn>
           
           <div style={{ textAlign: "center", marginTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
-            {!isSignup && <button onClick={handleForgot} style={{ background: "none", border: "none", color: C.g600, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Forgot your password?</button>}
-            <button onClick={() => { setIsSignup(!isSignup); setErr(""); setMsg(""); }} style={{ background: "none", border: "none", color: C.tx3, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-              {isSignup ? "Already have an account? Sign in" : "Need an account? Sign up"}
-            </button>
+            <button onClick={handleForgot} style={{ background: "none", border: "none", color: C.g600, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Forgot your password?</button>
+            <div style={{ color:C.tx4, fontSize:11, lineHeight:1.35 }}>Need access? Ask the owner to create your employee login.</div>
           </div>
         </div>
       </div>;
@@ -26770,7 +26903,7 @@ Cancel if you want to save money.`);
        UPDATE 102 — LOCKED WORKING AI SETTINGS — PUBLIC GATEWAY RECOVERY
        Known-good setup recovered on 2026-05-10 after old gateway was blocked by Cloudflare Access.
        Do not change these defaults unless the public Cloudflare Worker URL,
-       gateway token, or model changes. The old leaf-diary-ai-gateway Worker was blocked by Cloudflare Access POST redirects.
+       gateway token setting, or model changes. The old leaf-diary-ai-gateway Worker was blocked by Cloudflare Access POST redirects.
 
        What finally worked:
        - Live website app uses Gateway/Proxy mode.
@@ -26780,7 +26913,8 @@ Cancel if you want to save money.`);
        - Local Ollama still works in Terminal at http://127.0.0.1:11434.
     ══════════════════════════════════════════════════════════ */
     const LEAF_AI_WORKING_ENDPOINT = "https://leaf-diary-ai-gateway.theleafdiary.workers.dev/leaf-ai";
-    const LEAF_AI_WORKING_TOKEN = "leaf-diary-eric-private-ai-2026";
+    const LEAF_AI_WORKING_TOKEN_KEY = "leafdiary_ai_gateway_token";
+    const LEAF_AI_WORKING_TOKEN = (() => { try { return localStorage.getItem(LEAF_AI_WORKING_TOKEN_KEY) || ""; } catch(e) { return ""; } })();
     const LEAF_AI_WORKING_GATEWAY_MODEL = "gpt-oss:20b";
     const LEAF_AI_WORKING_LOCAL_MODEL = "llama3.1:8b";
     const LEAF_AI_WORKING_SETTINGS_KEY = "leafdiary_working_ai_settings_locked_v66";
@@ -26804,7 +26938,7 @@ Cancel if you want to save money.`);
       doNotTouch: [
         "Cloudflare pricing Worker code",
         "Gateway endpoint URL",
-        "Gateway token",
+        "Gateway token setting",
         "Supabase connection/save logic",
         "show sales imports",
         "market pricing parser",
@@ -28031,7 +28165,7 @@ Answer with a practical action plan for Leaf Diary.`;
             </Card>
             <Card>
               <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>No API key in HTML</div>
-              <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55 }}>Your Ollama API key goes inside Cloudflare Worker secrets only. This page stores only the Worker URL and your private gateway token.</div>
+              <div style={{ fontSize:12, color:C.tx2, lineHeight:1.55 }}>Your Ollama API key goes inside Cloudflare Worker secrets only. This page stores only the Worker URL and token setting. The real secret should live in the Cloudflare Worker.</div>
             </Card>
             <Card>
               <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Usage Guard</div>
@@ -28808,6 +28942,7 @@ ${local.summary || "Fallback completed."}`;
       const [syncConflict, setSyncConflict] = useState(false);
       const [remoteEditor, setRemoteEditor] = useState(null);
       const [pendingSyncCount, setPendingSyncCount] = useState(0);
+      const [cloudMenuOpen, setCloudMenuOpen] = useState(false);
 
       const cloudReadyRef = useRef(false);
       const cloudStatusRef = useRef("loading");
@@ -29583,6 +29718,7 @@ ${local.summary || "Fallback completed."}`;
       const cloudLabel = cloudStatus === "synced" ? "☁️ Supabase cloud synced" : cloudStatus === "safe" ? "🛡️ Cloud Safe Mode ON — local only" : cloudStatus === "syncing" ? "🔄 Saving to Supabase..." : cloudStatus === "loading" ? "🔄 Loading cloud..." : `⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
       const cloudShortLabel = cloudStatus === "synced" ? "Synced" : cloudStatus === "safe" ? "Safe" : cloudStatus === "syncing" ? "Saving" : cloudStatus === "loading" ? "Loading" : "Offline";
       const pageCanRender = leafDiaryCanRenderPage(page, user?.role || "employee");
+      useEffect(() => { setCloudMenuOpen(false); }, [page, cloudStatus]);
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
         {(showPwdModal || user?.mustChangePassword) && <ChangePasswordModal onClose={() => { if (!user?.mustChangePassword) setShowPwdModal(false); }} user={user} onSuccess={() => { setUsers(prev => prev.map(u => u.id === user.id ? { ...u, mustChangePassword: false } : u)); setUser(prev => prev ? { ...prev, mustChangePassword: false } : prev); setShowPwdModal(false); }} />}
@@ -29631,14 +29767,14 @@ ${local.summary || "Fallback completed."}`;
         {commandPaletteOpen && <CommandPalette user={user} onClose={() => setCommandPaletteOpen(false)} setPage={navigate} />}
         <BackBreadcrumbBar page={page} navHistory={navHistory} goBack={goBack} goTo={navigate} goCrumb={goCrumb} />
         <NextStepBanner nextStep={nextStep} setPage={navigate} onDismiss={() => setNextStep(null)} />
-
-        {/* V227R Compact mobile cloud controls — one tiny line on phones. */}
+        {/* V230 Compact cloud controls — tap status to open named actions. */}
         <div className="ld-cloud-strip">
-          <div className="ld-cloud-status" title={cloudMsg || cloudLabel}>
+          <button className="ld-cloud-status ld-cloud-status-button" title={(cloudMsg || cloudLabel) + " — tap for save/load/sync actions"} aria-label="Open save and sync menu" aria-expanded={cloudMenuOpen ? "true" : "false"} onClick={() => setCloudMenuOpen(p => !p)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setCloudMenuOpen(p => !p); } }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: cloudDot, flexShrink:0 }} />
             <span className="ld-cloud-status-text ld-cloud-status-full">{cloudLabel}</span>
-            <span className="ld-cloud-status-mini">{cloudShortLabel}</span>
-          </div>
+            <span className="ld-cloud-status-mini">☁️ {cloudShortLabel}</span>
+            <span className="ld-cloud-menu-caret">▾</span>
+          </button>
           <div className="ld-cloud-actions" aria-label="Save, load, backup, sync, and changes controls">
             {saveMsg && <span className="ld-cloud-save-msg" style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{saveMsg}</span>}
             <button className="ld-cloud-btn ld-cloud-btn-save" onClick={() => flushTeamSync({ force:false })} title="Save changes to cloud" aria-label="Save changes to cloud">💾 <span className="ld-cloud-btn-label">Save</span></button>
@@ -29647,8 +29783,20 @@ ${local.summary || "Fallback completed."}`;
             {user?.role === "owner" && <button className="ld-cloud-btn ld-cloud-btn-sync" onClick={() => navigate("teamsync")} title="Open sync help" aria-label="Open sync help">☁️ <span className="ld-cloud-btn-label">Sync</span></button>}
             {user?.role === "owner" && <button className="ld-cloud-btn ld-cloud-btn-log" onClick={() => navigate("changelog")} title="Open change log" aria-label="Open change log">🧾 <span className="ld-cloud-btn-label">Log</span></button>}
             <span className="ld-cloud-note">Local saves now · cloud needs sync/refresh</span>
-            <input ref={backupRef} type="file" accept=".json" style={{ display: "none" }} onChange={e => importBackup(e.target.files[0])} />
           </div>
+          {cloudMenuOpen && <div className="ld-cloud-menu-popover" role="menu" aria-label="Save and sync menu">
+            <div className="ld-cloud-menu-title">☁️ Cloud / backup actions</div>
+            {saveMsg && <div style={{ color:C.g400, fontSize:11, fontWeight:850, padding:"0 7px 8px" }}>{saveMsg}</div>}
+            <div className="ld-cloud-menu-grid">
+              <button className="ld-cloud-menu-btn ld-cloud-menu-save" role="menuitem" onClick={() => { setCloudMenuOpen(false); flushTeamSync({ force:false }); }}><span className="ld-cloud-menu-ico">💾</span><span><span className="ld-cloud-menu-name">Save</span><span className="ld-cloud-menu-desc">Save local changes and push them to Supabase.</span></span></button>
+              <button className="ld-cloud-menu-btn" role="menuitem" onClick={() => { setCloudMenuOpen(false); loadFromCloud({ force:true }); }}><span className="ld-cloud-menu-ico">⬇️</span><span><span className="ld-cloud-menu-name">Load</span><span className="ld-cloud-menu-desc">Pull the newest cloud data onto this device.</span></span></button>
+              <button className="ld-cloud-menu-btn" role="menuitem" onClick={() => { setCloudMenuOpen(false); exportBackup(); }}><span className="ld-cloud-menu-ico">📥</span><span><span className="ld-cloud-menu-name">Backup</span><span className="ld-cloud-menu-desc">Download a JSON backup before imports or big changes.</span></span></button>
+              {user?.role === "owner" && <button className="ld-cloud-menu-btn ld-cloud-menu-sync" role="menuitem" onClick={() => { setCloudMenuOpen(false); navigate("teamsync"); }}><span className="ld-cloud-menu-ico">☁️</span><span><span className="ld-cloud-menu-name">Sync Help</span><span className="ld-cloud-menu-desc">Open cloud sync controls, test cloud, safe mode, and force save.</span></span></button>}
+              {user?.role === "owner" && <button className="ld-cloud-menu-btn" role="menuitem" onClick={() => { setCloudMenuOpen(false); navigate("changelog"); }}><span className="ld-cloud-menu-ico">🧾</span><span><span className="ld-cloud-menu-name">Change Log</span><span className="ld-cloud-menu-desc">Review saves, backups, imports, and safety history.</span></span></button>}
+            </div>
+            <div className="ld-cloud-menu-note">Tip: use Backup before show imports, receipt imports, or uploading a new HTML version.</div>
+          </div>}
+          <input ref={backupRef} type="file" accept=".json" style={{ display: "none" }} onChange={e => importBackup(e.target.files[0])} />
         </div>
 
         {/* Phase status strips moved into the AI chip dropdown to keep the header clean. */}
