@@ -12,6 +12,7 @@
   <!-- V222 — Show Profit Dashboard: adds clear daily, weekly, and per-show profit reporting with sold plant COGS, plant gross profit, shipping profit, fees, expenses, payroll, and true net profit. -->
   <!-- V224 — Mobile Bundle Import Repair: removes hidden mobile-breaking regex control characters from V223 and keeps bundle quantity show import fix. -->
   <!-- V223 — Bundle Quantity Show Import Fix: show import now expands multi-plant bundle rows into multiple sold inventory units and splits sales/fees/shipping per unit. -->
+  <!-- V225 — Info Tab Instructions Cleanup: moves large how-to/training instructions out of page bodies and into the top ℹ️ help tab so mobile pages stay short. -->
   <!-- V217 — Local Sale TX Paperwork Alert: local sales to CA/AZ/TX/LA/HI now show state paperwork reminders and save paperwork-required flags. -->
   <!-- V214 — Local Sale Customer Capture: adds full customer/contact/address fields to Local Sale workflow and accounting reports. -->
   <!-- V213 — Local Sale Accounting: adds Mark Local Sale workflow, payment method capture, sold dates, local sale flags, and accounting report breakdowns. -->
@@ -4627,18 +4628,15 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     /* UPDATE 42 — Take Plant Photos Entry Point Helper
        Reusable note/link wherever the app says photos or photo queue. */
     function PhotoSprintTip({ setPage, count = 0, compact = false, title = "Take Plant Photos Fast" }) {
-      return <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderLeft:`5px solid ${C.g600}`, borderRadius:16, padding:compact ? "10px 11px" : "13px 14px", margin:compact ? "8px 0" : "0 0 14px" }}>
-        <Row between center wrap gap={10}>
-          <div style={{ minWidth:0 }}>
-            <div style={{ fontFamily:F.display, fontSize:compact ? 17 : 20, color:C.g900, fontWeight:900 }}>⚡ {title}</div>
-            <div style={{ fontSize:12, color:C.tx2, lineHeight:1.4, marginTop:3 }}>
-              Employees: scan the barcode on the plant label, take the photo, wait for saved, then move to the next plant. No typing plant numbers.
-            </div>
-          </div>
-          <Row gap={7} wrap>
+      return <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:compact ? "8px 10px" : "10px 12px", margin:compact ? "6px 0" : "0 0 10px" }}>
+        <Row between center wrap gap={8}>
+          <Row gap={8} center style={{ minWidth:0 }}>
+            <span className="ld-help-mini-pill">ℹ️ Use top i for instructions</span>
             {Number(count) > 0 && <Tag text={`${count} need photos`} color={C.amber} />}
-            <Btn sz="sm" onClick={()=>setPage && setPage("photosprint")}>Open Take Plant Photos</Btn>
-            <Btn sz="sm" v="soft" onClick={()=>setPage && setPage("scanlabel")}>Scan One Label</Btn>
+          </Row>
+          <Row gap={7} wrap>
+            <Btn sz="sm" onClick={()=>setPage && setPage("photosprint")}>Open Photos</Btn>
+            <Btn sz="sm" v="soft" onClick={()=>setPage && setPage("scanlabel")}>Scan Label</Btn>
           </Row>
         </Row>
       </div>;
@@ -5174,10 +5172,6 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <ActionCard icon="📥" title="Export Selected CSV" color={C.g600} body="Download a CSV of only the selected plants for pull lists, audits, employee tasks, or spreadsheet review." />
           <ActionCard icon="✅" title="Mark Labels Printed" color={C.gold} body="For owner/manager only: mark the selected batch as label printed after printing labels." />
         </div>
-        <Card style={{ background:C.g50, borderLeft:`5px solid ${C.g600}` }}>
-          <div style={{ fontFamily:F.display, fontSize:20, color:C.g900, fontWeight:900, marginBottom:8 }}>How to use it</div>
-          <div style={{ fontSize:13, color:C.tx2, lineHeight:1.55 }}>Open Inventory, tap <b>Select Multiple</b>, choose plants or <b>Select Filtered</b>, then use the sticky bulk action bar at the bottom of the screen. This is local UI logic only; it does not change your Supabase schema.</div>
-        </Card>
         <Row gap={8} wrap style={{ marginTop:14 }}><Btn onClick={()=>setPage("inv")}>Open Inventory</Btn><Btn v="soft" onClick={()=>setPage("showbuilder")}>Open Show Builder</Btn><Btn v="outline" onClick={()=>setPage("labels")}>Open Labels</Btn></Row>
         <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
@@ -5621,7 +5615,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <ChartCard title="Cash In vs Cash Out" sub="Last 8 weeks. Cash out includes expenses and payroll tracked in the app." tableRows={weekly} labelKey="label" valueKey="cashIn" valueFormatter={v=>ldMoneyValue(v, hideMoney)} color={C.g600}><SvgLineChart data={weekly} keys={["cashIn","cashOut"]} labels={{ cashIn:"Cash In", cashOut:"Cash Out" }} money colors={[C.g600,C.red]} /></ChartCard>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }} className="ld-chart-grid-2"><ChartCard title="Expenses By Week" sub="Expense trend." tableRows={weekly} labelKey="label" valueKey="expenses" valueFormatter={v=>ldMoneyValue(v, hideMoney)} color={C.red}><HorizontalBarChart data={weekly.map(w=>({ label:w.label, value:w.expenses }))} money={!hideMoney} color={C.red} /></ChartCard><ChartCard title="Payroll By Week" sub="Payroll trend." tableRows={weekly} labelKey="label" valueKey="payroll" valueFormatter={v=>ldMoneyValue(v, hideMoney)} color={C.purple}><HorizontalBarChart data={weekly.map(w=>({ label:w.label, value:w.payroll }))} money={!hideMoney} color={C.purple} /></ChartCard></div>
         </div>}
-        {tab === "goals" && <div style={{ display:"grid", gap:12 }}><ChartCard title="Monthly Goal Progress Rings" sub="Simple goal rings for owner decision-making." tableRows={goalItems.map(g=>({ label:g.label, value:Math.round(g.percent) }))} valueFormatter={v=>`${v}%`} color={C.g600}><ProgressRingChart items={goalItems} /></ChartCard><Card style={{ background:C.g50, borderLeft:`5px solid ${C.g600}` }}><div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>How to use these charts</div><div style={{ color:C.tx2, fontSize:13, lineHeight:1.55, marginTop:6 }}>Use the revenue/profit trend before buying inventory, the genus profit chart before building a show, and the stop-buying risk chart before going to a nursery. Charts update from the same plant, expense, timecard, and nursery data already in the app.</div></Card></div>}
+        {tab === "goals" && <div style={{ display:"grid", gap:12 }}><ChartCard title="Monthly Goal Progress Rings" sub="Simple goal rings for owner decision-making." tableRows={goalItems.map(g=>({ label:g.label, value:Math.round(g.percent) }))} valueFormatter={v=>`${v}%`} color={C.g600}><ProgressRingChart items={goalItems} /></ChartCard></div>}
       </div>;
     }
 
@@ -6484,7 +6478,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               <Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900, marginBottom:8 }}>Tips</div><ul style={{ margin:"0 0 0 18px", padding:0, color:C.tx2, fontSize:13, lineHeight:1.55 }}>{safeArray(help.tips).map((x,i)=><li key={i} style={{ marginBottom:6 }}>{x}</li>)}</ul></Card>
             </div>
             {safeArray(help.go).length > 0 && <Card style={{ marginTop:12, background:C.g50, border:`1px solid ${C.g200}` }}><div style={{ fontFamily:F.display, fontSize:17, fontWeight:900, color:C.g900, marginBottom:9 }}>Open the right tool</div><Row gap={8} wrap>{help.go.map(g => <Btn key={g.page + g.label} sz="sm" onClick={()=>{ onClose && onClose(); setPage && setPage(g.page); }}>{g.label}</Btn>)}</Row></Card>}
-            <Card style={{ marginTop:12, background:C.cardAlt }}><div style={{ fontSize:12, color:C.tx3, lineHeight:1.45 }}><b>Training rule:</b> Use Simple Mode for daily work. Use Advanced Mode only when the owner or developer is troubleshooting. This help button replaces hunting through the PDF while your team learns the app.</div></Card>
+            <Card style={{ marginTop:12, background:C.cardAlt }}><div style={{ fontSize:12, color:C.tx3, lineHeight:1.45 }}><b>Training rule:</b> Big instructions have been moved into this ℹ️ help tab so the page stays short. Use Simple Mode for daily work. Use Advanced Mode only when the owner or developer is troubleshooting.</div></Card>
           </div>
           <style>{`@media(max-width:760px){div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}.ld-page-help-actions button{width:100%!important;}}`}</style>
         </div>
@@ -8013,11 +8007,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         admin_ws: ["Use Advanced only for setup, backup, AI, sync, troubleshooting, and old tools.", "Employees should not use this page for daily work.", "Export a backup before imports, repairs, or uploading a new HTML version.", "Use Hidden Old Screens only when you need the detailed legacy tool."]
       };
       const trainingSteps = trainingByType[type || "today"] || trainingByType.today;
-      const TrainingCard = () => <div className="ld-training-card">
-        <div className="ld-training-title">🎓 How to use this page</div>
-        <ol className="ld-training-steps">{trainingSteps.map((step,i)=><li key={i}>{step}</li>)}</ol>
-        <div className="ld-training-footer"><b>Day-one rule:</b> Pick the button that matches the job in your hand. Do not hunt through Advanced or old screens unless the owner tells you to.</div>
-      </div>;
+      const TrainingCard = () => null;
 
       const workflowStepsFor = (item) => {
         const [label, id] = item || [];
@@ -8117,12 +8107,10 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <Row between center wrap gap={12}><div><div style={{ fontSize:40, lineHeight:1 }}>{pack.icon}</div><div style={{ fontFamily:F.display, fontSize:28, color:pack.color, fontWeight:900, marginTop:5 }}>{pack.title}</div><div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>{pack.sub}</div></div>{(type === "admin_ws" && user?.role === "owner") ? <Row gap={8} wrap><button onClick={()=>setPage("dataai")} style={{ background:pack.color, color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>💬 Ask Data</button><button onClick={()=>setPage("aihub")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🤖 AI</button></Row> : null}</Row>
           <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>{pack.hero}</div>
         </div>
-        <div className="ld-master-rule-card"><b>Simple Mode:</b> This is the one main page for this job. Tap an action card to preview the steps here first. Old detailed tools stay hidden unless you tap Start Step 1 or open Advanced.</div>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, flexWrap:"wrap", background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:"11px 13px", margin:"0 0 12px", boxShadow:"0 6px 18px rgba(13,43,26,.05)" }}>
           <div style={{ fontSize:12, color:C.tx3, fontWeight:850 }}><b style={{ color:C.g900 }}>Today's workflow progress:</b> {Object.keys(workflowDoneMap || {}).length} item(s) marked done on this device.</div>
           {Object.keys(workflowDoneMap || {}).length > 0 && <button onClick={clearWorkflowDoneToday} style={{ border:`1px solid ${C.bd}`, background:C.cardAlt, color:C.tx2, borderRadius:999, padding:"7px 10px", fontSize:11, fontWeight:900, cursor:"pointer" }}>Reset today</button>}
         </div>
-        <TrainingCard />
         <WorkflowPanel />
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>{pack.kpis.map((k,i)=><KPI key={i} label={k[0]} value={k[1]} sub={k[2]} color={pack.color} />)}</div>
         {pack.sections.map(sec => <Card key={sec.title} style={{ marginBottom:14, padding:16 }}><Row between center style={{ marginBottom:12 }}><div style={{ fontFamily:F.display, fontSize:19, color:C.g900, fontWeight:900 }}>{sec.title}</div></Row><div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>{sec.items.map(item=><CardBtn key={item[1]} item={item}/>)}</div></Card>)}
@@ -13941,10 +13929,6 @@ ${JSON.stringify(payload, null, 2)}`;
           </div>
         </div>
 
-        <Card style={{ marginTop:14, background:C.goldBg, borderLeft:`5px solid ${C.gold}` }}>
-          <div style={{ fontFamily:F.display, color:C.g900, fontSize:20, fontWeight:900 }}>How to use it fast</div>
-          <div style={{ color:C.tx2, fontSize:13, lineHeight:1.55 }}>Scan the barcode on the label, take the plant photo, save, then move to the next plant. Keep the regular scanner for careful one-off photo saves. Sprint Mode is for big photo days.</div>
-        </Card>
         <Row gap={8} wrap style={{ marginTop:14 }}>
           <Btn onClick={()=>setPage("scanlabel")}>Regular Scanner</Btn>
           <Btn v="soft" onClick={()=>setPage("inv")}>Inventory Queue</Btn>
