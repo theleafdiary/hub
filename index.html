@@ -20,6 +20,7 @@
   <!-- V218 — Footer Inventory button now opens Inventory Action Center directly instead of the Inventory workspace hub. -->
   <!-- V216 — Sold / Archive inventory queue fix: queue buttons now clear hidden filters; Status Sold opens sold records; sold matching is case-safe. -->
   <!-- V219 — Shipping Profit Accounting: separates shipping charged from actual label cost, adds packing-board label-cost entry, and reports shipping profit by date/show/platform. -->
+  <!-- V226 — Pack Orders startup repair: defines draftForOrder/setShipDraft/saveShippingFinanceForOrder inside OrderPackingBoard so mobile no longer white-screens on shipping profit fields. -->
   <!-- V221 — Manual Add discount reference fix: removes stale one-time receipt discount variables from manual single-plant add and past invoice log. -->
   <!-- V220 — Manual Add Plant save fix: auto source fallback, visible validation/success messages, and immediate local backup of newly-added plants. -->
   <!-- V211 — Mobile startup fix: removed extra JSX brace after Labels date card. Added immediate local save for mobile edits/photos before cloud sync. -->
@@ -20622,8 +20623,59 @@ Cancel keeps this local/free.`);
       const notPacked = activeOrders.filter(o => !packedOrders.includes(o));
       const storageKey = `leafDiaryOrderPackingDone-${today()}-${role}`;
       const [done, setDone] = useState(() => { try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch(e) { return {}; } });
+      const [shippingDrafts, setShippingDrafts] = useState({});
       const saveDone = next => { setDone(next); try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch(e) {} };
       const toggleDone = key => saveDone({ ...done, [key]: !done[key] });
+      const draftForOrder = order => {
+        const key = order?.orderId || order?.id || "order";
+        return shippingDrafts[key] || {
+          charged: (+(order?.shippingCharged || order?.shippingRevenue || order?.shippingCollected || 0)).toFixed(2),
+          label: (+(order?.actualLabelCost || order?.actualShippingCost || order?.labelCost || order?.shippingCost || 0)).toFixed(2),
+          supplies: (+(order?.shippingSuppliesCost || order?.packingSuppliesCost || 0)).toFixed(2)
+        };
+      };
+      const setShipDraft = (order, field, value) => {
+        const key = order?.orderId || order?.id || "order";
+        setShippingDrafts(prev => ({ ...prev, [key]: { ...draftForOrder(order), [field]: value } }));
+      };
+      const saveShippingFinanceForOrder = order => {
+        if (!setPlants) return alert("Shipping cost save is not available on this screen.");
+        const d = draftForOrder(order);
+        const orderPlants = safeArray(order?.plants);
+        const count = Math.max(1, orderPlants.length);
+        const chargedTotal = moneyNum(d.charged);
+        const labelTotal = moneyNum(d.label);
+        const suppliesTotal = moneyNum(d.supplies);
+        const chargedEach = +(chargedTotal / count).toFixed(2);
+        const labelEach = +(labelTotal / count).toFixed(2);
+        const suppliesEach = +(suppliesTotal / count).toFixed(2);
+        const soldKeys = new Set(orderPlants.map(p => String(p.id || p.plantId || p.plantCode || p.barcode || "")).filter(Boolean));
+        const now = new Date().toISOString();
+        setPlants(prev => safeArray(prev).map(p => {
+          const k = String(p.id || p.plantId || p.plantCode || p.barcode || "");
+          return soldKeys.has(k) ? {
+            ...p,
+            shippingChargedToCustomer: chargedEach,
+            shippingRevenue: chargedEach,
+            shippingCollected: chargedEach,
+            shippingPaidByCustomer: chargedEach,
+            actualLabelCost: labelEach,
+            actualShippingCost: labelEach,
+            labelCost: labelEach,
+            postageCost: labelEach,
+            shippingCost: labelEach,
+            shippingSuppliesCost: suppliesEach,
+            packingSuppliesCost: suppliesEach,
+            shippingProfit: +(chargedEach - labelEach - suppliesEach).toFixed(2),
+            shippingCostSource: labelTotal ? "actual_label_cost" : (chargedTotal ? "pending_actual_label_cost" : "none"),
+            shippingCostPending: chargedTotal > 0 && !labelTotal,
+            shippingFinanceUpdatedAt: now,
+            fulfillmentStatus: p.fulfillmentStatus || "Packed"
+          } : p;
+        }));
+        addAudit && addAudit({ action:`Shipping finance saved for ${order?.customerName || order?.customerUsername || order?.orderId || "order"}: charged $${chargedTotal.toFixed(2)}, label $${labelTotal.toFixed(2)}, supplies $${suppliesTotal.toFixed(2)}`, user:user?.name || "", page:"Shipping" });
+        alert(`Saved shipping money for ${order?.customerName || order?.customerUsername || "order"}. Shipping profit: $${(chargedTotal - labelTotal - suppliesTotal).toFixed(2)}`);
+      };
       const stepKey = (order, step) => `${order.orderId}-${step}`;
       const orderDone = (order, step) => !!done[stepKey(order, step)];
       const doneSteps = Object.values(done).filter(Boolean).length;
