@@ -8,11 +8,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
+  <meta name="referrer" content="no-referrer" />
   <title>LEAF DIARY - BUSINESS HUB · V222 Show Profit Dashboard</title>
   <!-- V222 — Show Profit Dashboard: adds clear daily, weekly, and per-show profit reporting with sold plant COGS, plant gross profit, shipping profit, fees, expenses, payroll, and true net profit. -->
   <!-- V224 — Mobile Bundle Import Repair: removes hidden mobile-breaking regex control characters from V223 and keeps bundle quantity show import fix. -->
   <!-- V223 — Bundle Quantity Show Import Fix: show import now expands multi-plant bundle rows into multiple sold inventory units and splits sales/fees/shipping per unit. -->
   <!-- V225 — Info Tab Instructions Cleanup: moves large how-to/training instructions out of page bodies and into the top ℹ️ help tab so mobile pages stay short. -->
+  <!-- V228 — Security Audit Bug Fixes: fixes undefined runtime refs, blocks third-party IP fallback, strengthens CSV exports, and hardens IDs/temp passwords. -->
   <!-- V217 — Local Sale TX Paperwork Alert: local sales to CA/AZ/TX/LA/HI now show state paperwork reminders and save paperwork-required flags. -->
   <!-- V214 — Local Sale Customer Capture: adds full customer/contact/address fields to Local Sale workflow and accounting reports. -->
   <!-- V213 — Local Sale Accounting: adds Mark Local Sale workflow, payment method capture, sold dates, local sale flags, and accounting report breakdowns. -->
@@ -21,6 +23,7 @@
   <!-- V216 — Sold / Archive inventory queue fix: queue buttons now clear hidden filters; Status Sold opens sold records; sold matching is case-safe. -->
   <!-- V219 — Shipping Profit Accounting: separates shipping charged from actual label cost, adds packing-board label-cost entry, and reports shipping profit by date/show/platform. -->
   <!-- V226 — Pack Orders startup repair: defines draftForOrder/setShipDraft/saveShippingFinanceForOrder inside OrderPackingBoard so mobile no longer white-screens on shipping profit fields. -->
+  <!-- V229 — True Mobile Compact Header: cloud/save controls are forced into one skinny icon row on mobile. -->
   <!-- V221 — Manual Add discount reference fix: removes stale one-time receipt discount variables from manual single-plant add and past invoice log. -->
   <!-- V220 — Manual Add Plant save fix: auto source fallback, visible validation/success messages, and immediate local backup of newly-added plants. -->
   <!-- V211 — Mobile startup fix: removed extra JSX brace after Labels date card. Added immediate local save for mobile edits/photos before cloud sync. -->
@@ -2649,6 +2652,194 @@
       }
     }
 
+
+
+    /* V227 — Mobile compact cloud/action header
+       Keeps Save, Load, Backup, Sync, and Changes on one tiny row on phones. */
+    .ld-cloud-strip {
+      background:#000;
+      padding:7px 12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      border-top:1px solid rgba(151,211,62,.22);
+      border-bottom:1px solid rgba(151,211,62,.22);
+    }
+    .ld-cloud-status {
+      display:flex;
+      align-items:center;
+      gap:6px;
+      min-width:0;
+      flex:1 1 auto;
+    }
+    .ld-cloud-status-text {
+      font-size:11px;
+      color:rgba(255,255,255,.72);
+      font-weight:700;
+      line-height:1.25;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .ld-cloud-actions {
+      display:flex;
+      gap:6px;
+      align-items:center;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .ld-cloud-btn {
+      border-radius:999px;
+      padding:6px 9px;
+      font-size:11px;
+      font-weight:900;
+      cursor:pointer;
+      white-space:nowrap !important;
+      line-height:1;
+      font-family:'DM Sans', system-ui, sans-serif;
+      min-height:28px !important;
+    }
+    .ld-cloud-btn-save { background:rgba(151,211,62,.18); color:#97d33e; border:1px solid rgba(151,211,62,.42); }
+    .ld-cloud-btn-dark { background:rgba(255,255,255,.08); color:#fff; border:1px solid rgba(255,255,255,.18); }
+    .ld-cloud-btn-sync { background:rgba(104,216,255,.12); color:#68d8ff; border:1px solid rgba(104,216,255,.35); }
+    .ld-cloud-btn-log { background:rgba(151,211,62,.12); color:#97d33e; border:1px solid rgba(151,211,62,.35); }
+    .ld-cloud-note { font-size:10px; color:rgba(255,255,255,.5); font-weight:700; white-space:nowrap; }
+    @media (max-width: 760px) {
+      .ld-cloud-strip {
+        padding:3px 6px !important;
+        gap:4px !important;
+        flex-wrap:nowrap !important;
+        min-height:30px !important;
+        overflow:hidden !important;
+      }
+      .ld-cloud-status {
+        flex:0 1 58px !important;
+        min-width:42px !important;
+        gap:3px !important;
+        overflow:hidden !important;
+      }
+      .ld-cloud-status-text {
+        font-size:8px !important;
+        max-width:46px !important;
+        white-space:nowrap !important;
+        overflow:hidden !important;
+        text-overflow:ellipsis !important;
+      }
+      .ld-cloud-actions {
+        flex:1 1 auto !important;
+        display:flex !important;
+        flex-wrap:nowrap !important;
+        justify-content:flex-end !important;
+        gap:3px !important;
+        min-width:0 !important;
+        overflow:visible !important;
+      }
+      .ld-cloud-btn {
+        padding:4px 5px !important;
+        font-size:9px !important;
+        min-height:24px !important;
+        border-radius:999px !important;
+        letter-spacing:-.2px !important;
+        flex:0 0 auto !important;
+      }
+      .ld-cloud-note, .ld-cloud-save-msg { display:none !important; }
+    }
+    @media (max-width: 380px) {
+      .ld-cloud-status { flex-basis:18px !important; min-width:18px !important; }
+      .ld-cloud-status-text { display:none !important; }
+      .ld-cloud-btn { font-size:8px !important; padding:4px 4px !important; }
+    }
+
+
+    /* V229 — TRUE MOBILE COMPACT HEADER
+       Emergency override: cloud/save controls become a single skinny icon row on phones. */
+    .ld-cloud-status-mini { display:none; }
+    @media (max-width: 760px) {
+      .ld-cloud-strip {
+        display:flex !important;
+        align-items:center !important;
+        justify-content:flex-start !important;
+        flex-wrap:nowrap !important;
+        gap:5px !important;
+        padding:4px 6px !important;
+        min-height:32px !important;
+        max-height:36px !important;
+        overflow:hidden !important;
+        border-top:1px solid rgba(151,211,62,.18) !important;
+        border-bottom:1px solid rgba(151,211,62,.18) !important;
+      }
+      .ld-cloud-status {
+        flex:0 0 58px !important;
+        min-width:58px !important;
+        max-width:58px !important;
+        height:26px !important;
+        display:flex !important;
+        align-items:center !important;
+        gap:4px !important;
+        overflow:hidden !important;
+      }
+      .ld-cloud-status-full { display:none !important; }
+      .ld-cloud-status-mini {
+        display:inline-block !important;
+        max-width:45px !important;
+        overflow:hidden !important;
+        text-overflow:ellipsis !important;
+        white-space:nowrap !important;
+        font-size:8px !important;
+        line-height:1 !important;
+        color:rgba(255,255,255,.72) !important;
+        font-weight:900 !important;
+      }
+      .ld-cloud-actions {
+        flex:1 1 auto !important;
+        min-width:0 !important;
+        display:grid !important;
+        grid-template-columns:repeat(5, minmax(0, 1fr)) !important;
+        gap:4px !important;
+        align-items:center !important;
+      }
+      .ld-cloud-btn,
+      .ld-cloud-strip button.ld-cloud-btn,
+      .ld-cloud-actions button.ld-cloud-btn {
+        width:100% !important;
+        min-width:0 !important;
+        max-width:none !important;
+        height:27px !important;
+        min-height:27px !important;
+        max-height:27px !important;
+        padding:0 !important;
+        border-radius:10px !important;
+        font-size:13px !important;
+        line-height:1 !important;
+        display:flex !important;
+        align-items:center !important;
+        justify-content:center !important;
+        text-align:center !important;
+        white-space:nowrap !important;
+        overflow:hidden !important;
+      }
+      .ld-cloud-btn-label,
+      .ld-cloud-note,
+      .ld-cloud-save-msg {
+        display:none !important;
+      }
+    }
+    @media (max-width: 380px) {
+      .ld-cloud-status { flex-basis:22px !important; min-width:22px !important; max-width:22px !important; }
+      .ld-cloud-status-mini { display:none !important; }
+      .ld-cloud-actions { gap:3px !important; }
+      .ld-cloud-btn,
+      .ld-cloud-strip button.ld-cloud-btn,
+      .ld-cloud-actions button.ld-cloud-btn {
+        height:26px !important;
+        min-height:26px !important;
+        max-height:26px !important;
+        font-size:12px !important;
+        border-radius:9px !important;
+      }
+    }
 </style>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js">
     /* V194 — READYORDERS STARTUP FIX
@@ -3046,7 +3237,15 @@
       canExportReports: false, canViewNurseryFinancials: false,
     };
 
-    const uid = () => Math.random().toString(36).slice(2, 9);
+    const uid = () => {
+      try {
+        const bytes = new Uint32Array(2);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, n => n.toString(36)).join("").slice(0, 12);
+      } catch (e) {
+        return Math.random().toString(36).slice(2, 10);
+      }
+    };
 
     /* Crash-safe data helpers — lets the app boot even after inventory/customers were wiped. */
     const safeArray = (v) => Array.isArray(v) ? v : [];
@@ -3101,21 +3300,9 @@
       };
     }
     async function getBrowserPublicIp() {
-      if (window.__leafDiaryAuditIp) return window.__leafDiaryAuditIp;
-      try {
-        const cached = localStorage.getItem(AUDIT_IP_CACHE_KEY);
-        if (cached) { window.__leafDiaryAuditIp = cached; return cached; }
-      } catch (e) {}
-      try {
-        const res = await fetch("https://api.ipify.org?format=json", { cache: "no-store" });
-        const data = await res.json();
-        const ip = data && data.ip ? data.ip : "IP pending";
-        window.__leafDiaryAuditIp = ip;
-        try { localStorage.setItem(AUDIT_IP_CACHE_KEY, ip); } catch (e) {}
-        return ip;
-      } catch (e) {
-        return "IP pending — deploy audit-log Edge Function";
-      }
+      // V228 security hardening: do not send employee/customer browser IPs to third-party IP lookup services.
+      // Real IP logging should happen server-side inside the Supabase audit-log Edge Function.
+      return "Server-side audit IP only";
     }
     function normalizeAuditEntry(entry, user, session) {
       const device = getAuditDeviceInfo();
@@ -4313,10 +4500,18 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       return alerts;
     };
     const downloadCsv = (filename, rows) => {
-      const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const esc = v => {
+        const raw = String(v ?? "");
+        const formulaSafe = /^[=+\-@]/.test(raw.trim()) ? "'" + raw : raw;
+        return `"${formulaSafe.replace(/"/g, '""')}"`;
+      };
       const csv = rows.map(r => r.map(esc).join(",")).join("\n");
       const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type:"text/csv" })), download: filename });
-      a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 800);
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 800);
+    };
+    const downloadBlob = (blob, filename) => {
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: filename });
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1200);
     };
 
 
@@ -9023,7 +9218,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {tab === "auction" && canManage && <Phase79AuctionManagerPanel plants={plants} setPlants={setPlants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={setPage} />}
         {tab === "build" && canManage && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
         {tab === "live" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} />}
-        {tab === "import" && canManage && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
+        {tab === "import" && canManage && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} setCasdCerts={setCasdCerts} />}
         {tab === "prep" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <Card style={{ borderTop:"4px solid #fb6392" }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>🎪 Current Show Pull List</div><div style={{ fontSize:12, color:C.tx3 }}>{showCart.length ? `${showCart.length} plants are marked for a show.` : "No plants are marked for a show yet."}</div></div><Btn sz="sm" onClick={()=>setTab(canManage ? "build" : "live")}>{canManage ? "Build Show" : "Live Mode"}</Btn></Row>{showCart.length ? showCart.slice(0,30).map((p,i)=><PullPlant key={(p.id||p.plantId||p.name)+i} p={p} idx={i}/>) : <PreviewBuckets />}</Card>
           <Card style={{ borderTop:`4px solid ${C.amber}` }}><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900, marginBottom:8 }}>🧺 Prep Tasks</div>{[
@@ -9052,7 +9247,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        Safe staging layer for live shows. Saves checklist locally only.
        No database, Supabase schema, import, or pricing logic changes.
     ══════════════════════════════════════════════════════════ */
-    function ShowPrepPullList({ plants = [], user, setPage }) {
+    function ShowPrepPullList({ plants = [], setPlants, user, addAudit, setPage }) {
       const role = user?.role || "employee";
       const canManage = role === "owner" || role === "manager";
       const [tab, setTab] = useState("pull");
@@ -9308,7 +9503,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card><Row between center wrap style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>Recent Sold Groups</div><div style={{ fontSize:12, color:C.tx3 }}>Newest imported buyers and sold plants.</div></div><Btn sz="sm" v="ghost" onClick={()=>setTab("review")}>Review</Btn></Row>{recentOrders.length ? recentOrders.slice(0,5).map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <p style={{ color:C.tx3 }}>No sold groups yet. Import a show to start.</p>}</Card><Card><Row between center wrap style={{ marginBottom:8 }}><div><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>Buyer Snapshot</div><div style={{ fontSize:12, color:C.tx3 }}>Top buyers from sales history.</div></div><Btn sz="sm" v="ghost" onClick={()=>setTab("buyers")}>Buyers</Btn></Row><BuyerSnapshot /></Card></div>
         </div>}
 
-        {tab === "import" && <div><Card style={{ marginBottom:12, background:C.blueBg, border:`1px solid ${C.blue}44`, borderLeft:`5px solid ${C.blue}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900 }}>Step 1: Import Show Sales</div><div style={{ fontSize:12, color:C.tx3 }}>Upload Whatnot or Palmstreet sales here. This is where employee, commission %, and tips should be confirmed.</div></div><Tag text="Creates sold records + commission" color={C.blue}/></Row></Card><ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} /></div>}
+        {tab === "import" && <div><Card style={{ marginBottom:12, background:C.blueBg, border:`1px solid ${C.blue}44`, borderLeft:`5px solid ${C.blue}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900 }}>Step 1: Import Show Sales</div><div style={{ fontSize:12, color:C.tx3 }}>Upload Whatnot or Palmstreet sales here. This is where employee, commission %, and tips should be confirmed.</div></div><Tag text="Creates sold records + commission" color={C.blue}/></Row></Card><ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} setCasdCerts={setCasdCerts} /></div>}
 
         {tab === "review" && <div><Card style={{ marginBottom:12, borderLeft:`5px solid ${C.amber}` }}><Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:900 }}>Step 2: Sold Review</div><div style={{ fontSize:12, color:C.tx3 }}>Check what imported, what matched, what is unmatched, and what still needs packing.</div></div><Row gap={8} wrap><Btn sz="sm" onClick={()=>setTab("pack")}>Next: Pack Orders</Btn><Btn sz="sm" v="soft" onClick={()=>setPage("showimport")}>Open Full Import Tool</Btn></Row></Row></Card>{unmatchedSold.length>0 && <Card style={{ marginBottom:12, background:C.redBg, border:`1px solid ${C.red}44` }}><b style={{ color:C.red }}>⚠️ {unmatchedSold.length} unmatched / needs-review sold plant record(s)</b><p style={{ fontSize:12, color:C.tx2 }}>Open Import Sales or Inventory to clean these up before trusting profit reports.</p></Card>}<div style={{ display:"grid", gridTemplateColumns:"1fr", gap:8 }}>{orders.length ? orders.map(o => <OrderMiniCard key={o.orderId} order={o}/>) : <Card><div style={{ textAlign:"center", color:C.tx3, padding:30 }}>No sold orders yet. Import a show CSV first.</div></Card>}</div></div>}
 
@@ -12585,7 +12780,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       };
     };
     const csvCell = v => {
-      const x = (v ?? '').toString();
+      const raw = (v ?? '').toString();
+      const x = /^[=+\-@]/.test(raw.trim()) ? "'" + raw : raw;
       return /[",\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x;
     };
     const cleanPrice = p => {
@@ -19937,6 +20133,16 @@ Cancel keeps this local/free.`);
       const total = qaGroups.reduce((s,g)=>s+g.items.length,0);
       const done = qaGroups.reduce((s,g)=>s+g.items.filter(item => checks[item.id]).length,0);
       const pct = total ? Math.round((done / total) * 100) : 0;
+      const productionFlow = [
+        ["Start", "Open app on phone and desktop"],
+        ["Inventory", "Add or review plants"],
+        ["Labels", "Print labels and take photos"],
+        ["Shows", "Build/export/import show sales"],
+        ["Shipping", "Pack orders and save tracking"],
+        ["Money", "Review profit, receipts, and payroll"],
+        ["Backup", "Save/sync and confirm no issues"]
+      ];
+      const releaseReady = pct >= 90 && duplicateGroups.length === 0 && String(cloudStatus || "").toLowerCase() !== "offline";
       const active = qaGroups.find(g => g.id === activeGroup) || qaGroups[0];
       const groupDone = active.items.filter(item => checks[item.id]).length;
       const QaCard = ({ item }) => <button onClick={()=>toggle(item.id)} style={{ width:"100%", background:checks[item.id] ? C.g50 : C.card, border:`1px solid ${checks[item.id] ? C.g300 : C.bd}`, borderLeft:`5px solid ${checks[item.id] ? C.g600 : C.tx4}`, borderRadius:16, padding:"13px 12px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}>
@@ -20092,7 +20298,15 @@ Cancel keeps this local/free.`);
       const roles = ["employee", "manager", "owner"];
       const roleDefaults = role => role === "owner" ? Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])) : role === "manager" ? { ...DEFAULT_PERMS, canSeeCost: true, canSeeProfit: false, canSeeExpenses: false, canDeletePlants: false, canChangePrices: true, canExportReports: true, canViewNurseryFinancials: true } : { ...DEFAULT_PERMS };
       const normalizeEmail = e => String(e || "").trim().toLowerCase();
-      const makeTempPassword = () => `Leaf${Math.floor(100000 + Math.random() * 900000)}!`;
+      const makeTempPassword = () => {
+        try {
+          const a = new Uint32Array(1);
+          crypto.getRandomValues(a);
+          return `Leaf${100000 + (a[0] % 900000)}!`;
+        } catch (e) {
+          return `Leaf${Math.floor(100000 + Math.random() * 900000)}!`;
+        }
+      };
       const updF = f => v => setForm(p => ({ ...p, [f]: v }));
       const updP = f => v => setForm(p => ({ ...p, permissions: { ...p.permissions, [f]: v } }));
       const updS = f => v => setSettings(p => ({ ...p, [f]: v }));
@@ -20833,7 +21047,7 @@ Cancel keeps this local/free.`);
           const cloudPdf = await saveCasdPdfToCloud(pdfBytes, filename, { certNumber, destination: dest });
           const newCert = { id:uid(), certNumber, date:dateStr, destination:dest, consigneeName:consignee.name, consigneeAddress:[consignee.address1,consignee.address2].filter(Boolean).join(", "), consigneePhone:consignee.phone||"", plants:ps, plantCount:ps.length, pdfFilename:filename, ...cloudPdf, createdAt:new Date().toISOString(), createdBy:user.name, autoGenerated:false };
           const mergedArchive = await persistCasdCertArchive([newCert, ...(casdCerts || [])]);
-          setCasdCerts(() => mergedArchive);
+          if (typeof setCasdCerts === "function") setCasdCerts(() => mergedArchive);
           addAudit({ action:`CASD Certificate #${certNumber} manually generated and archived for ${consignee.name} (${dest})`, user:user.name, page:"CASD Certificates" });
           const blob=new Blob([pdfBytes],{type:"application/pdf"});
           const url=URL.createObjectURL(blob);
@@ -23921,7 +24135,7 @@ Cancel if you want to save money.`);
       </div>;
     }
 
-    function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = {}, setSettings }) {
+    function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = {}, setSettings, setCasdCerts = null }) {
       const [raw, setRaw] = useState("");
       const [parsed, setParsed] = useState([]);
       const [matched, setMatched] = useState([]);
@@ -24946,7 +25160,7 @@ Cancel if you want to save money.`);
             }
             if (newCerts.length) {
               const mergedArchive = await persistCasdCertArchive([...(newCerts || []), ...(window.__casdCertsSnapshot || [])]);
-              setCasdCerts(() => mergedArchive);
+              if (typeof setCasdCerts === "function") setCasdCerts(() => mergedArchive);
               addAudit({ action:`Auto-generated and archived ${newCerts.length} plant shipping state document(s) for Whatnot CA/AZ/TX/LA order shipment(s)`, user:user.name, page:"Show Import" });
               setImportMsg(prev => prev + ` | ✅ ${newCerts.length} Whatnot shipping state document(s) auto-generated by order/box, downloaded, and archived in 📜 Shipping State Docs. PRINT and place one with each Whatnot box.`);
             }
@@ -28602,7 +28816,7 @@ ${local.summary || "Fallback completed."}`;
       const dirtyRef = useRef({ rows: {}, deletes: {}, states: {} });
       const syncTimerRef = useRef(null);
       const syncBusyRef = useRef(false);
-      const clientIdRef = useRef(() => "client-" + Math.random().toString(36).slice(2, 10));
+      const clientIdRef = useRef(() => "client-" + uid());
       if (typeof clientIdRef.current === "function") clientIdRef.current = clientIdRef.current();
       const lastCloudRevisionRef = useRef("");
       useEffect(() => { cloudStatusRef.current = cloudStatus; }, [cloudStatus]);
@@ -29057,34 +29271,6 @@ ${local.summary || "Fallback completed."}`;
         }
       }, [nurseries, setNurseries]);
 
-      /* User mapping */
-      useEffect(() => {
-        if (session && session.user && session.user.email && cloudStatus !== "loading") {
-          const email = session.user.email.toLowerCase();
-          let u = users.find(x => x.email && x.email.toLowerCase() === email);
-          if (!u) {
-            const isFirstOwner = !users.some(x => x.role === "owner");
-            u = { id: session.user.id || uid(), authUserId: session.user.id || "", name: email.split("@")[0], role: isFirstOwner ? "owner" : "employee", email: email, phone: "", jobTitle: "", hourlyRate: 0, active: true, mustChangePassword: false, permissions: isFirstOwner ? Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])) : { ...DEFAULT_PERMS }, createdAt: new Date().toISOString(), createdBy: "Auth Login", authStatus: "auth-created" };
-            setUsersRaw(p => [...p, u]);
-            if (cloudStatus === "synced") cloudUpsertState("users", [...users, u]);
-          } else if (session.user.id && !u.authUserId) {
-            const updated = { ...u, authUserId: session.user.id, authStatus: u.authStatus || "auth-created" };
-            setUsersRaw(p => p.map(x => x.id === u.id ? updated : x));
-            u = updated;
-          }
-          if (u.active === false) {
-            setUser({ ...u, blocked: true });
-            resetToPage("today");
-            return;
-          }
-          if (!user || user.id !== u.id || user.mustChangePassword !== u.mustChangePassword || user.active !== u.active) {
-            setUser(u);
-            resetToPage("today");
-            addAudit({ action: "Logged in via Auth", user: u.name, page: "System" });
-          }
-        }
-      }, [session, users, cloudStatus, user, addAudit, cloudCollectionSetter]);
-
       /* Inventory is never auto-deleted. Use logged-in Owner Repair Tools tools only. */
 
       /* Always keep a local backup on this device too */
@@ -29344,6 +29530,36 @@ ${local.summary || "Fallback completed."}`;
           }).catch(() => {});
         }).catch(() => {});
       }, [setAuditLog, user, session, page]);
+
+      /* User mapping */
+      useEffect(() => {
+        if (session && session.user && session.user.email && cloudStatus !== "loading") {
+          const email = session.user.email.toLowerCase();
+          let u = users.find(x => x.email && x.email.toLowerCase() === email);
+          if (!u) {
+            const isFirstOwner = !users.some(x => x.role === "owner");
+            u = { id: session.user.id || uid(), authUserId: session.user.id || "", name: email.split("@")[0], role: isFirstOwner ? "owner" : "employee", email: email, phone: "", jobTitle: "", hourlyRate: 0, active: true, mustChangePassword: false, permissions: isFirstOwner ? Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])) : { ...DEFAULT_PERMS }, createdAt: new Date().toISOString(), createdBy: "Auth Login", authStatus: "auth-created" };
+            setUsersRaw(p => [...p, u]);
+            if (cloudStatus === "synced") cloudUpsertState("users", [...users, u]);
+          } else if (session.user.id && !u.authUserId) {
+            const updated = { ...u, authUserId: session.user.id, authStatus: u.authStatus || "auth-created" };
+            setUsersRaw(p => p.map(x => x.id === u.id ? updated : x));
+            u = updated;
+          }
+          if (u.active === false) {
+            setUser({ ...u, blocked: true });
+            resetToPage("today");
+            return;
+          }
+          if (!user || user.id !== u.id || user.mustChangePassword !== u.mustChangePassword || user.active !== u.active) {
+            setUser(u);
+            resetToPage("today");
+            addAudit({ action: "Logged in via Auth", user: u.name, page: "System" });
+          }
+        }
+      }, [session, users, cloudStatus, user, addAudit, cloudCollectionSetter]);
+
+
       const handleLogin = u => { setUser(u); resetToPage(leafDiaryRoleHome(u?.role || "employee")); addAudit({ action: "Logged in", user: u.name, page: "Login" }); };
       const handleLogout = async () => { await supabase.auth.signOut(); addAudit({ action: "Logged out", user: user?.name || "Unknown", page: "System" }); setUser(null); resetToPage("today"); };
       const lastPageAuditRef = useRef("");
@@ -29365,6 +29581,7 @@ ${local.summary || "Fallback completed."}`;
       const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit, settings, setSettings };
       const cloudDot = cloudStatus === "synced" ? C.g400 : cloudStatus === "safe" ? C.blue : cloudStatus === "syncing" || cloudStatus === "loading" ? C.gold : C.amber;
       const cloudLabel = cloudStatus === "synced" ? "☁️ Supabase cloud synced" : cloudStatus === "safe" ? "🛡️ Cloud Safe Mode ON — local only" : cloudStatus === "syncing" ? "🔄 Saving to Supabase..." : cloudStatus === "loading" ? "🔄 Loading cloud..." : `⚠️ Cloud offline — ${cloudMsg || "local backup active"}`;
+      const cloudShortLabel = cloudStatus === "synced" ? "Synced" : cloudStatus === "safe" ? "Safe" : cloudStatus === "syncing" ? "Saving" : cloudStatus === "loading" ? "Loading" : "Offline";
       const pageCanRender = leafDiaryCanRenderPage(page, user?.role || "employee");
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
@@ -29415,20 +29632,21 @@ ${local.summary || "Fallback completed."}`;
         <BackBreadcrumbBar page={page} navHistory={navHistory} goBack={goBack} goTo={navigate} goCrumb={goCrumb} />
         <NextStepBanner nextStep={nextStep} setPage={navigate} onDismiss={() => setNextStep(null)} />
 
-        {/* V125R Cloud sync strip — visible daily controls, no old pink + menu reference. */}
-        <div style={{ background: "#000", padding: "7px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", borderTop:"1px solid rgba(151,211,62,.22)", borderBottom:"1px solid rgba(151,211,62,.22)" }}>
-          <div title={cloudMsg} style={{ display: "flex", alignItems: "center", gap: 6, minWidth:0 }}>
+        {/* V227R Compact mobile cloud controls — one tiny line on phones. */}
+        <div className="ld-cloud-strip">
+          <div className="ld-cloud-status" title={cloudMsg || cloudLabel}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: cloudDot, flexShrink:0 }} />
-            <span style={{ fontSize: 11, color: "rgba(255,255,255,.72)", fontWeight: 700, lineHeight:1.25 }}>{cloudLabel}</span>
+            <span className="ld-cloud-status-text ld-cloud-status-full">{cloudLabel}</span>
+            <span className="ld-cloud-status-mini">{cloudShortLabel}</span>
           </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            {saveMsg && <span style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{saveMsg}</span>}
-            <button onClick={() => flushTeamSync({ force:false })} style={{ background:"rgba(151,211,62,.18)", color:"#97d33e", border:"1px solid rgba(151,211,62,.42)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>💾 Save</button>
-            <button onClick={() => loadFromCloud({ force:true })} style={{ background:"rgba(255,255,255,.08)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>⬇️ Load</button>
-            <button onClick={exportBackup} style={{ background:"rgba(255,255,255,.08)", color:"#fff", border:"1px solid rgba(255,255,255,.18)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>📥 Backup</button>
-            {user?.role === "owner" && <button onClick={() => navigate("teamsync")} style={{ background:"rgba(104,216,255,.12)", color:"#68d8ff", border:"1px solid rgba(104,216,255,.35)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>☁️ Sync Help</button>}
-            {user?.role === "owner" && <button onClick={() => navigate("changelog")} style={{ background:"rgba(151,211,62,.12)", color:"#97d33e", border:"1px solid rgba(151,211,62,.35)", borderRadius:999, padding:"6px 9px", fontSize:11, fontWeight:900, cursor:"pointer" }}>🧾 Changes</button>}
-            <span style={{ fontSize: 10, color: "rgba(255,255,255,.5)", fontWeight: 700 }}>Local saves now · cloud needs sync/refresh</span>
+          <div className="ld-cloud-actions" aria-label="Save, load, backup, sync, and changes controls">
+            {saveMsg && <span className="ld-cloud-save-msg" style={{ fontSize: 11, color: C.g400, fontWeight: 700 }}>{saveMsg}</span>}
+            <button className="ld-cloud-btn ld-cloud-btn-save" onClick={() => flushTeamSync({ force:false })} title="Save changes to cloud" aria-label="Save changes to cloud">💾 <span className="ld-cloud-btn-label">Save</span></button>
+            <button className="ld-cloud-btn ld-cloud-btn-dark" onClick={() => loadFromCloud({ force:true })} title="Load latest cloud data" aria-label="Load latest cloud data">⬇️ <span className="ld-cloud-btn-label">Load</span></button>
+            <button className="ld-cloud-btn ld-cloud-btn-dark" onClick={exportBackup} title="Download backup" aria-label="Download backup">📥 <span className="ld-cloud-btn-label">Backup</span></button>
+            {user?.role === "owner" && <button className="ld-cloud-btn ld-cloud-btn-sync" onClick={() => navigate("teamsync")} title="Open sync help" aria-label="Open sync help">☁️ <span className="ld-cloud-btn-label">Sync</span></button>}
+            {user?.role === "owner" && <button className="ld-cloud-btn ld-cloud-btn-log" onClick={() => navigate("changelog")} title="Open change log" aria-label="Open change log">🧾 <span className="ld-cloud-btn-label">Log</span></button>}
+            <span className="ld-cloud-note">Local saves now · cloud needs sync/refresh</span>
             <input ref={backupRef} type="file" accept=".json" style={{ display: "none" }} onChange={e => importBackup(e.target.files[0])} />
           </div>
         </div>
@@ -29445,7 +29663,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "shows_ws" && <WorkspaceHome type="shows_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "runshow" && <RunShowWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
           {page === "showcommand" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
-          {page === "showprep" && <ShowPrepPullList plants={plants} user={user} setPage={navigate} />}
+          {page === "showprep" && <ShowPrepPullList plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "packorders" && <OrderPackingBoard plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} addAudit={addAudit} />}
           {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
@@ -29499,7 +29717,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={navigate} />}
           {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
           {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
-          {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} />}
+          {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} setCasdCerts={setCasdCerts} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
