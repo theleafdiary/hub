@@ -10,6 +10,7 @@
   <meta name="theme-color" content="#174D2F" />
   <title>LEAF DIARY - BUSINESS HUB · V222 Show Profit Dashboard</title>
   <!-- V222 — Show Profit Dashboard: adds clear daily, weekly, and per-show profit reporting with sold plant COGS, plant gross profit, shipping profit, fees, expenses, payroll, and true net profit. -->
+  <!-- V223 — Bundle Quantity Show Import Fix: show import now expands multi-plant bundle rows into multiple sold inventory units and splits sales/fees/shipping per unit. -->
   <!-- V217 — Local Sale TX Paperwork Alert: local sales to CA/AZ/TX/LA/HI now show state paperwork reminders and save paperwork-required flags. -->
   <!-- V214 — Local Sale Customer Capture: adds full customer/contact/address fields to Local Sale workflow and accounting reports. -->
   <!-- V213 — Local Sale Accounting: adds Mark Local Sale workflow, payment method capture, sold dates, local sale flags, and accounting report breakdowns. -->
@@ -24155,6 +24156,103 @@ Cancel if you want to save money.`);
           (p.name && (safeLower(p.name).includes(title.slice(0, 8)) || title.includes(safeLower(p.name).slice(0, 8))))
         )) || null;
       };
+
+      // V223: bundle-aware sales import. One show row can represent 2+ plants, so the importer must
+      // remove 2+ inventory records instead of marking only the first matching plant sold.
+      const parsePositiveInt = v => {
+        const n = parseInt(String(v ?? "").replace(/[^0-9]/g, ""), 10);
+        return Number.isFinite(n) && n > 0 ? n : 1;
+      };
+      const inferBundleQuantity = (title, rawQty = 1) => {
+        const explicit = parsePositiveInt(rawQty);
+        if (explicit > 1) return explicit;
+        const t = String(title || "").toLowerCase().replace(/[()\[\]{}]/g, " ").replace(/\s+/g, " ").trim();
+        const patterns = [
+          /(?:bundle|bundel|bndl|lot|pack|set)\s*(?:of\s*)?(\d{1,2})/i,
+          /(\d{1,2})\s*(?:x|×)/i,
+          /^\s*(\d{1,2})\s+(?=[a-z])/i,
+          /(\d{1,2})\s*(?:plants?|pcs?|pieces|count)/i
+        ];
+        for (const re of patterns) {
+          const m = t.match(re);
+          const n = m ? parseInt(m[1], 10) : 0;
+          if (n > 1 && n <= 50) return n;
+        }
+        return 1;
+      };
+      const saleQuantityForImport = sale => Math.max(1, parsePositiveInt(sale?.quantity || sale?.quantitySold || sale?.bundleQuantity || 1));
+      const bundleNameKey = v => String(v || "")
+        .toLowerCase()
+        .replace(/(variegated|variegata|variegation)/g, "var")
+        .replace(/(?:bundle|bundel|bndl|lot|pack|set)\s*(?:of\s*)?\d{1,2}/g, " ")
+        .replace(/^\s*\d{1,2}\s+(?=[a-z])/g, " ")
+        .replace(/\d{1,2}\s*(?:x|×|plants?|pcs?|pieces|count)/g, " ")
+        .replace(/[A-Z]{1,4}\s*-?\s*\d{1,4}/ig, " ")
+        .replace(/(?:plant|plants|tc|tissue culture|starter|plug|inch|in|pot)/g, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const bundleCandidateMatch = (sale, plant) => {
+        if (!sale || !plant || !isCurrentInventoryRecord(plant)) return false;
+        const title = bundleNameKey(sale.productVariant || sale.title || "");
+        const name = bundleNameKey(plant.name || "");
+        if (!title || !name || title.length < 5 || name.length < 5) return false;
+        if (title.includes(name) || name.includes(title)) return true;
+        const titleWords = new Set(title.split(" ").filter(w => w.length > 2));
+        const nameWords = name.split(" ").filter(w => w.length > 2);
+        const hits = nameWords.filter(w => titleWords.has(w)).length;
+        return nameWords.length >= 2 && hits >= Math.min(nameWords.length, 3);
+      };
+      const bundleMatchesFromManualPlant = (sale, plant) => {
+        if (!plant) return [];
+        const qty = saleQuantityForImport(sale);
+        const out = [];
+        const seen = new Set();
+        const add = p => { if (p && isCurrentInventoryRecord(p) && !seen.has(p.id)) { seen.add(p.id); out.push(p); } };
+        add(plant);
+        const selectedName = bundleNameKey(plant.name || "");
+        plants.forEach(p => {
+          if (out.length >= qty) return;
+          if (p.id === plant.id) return;
+          if (bundleNameKey(p.name || "") === selectedName) add(p);
+        });
+        return out.slice(0, qty);
+      };
+      const findInventoryBundleMatches = sale => {
+        const qty = saleQuantityForImport(sale);
+        const first = findInventoryMatch(sale);
+        if (!first) return [];
+        const out = [];
+        const seen = new Set();
+        const add = p => { if (p && isCurrentInventoryRecord(p) && !seen.has(p.id)) { seen.add(p.id); out.push(p); } };
+        add(first);
+        plants.forEach(p => {
+          if (out.length >= qty) return;
+          if (bundleCandidateMatch(sale, p)) add(p);
+        });
+        return out.slice(0, qty);
+      };
+      const splitBundleMoney = (amount, index, count) => {
+        const q = Math.max(1, parseInt(count, 10) || 1);
+        const cents = Math.round(money(amount) * 100);
+        const base = Math.floor(cents / q);
+        const rem = cents - base * q;
+        return +((base + (index < rem ? 1 : 0)) / 100).toFixed(2);
+      };
+      const unitizeBundleSale = (sale, unitIndex) => {
+        const qty = saleQuantityForImport(sale);
+        if (qty <= 1) return { ...sale, quantity:1, quantitySold:1, bundleQuantity:1, bundleUnitIndex:1 };
+        const next = { ...sale, originalLineQuantity:qty, bundleQuantity:qty, bundleUnitIndex:unitIndex + 1, quantity:1, quantitySold:1, bundleTotalPrice:money(sale.price || sale.productAmount || sale.orderAmount) };
+        ["price","productAmount","orderAmount","sellerIncome","shippingFee","shippingChargedToCustomer","shippingRevenue","shippingCollected","shippingPaidByCustomer","actualLabelCost","actualShippingCost","labelCost","postageCost","shippingSuppliesCost","packingSuppliesCost","paymentFee","palmstreetFee","platformFee","sellingFeeDeductions","taxAmount","refundAmount"].forEach(k => {
+          next[k] = splitBundleMoney(sale[k], unitIndex, qty);
+        });
+        next.shipping = next.shippingFee;
+        next.actualShippingCost = next.actualLabelCost;
+        next.shippingProfit = +(money(next.shippingChargedToCustomer || next.shippingFee || 0) - money(next.actualLabelCost || 0) - money(next.shippingSuppliesCost || 0)).toFixed(2);
+        next.saleImportKey = `${sale.saleImportKey || saleImportKey(sale)}|UNIT-${unitIndex + 1}-OF-${qty}`;
+        next.saleLegacyKey = `${sale.saleLegacyKey || saleLegacyKey(sale)}|UNIT-${unitIndex + 1}-OF-${qty}`;
+        return next;
+      };
       const parseCSVRows = text => {
         const rows = [];
         let row = [], val = "", quoted = false;
@@ -24194,14 +24292,16 @@ Cancel if you want to save money.`);
           const saleDateRaw = rowVal(r, ["placed_at", "Order Created Time(EST)", "Order Date(PDT)", "Order Date", "Date", "Created Time"]);
           const saleDateTime = parseDateTimeValue(saleDateRaw);
           const saleDate = parseDateValue(saleDateRaw);
-          const quantity = Math.max(1, parseInt(String(rowVal(r, ["product_quantity", "Quantity", "Qty", "Item Quantity"]) || "1").replace(/[^0-9]/g, ""), 10) || 1);
+          const rawQuantity = rowVal(r, ["product_quantity", "Quantity", "Qty", "Item Quantity"]);
+          const quantity = inferBundleQuantity(productVariant, rawQuantity || 1);
           const productAmount = money(rowVal(r, ["original_item_price", "Product Amount", "Product ", "Item Price", "Price", "Subtotal"]));
           const orderAmount = money(rowVal(r, ["total_cost", "Order Amount", "Order Total", "Total"]));
           const sellerIncome = money(rowVal(r, ["Seller Income", "Payout", "Net", "Seller Net"]));
           const shippingCharged = money(rowVal(r, ["Shipping Fee Amount", "Shipping Fee", "Shipping", "Shipping Charged", "Buyer Shipping", "Buyer Paid Shipping", "Customer Shipping", "Postage Charged"]));
           const actualLabelCost = money(rowVal(r, ["Actual Label Cost", "Label Cost", "Shipping Label Cost", "Postage Cost", "Postage", "Carrier Cost", "USPS Cost", "UPS Cost", "FedEx Cost", "Label Fee"]));
           const shippingSuppliesCost = money(rowVal(r, ["Shipping Supplies Cost", "Supplies Cost", "Box Cost", "Heat Pack Cost", "Packing Cost"]));
-          const price = productAmount || orderAmount || sellerIncome;
+          let price = productAmount || orderAmount || sellerIncome;
+          if (quantity > 1 && productAmount > 0 && orderAmount > productAmount && Math.abs(orderAmount - (productAmount * quantity)) < 0.05) price = orderAmount;
           if (!productVariant || price <= 0) { bad.push({ row: sourceRowNumber, productVariant, reason: "missing product or positive sale price" }); return; }
           const extractedPlantCode = extractPlantCode(productVariant) || extractPlantCode(rowVal(r, ["sku", "SKU"]));
           const whatnotAddr = parseWhatnotAddress(rowVal(r, ["shipping_address", "Shipping Address"]));
@@ -24285,19 +24385,27 @@ Cancel if you want to save money.`);
           };
           enrichedSale.sourceFingerprint = sourceRowFingerprint(enrichedSale);
           const duplicate = isDuplicateSale(enrichedSale);
-          const match = findInventoryMatch(enrichedSale);
-          const canApply = !duplicate && (importMode !== "exact" || !!match);
+          const bundleMatches = findInventoryBundleMatches(enrichedSale);
+          const match = bundleMatches[0] || null;
+          const qtyNeeded = saleQuantityForImport(enrichedSale);
+          const bundleMatchCount = bundleMatches.length;
+          const bundleMissingCount = Math.max(0, qtyNeeded - bundleMatchCount);
+          const canApply = !duplicate && (importMode !== "exact" || bundleMatchCount >= qtyNeeded);
           good.push({
             ...enrichedSale,
             matched: match,
-            matchStatus: duplicate ? "duplicate" : match ? "matched" : "unmatched",
+            bundleMatches,
+            bundleQuantity: qtyNeeded,
+            bundleMatchCount,
+            bundleMissingCount,
+            matchStatus: duplicate ? "duplicate" : bundleMatchCount >= qtyNeeded ? "matched" : bundleMatchCount > 0 ? "partial_bundle_match" : "unmatched",
             duplicate,
             duplicateReason: duplicate ? "Already imported from a previous Palmstreet/Whatnot upload" : "",
             saleImportKey: saleImportKey(enrichedSale),
             saleLegacyKey: saleLegacyKey(enrichedSale),
             apply: canApply,
-            historicalImport: !match,
-            needsReview: !match
+            historicalImport: !match || bundleMissingCount > 0,
+            needsReview: !match || bundleMissingCount > 0
           });
         });
         const grossSales = good.reduce((sum, r) => sum + money(r.price), 0);
@@ -24308,8 +24416,8 @@ Cancel if you want to save money.`);
           importedPreviewAt: new Date().toISOString(),
           rawRows: (rows || []).length,
           validSales: good.length,
-          matchedInventory: good.filter(r => r.matched && !r.duplicate).length,
-          unmatched: good.filter(r => !r.matched && !r.duplicate).length,
+          matchedInventory: good.filter(r => !r.duplicate).reduce((sum, r) => sum + (r.bundleMatchCount || (r.matched ? 1 : 0)), 0),
+          unmatched: good.filter(r => !r.duplicate).reduce((sum, r) => sum + (r.bundleMissingCount ?? (!r.matched ? 1 : 0)), 0),
           duplicates: good.filter(r => r.duplicate).length,
           skipped: bad.length,
           grossSales,
@@ -24377,11 +24485,27 @@ Cancel if you want to save money.`);
       const setMatch = (id, plantId) => setMatched(p => p.map(r => {
         if (r._id !== id) return r;
         const plant = plants.find(p => p.id === plantId);
-        return { ...r, matched: plant || null, apply: true, matchStatus: plant ? "matched" : "unmatched", historicalImport: !plant };
+        const bundleMatches = plant ? bundleMatchesFromManualPlant(r, plant) : [];
+        const qtyNeeded = saleQuantityForImport(r);
+        const bundleMatchCount = bundleMatches.length;
+        const bundleMissingCount = Math.max(0, qtyNeeded - bundleMatchCount);
+        return {
+          ...r,
+          matched: bundleMatches[0] || null,
+          bundleMatches,
+          bundleQuantity: qtyNeeded,
+          bundleMatchCount,
+          bundleMissingCount,
+          apply: !!plant && (importMode !== "exact" || bundleMatchCount >= qtyNeeded),
+          matchStatus: plant ? (bundleMissingCount ? "partial_bundle_match" : "matched") : "unmatched",
+          historicalImport: !plant || bundleMissingCount > 0,
+          needsReview: !plant || bundleMissingCount > 0
+        };
       }));
       const makeHistoricalSalePlant = (sale, idx) => {
         const fallbackId = `HIST-${String(idx + 1).padStart(4, "0")}`;
-        const code = sale.extractedPlantCode || `${fallbackId}-${uid().toUpperCase()}`;
+        const bundleSuffix = sale.bundleQuantity > 1 ? `-B${sale.bundleUnitIndex || idx + 1}` : "";
+        const code = sale.extractedPlantCode ? `${sale.extractedPlantCode}${bundleSuffix}` : `${fallbackId}-${uid().toUpperCase()}`;
         return {
           id: uid(),
           plantId: code,
@@ -24498,6 +24622,18 @@ Cancel if you want to save money.`);
         return keys.has(compactKey(built1)) || keys.has(compactKey(built2));
       };
 
+      const expandSaleToMatchedUnits = sale => {
+        const qty = saleQuantityForImport(sale);
+        const matches = (Array.isArray(sale.bundleMatches) && sale.bundleMatches.length ? sale.bundleMatches : (sale.matched ? [sale.matched] : [])).filter(Boolean).slice(0, qty);
+        return matches.map((plant, idx) => ({ ...unitizeBundleSale(sale, idx), matched: plant, bundleMatchedPlantId: plant.plantId || plant.id }));
+      };
+      const expandSaleToMissingUnits = sale => {
+        const qty = saleQuantityForImport(sale);
+        const matches = (Array.isArray(sale.bundleMatches) && sale.bundleMatches.length ? sale.bundleMatches : (sale.matched ? [sale.matched] : [])).filter(Boolean).slice(0, qty);
+        const missing = Math.max(0, qty - matches.length);
+        return Array.from({ length:missing }, (_, i) => ({ ...unitizeBundleSale(sale, matches.length + i), matched:null, bundleMissingUnit:true }));
+      };
+
       const applyImport = () => {
         setImportMsg("Preparing full import. Large Palmstreet files may take a moment to save to Supabase in batches...");
 
@@ -24560,11 +24696,11 @@ Cancel if you want to save money.`);
           return;
         }
 
-        const matchedSales = selected.filter(r => r.matched);
-        const unmatchedSales = selected.filter(r => !r.matched);
+        const matchedSales = selected.flatMap(expandSaleToMatchedUnits);
+        const unmatchedSales = selected.flatMap(expandSaleToMissingUnits);
         const activeImportPlatform = selected[0]?.platform || matched[0]?.platform || platform;
         if (importMode === "exact" && unmatchedSales.length) {
-          setImportMsg(`Import stopped: Exact Inventory Match Only is on, but ${unmatchedSales.length} sale row(s) are not matched to current inventory. Match them manually or switch to Historical Import - Save Unmatched.`);
+          setImportMsg(`Import stopped: Exact Inventory Match Only is on, but ${unmatchedSales.length} inventory unit(s) from bundle/show rows are not matched to current inventory. Match them manually or switch to Historical Import - Save Unmatched.`);
           return;
         }
 
@@ -24732,7 +24868,7 @@ Cancel if you want to save money.`);
           try {
             const importPlatformForDocs = activeImportPlatform || platform;
             if (String(importPlatformForDocs || "").toLowerCase() !== "whatnot") return;
-            const allApplied = selected.map(s => ({
+            const allApplied = commissionableSales.map(s => ({
               ...s,
               platform: importPlatformForDocs,
               customerState: s.customerState||s.buyerState||s.state||"",
@@ -24784,8 +24920,8 @@ Cancel if you want to save money.`);
       };
 
       const totalRev = matched.filter(r => r.apply && !r.duplicate).reduce((s, r) => s + (+r.price || 0), 0);
-      const matched_count = matched.filter(r => r.apply && !r.duplicate && r.matched).length;
-      const unmatched_count = matched.filter(r => r.apply && !r.duplicate && !r.matched).length;
+      const matched_count = matched.filter(r => r.apply && !r.duplicate).reduce((sum, r) => sum + (r.bundleMatchCount || (r.matched ? 1 : 0)), 0);
+      const unmatched_count = matched.filter(r => r.apply && !r.duplicate).reduce((sum, r) => sum + (r.bundleMissingCount ?? (!r.matched ? 1 : 0)), 0);
       const duplicate_count = matched.filter(r => r.duplicate).length;
       const applied_count = matched.filter(r => r.apply && !r.duplicate).length;
 
@@ -24857,12 +24993,13 @@ Cancel if you want to save money.`);
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.g900 }}>{r.title}</div>
                   <div style={{ fontSize: 12, color: C.tx3 }}>Order {r.orderNo || "—"}{r.shipmentId ? ` · Shipment ${r.shipmentId}` : ""} · {r.state || "No state"} · {String(r.orderDate || "").slice(0, 10)}</div>
                   {r.extractedPlantCode && <div style={{ fontSize: 11, color: C.blue, marginTop: 2 }}>Code found: {r.extractedPlantCode}</div>}
+                  {(r.bundleQuantity || r.quantity || 1) > 1 && <div style={{ fontSize: 11, color: r.bundleMissingCount ? C.amber : C.g600, marginTop: 2, fontWeight: 800 }}>🧺 Bundle qty {r.bundleQuantity || r.quantity}: {r.bundleMatchCount || 0}/{r.bundleQuantity || r.quantity} inventory plants will be removed{r.bundleMissingCount ? ` · ${r.bundleMissingCount} missing / needs review` : ""}</div>}
                   {r.duplicate && <div style={{ fontSize: 11, color: C.red, marginTop: 2 }}>🚫 Duplicate detected — this order row was already imported and will be skipped.</div>}
-                  {!r.duplicate && r.matched && <div style={{ fontSize: 11, color: C.g600, marginTop: 2 }}>✅ Matched → {r.matched.name} ({r.matched.plantId})</div>}
+                  {!r.duplicate && r.matched && <div style={{ fontSize: 11, color: C.g600, marginTop: 2 }}>✅ Matched → {(r.bundleMatches || [r.matched]).map(p => `${p.name} (${p.plantId})`).join(", ")}</div>}
                   {!r.duplicate && !r.matched && <div style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>⚠️ No CURRENT in-stock inventory match — will create a sold record and flag for review. Old sold/dead records with the same number will not be overwritten.</div>}
                 </div>
                 <Row gap={8} center>
-                  <span style={{ fontWeight: 700, color: C.g700, fontSize: 16 }}>{$(r.price)}</span>
+                  <span style={{ fontWeight: 700, color: C.g700, fontSize: 16 }}>{$(r.price)}{(r.bundleQuantity || r.quantity || 1) > 1 ? ` ÷ ${r.bundleQuantity || r.quantity}` : ""}</span>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                     <input type="checkbox" checked={!!r.apply} disabled={!!r.duplicate} onChange={() => toggleApply(r._id)} style={{ width: 18, height: 18, accentColor: C.g700 }} />
                     <span style={{ fontSize: 11, color: r.duplicate ? C.red : C.tx3 }}>{r.duplicate ? "Skipped" : "Import"}</span>
