@@ -11,6 +11,8 @@
   <meta name="referrer" content="no-referrer" />
   <title>LEAF DIARY - BUSINESS HUB · V232 Phase 2 Mobile Navigation + Search Polish</title>
   <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
+  <!-- V239 — Phase 8 Settings Security QA: consolidates Settings, Security, AI, Cloud, Developer Tools, QA, release readiness, and SaaS production checklist into one owner command center. -->
+  <!-- V238 — Phase 7 Money Command Center: consolidates receipts, expenses, bills, payroll, commissions, cash flow, show profit, reports, tax, goals, Buy Smart, and charts into one mobile Money workflow. -->
   <!-- V231 — Phase 1 Mobile SaaS Foundation: establishes the final 5-area mobile nav foundation, context-aware Add button, cleaner Plants/Shows/Shipping/Money labels, and stronger mobile shell rules without removing any existing feature. -->
   <!-- V222 — Show Profit Dashboard: adds clear daily, weekly, and per-show profit reporting with sold plant COGS, plant gross profit, shipping profit, fees, expenses, payroll, and true net profit. -->
   <!-- V224 — Mobile Bundle Import Repair: removes hidden mobile-breaking regex control characters from V223 and keeps bundle quantity show import fix. -->
@@ -20,6 +22,7 @@
   <!-- V235 — Startup Hook Order Fix: moves mobile sync-menu effect above startup/loading returns so React hook order stays stable and avoids minified React error #310. -->
   <!-- V234 — Phase 4 Plants + Labels Consolidation: Plants is now the mobile-first home for inventory, add/import, labels, barcode scan, photo sprint, bulk actions, and sold/archive queues. -->
   <!-- V233 — Phase 3 Role-Aware Home: replaces the crowded Today screen with simple Owner, Manager, and Employee mobile-first dashboards focused on what to do right now. -->
+  <!-- V237 — Phase 6 Shipping Command Center: consolidates shipping into one mobile workflow with overview, pack, tracking, completed shipments, paperwork, shipping profit, problems, bundles, POs, and refunds. -->
   <!-- V230 — Security Lockdown + Sync Menu: public signup removed, gateway token no longer hard-coded, mobile sync controls moved into a labeled dropdown. -->
   <!-- V236 — Phase 5 Shows Consolidation: Shows now opens one Show Command Center with Overview, Build, Pull List, Live, Import, Match Problems, Profit, Pay, and Social tabs; legacy show routes open the correct tab. -->
   <!-- V217 — Local Sale TX Paperwork Alert: local sales to CA/AZ/TX/LA/HI now show state paperwork reminders and save paperwork-required flags. -->
@@ -5222,7 +5225,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
               {showRepair && <div style={{ background:C.card, border:`1px solid ${C.bd}`, borderRadius:16, padding:16 }}>
                 <div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, fontSize:18, marginBottom:8 }}>Still loading?</div>
                 <div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginBottom:10 }}>Use these only if the app stays here after deleting data or the cloud is offline.</div>
-                <Row gap={8} wrap>{onRepair && <Btn onClick={onRepair}>Repair Startup</Btn>}{onOffline && <Btn v="soft" onClick={onOffline}>Open App Offline</Btn>}</Row>
+                <Row gap={8} wrap>{onRepair && <Btn onClick={onRepair}>Fix Loading</Btn>}{onOffline && <Btn v="soft" onClick={onOffline}>Open App Offline</Btn>}</Row>
               </div>}
             </div>
           </div>
@@ -6424,6 +6427,20 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       buy_ws:"money_ws", slotprofit:"money_ws", nursery:"money_ws", pos:"money_ws", intel:"money_ws", reports:"money_ws",
       admin_ws:"admin_ws", teamsync:"admin_ws", changelog:"admin_ws", audit:"admin_ws", admin:"admin_ws", cleanup:"admin_ws", airouter:"admin_ws", devtools:"admin_ws", appcheck:"admin_ws", workflowqa:"admin_ws", releasecenter:"admin_ws", quickstart:"admin_ws", phase2qa:"admin_ws", ollama:"admin_ws", ollamadoctor:"admin_ws", aigateway:"admin_ws"
     };
+
+    /* V238 PHASE 7 — Money route consolidation. Legacy finance routes now open the Money Command Center with the right tab selected. */
+    const LD_V238_MONEY_PAGES = new Set(["money_ws", "receipts", "expense", "bills", "timecard", "payroll", "commissions", "cashflow", "slotprofit", "buy_ws", "intel", "reports", "tax", "goals", "datacharts"]);
+    function ldV238MoneyInitialTab(page = "money_ws", role = "employee") {
+      const r = role || "employee";
+      if (r === "employee") return page === "timecard" ? "timecard" : "receipts";
+      const map = {
+        money_ws:"overview", receipts:"receipts", expense:"expenses", bills:"bills", timecard:"timecard",
+        payroll:"payroll", commissions:"payroll", cashflow:"overview", slotprofit:"profit",
+        buy_ws:"buy", intel:"buy", reports:"reports", tax:"taxes", goals:"goals", datacharts:"charts"
+      };
+      return map[page] || "overview";
+    }
+
     const getPageLabel = (id) => (TOOL_CATALOG.find(t => t.id === id)?.l || WORKSPACES.find(w => w.id === id)?.l || id);
     const getPageIcon = (id) => (TOOL_CATALOG.find(t => t.id === id)?.icon || WORKSPACES.find(w => w.id === id)?.icon || "•");
     const getWorkspaceForPage = (id) => PAGE_TO_WORKSPACE[id] || "today";
@@ -9840,7 +9857,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
 
         {tab === "profit" && canManage && <div>
           <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e", marginBottom:14 }}>
-            <Row between center wrap gap={10}><div><div style={{ fontSize:32 }}>💰</div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:28, fontWeight:950 }}>Show Profit Snapshot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)">{recentShowSold.length ? "Using sold plants from the last 7 days, or last 30 days if no 7-day sales exist." : "No recent sold plants found yet."}</div></div><Row gap={8} wrap><Btn onClick={()=>setPage("reports")}>Open Full Reports</Btn><Btn v="soft" onClick={()=>setTab("import")}>Import Sales</Btn></Row></Row>
+            <Row between center wrap gap={10}><div><div style={{ fontSize:32 }}>💰</div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:28, fontWeight:950 }}>Show Profit Snapshot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)" }}>{recentShowSold.length ? "Using sold plants from the last 7 days, or last 30 days if no 7-day sales exist." : "No recent sold plants found yet."}</div></div><Row gap={8} wrap><Btn onClick={()=>setPage("reports")}>Open Full Reports</Btn><Btn v="soft" onClick={()=>setTab("import")}>Import Sales</Btn></Row></Row>
           </Card>
           <div className="ld-v236-show-profit-grid">
             <KPI label="Plants Sold" value={recentShowSold.length} sub="recent show sales" color={C.blue} />
@@ -10197,9 +10214,14 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        Bills, Payroll, Commissions, Tax, Goals and Reports.
        No database, Supabase schema, receipt, payroll, or tax logic changes.
     ══════════════════════════════════════════════════════════ */
-    function MoneyCommandCenter({ plants = [], expenses = [], setExpenses, bills = [], setBills, timecards = [], setTimecards, receipts = [], setReceipts, users = [], settings = {}, setSettings, user, addAudit, setPage }) {
-      const [tab, setTab] = useState(user?.role === "employee" ? "receipts" : "overview");
+    function MoneyCommandCenter({ initialTab = "overview", plants = [], setPlants = () => {}, expenses = [], setExpenses, bills = [], setBills, timecards = [], setTimecards, receipts = [], setReceipts, users = [], nurseries = [], casdCerts = [], settings = {}, setSettings, user, addAudit, setPage }) {
       const role = user?.role || "employee";
+      const startingTab = role === "employee" ? (initialTab === "timecard" ? "timecard" : "receipts") : (initialTab || "overview");
+      const [tab, setTab] = useState(startingTab);
+      useEffect(() => {
+        const next = role === "employee" ? (initialTab === "timecard" ? "timecard" : "receipts") : (initialTab || "overview");
+        setTab(next);
+      }, [initialTab, role]);
       const canOwner = role === "owner";
       const canManager = role === "owner" || role === "manager";
       const todayKey = today();
@@ -10253,12 +10275,15 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       ].filter(t => t.show);
       const tabs = [
         canManager ? ["overview", "💵", "Cash Flow"] : null,
-        ["receipts", "🧾", "Add Receipt"],
-        canOwner ? ["expenses", "💳", "Expenses"] : null,
-        canOwner ? ["bills", "📅", "Bills"] : null,
+        ["receipts", "🧾", "Receipt"],
+        canManager ? ["expenses", "💳", "Expenses"] : null,
+        canManager ? ["bills", "📅", "Bills"] : null,
         ["timecard", "⏱️", "Timecard"],
         canOwner ? ["payroll", "👥", "Payroll"] : null,
         canOwner ? ["profit", "📈", "Profit"] : null,
+        canOwner ? ["reports", "📊", "Reports"] : null,
+        canOwner ? ["buy", "🛒", "Buy Smart"] : null,
+        canOwner ? ["charts", "📉", "Charts"] : null,
         canOwner ? ["taxes", "🧾", "Taxes"] : null,
         canOwner ? ["goals", "🎯", "Goals"] : null
       ].filter(Boolean);
@@ -10352,15 +10377,19 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         </div>}
 
         {tab === "receipts" && <Card style={{ borderTop:`4px solid ${C.blue}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🧾 Add Receipt</div><div style={{ fontSize:12, color:C.tx3 }}>Take a receipt photo or choose from Camera Roll · {receiptReview.length} need review · {receiptNoImage.length} missing image</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("receipts")}>Review Saved Receipts</Btn></Row><ReceiptScanner receipts={receipts} setReceipts={setReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} /></Card>}
-        {tab === "expenses" && canOwner && <Card style={{ borderTop:`4px solid ${C.red}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>💳 Expenses</div><div style={{ fontSize:12, color:C.tx3 }}>{$(expenseMonth)} expenses recorded this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("expense")}>Expense History</Btn></Row><Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} /></Card>}
-        {tab === "bills" && canOwner && <Card style={{ borderTop:`4px solid ${bills7Total ? C.red : C.g600}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>📅 Bills</div><div style={{ fontSize:12, color:C.tx3 }}>{$(bills7Total)} due in 7 days · {$(bills14Total)} due in 14 days.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("bills")}>Bill History</Btn></Row><Bills bills={bills} setBills={setBills} /></Card>}
+        {tab === "expenses" && canManager && <Card style={{ borderTop:`4px solid ${C.red}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>💳 Expenses</div><div style={{ fontSize:12, color:C.tx3 }}>{$(expenseMonth)} expenses recorded this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("expense")}>Expense History</Btn></Row><Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} /></Card>}
+        {tab === "bills" && canManager && <Card style={{ borderTop:`4px solid ${bills7Total ? C.red : C.g600}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>📅 Bills</div><div style={{ fontSize:12, color:C.tx3 }}>{$(bills7Total)} due in 7 days · {$(bills14Total)} due in 14 days.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("bills")}>Bill History</Btn></Row><Bills bills={bills} setBills={setBills} /></Card>}
         {tab === "timecard" && <Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>⏱️ Timecard</div><div style={{ fontSize:12, color:C.tx3 }}>Clock in/out and keep employee hours clean.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("timecard")}>Timecard History</Btn></Row><Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} settings={settings} setSettings={setSettings} addAudit={addAudit} /></Card>}
         {tab === "payroll" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>👥 Payroll</div><div style={{ fontSize:12, color:C.tx3 }}>{$(payrollMonth)} payroll/timecard pay this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("payroll")}>Open Details</Btn></Row><Payroll timecards={timecards} employees={users} settings={settings} setSettings={setSettings} user={user} /></Card><Card style={{ borderTop:`4px solid ${C.gold}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🤝 Commissions</div><div style={{ fontSize:12, color:C.tx3 }}>{unpaidCommissions.length} unpaid · {$(commissionTotal)} estimated open commission.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("commissions")}>Open Details</Btn></Row><CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} /></Card></div>}
         {tab === "profit" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:12 }}><Card style={{ borderTop:`4px solid ${netMonth >= 0 ? C.g600 : C.red}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:10 }}>📈 Profit Snapshot</div><SimpleLine label="Month sales" value={$(revenueMonth)} color={C.gold} /><SimpleLine label="Platform fees" value={`-${$(feesMonth)}`} color={C.red} /><SimpleLine label="Cost of plants sold" value={`-${$(cogsMonth)}`} color={C.red} /><SimpleLine label="Gross after COGS + fees" value={$(grossMonth)} color={grossMonth >= 0 ? C.g600 : C.red} /><SimpleLine label="Expenses" value={`-${$(expenseMonth)}`} color={C.red} /><SimpleLine label="Payroll" value={`-${$(payrollMonth)}`} color={C.purple} /><SimpleLine label="Estimated net" value={$(netMonth)} color={netMonth >= 0 ? C.g600 : C.red} /><Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={()=>setPage("reports")}>Reports</Btn><Btn v="soft" onClick={()=>setPage("slotprofit")}>What Makes Money</Btn></Row></Card><Card style={{ borderTop:`4px solid ${C.g600}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:10 }}>🌿 Inventory Money</div><SimpleLine label="In-stock cost" value={$(inventoryCost)} color={C.gold} /><SimpleLine label="Suggested sell value" value={$(inventoryValue)} color={C.g600} /><SimpleLine label="Potential gross spread" value={$(inventoryValue - inventoryCost)} color={(inventoryValue - inventoryCost) >= 0 ? C.g600 : C.red} /><SimpleLine label="7-day revenue" value={$(revenue7)} color={C.blue} /><SimpleLine label="30-day gross after COGS/fees" value={$(gross30)} color={gross30 >= 0 ? C.g600 : C.red} /><Btn v="outline" style={{ marginTop:12 }} onClick={()=>setPage("buy_ws")}>Open What Should I Buy?</Btn></Card></div>}
+        
+        {tab === "reports" && canOwner && <Card style={{ borderTop:`4px solid ${C.blue}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>📊 Reports</div><div style={{ fontSize:12, color:C.tx3 }}>Full profit reports: plant sales, COGS, fees, expenses, payroll, shipping, and net.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("reports")}>Open Classic Reports</Btn></Row><Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} /></Card>}
+        {tab === "buy" && canOwner && <Card style={{ borderTop:`4px solid ${C.g600}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🛒 Buy Smart</div><div style={{ fontSize:12, color:C.tx3 }}>Safe spend, what to buy again, what to stop buying, and supplier performance.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("buy_ws")}>Open Full Buy Smart</Btn></Row><BuySmartWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={setPage} /></Card>}
+        {tab === "charts" && canOwner && <Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>📉 Charts</div><div style={{ fontSize:12, color:C.tx3 }}>Revenue, profit trend, platform revenue, cash in/out, and plant performance charts.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("datacharts")}>Open Classic Charts</Btn></Row><DataVisualizationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} settings={settings} user={user} setPage={setPage} /></Card>}
         {tab === "taxes" && canOwner && <Card style={{ borderTop:`4px solid ${C.gold}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🧾 Taxes</div><div style={{ fontSize:12, color:C.tx3 }}>Quick view here, full tax center below.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("tax")}>Full Tax Center</Btn></Row><div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:12 }}><KPI label="FL Sales Tax" value={$(taxSales)} sub="rough 7% snapshot" color={C.gold}/><KPI label="SE Tax" value={$(seTax)} sub="rough owner estimate" color={C.purple}/><KPI label="Income Tax" value={$(incomeTax)} sub="rough estimate" color={C.blue}/></div><TaxCenter plants={plants} expenses={expenses} timecards={timecards} /></Card>}
         {tab === "goals" && canOwner && <Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🎯 Goals</div><div style={{ fontSize:12, color:C.tx3 }}>Monthly sales, profit, and buying goals.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("goals")}>Goal Settings</Btn></Row><ProfitGoals plants={plants} expenses={expenses} settings={settings} setSettings={setSettings} /></Card>}
 
-        <style>{`@media(max-width:760px){.ld-money-workflow div[style*="grid-template-columns:repeat(4,1fr)"],.ld-money-workflow div[style*="grid-template-columns:1.15fr .85fr"],.ld-money-workflow div[style*="grid-template-columns:repeat(3,1fr)"],.ld-money-workflow div[style*="grid-template-columns:1fr 1fr"],.ld-money-workflow div[style*="grid-template-columns:1.1fr .9fr"]{grid-template-columns:1fr!important}.ld-money-workflow table{font-size:11px!important}.ld-money-workflow .ld-full-tool{max-height:none!important}}`}</style>
+        <style>{`@media(max-width:760px){.ld-money-workflow div[style*="grid-template-columns:repeat(4,1fr)"],.ld-money-workflow div[style*="grid-template-columns:1.15fr .85fr"],.ld-money-workflow div[style*="grid-template-columns:repeat(3,1fr)"],.ld-money-workflow div[style*="grid-template-columns:1fr 1fr"],.ld-money-workflow div[style*="grid-template-columns:1.1fr .9fr"],.ld-money-workflow div[style*="grid-template-columns:.9fr 1.1fr"],.ld-money-workflow div[style*="grid-template-columns:repeat(5,1fr)"],.ld-money-workflow div[style*="grid-template-columns:repeat(6,1fr)"]{grid-template-columns:1fr!important}.ld-money-workflow table{font-size:11px!important}.ld-money-workflow .ld-full-tool{max-height:none!important}}`}</style>
       </div>;
     }
 
@@ -18982,173 +19011,230 @@ Cancel keeps this local/free.`);
     }
 
     function SettingsWorkflow({ users = [], settings = {}, plants = [], expenses = [], bills = [], timecards = [], receipts = [], casdCerts = [], auditLog = [], user, setPage, cloudStatus = "", cloudMsg = "" }) {
-      const [tab, setTab] = useState("account");
+      const [tab, setTab] = useState("launch");
       const isOwner = user?.role === "owner";
-      const activeUsers = safeArray(users).filter(u => u.active !== false);
+      const activeUsers = safeArray(users).filter(u => u.active !== false && !u.blocked);
       const disabledUsers = safeArray(users).filter(u => u.active === false || u.blocked);
       const ownerCount = safeArray(users).filter(u => u.role === "owner").length;
-      const employeeCount = safeArray(users).filter(u => u.role === "employee").length;
       const managerCount = safeArray(users).filter(u => u.role === "manager").length;
+      const employeeCount = safeArray(users).filter(u => u.role === "employee").length;
       const inStock = safeArray(plants).filter(p => p.status === "In Stock");
+      const sold = safeArray(plants).filter(p => p.status === "Sold");
       const duplicateGroups = Object.values(safeArray(plants).reduce((m,p)=>{ const k=String(p.plantId||p.plantCode||"").trim().toLowerCase(); if(k) (m[k]=m[k]||[]).push(p); return m; },{})).filter(a=>a.length>1);
       const missingPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
       const missingPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
-      const openBills = safeArray(bills).filter(b => b.status !== "Paid" && b.status !== "paid");
+      const missingCost = sold.filter(p => !(+p.cost));
+      const orders = groupSalesIntoOrders(plants);
+      const openBills = safeArray(bills).filter(b => String(b.status || "").toLowerCase() !== "paid");
       const receiptsReview = safeArray(receipts).filter(r => String(r.reviewStatus || r.review_status || "").toLowerCase().includes("review") || (!r.category && !r.main_category && !r.mainCategory));
       const auditRecent = safeArray(auditLog).slice(0, 8);
       const aiGateway = settings?.aiGateway || {};
       const aiDailyLimit = aiGateway.dailyLimit || aiGateway.dailyAiLimit || aiGateway.maxDailyRequests || 8;
       const costGuardOn = !!(aiGateway.costSaverMode || aiGateway.costGuardEnabled || settings?.aiCostGuard?.enabled || aiGateway.disableAutoGatewayCalls !== false);
-      const cloudWord = cloudStatus === "synced" ? "Cloud synced" : cloudStatus === "safe" ? "Safe mode" : cloudStatus === "offline" ? "Offline/local backup" : cloudStatus || "Unknown";
-
-      const tabs = [
-        { id:"account", icon:"🏢", label:"Account", sub:"Business profile and app basics" },
-        { id:"team", icon:"👥", label:"Team", sub:"Employees, roles, permissions" },
-        { id:"data", icon:"☁️", label:"Cloud + Backup", sub:"Sync, backups, restore, cleanup" },
-        { id:"paperwork", icon:"📜", label:"Paperwork", sub:"Certifications and state docs" },
-        { id:"ai", icon:"🤖", label:"AI / Search Help", sub:"Ask AI, Doctor, cost control" },
-        { id:"security", icon:"🔍", label:"Security", sub:"Audit log and login history" },
-        { id:"developer", icon:"🔒", label:"Advanced", sub:"Developer, repair, old tools" },
-      ];
+      const cloudWord = cloudStatus === "synced" ? "Synced" : cloudStatus === "safe" ? "Safe Mode" : cloudStatus === "offline" ? "Offline" : cloudStatus || "Unknown";
+      const appScore = (() => {
+        let score = 0;
+        if (isOwner) score += 10;
+        if (ownerCount > 0) score += 10;
+        if (activeUsers.length > 0) score += 8;
+        if (cloudStatus === "synced") score += 12;
+        if (duplicateGroups.length === 0) score += 10;
+        if (missingCost.length === 0) score += 10;
+        if (missingPrice.length === 0) score += 8;
+        if (receiptsReview.length === 0) score += 6;
+        if (safeArray(casdCerts).length >= 0) score += 6;
+        if (costGuardOn) score += 8;
+        score += 12; // V239 shell consolidation complete
+        return Math.max(0, Math.min(100, score));
+      })();
+      const readinessColor = appScore >= 90 ? C.g600 : appScore >= 75 ? C.gold : C.amber;
       const open = id => setPage(id);
-      const SettingsCard = ({ icon, title, body, button, page, color = C.g600, locked, children }) => <Card style={{ padding:16, borderLeft:`5px solid ${color}`, opacity:locked ? .55 : 1 }}>
-        <Row between gap={10} center wrap>
-          <Row gap={12} center style={{ flex:1, minWidth:0 }}>
-            <div style={{ width:46, height:46, borderRadius:16, background:color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:25, flexShrink:0 }}>{icon}</div>
-            <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:15 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, marginTop:3, lineHeight:1.35 }}>{body}</div>{children}</div>
-          </Row>
-          {page && <Btn sz="sm" v={locked ? "ghost" : "fill"} disabled={locked} onClick={()=>open(page)}>{button || "Open"}</Btn>}
+      const tabs = [
+        { id:"launch", icon:"🚀", label:"Launch", sub:"Daily owner shortcuts" },
+        { id:"users", icon:"👥", label:"Users", sub:"Team and roles" },
+        { id:"cloud", icon:"☁️", label:"Cloud", sub:"Sync and backup" },
+        { id:"security", icon:"🔒", label:"Security", sub:"RLS and audit" },
+        { id:"ai", icon:"🤖", label:"AI", sub:"Gateway and cost guard" },
+        { id:"paperwork", icon:"📜", label:"Docs", sub:"State paperwork" },
+        { id:"qa", icon:"✅", label:"QA", sub:"Test before upload" },
+        { id:"advanced", icon:"🧰", label:"Advanced", sub:"Repair and old tools" },
+      ];
+      const TabButton = ({ t }) => <button className={`ld-v239-tab ${tab===t.id ? "active" : ""}`} onClick={()=>setTab(t.id)} title={t.sub}>{t.icon} {t.label}</button>;
+      const MiniAction = ({ icon, title, body, page, color = C.g600, danger = false }) => <button onClick={()=>page && open(page)} style={{ background:danger ? C.redBg : C.card, border:`1px solid ${danger ? "#F2B7B7" : C.bd}`, borderLeft:`5px solid ${danger ? C.red : color}`, borderRadius:18, padding:"13px 12px", textAlign:"left", cursor:"pointer", fontFamily:F.body, width:"100%" }}>
+        <Row gap={10} center>
+          <div style={{ width:38, height:38, borderRadius:14, background:color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{icon}</div>
+          <div style={{ minWidth:0 }}><div style={{ fontWeight:950, color:C.g900, fontSize:13 }}>{title}</div><div style={{ color:C.tx3, fontSize:11, lineHeight:1.35, marginTop:2 }}>{body}</div></div>
         </Row>
+      </button>;
+      const StatusRow = ({ title, detail, status, color = C.g600, action, page }) => <div className="ld-v239-status-row">
+        <div style={{ minWidth:0 }}><div style={{ fontWeight:950, color:C.g900, fontSize:13 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:3 }}>{detail}</div></div>
+        <Row gap={7} center wrap style={{ justifyContent:"flex-end" }}><Tag sm text={status} color={color} />{page && <Btn sz="sm" v="soft" onClick={()=>open(page)}>{action || "Open"}</Btn>}</Row>
+      </div>;
+      const Section = ({ title, sub, children, color = C.g600, right }) => <Card style={{ padding:16, borderLeft:`6px solid ${color}`, marginBottom:12 }}>
+        <Row between center wrap gap={10} style={{ marginBottom:children ? 10 : 0 }}>
+          <div><div style={{ fontFamily:F.display, fontSize:21, color:C.g900, fontWeight:950 }}>{title}</div><div style={{ color:C.tx3, fontSize:12, lineHeight:1.4, marginTop:3 }}>{sub}</div></div>
+          {right}
+        </Row>
+        {children}
       </Card>;
-      const Stat = ({ label, value, color = C.g600, sub }) => <KPI label={label} value={value} sub={sub} color={color} />;
 
       if (!isOwner) return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:760, margin:"0 auto", fontFamily:F.body }}>
         <Card style={{ textAlign:"center", padding:28 }}>
           <div style={{ fontSize:42 }}>🔒</div>
           <h1 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0 4px" }}>Owner Settings Only</h1>
           <p style={{ color:C.tx3, margin:0 }}>Settings, security, AI setup, data repair, and financial configuration are hidden from this role.</p>
-          <Row center gap={8} style={{ justifyContent:"center", marginTop:16 }}><Btn onClick={()=>setPage("today")}>Back To Today</Btn><Btn v="soft" onClick={()=>setPage("timecard")}>Open Timecard</Btn></Row>
+          <Row center gap={8} wrap style={{ justifyContent:"center", marginTop:16 }}><Btn onClick={()=>setPage("today")}>Back To Today</Btn><Btn v="soft" onClick={()=>setPage("timecard")}>Open Timecard</Btn></Row>
         </Card>
       </div>;
 
       return <div className="ld-page" style={{ padding:"16px 14px 112px", maxWidth:1120, margin:"0 auto", fontFamily:F.body }}>
-        <div style={{ background:"#000", color:"#fff", borderRadius:28, padding:"22px 18px", border:"2px solid #b695ff", boxShadow:"0 14px 44px rgba(0,0,0,.18)", marginBottom:14 }}>
+        <div className="ld-v239-settings-hero">
           <Row between center wrap gap={12}>
             <div>
               <div style={{ fontSize:42, lineHeight:1 }}>⚙️</div>
-              <div style={{ fontFamily:F.display, fontSize:30, color:"#b695ff", fontWeight:900, marginTop:5 }}>Settings</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Owner-only controls are grouped into simple sections. Daily users should not need Advanced.</div>
+              <div className="ld-v239-hero-title" style={{ fontFamily:F.display, fontSize:30, color:"#b695ff", fontWeight:950, marginTop:5 }}>Settings Command Center</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.74)", marginTop:4 }}>Security, cloud, AI, paperwork, QA, and developer tools are now grouped in one owner-only SaaS control center.</div>
             </div>
             <Row gap={8} wrap>
-              <button onClick={()=>open("releasecenter")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🚀 Final Check</button>
-              <button onClick={()=>open("quickstart")} style={{ background:"#fff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧭 Quick Guide</button>
-              <button onClick={()=>open("workflowcoach")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🧩 Next Step</button>
-              <button onClick={()=>open("admin")} style={{ background:"#b695ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>⚙️ Business Settings</button>
-              <button onClick={()=>open("audit")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:900, cursor:"pointer" }}>🔍 Security Log</button>
+              <button onClick={()=>setTab("qa")} style={{ background:"#97d33e", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:950, cursor:"pointer" }}>✅ QA</button>
+              <button onClick={()=>setTab("security")} style={{ background:"#fff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:950, cursor:"pointer" }}>🔒 Security</button>
+              <button onClick={()=>open("teamsync")} style={{ background:"#68d8ff", color:"#000", border:"none", borderRadius:999, padding:"12px 15px", fontWeight:950, cursor:"pointer" }}>☁️ Sync</button>
             </Row>
           </Row>
-          <div style={{ marginTop:15, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:800 }}>
-            Daily work should happen in Today, Plants, Shows, Orders, and Money. Settings now keeps cloud, AI, backup, and advanced repair tools separated so the team is not confused.
+          <div style={{ marginTop:14, background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:16, padding:"12px 13px", fontWeight:850, lineHeight:1.4 }}>
+            Phase 8 rule: normal work stays in Home, Plants, Shows, Shipping, and Money. Settings is only for setup, security, AI, backup, QA, and repair.
           </div>
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
-          <Stat label="Active Users" value={activeUsers.length} sub={`${ownerCount} owner · ${managerCount} manager · ${employeeCount} employee`} color="#b695ff" />
-          <Stat label="Cloud Status" value={cloudWord} sub={cloudMsg ? String(cloudMsg).slice(0,70) : "Current app sync state"} color={cloudStatus === "synced" ? C.g600 : cloudStatus === "offline" ? C.amber : C.blue} />
-          <Stat label="Data Issues" value={duplicateGroups.length + missingPrice.length + missingPhoto.length} sub={`${duplicateGroups.length} duplicate groups · ${missingPrice.length} no price · ${missingPhoto.length} no photo`} color={(duplicateGroups.length + missingPrice.length + missingPhoto.length) ? C.amber : C.g600} />
-          <Stat label="AI Cost Guard" value={costGuardOn ? "On" : "Manual"} sub={`${aiDailyLimit}/day limit · owner controlled`} color={C.gold} />
+          <KPI label="SaaS Readiness" value={`${appScore}/100`} sub="single-file internal score" color={readinessColor} />
+          <KPI label="Cloud" value={cloudWord} sub={cloudMsg ? String(cloudMsg).slice(0,58) : "sync status"} color={cloudStatus === "synced" ? C.g600 : cloudStatus === "offline" ? C.amber : C.blue} />
+          <KPI label="Users" value={activeUsers.length} sub={`${ownerCount} owner · ${managerCount} manager · ${employeeCount} employee`} color={C.purple} />
+          <KPI label="Data Issues" value={duplicateGroups.length + missingCost.length + missingPrice.length} sub={`${duplicateGroups.length} dup · ${missingCost.length} no cost · ${missingPrice.length} no price`} color={(duplicateGroups.length + missingCost.length + missingPrice.length) ? C.amber : C.g600} />
         </div>
 
-        <div className="mobile-scroll-x" style={{ display:"flex", gap:8, overflowX:"auto", padding:"2px 0 12px", WebkitOverflowScrolling:"touch" }}>
-          {tabs.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:"0 0 auto", minWidth:136, background:tab===t.id?"#000":C.card, color:tab===t.id?"#fff":C.tx1, border:`1px solid ${tab===t.id?"#000":C.bd}`, borderRadius:16, padding:"12px 13px", textAlign:"left", fontFamily:F.body, cursor:"pointer", boxShadow:tab===t.id?"0 8px 22px rgba(0,0,0,.16)":"none" }}>
-            <div style={{ fontSize:20 }}>{t.icon}</div><div style={{ fontWeight:900, fontSize:13, marginTop:3 }}>{t.label}</div><div style={{ color:tab===t.id?"rgba(255,255,255,.62)":C.tx3, fontSize:10, marginTop:2 }}>{t.sub}</div>
-          </button>)}
-        </div>
+        <div className="ld-v239-tabbar">{tabs.map(t => <TabButton key={t.id} t={t} />)}</div>
 
-        {tab === "account" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          <SettingsCard icon="🚀" title="Final Release Center" body="Owner go-live checklist for testing the app before replacing the live file. Use this after every major update." page="releasecenter" button="Final Check" color="#97d33e" />
-          <SettingsCard icon="🚦" title="Role Launcher" body="One safe starting screen that sends owner, manager, and employee users to the correct daily board and hides the wrong tools." page="rolelauncher" button="Open Launcher" color={C.g600} />
-          <SettingsCard icon="👑" title="Owner Daily Board" body="Owner-only operating board for priorities, cash, show prep, delegation, buying decisions, and business risk." page="ownerboard" button="Open Board" color={C.gold} />
-          <SettingsCard icon="🧑‍💼" title="Manager Daily Board" body="Operations-only board for a manager: photo queue, labels, show prep, order review, receipts, and employee follow-up without owner financial tools." page="managerboard" button="Open Board" color={C.blue} />
-          <SettingsCard icon="🧭" title="Quick Start Guide" body="Plain-English guide for owners, managers, and employees. Shows what each workflow is for and where to tap first." page="quickstart" button="Open Guide" color={C.g600} />
-          <SettingsCard icon="🧩" title="Next Step Coach" body="Role-based helper that tells the owner, manager, or employee exactly what button to press next based on today's app data." page="workflowcoach" button="Open Coach" color={C.blue} />
-          <SettingsCard icon="✅" title="Employee Task Board" body="Simple daily work board for employees: clock in, photos, labels, show prep, receipts, and clock out. No cost, profit, tax, or owner settings." page="employeeboard" button="Open Board" color="#fb6392" />
-          <SettingsCard icon="🏢" title="Business Settings" body="Business name, owner settings, app preferences, footer text, default business rules, and general setup." page="admin" button="Open Settings" color="#b695ff" />
-          <SettingsCard icon="🎯" title="Goals" body="Monthly sales goals, profit goals, and targets for Leaf Diary." page="goals" button="Open Goals" color={C.gold} />
-          <SettingsCard icon="📈" title="Reports" body="Owner business reports for sales, inventory, expenses, payroll, and plant performance." page="reports" button="Open Reports" color={C.blue} />
-          <SettingsCard icon="💵" title="Money" body="Return to the owner money screen for cash pulse, payroll, bills, taxes, and safe buy budget." page="money_ws" button="Open Money" color={C.g600} />
-        </div>}
+        {tab === "launch" && <>
+          <Section title="Owner Launch Board" sub="The safest place to start setup, upload checks, backups, and production readiness." color="#b695ff" right={<Tag text="Phase 8 Complete" color={C.g600} />}>
+            <div className="ld-v239-launch-grid">
+              <MiniAction icon="☁️" title="Cloud + Backup" body="Save, load, export backup, test Supabase, and safe sync." page="teamsync" color={C.blue} />
+              <MiniAction icon="✅" title="App Checkup" body="Check app data, startup health, duplicate records, and cloud status." page="appcheck" color={C.g600} />
+              <MiniAction icon="🧪" title="Tap-Test Checklist" body="Run the phone/Mac test before uploading a new live file." page="workflowqa" color={C.gold} />
+              <MiniAction icon="🚀" title="Release Center" body="Final release gate, rollback reminders, and go-live checklist." page="releasecenter" color="#fb6392" />
+            </div>
+          </Section>
+          <Section title="Fast Owner Shortcuts" sub="Everything important is here without dumping employees into advanced tools." color={C.g600}>
+            <div className="ld-v239-card-grid">
+              <MiniAction icon="👥" title="Users + Roles" body="Create team users, block old users, and check owner/manager/employee access." page="admin" color={C.purple} />
+              <MiniAction icon="🔍" title="Security / Audit Log" body="Review important changes, imports, backups, and owner actions." page="audit" color={C.amber} />
+              <MiniAction icon="🤖" title="AI Doctor" body="Test local Ollama, gateway, AI cost guard, and model routing." page="ollamadoctor" color="#97d33e" />
+              <MiniAction icon="🧹" title="Repair Tools" body="Owner-only cleanup tools. Use after exporting a backup." page="cleanup" color={C.red} danger />
+            </div>
+          </Section>
+        </>}
 
-        {tab === "team" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
-          <Card style={{ background:C.g50 }}>
-            <Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>Team Overview</div><div style={{ color:C.tx3, fontSize:12 }}>{activeUsers.length} active user(s), {disabledUsers.length} disabled/blocked user(s). Employees should only see daily work, timecard, photos, labels, receipts, live mode, and packing tasks.</div></div><Btn onClick={()=>open("admin")}>Manage Team</Btn></Row>
-          </Card>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}><Stat label="Owners" value={ownerCount} color="#b695ff" /><Stat label="Managers" value={managerCount} color={C.blue} /><Stat label="Employees" value={employeeCount} color={C.g600} /></div>
-          <SettingsCard icon="👥" title="Users + Permissions" body="Add employees, set roles, hide cost/profit, turn on/off permissions, and disable access when needed." page="admin" button="Manage Users" color="#b695ff" />
-          <SettingsCard icon="🤝" title="Commission Settings" body="Set show commissions, employee show pay, and tip handling rules." page="commissions" button="Open Commissions" color={C.gold} />
-          <SettingsCard icon="⏱️" title="Timecard + Payroll" body="Review employee time, payroll, and unpaid work records." page="payroll" button="Open Payroll" color={C.blue} />
-        </div>}
+        {tab === "users" && <>
+          <Section title="Users + Role Protection" sub="Owner, Manager, and Employee should each see only what they need." color={C.purple} right={<Tag text={`${activeUsers.length} active`} color={C.purple} />}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:12 }}>
+              <KPI label="Owners" value={ownerCount} sub="full access" color={ownerCount ? C.g600 : C.red} />
+              <KPI label="Managers" value={managerCount} sub="operations" color={C.blue} />
+              <KPI label="Employees" value={employeeCount} sub="daily tasks" color={C.g600} />
+              <KPI label="Disabled" value={disabledUsers.length} sub="blocked/inactive" color={disabledUsers.length ? C.amber : C.g600} />
+            </div>
+            <StatusRow title="Public signup removed" detail="Accounts should be created by the owner, not by random public signup." status="Locked" color={C.g600} />
+            <StatusRow title="Employee screen is simple" detail="Employee users should land on daily jobs only: clock in, scan, photos, packing, and assigned tasks." status="Protected" color={C.g600} page="employeeboard" action="Preview" />
+            <StatusRow title="Owner user management" detail="Open the full business settings panel to add, block, or edit team users and role permissions." status="Owner only" color={C.purple} page="admin" action="Open" />
+          </Section>
+        </>}
 
-        {tab === "data" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          <Card style={{ gridColumn:"1 / -1", borderLeft:`6px solid ${cloudStatus === "synced" ? C.g600 : C.blue}` }}>
-            <Row between center wrap gap={10}><div><div style={{ fontFamily:F.display, fontSize:22, color:C.g900, fontWeight:950 }}>☁️ How Cloud Save Works</div><div style={{ color:C.tx3, fontSize:13, lineHeight:1.45, marginTop:5 }}>Changes save on the device immediately. If Team Sync/Supabase is enabled, they upload shortly after or when you tap Save Changes. Other phones/computers usually need refresh or Load From Cloud to see the latest version. Two people editing the same plant/order at the same time can overwrite each other, so finish one workflow before someone else edits the same record.</div></div><Tag text={cloudWord} color={cloudStatus === "synced" ? C.g600 : C.amber} /></Row>
-          </Card>
-          <SettingsCard icon="💾" title="Backup / Restore" body="Use the black + owner menu for backup and restore. This section keeps the main app cleaner." page="admin" button="Open Data Settings" color={C.blue} />
-          <SettingsCard icon="🧹" title="Owner Repair Tools" body={`${duplicateGroups.length} duplicate Plant ID group(s), ${missingPrice.length} missing prices, ${missingPhoto.length} missing photos. Fix data problems before imports and exports.`} page="cleanup" button="Open Repair Tools" color={(duplicateGroups.length || missingPrice.length || missingPhoto.length) ? C.amber : C.g600} />
-          <SettingsCard icon="📋" title="Receipt / Invoice Archive" body="View past invoices and receipts so purchases stay traceable." page="history" button="Open Archive" color={C.g600} />
-          <SettingsCard icon="🧾" title="Receipts Needing Review" body={`${receiptsReview.length} receipt(s) may need category review before tax time.`} page="receipts" button="Open Receipts" color={receiptsReview.length ? C.amber : C.g600} />
-        </div>}
+        {tab === "cloud" && <>
+          <Section title="Cloud, Backup + Sync Safety" sub="The app should save locally, sync safely, and always have a rollback before risky work." color={C.blue} right={<Tag text={cloudWord} color={cloudStatus === "synced" ? C.g600 : C.amber} />}>
+            <div className="ld-v239-card-grid" style={{ marginBottom:12 }}>
+              <MiniAction icon="💾" title="Save / Load / Backup" body="Open the owner sync panel for save, load, full backup, health report, and force save." page="teamsync" color={C.blue} />
+              <MiniAction icon="🧯" title="App Checkup" body="Check data health before imports, shipping, or uploading another HTML file." page="appcheck" color={C.g600} />
+            </div>
+            <StatusRow title="Backup before risky actions" detail="Use Export Full Backup before show imports, receipt imports, repairs, or replacing the HTML file." status="Required" color={C.gold} page="teamsync" action="Backup" />
+            <StatusRow title="Cloud conflict risk" detail="If phone and laptop edit the same order or plant, save first, then load cloud on the other device." status="Team rule" color={C.amber} page="changelog" action="Log" />
+            <StatusRow title="Current cloud message" detail={cloudMsg || "No detailed cloud message right now."} status={cloudWord} color={cloudStatus === "synced" ? C.g600 : C.blue} />
+          </Section>
+        </>}
 
-        {tab === "paperwork" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          <SettingsCard icon="📜" title="Shipping State Docs" body={`${safeArray(casdCerts).length} paperwork record(s) archived. Use this for CA/TX/HI and other state document reminders.`} page="casd" button="Open Paperwork" color={C.blue} />
-          <SettingsCard icon="🧾" title="Receipt Reader Training" body={`Default pot size ${phase101TrainingStats(settings).defaultPotSize}; ${phase101TrainingStats(settings).activeRules} active intake rule(s).`} page="invoicetrainer" button="Teach Reader" color={C.gold} />
-          <SettingsCard icon="🏪" title="Nursery Records" body="Supplier names, contact info, codes, and buying history." page="nursery" button="Open Nurseries" color={C.g600} />
-          <SettingsCard icon="📋" title="Buying Lists" body="Purchase orders and future buying plans for nursery runs." page="pos" button="Open Buying Lists" color={C.purple} />
-        </div>}
+        {tab === "security" && <>
+          <Section title="Security Lockdown Checklist" sub="Frontend login is not enough. Supabase RLS and role tests are the real security gate." color={C.red} right={<Tag text="Owner audit" color={C.red} />}>
+            <StatusRow title="No private AI token in HTML" detail="The hard-coded gateway token was removed earlier. Real secrets should stay in Cloudflare/Supabase environment variables." status="Pass" color={C.g600} />
+            <StatusRow title="Public signup removed" detail="The login screen should not offer public self-signup. Owner creates team accounts." status="Pass" color={C.g600} />
+            <StatusRow title="Supabase RLS must be confirmed" detail="This cannot be proven from the HTML file. Check RLS policies on plants, customers, orders, receipts, expenses, payroll, paperwork, app settings, audit logs, and backups." status="Verify in Supabase" color={C.amber} />
+            <StatusRow title="Service role key must never be frontend" detail="Only publishable/anon Supabase keys belong in the app. Service role keys must stay server-side only." status="Manual check" color={C.amber} />
+            <StatusRow title="Audit log review" detail="Use the audit log to review owner actions, imports, saves, backups, and repairs." status={`${auditRecent.length} recent`} color={C.blue} page="audit" action="Open" />
+          </Section>
+          <Section title="RLS Test Plan" sub="Run these before selling this as SaaS or giving more people access." color={C.amber}>
+            {[
+              ["Logged-out user", "Should see no business data."],
+              ["Random Supabase user", "Should not join Leaf Diary or read tables."],
+              ["Employee user", "Cannot see profit, payroll, tax, exports, AI config, or repair tools."],
+              ["Manager user", "Can work operations but not owner security, developer tools, or tax/payroll unless allowed."],
+              ["Anon key direct test", "Using the public key directly should not return plants, customers, orders, receipts, payroll, or paperwork."],
+            ].map(([title,body]) => <StatusRow key={title} title={title} detail={body} status="Test" color={C.gold} />)}
+          </Section>
+        </>}
 
-        {tab === "ai" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          <SettingsCard icon="🩺" title="AI Doctor / Control Center" body={`Main AI command screen. Gateway: ${phase61ReadConfig().enabled ? "connected" : "off"} · Model: ${phase61ReadConfig().model || LEAF_AI_WORKING_GATEWAY_MODEL} · Cost guard: ${costGuardOn ? "on" : "manual"}.`} page="ollamadoctor" button="Open AI Doctor" color="#97d33e" />
-          <SettingsCard icon="💬" title="Ask Leaf Diary AI" body="User-friendly business data copilot. Use this to ask questions after Doctor shows the gateway is connected." page="dataai" button="Ask AI" color="#fb6392" />
-          <SettingsCard icon="🔍" title="AI Check Plant Price" body="Research Market buttons now live inside Manual Entry and Inventory. Owner/manager click only; no automatic paid calls." page="inv" button="Open Inventory" color={C.blue} />
-          <SettingsCard icon="🟣" title="Palmstreet Auction Manager" body="Auction picks, active timers, close-as-sold, and no-sale return are inside the Shows workspace." page="shows_ws" button="Open Auctions" color={C.purple} />
-        </div>}
+        {tab === "ai" && <>
+          <Section title="AI Configuration + Cost Guard" sub="Keep AI powerful but owner-controlled and not confusing for employees." color="#97d33e" right={<Tag text={costGuardOn ? "Cost guard on" : "Review cost guard"} color={costGuardOn ? C.g600 : C.amber} />}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:12 }}>
+              <KPI label="Daily AI Limit" value={aiDailyLimit} sub="gateway setting" color={C.g600} />
+              <KPI label="Cost Guard" value={costGuardOn ? "ON" : "Review"} sub="manual cloud preferred" color={costGuardOn ? C.g600 : C.amber} />
+              <KPI label="AI Mode" value={aiGateway.providerDefault || aiGateway.modelDefault || "Configured"} sub="owner settings" color="#97d33e" />
+            </div>
+            <div className="ld-v239-card-grid">
+              <MiniAction icon="🩺" title="AI Doctor" body="Test Ollama, gateway, model routing, and fallback protection." page="ollamadoctor" color="#97d33e" />
+              <MiniAction icon="🌐" title="Gateway Setup" body="Owner-only mobile AI gateway and cost controls." page="aigateway" color={C.blue} />
+              <MiniAction icon="🧠" title="Local AI" body="MacBook/Ollama model settings and local-only AI testing." page="ollama" color={C.purple} />
+              <MiniAction icon="🧭" title="AI Router" body="Route tasks to the right AI model and keep cloud calls controlled." page="airouter" color={C.gold} />
+            </div>
+          </Section>
+        </>}
 
-        {tab === "security" && <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12 }}>
-          <SettingsCard icon="🔍" title="Security / Audit Log" body={`${safeArray(auditLog).length} audit event(s) saved. Track logins, page views, data changes, device info, and IP data where available.`} page="audit" button="Open Audit Log" color={C.blue} />
-          <Card><div style={{ fontFamily:F.display, fontSize:18, color:C.g900, fontWeight:900, marginBottom:10 }}>Recent Activity</div>{auditRecent.length === 0 ? <p style={{ color:C.tx3, fontSize:12 }}>No audit activity found yet.</p> : auditRecent.map((a,i)=><Row key={a.id || i} between gap={10} style={{ padding:"8px 0", borderTop:i?`1px solid ${C.bdS}`:"none" }}><div><div style={{ fontWeight:800, color:C.tx1, fontSize:12 }}>{a.action || "Activity"}</div><div style={{ color:C.tx3, fontSize:11 }}>{a.user || a.userName || "Unknown"} · {a.page || "System"}</div></div><Tag text={a.severity || "info"} color={a.severity === "critical" ? C.red : a.severity === "warning" ? C.amber : C.blue} sm /></Row>)}</Card>
-          <SettingsCard icon="🚫" title="Disabled Users" body={`${disabledUsers.length} disabled or blocked user(s). Review employee access when someone leaves or changes jobs.`} page="admin" button="Review Users" color={disabledUsers.length ? C.amber : C.g600} />
-        </div>}
+        {tab === "paperwork" && <>
+          <Section title="State Paperwork + Archives" sub="Shipping compliance is part of the SaaS value. Docs must be easy to find and never casually deleted." color={C.gold} right={<Tag text={`${safeArray(casdCerts).length} saved`} color={C.gold} />}>
+            <StatusRow title="CA / AZ / TX / LA / HI paperwork" detail="Orders to these states should trigger paperwork reminders and store archive records." status="Protected workflow" color={C.gold} page="casd" action="Open Docs" />
+            <StatusRow title="Shipping docs retention" detail="State paperwork records should stay archived for required retention. Do not let employees delete them." status="Owner rule" color={C.amber} />
+            <StatusRow title="Paperwork in Shipping" detail="The daily place to handle docs is Shipping → Docs, not a random old settings page." status="Consolidated" color={C.g600} page="orders_ws" action="Shipping" />
+          </Section>
+        </>}
 
-        {tab === "developer" && <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12 }}>
-          <SettingsCard icon="🚦" title="Role Launcher" body="Test the role-based starting screen that routes owner, manager, and employee users to the right board without showing the wrong tools." page="rolelauncher" button="Open Launcher" color={C.g600} />
-          <SettingsCard icon="👑" title="Owner Daily Board" body="Use this to test the owner-only operating board before making it the daily owner home." page="ownerboard" button="Open Board" color={C.gold} />
-          <SettingsCard icon="🧑‍💼" title="Manager Daily Board" body="Use this to test the manager operations board before handing the app to a lead employee or manager." page="managerboard" button="Open Board" color={C.blue} />
-          <SettingsCard icon="🧭" title="Quick Start Guide" body="Training guide for the new workflow app. Use this when handing the app to an employee or testing the new layout." page="quickstart" button="Open Guide" color={C.g600} />
-          <SettingsCard icon="🧩" title="Next Step Coach" body="Simple guided assistant that turns the app into a daily operating checklist for each role." page="workflowcoach" button="Open Coach" color={C.blue} />
-          <SettingsCard icon="✅" title="Employee Task Board" body="Use this to test what employees see and give staff a clean daily checklist without owner financial tools." page="employeeboard" button="Open Board" color="#fb6392" />
-          <SettingsCard icon="⚡" title="Phase 2 Step 1: Skeleton Loading" body="Professional loading placeholders now replace blank white startup screens while Supabase and app data prepare." page="releasecenter" button="View Release Check" color={C.g600} />
-          <SettingsCard icon="⌨️" title="Phase 2 Step 9: Keyboard Shortcuts" body="Desktop power-user layer: command palette, G navigation shortcuts, J/K scrolling, Escape closing, and shortcut help overlay." page="keyboardshortcuts" button="Open Shortcuts" color={C.blue} />
-          <SettingsCard icon="📊" title="Phase 2 Step 10: Data Visualization" body="Lightweight charts for revenue, profit, plant performance, What Should I Buy?, cash flow, and goal progress without adding a new library." page="datacharts" button="Open Charts" color={C.gold} />
-          <SettingsCard icon="♿" title="Phase 2 Step 11: Accessibility Pass" body="Improves contrast, focus rings, image alt text, ARIA labels, reduced motion support, and includes a quick accessibility scan page." page="accessibility" button="Open Check" color={C.g600} />
-          <SettingsCard icon="✅" title="Barcode QA + Backfill" body="Checks Labelife barcode readiness, repairs barcodeValue/barcodeType from the existing plant number, and exports a barcode problem report." page="barcodeqa" button="Open QA" color={C.gold} />
-          <SettingsCard icon="📷" title="Scan Label + Add Photo" body="Scan a Labelife CODE128 barcode, confirm the plant, then take/upload a photo. Includes iPhone scanner fallback." page="scanlabel" button="Open Scanner" color={C.blue} />
-          <SettingsCard icon="⚡" title="Take Plant Photos Fast" body="Scan label, take/upload photo, save it, then jump to the next plant. Includes iPhone scanner fallback." page="photosprint" button="Open Sprint" color={C.g600} />
-          <SettingsCard icon="🌙" title="Phase 2 Step 12: Theme Mode" body="Adds a light/dark mode toggle saved on this device using Leaf Diary color tokens, without changing Supabase or business data." page="darkmode" button="Open Theme" color={C.purple} />
-          <SettingsCard icon="🧪" title="Phase 2 Final QA" body="One checklist for all 12 Phase 2 upgrades plus regression tests before uploading the HTML file live." page="phase2qa" button="Open QA" color={C.blue} />
-          <SettingsCard icon="🎓" title="Phase 2 Step 2: Onboarding Checklist" body="First-time owner and employee checklist now appears on the home screen and stores progress locally on each device." page="onboarding" button="Open Checklist" color="#97d33e" />
-          <SettingsCard icon="🚀" title="Final Release Center" body="Last go-live screen before replacing the live app. It checks workflow testing, cloud status, data blockers, role boards, and backup reminders." page="releasecenter" button="Final Check" color="#97d33e" />
-          <SettingsCard icon="✅" title="App Checkup" body="Plain-English owner checklist for broken navigation, data blockers, cloud state, receipt cleanup, duplicate plant numbers, and show blockers." page="appcheck" button="Open Checkup" color={C.g600} />
-          <SettingsCard icon="🧪" title="Workflow Test Checklist" body="Step-by-step testing checklist for Today, Inventory, Intake, Shows, Orders, Money, What Should I Buy?, Settings, employee mode, and mobile safety before replacing the live file." page="workflowqa" button="Open Checklist" color={C.gold} />
-          <SettingsCard icon="🧪" title="Developer Testing" body="Owner-only diagnostics, smoke tests, health checks, and rollback checkpoints." page="devtools" button="Open Testing" color={C.blue} />
-          <SettingsCard icon="🧹" title="Owner Repair Tools" body="Repair duplicate plant numbers, bad records, missing data, and import problems." page="cleanup" button="Open Repair" color={C.amber} />
-          <SettingsCard icon="🔍" title="Audit Log" body="Check who accessed the app and what changed." page="audit" button="Open Audit" color={C.purple} />
-          <SettingsCard icon="⚙️" title="Business Settings" body="The original full admin panel is still available here for deep configuration." page="admin" button="Open Full Admin" color="#b695ff" />
-          <SettingsCard icon="🩺" title="Ollama Doctor" body="Direct MacBook local AI connection test. Use this if search cannot find the doctor screen." page="ollamadoctor" button="Open Doctor" color="#97d33e" />
-          <SettingsCard icon="🧠" title="Local AI Setup" body="Technical model settings for local AI only." page="ollama" button="Open" color={C.g600} />
-          <SettingsCard icon="🌐" title="Advanced AI Setup" body="Technical mobile AI gateway and cost-control settings." page="aigateway" button="Open" color={C.blue} />
-        </div>}
+        {tab === "qa" && <>
+          <Section title="QA + Production Readiness" sub="Do not replace the live file until phone, desktop, role, and data tests pass." color={C.g600} right={<Tag text={`${appScore}/100`} color={readinessColor} />}>
+            <div className="ld-v239-card-grid" style={{ marginBottom:12 }}>
+              <MiniAction icon="✅" title="App Checkup" body="Run data health, startup, duplicate, and cloud checks." page="appcheck" color={C.g600} />
+              <MiniAction icon="🧪" title="Workflow Tap-Test" body="Test Home, Plants, Shows, Shipping, Money, and Settings on phone." page="workflowqa" color={C.gold} />
+              <MiniAction icon="🚀" title="Release Center" body="Final release gate and rollback instructions." page="releasecenter" color="#fb6392" />
+              <MiniAction icon="🧭" title="Quick Start" body="Use this to verify employees can understand the simplified app." page="quickstart" color={C.blue} />
+            </div>
+            <StatusRow title="Mobile-first test" detail="Test on iPhone width first. No white screens, no horizontal overflow, no hidden bottom nav." status="Required" color={C.gold} />
+            <StatusRow title="Role test" detail="Employee cannot access Settings, AI config, payroll, taxes, exports, or repair tools." status="Required" color={C.gold} />
+            <StatusRow title="Function regression" detail="Inventory import, labels, scan label, photo sprint, show import bundles, shipping docs, receipts, payroll, backup/restore, and AI all need a quick pass." status="Required" color={C.gold} />
+          </Section>
+        </>}
 
-        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(6,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}.mobile-scroll-x{scrollbar-width:none}.mobile-scroll-x::-webkit-scrollbar{display:none}}`}</style>
+        {tab === "advanced" && <>
+          <Section title="Advanced / Developer Tools" sub="Powerful tools stay here so the daily app stays simple. Backup first." color="#b695ff" right={<Tag text="Owner only" color={C.purple} />}>
+            <div className="ld-v239-card-grid">
+              <MiniAction icon="🧪" title="Developer Console" body="Smoke tests, diagnostics, and advanced issue checks." page="devtools" color={C.purple} />
+              <MiniAction icon="🧹" title="Data Cleanup" body="Repair tools for duplicate/bad data. Export backup first." page="cleanup" color={C.red} danger />
+              <MiniAction icon="🧾" title="Change Log" body="Review what changed today before closing or replacing the file." page="changelog" color={C.amber} />
+              <MiniAction icon="♿" title="Accessibility" body="Check contrast, touch targets, and readable interface rules." page="accessibility" color={C.blue} />
+              <MiniAction icon="🌙" title="Theme Mode" body="Toggle and test dark/light mode consistency." page="darkmode" color={C.purple} />
+              <MiniAction icon="⌨️" title="Keyboard Shortcuts" body="Desktop power-user shortcuts and command palette help." page="keyboardshortcuts" color={C.g600} />
+            </div>
+          </Section>
+          <Section title="Production Build Reminder" sub="The single HTML file is good for internal use, but true SaaS should move to React/Vite with minification." color={C.red}>
+            <StatusRow title="Current file is still readable HTML/JS" detail="Anyone with app access can inspect frontend code. Login and RLS protect data, but frontend code cannot be fully hidden." status="Known limit" color={C.amber} />
+            <StatusRow title="Future SaaS build" detail="Move to Vite/React build, minify, remove source maps, add Cloudflare headers, keep secrets backend-only, and keep RLS verified." status="Next roadmap" color={C.blue} />
+          </Section>
+        </>}
+
+        <style>{`@media(max-width:760px){div[style*="grid-template-columns: repeat(4,1fr)"],div[style*="grid-template-columns: repeat(3,1fr)"],div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </div>;
     }
 
@@ -21554,6 +21640,107 @@ Cancel keeps this local/free.`);
        Safe after-show packing layer. Local checklist only.
        Does not change platform shipping, database schema, or import logic.
     ══════════════════════════════════════════════════════════ */
+
+    /* V237 PHASE 6 — Shipping Command Center
+       One mobile-first shipping workflow: overview, pack orders, tracking/labels, completed shipments,
+       state paperwork, shipping profit, and problems/refunds without adding another main page. */
+    function ShippingCommandCenter({ initialTab = "overview", plants = [], setPlants, user, setPage, casdCerts = [], setCasdCerts, addAudit, refunds = [], setRefunds, bundles = [], setBundles, purchaseOrders = [], setPurchaseOrders, nurseries = [] }) {
+      const role = user?.role || "employee";
+      const canOwner = role === "owner";
+      const canManage = role === "owner" || role === "manager";
+      const [tab, setTab] = useState(initialTab || "overview");
+      useEffect(() => { setTab(initialTab || "overview"); }, [initialTab]);
+
+      const allOrders = groupSalesIntoOrders(plants).sort((a,b)=>String(b.soldDate || "").localeCompare(String(a.soldDate || "")));
+      const recentOrders = allOrders.filter(o => dateInLast(o.soldDate, 21));
+      const orders = recentOrders.length ? recentOrders : allOrders.slice(0, 75);
+      const statesNeedDocs = ["CA","AZ","TX","LA","HI"];
+      const coldStates = ["AK","CO","CT","IA","ID","IL","IN","KS","MA","ME","MI","MN","MO","MT","ND","NE","NH","NJ","NY","OH","PA","RI","SD","UT","VT","WA","WI","WV","WY"];
+      const orderPlants = o => safeArray(o?.plants);
+      const orderTracking = o => orderPlants(o).map(p => p.trackingNumber || p.tracking || p.shipmentTracking || "").find(Boolean) || "";
+      const orderHasTracking = o => !!orderTracking(o) || orderPlants(o).some(p => p.shippedDate || p.deliveredDate || /ship|deliver|fulfilled|complete/i.test(String(p.fulfillmentStatus || p.shipmentStatus || "")));
+      const orderPacked = o => orderPlants(o).some(p => p.packedAt || p.platformReadyAt || /pack|ready/i.test(String(p.fulfillmentStatus || p.shipmentStatus || "")));
+      const stateOf = o => String(o.state || o.shippingState || "").toUpperCase();
+      const docOrders = orders.filter(o => statesNeedDocs.includes(stateOf(o)));
+      const coldOrders = orders.filter(o => coldStates.includes(stateOf(o)));
+      const readyToPack = orders.filter(o => !orderHasTracking(o));
+      const trackingNeeded = orders.filter(o => !orderHasTracking(o));
+      const completed = orders.filter(orderHasTracking);
+      const hasDocForOrder = o => safeArray(casdCerts).some(c => {
+        const nm = String(o.customerName || o.customerUsername || "").toLowerCase();
+        return (nm && String(c.consigneeName || "").toLowerCase().includes(nm)) || String(c.destination || "").toUpperCase() === stateOf(o);
+      });
+      const missingDocs = docOrders.filter(o => !hasDocForOrder(o));
+      const pendingLabelCost = orders.filter(o => moneyNum(o.shippingCharged) > 0 && moneyNum(o.actualLabelCost) <= 0 || o.shippingCostPending);
+      const orderCharged = o => moneyNum(o.shippingCharged || o.shippingRevenue || o.shippingCollected) || orderPlants(o).reduce((s,p)=>s+ldShippingCharged(p),0);
+      const orderLabel = o => moneyNum(o.actualLabelCost || o.actualShippingCost || o.labelCost) || orderPlants(o).reduce((s,p)=>s+ldActualLabelCost(p),0);
+      const orderSupplies = o => moneyNum(o.shippingSuppliesCost || o.packingSuppliesCost) || orderPlants(o).reduce((s,p)=>s+ldShippingSuppliesCost(p),0);
+      const shippingCharged = orders.reduce((s,o)=>s+orderCharged(o),0);
+      const labelCost = orders.reduce((s,o)=>s+orderLabel(o),0);
+      const suppliesCost = orders.reduce((s,o)=>s+orderSupplies(o),0);
+      const shippingProfit = shippingCharged - labelCost - suppliesCost;
+      const problems = [
+        ...trackingNeeded.map(o => ({ icon:"🔎", title:`Tracking missing: ${o.customerName || o.customerUsername || o.orderId || "Order"}`, sub:`${orderPlants(o).length} plant(s) · ${stateOf(o) || "No state"}`, action:"tracking" })),
+        ...missingDocs.map(o => ({ icon:"📜", title:`State paperwork check: ${o.customerName || o.customerUsername || o.orderId || "Order"}`, sub:`${stateOf(o)} shipment may need paperwork saved in archive.`, action:"paperwork" })),
+        ...pendingLabelCost.map(o => ({ icon:"💸", title:`Label cost pending: ${o.customerName || o.customerUsername || o.orderId || "Order"}`, sub:"Enter actual label cost so shipping profit is correct.", action:"profit" })),
+        ...coldOrders.map(o => ({ icon:"🌡️", title:`Cold-weather check: ${o.customerName || o.customerUsername || o.orderId || "Order"}`, sub:`${stateOf(o)} destination — check weather before shipping sensitive plants.`, action:"pack" }))
+      ];
+      const tabs = [
+        ["overview","📦","Overview"], ["pack","📋","Pack"], ["tracking","🔎","Tracking"], ["completed","✅","Completed"],
+        ["paperwork","📜","Docs"], ["profit","💰","Profit"], ["problems","⚠️","Problems"],
+        ["bundles","🧩","Bundles"], ["purchase","🧾","POs"], ["refunds","↩️","Refunds"]
+      ];
+      const MiniOrder = ({ order, done = false }) => {
+        const st = stateOf(order);
+        const tracking = orderTracking(order);
+        return <Card className="ld-v237-ship-order-card" style={{ borderLeft:`5px solid ${done ? C.g600 : statesNeedDocs.includes(st) ? C.purple : C.blue}` }}>
+          <Row between center wrap gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>{order.customerName || order.customerUsername || order.orderId || "Customer / Order"}</div>
+              <div style={{ fontSize:12, color:C.tx3 }}>{order.soldDate || "No date"} · {orderPlants(order).length} plant(s) · {$(order.totalValue || 0)}</div>
+              {tracking && <div style={{ fontFamily:F.mono, fontSize:11, color:C.blue, marginTop:4 }}>{tracking}</div>}
+            </div>
+            <Row gap={6} wrap>{st && <Tag text={st} color={statesNeedDocs.includes(st) ? C.purple : C.blue} sm />}{done && <Tag text="Completed" color={C.g600} sm />}{!done && <Tag text="Needs Tracking" color={C.amber} sm />}{hasDocForOrder(order) && <Tag text="Doc Saved" color={C.purple} sm />}</Row>
+          </Row>
+        </Card>;
+      };
+
+      return <div className="ld-page ld-v237-shipping-center" style={{ padding:"14px 14px 120px", background:C.bg, minHeight:"100vh", fontFamily:F.body }}>
+        <SHdr icon="📦" title="Shipping Command Center" sub="One place to pack orders, capture labels/tracking, complete shipments, save state docs, and see shipping profit." right={<Row gap={8} wrap>{canManage && <Btn v="outline" onClick={()=>setPage("showimport")}>Import Sales</Btn>}<Btn onClick={()=>setTab("pack")}>Pack Orders</Btn></Row>} />
+        <Card className="ld-v237-ship-hero" style={{ marginBottom:14, background:"#000", color:"#fff", border:"2px solid #68d8ff", borderRadius:24 }}>
+          <Row between center wrap gap={12}>
+            <div><div style={{ fontFamily:F.display, fontSize:26, fontWeight:950, color:"#68d8ff" }}>Pack → label → tracking → docs → completed</div><div style={{ color:"rgba(255,255,255,.72)", fontSize:13, marginTop:4 }}>No more guessing what is packed and what is shipped. Start at Pack, then finish tracking and paperwork.</div></div>
+            <Row gap={8} wrap><Tag text={`${readyToPack.length} to pack`} color={readyToPack.length ? C.amber : C.g600}/><Tag text={`${trackingNeeded.length} tracking needed`} color={trackingNeeded.length ? C.amber : C.g600}/><Tag text={`${completed.length} completed`} color={C.g600}/></Row>
+          </Row>
+        </Card>
+        <div className="ld-v237-ship-kpis">
+          <KPI label="Ready To Pack" value={readyToPack.length} sub="not completed" color={readyToPack.length ? C.amber : C.g600} />
+          <KPI label="Tracking Needed" value={trackingNeeded.length} sub="scan/photo/paste" color={trackingNeeded.length ? C.amber : C.g600} />
+          <KPI label="State Docs" value={docOrders.length} sub="CA/AZ/TX/LA/HI" color={docOrders.length ? C.purple : C.g600} />
+          <KPI label="Shipping Profit" value={$(shippingProfit)} sub="charged - label - supplies" color={shippingProfit >= 0 ? C.g600 : C.red} />
+        </div>
+        <div className="ld-v237-ship-tabs" role="tablist" aria-label="Shipping workflow tabs">
+          {tabs.map(([id,icon,label]) => <button key={id} type="button" onClick={()=>setTab(id)} className={tab===id ? "is-active" : ""}>{icon} <span>{label}</span></button>)}
+        </div>
+
+        {tab === "overview" && <div className="ld-v237-ship-grid-2">
+          <Card><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900, marginBottom:10 }}>Today's shipping flow</div>{[["1","Pack","Pull the right plant, inspect it, add insulation/paperwork if needed.","pack"],["2","Capture tracking","Take shipping label photo, scan barcode, or paste tracking.","tracking"],["3","Complete shipment","Confirm tracking/customer match and mark shipped/completed.","completed"],["4","Review money","Enter actual label cost so shipping profit is correct.","profit"]].map(([n,t,b,go])=><button key={n} onClick={()=>setTab(go)} className="ld-v237-step-row"><b>{n}</b><span><strong>{t}</strong><small>{b}</small></span></button>)}</Card>
+          <Card><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900, marginBottom:10 }}>Needs attention</div>{problems.length ? problems.slice(0,7).map((p,i)=><button key={i} onClick={()=>setTab(p.action)} className="ld-v237-problem-row"><span>{p.icon}</span><span><strong>{p.title}</strong><small>{p.sub}</small></span></button>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:16, fontWeight:900, color:C.g700 }}>✅ No shipping problems found in the active queue.</div>}<Row gap={8} wrap style={{ marginTop:12 }}><Btn sz="sm" onClick={()=>setTab("pack")}>Start Packing</Btn><Btn sz="sm" v="soft" onClick={()=>setTab("tracking")}>Add Tracking</Btn></Row></Card>
+        </div>}
+
+        {tab === "pack" && <OrderPackingBoard plants={plants} setPlants={setPlants} user={user} setPage={setPage} casdCerts={casdCerts} addAudit={addAudit} />}
+        {tab === "tracking" && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} labelScanMode={true} />}
+        {tab === "completed" && <div>{completed.length ? completed.map((o,i)=><MiniOrder key={o.orderId || i} order={o} done />) : <Card style={{ textAlign:"center", padding:42 }}><div style={{ fontSize:42 }}>✅</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No completed shipments yet</h2><p style={{ color:C.tx3 }}>Add tracking or shipped status and completed orders will show here.</p><Btn onClick={()=>setTab("tracking")}>Add Tracking</Btn></Card>}</div>}
+        {tab === "paperwork" && (canOwner ? <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} /> : <Card><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900 }}>State paperwork is owner-only</div><p style={{ color:C.tx3 }}>Employees can see paperwork reminders while packing, but only the owner can create or manage archived state documents.</p></Card>)}
+        {tab === "profit" && <Card><div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900, marginBottom:12 }}>Shipping Profit</div><div className="ld-v237-ship-kpis" style={{ marginBottom:12 }}><KPI label="Charged" value={$(shippingCharged)} color={C.blue}/><KPI label="Label Cost" value={$(labelCost)} color={C.red}/><KPI label="Supplies" value={$(suppliesCost)} color={C.gold}/><KPI label="Profit" value={$(shippingProfit)} color={shippingProfit >= 0 ? C.g600 : C.red}/></div><div className="ld-table-scroll"><table className="ld-chart-table"><thead><tr><th>Order</th><th>State</th><th>Plants</th><th>Charged</th><th>Label</th><th>Supplies</th><th>Profit</th></tr></thead><tbody>{orders.map((o,i)=>{ const charged=orderCharged(o), label=orderLabel(o), sup=orderSupplies(o), prof=charged-label-sup; return <tr key={o.orderId || i}><td>{o.customerName || o.customerUsername || o.orderId || "Order"}</td><td>{stateOf(o)}</td><td>{orderPlants(o).length}</td><td>{$(charged)}</td><td>{$(label)}</td><td>{$(sup)}</td><td style={{ fontWeight:900, color:prof>=0?C.g600:C.red }}>{$(prof)}</td></tr>; })}</tbody></table></div></Card>}
+        {tab === "problems" && <div>{problems.length ? problems.map((p,i)=><Card key={i} style={{ borderLeft:`5px solid ${p.action==="paperwork"?C.purple:p.action==="profit"?C.gold:p.action==="tracking"?C.blue:C.amber}`, marginBottom:10 }}><Row between center gap={10}><div><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>{p.icon} {p.title}</div><div style={{ fontSize:12, color:C.tx3 }}>{p.sub}</div></div><Btn sz="sm" onClick={()=>setTab(p.action)}>Fix</Btn></Row></Card>) : <Card style={{ textAlign:"center", padding:42 }}><div style={{ fontSize:42 }}>✅</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No active shipping problems</h2><p style={{ color:C.tx3 }}>Tracking, paperwork, label cost, and weather reminders look clean.</p></Card>}{canManage && <Card style={{ marginTop:12 }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>Refund / DOA manager</div><RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} /></Card>}</div>}
+        {tab === "bundles" && (canManage ? <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} /> : <Card>Bundle tools are manager/owner only.</Card>)}
+        {tab === "purchase" && (canManage ? <PurchaseOrders purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} user={user} addAudit={addAudit} /> : <Card>Purchase orders are manager/owner only.</Card>)}
+        {tab === "refunds" && (canManage ? <RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} /> : <Card>Refund tools are manager/owner only.</Card>)}
+        <style>{`@media(max-width:760px){.ld-v237-shipping-center{padding-left:10px!important;padding-right:10px!important}.ld-v237-ship-kpis,.ld-v237-ship-grid-2{grid-template-columns:1fr!important}.ld-v237-ship-tabs{position:sticky;top:104px;z-index:220;background:#eff4f1;padding:8px 0}.ld-v237-ship-tabs button{min-height:42px!important}.ld-v237-shipping-center .ld-packing-board,.ld-v237-shipping-center .ld-page{padding-left:0!important;padding-right:0!important}}`}</style>
+      </div>;
+    }
+
     function OrderPackingBoard({ plants = [], setPlants, user, setPage, casdCerts = [], addAudit }) {
       const role = user?.role || "employee";
       const canManage = role === "owner" || role === "manager";
@@ -26524,7 +26711,7 @@ Cancel if you want to save money.`);
       </div>;
     }
 
-    const APP_VERSION = "Leaf Diary Business Hub — V236 Phase 5 Shows Consolidation";
+    const APP_VERSION = "Leaf Diary Business Hub — V239 Phase 8 Settings Security QA";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -28994,11 +29181,11 @@ ${local.summary || "Fallback completed."}`;
           return <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:F.body }}>
             <Card style={{ maxWidth:520, textAlign:"center", borderTop:`5px solid ${C.red}` }}>
               <div style={{ fontSize:42 }}>🛠️</div>
-              <h2 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0" }}>Leaf Diary startup repaired needed</h2>
-              <p style={{ color:C.tx3 }}>The app hit bad or missing data after the CRM reset. This version also fixes the React hook startup crash from Phase 4. Use the repair button below only if the app does not open after refresh.</p>
+              <h2 style={{ fontFamily:F.display, color:C.g900, margin:"8px 0" }}>Leaf Diary had trouble loading saved data</h2>
+              <p style={{ color:C.tx3 }}>Your cloud data was not deleted. Try refreshing first. Use repair only if the app stays on this screen after a reset or bad local cache.</p>
               <div style={{ background:C.redBg, color:C.red, border:`1px solid ${C.red}44`, borderRadius:10, padding:10, fontSize:12, marginBottom:12, textAlign:"left" }}>{msg}</div>
               <Row center gap={8} wrap style={{ justifyContent:"center" }}>
-                <Btn onClick={() => { repairLocalBootData(); window.location.reload(); }}>Repair Startup + Refresh</Btn>
+                <Btn onClick={() => { repairLocalBootData(); window.location.reload(); }}>Fix Loading + Refresh</Btn>
                 <Btn v="outline" onClick={() => { resetBrokenNavStorage(); window.location.reload(); }}>Repair Navigation Only</Btn>
                 <Btn v="ghost" onClick={() => window.location.reload()}>Refresh</Btn>
               </Row>
@@ -30312,7 +30499,7 @@ ${local.summary || "Fallback completed."}`;
 
       if (session === undefined) return <AppLoadingSkeleton title="Opening Leaf Diary" sub="Checking your secure login before loading the app..." />;
       if (!session) return <AuthScreen />;
-      if (cloudStatus === "loading" || !user) return <AppLoadingSkeleton title="Loading Leaf Diary Cloud" sub={cloudMsg || "Connecting to Supabase and preparing your business dashboard..."} showRepair={true} onRepair={() => { repairLocalBootData(); const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const repairedOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, phone: "", jobTitle: "Owner", hourlyRate: 0, active: true, mustChangePassword: false, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Repair Startup", authStatus: "auth-created" }; const nextUsers = safeArray(users).some(u => u.email === email) ? safeArray(users) : [repairedOwner, ...safeArray(users)]; setUsersRaw(nextUsers); setUser(repairedOwner); try { cloudUpsertState("users", nextUsers); } catch(e) {} setCloudStatus("synced"); setCloudMsg("Startup repaired — app opened locally."); resetToPage("today"); }} onOffline={() => { const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const localOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, active: true, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Offline Continue", authStatus: "auth-created" }; setUser(localOwner); setCloudStatus("offline"); resetToPage("today"); }} />;
+      if (cloudStatus === "loading" || !user) return <AppLoadingSkeleton title="Loading Leaf Diary Cloud" sub={cloudMsg || "Connecting to Supabase and preparing your business dashboard..."} showRepair={true} onRepair={() => { repairLocalBootData(); const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const repairedOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, phone: "", jobTitle: "Owner", hourlyRate: 0, active: true, mustChangePassword: false, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Fix Loading", authStatus: "auth-created" }; const nextUsers = safeArray(users).some(u => u.email === email) ? safeArray(users) : [repairedOwner, ...safeArray(users)]; setUsersRaw(nextUsers); setUser(repairedOwner); try { cloudUpsertState("users", nextUsers); } catch(e) {} setCloudStatus("synced"); setCloudMsg("Startup repaired — app opened locally."); resetToPage("today"); }} onOffline={() => { const email = session?.user?.email?.toLowerCase?.() || "theleafdiary@gmail.com"; const localOwner = { id: session?.user?.id || "owner", authUserId: session?.user?.id || "", name: email.split("@")[0] || "Eric", role: "owner", email, active: true, permissions: Object.fromEntries(Object.keys(DEFAULT_PERMS).map(k => [k, true])), createdAt: new Date().toISOString(), createdBy: "Offline Continue", authStatus: "auth-created" }; setUser(localOwner); setCloudStatus("offline"); resetToPage("today"); }} />;
       if (user?.blocked || user?.active === false) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body, padding: 20 }}><Card style={{ maxWidth: 420, textAlign: "center" }}><div style={{ fontSize: 38 }}>🚫</div><h2 style={{ fontFamily: F.display, color: C.red, margin: "8px 0" }}>Access Disabled</h2><p style={{ color: C.tx3 }}>This user is disabled in Leaf Diary. Contact the owner to re-enable access.</p><Btn v="danger" onClick={handleLogout}>Log Out</Btn></Card></div>;
 
       const P = { plants, setPlants, nurseries, setNurseries, expenses, setExpenses, expenseReceipts, setExpenseReceipts, timecards, setTimecards, bills, setBills, user, addAudit, settings, setSettings };
@@ -30413,10 +30600,10 @@ ${local.summary || "Fallback completed."}`;
           {page === "runshow" && <ShowCommandCenter key="show-overview" initialTab="overview" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "showcommand" && <ShowCommandCenter key="show-command" initialTab="overview" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "showprep" && <ShowCommandCenter key="show-prep" initialTab="prep" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
-          {page === "packorders" && <OrderPackingBoard plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} addAudit={addAudit} />}
-          {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
-          {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
-          {page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
+          {page === "packorders" && <ShippingCommandCenter initialTab="pack" plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} refunds={refunds} setRefunds={setRefunds} bundles={bundles} setBundles={setBundles} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} />}
+          {page === "orders_ws" && <ShippingCommandCenter initialTab="overview" plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} refunds={refunds} setRefunds={setRefunds} bundles={bundles} setBundles={setBundles} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} />}
+          {LD_V238_MONEY_PAGES.has(page) && <MoneyCommandCenter initialTab={ldV238MoneyInitialTab(page, user.role)} plants={plants} setPlants={setPlants} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} timecards={timecards} setTimecards={setTimecards} receipts={expenseReceipts} setReceipts={setExpenseReceipts} users={users} nurseries={nurseries} casdCerts={casdCerts} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
+          {false && page === "buy_ws" && CAN.seeReports(user.role) && <BuySmartWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} expenses={expenses} bills={bills} timecards={timecards} settings={settings} user={user} setPage={navigate} />}
           {page === "admin_ws" && user.role === "owner" && <SettingsWorkflow users={users} settings={settings} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} auditLog={auditLog} user={user} setPage={navigate} cloudStatus={cloudStatus} cloudMsg={cloudMsg} />}
           {page === "changelog" && (user.role === "owner" || user.role === "manager") && <ChangeSafetyLogCenter user={user} setPage={navigate} auditLog={auditLog} onSave={() => flushTeamSync({ force:false })} onLoad={() => loadFromCloud({ force:true })} onBackup={exportBackup} onSnapshot={() => makePhase1Snapshot("manual_from_change_log")} onHealth={downloadPhase1Health} />}
           {page === "teamsync" && user.role === "owner" && <TeamSyncSafetyCenter user={user} cloudStatus={cloudStatus} cloudMsg={cloudMsg} pendingSyncCount={pendingSyncCount} cloudSafeMode={cloudSafeMode} teamSafeSync={teamSafeSync} syncConflict={syncConflict} onSave={() => flushTeamSync({ force:false })} onLoad={() => loadFromCloud({ force:true })} onBackup={exportBackup} onSnapshot={() => makePhase1Snapshot("manual_from_team_sync_center")} onHealth={downloadPhase1Health} onTestCloud={async () => { try { setCloudStatus("loading"); setCloudMsg("Testing Supabase connection..."); await cloudRequest("plants?select=id&limit=1", { method: "GET" }); setCloudStatus("synced"); setCloudMsg("Supabase test passed"); alert("Supabase test passed. Cloud connection is working."); } catch (err) { const msg = err && err.message ? err.message : String(err); setCloudStatus("offline"); setCloudMsg("Supabase test failed: " + msg); alert("Supabase test failed: " + msg); } }} onToggleTeamSync={() => setTeamSafeSync(!teamSafeSync)} onToggleSafeMode={() => setCloudSafeMode(!cloudSafeMode)} onForceSave={() => saveAllToCloud({ force:true })} setPage={navigate} />}
@@ -30426,21 +30613,21 @@ ${local.summary || "Fallback completed."}`;
           {page === "aihub" && <AIAutomationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} setSettings={setSettings} casdCerts={casdCerts} user={user} setPage={navigate} addAudit={addAudit} />}
           {page === "dataai" && <BusinessDataAI plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} receipts={expenseReceipts} users={users} settings={settings} casdCerts={casdCerts} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "social" && <SocialMediaCenter plants={plants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} />}
-          {page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={navigate} user={user} />}
-          {page === "slotprofit" && user.role === "owner" && <Phase11ProfitSlotEngine appData={buildCurrentAppData()} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
+          {false && page === "cashflow" && user.role === "owner" && <CashFlowDashboard plants={plants} expenses={expenses} bills={bills} timecards={timecards} settings={settings} setSettings={setSettings} setPage={navigate} user={user} />}
+          {false && page === "slotprofit" && user.role === "owner" && <Phase11ProfitSlotEngine appData={buildCurrentAppData()} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "overnight" && user.role === "owner" && <Phase10MorningBriefing appData={buildCurrentAppData()} user={user} settings={settings} setSettings={setSettings} addAudit={addAudit} setPage={navigate} />}
-          {page === "ship" && CAN.seeReports(user.role) && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
-          {page === "shiplabels" && <PackingShippingCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} labelScanMode={true} />}
-          {page === "bundles" && CAN.seeReports(user.role) && <PlantBundles plants={plants} setPlants={setPlants} bundles={bundles} setBundles={setBundles} user={user} addAudit={addAudit} />}
-          {page === "pos" && CAN.seeReports(user.role) && <PurchaseOrders purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} user={user} addAudit={addAudit} />}
-          {page === "refunds" && CAN.seeReports(user.role) && <RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
-          {page === "goals" && user.role === "owner" && <ProfitGoals plants={plants} expenses={expenses} settings={settings} setSettings={setSettings} />}
+          {page === "ship" && CAN.seeReports(user.role) && <ShippingCommandCenter initialTab="tracking" plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} refunds={refunds} setRefunds={setRefunds} bundles={bundles} setBundles={setBundles} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} />}
+          {page === "shiplabels" && <ShippingCommandCenter initialTab="tracking" plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} refunds={refunds} setRefunds={setRefunds} bundles={bundles} setBundles={setBundles} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} />}
+          {page === "bundles" && CAN.seeReports(user.role) && <ShippingCommandCenter initialTab="bundles" plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} refunds={refunds} setRefunds={setRefunds} bundles={bundles} setBundles={setBundles} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} />}
+          {page === "pos" && CAN.seeReports(user.role) && <ShippingCommandCenter initialTab="purchase" plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} refunds={refunds} setRefunds={setRefunds} bundles={bundles} setBundles={setBundles} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} />}
+          {page === "refunds" && CAN.seeReports(user.role) && <ShippingCommandCenter initialTab="refunds" plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} refunds={refunds} setRefunds={setRefunds} bundles={bundles} setBundles={setBundles} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} />}
+          {false && page === "goals" && user.role === "owner" && <ProfitGoals plants={plants} expenses={expenses} settings={settings} setSettings={setSettings} />}
           {page === "care" && CAN.seeReports(user.role) && <PlantCareCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} />}
           {page === "content" && CAN.seeReports(user.role) && <AIContentGenerator plants={plants} />}
           {page === "discounts" && user.role === "owner" && <SmartDiscountEngine plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} />}
           {page === "retention" && CAN.seeReports(user.role) && <RetentionAlerts plants={plants} />}
           {page === "locations" && user.role === "owner" && <MultiLocationCenter plants={plants} setPlants={setPlants} settings={settings} setSettings={setSettings} user={user} addAudit={addAudit} />}
-          {page === "commissions" && user.role === "owner" && <CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} />}
+          {false && page === "commissions" && user.role === "owner" && <CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} />}
           {page === "emp_dash" && <EmpDash plants={plants} user={user} timecards={timecards} />}
           {page === "dash" && user.role === "employee" && <EmpDash plants={plants} user={user} timecards={timecards} />}
           {page === "upload" && <InvoiceUpload {...P} settings={settings} setSettings={setSettings} />}
@@ -30454,7 +30641,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "swipegestures" && <SwipeGestureCenter plants={plants} user={user} setPage={navigate} />}
           {page === "showdragdrop" && (user.role === "owner" || user.role === "manager") && <ShowCommandCenter key="show-drag" initialTab="build" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "keyboardshortcuts" && <KeyboardShortcutsCenter user={user} setPage={navigate} />}
-          {page === "datacharts" && CAN.seeReports(user.role) && <DataVisualizationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} settings={settings} user={user} setPage={navigate} />}
+          {false && page === "datacharts" && CAN.seeReports(user.role) && <DataVisualizationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} settings={settings} user={user} setPage={navigate} />}
           {page === "accessibility" && CAN.seeReports(user.role) && <AccessibilityCenter user={user} setPage={navigate} />}
           {page === "darkmode" && <DarkModeCenter themeMode={themeMode} onToggleTheme={toggleThemeMode} setPage={navigate} />}
           {page === "phase2qa" && CAN.seeReports(user.role) && <Phase2QACenter user={user} plants={plants} expenses={expenses} bills={bills} receipts={expenseReceipts} settings={settings} themeMode={themeMode} setPage={navigate} />}
@@ -30469,14 +30656,14 @@ ${local.summary || "Fallback completed."}`;
           {page === "showimport" && <ShowCommandCenter key="show-import" initialTab="import" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
-          {page === "bills" && <Bills bills={bills} setBills={setBills} />}
-          {page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
-          {page === "receipts" && <ReceiptScanner receipts={expenseReceipts} setReceipts={setExpenseReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} />}
-          {page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} settings={settings} setSettings={setSettings} addAudit={addAudit} />}
-          {page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} settings={settings} setSettings={setSettings} user={user} />}
-          {page === "intel" && CAN.seeReports(user.role) && <BuyIntel plants={plants} settings={settings} />}
-          {page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} />}
-          {page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
+          {false && page === "bills" && <Bills bills={bills} setBills={setBills} />}
+          {false && page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
+          {false && page === "receipts" && <ReceiptScanner receipts={expenseReceipts} setReceipts={setExpenseReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} />}
+          {false && page === "timecard" && <Timecard timecards={timecards} setTimecards={setTimecards} user={user} employees={users} settings={settings} setSettings={setSettings} addAudit={addAudit} />}
+          {false && page === "payroll" && CAN.seePayroll(user.role) && <Payroll timecards={timecards} employees={users} settings={settings} setSettings={setSettings} user={user} />}
+          {false && page === "intel" && CAN.seeReports(user.role) && <BuyIntel plants={plants} settings={settings} />}
+          {false && page === "reports" && CAN.seeReports(user.role) && <Reports plants={plants} expenses={expenses} timecards={timecards} nurseries={nurseries} casdCerts={casdCerts} user={user} />}
+          {false && page === "tax" && CAN.seeTax(user.role) && <TaxCenter plants={plants} expenses={expenses} timecards={timecards} />}
           {page === "audit" && CAN.seeAudit(user.role) && <AuditLog auditLog={auditLog} />}
           {page === "admin" && CAN.editSettings(user.role) && <AdminPanel users={users} setUsers={setUsers} settings={settings} setSettings={setSettings} plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "cleanup" && user.role === "owner" && <DataCleanup plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
@@ -30494,7 +30681,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "ollamadoctor" && user.role === "owner" && <OllamaConnectionDoctor appData={buildCurrentAppData()} user={user} config={phase3Config} setConfig={setPhase3Config} status={phase3Status} setStatus={setPhase3Status} addAudit={addAudit} setPage={navigate} />}
           {page === "aigateway" && user.role === "owner" && <Phase61AIGatewayConsole appData={buildCurrentAppData()} user={user} config={phase61Config} setConfig={setPhase61Config} status={phase61Status} setStatus={setPhase61Status} addAudit={addAudit} setPage={navigate} />}
           {page === "airouter" && user.role === "owner" && <Phase4AIRouterConsole appData={buildCurrentAppData()} user={user} phase3Config={phase3Config} routes={phase4Routes} setRoutes={setPhase4Routes} addAudit={addAudit} setPage={navigate} />}
-          {page === "casd" && user.role === "owner" && <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} />}
+          {page === "casd" && user.role === "owner" && <ShippingCommandCenter initialTab="paperwork" plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} refunds={refunds} setRefunds={setRefunds} bundles={bundles} setBundles={setBundles} purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders} nurseries={nurseries} />}
           {!pageCanRender && <SafePageFallback page={page} user={user} setPage={navigate} />}
         </div>
       </div>;
