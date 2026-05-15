@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
   <meta name="referrer" content="no-referrer" />
-  <title>LEAF DIARY - BUSINESS HUB · V277 Feature Merge From 81 Into 80</title>
+  <title>LEAF DIARY - BUSINESS HUB · V278 Inventory Crash Guard</title>
   <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
   <!-- V239 — Phase 8 Settings Security QA: consolidates Settings, Security, AI, Cloud, Developer Tools, QA, release readiness, and SaaS production checklist into one owner command center. -->
   <!-- V238 — Phase 7 Money Command Center: consolidates receipts, expenses, bills, payroll, commissions, cash flow, show profit, reports, tax, goals, Buy Smart, and charts into one mobile Money workflow. -->
@@ -24,6 +24,7 @@
   <!-- V233 — Phase 3 Role-Aware Home: replaces the crowded Today screen with simple Owner, Manager, and Employee mobile-first dashboards focused on what to do right now. -->
   <!-- V237 — Phase 6 Shipping Command Center: consolidates shipping into one mobile workflow with overview, pack, tracking, completed shipments, paperwork, shipping profit, problems, bundles, POs, and refunds. -->
   <!-- V277 — Safe Feature Merge From HTML 81 Into HTML 80: ports feature/bug fixes only, preserves HTML 80 design. -->
+  <!-- V278 — Inventory Crash Guard: normalizes malformed plant rows before Inventory renders and hardens plant name helpers so bad saved rows cannot white-screen the app. -->
   <!-- V259 FEATURE PORT — Shipping Pull/Packing step safety: safe packing-step toggles so Pull Plants does not crash Shipping. -->
   <!-- V265 FEATURE PORT — Show History Route Fix: Reports/Visual Reports Show History opens actual show sales history. -->
   <!-- V266 FEATURE PORT — Shipping Docs Busy State Fix: adds missing docBusyOrderId state inside OrderPackingBoard. -->
@@ -5306,9 +5307,9 @@
       });
     }
 
-    const fDate = d => { if (!d) return ""; const [y, m, day] = d.split("-"); return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }); };
-    const toTC = s => (s || "").replace(/\w\S*/g, t => t[0].toUpperCase() + t.slice(1).toLowerCase());
-    const gOf = name => { const n = (name || "").toLowerCase(); for (const g of GENERA.slice(0, -1)) if (n.includes(g.toLowerCase())) return g; return "Other"; };
+    const fDate = d => { if (!d) return ""; const raw = String(d || ""); const [y, m, day] = raw.split("-"); return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }); };
+    const toTC = s => String(s || "").replace(/\w\S*/g, t => t[0].toUpperCase() + t.slice(1).toLowerCase());
+    const gOf = name => { const n = String(name || "").toLowerCase(); for (const g of GENERA.slice(0, -1)) if (n.includes(g.toLowerCase())) return g; return "Other"; };
     const sprice = (cost, m = 0.62) => cost > 0 ? Math.ceil(cost / (1 - m) / 5) * 5 : 0;
     const marg = (cost, price) => price > 0 ? Math.round(((price - cost) / price) * 100) : 0;
     const pid = (code, n) => `${code}-${String(n).padStart(3, "0")}`;
@@ -14687,7 +14688,37 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       </div>;
     }
 
-    function Inventory({ plants, setPlants, user, addAudit, nurseries, setPage, settings = {}, setSettings }) {
+    function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = [], setPage, settings = {}, setSettings }) {
+      /* V278 Inventory Crash Guard:
+         If a cloud/local import leaves null, malformed, numeric, or partial plant rows in storage,
+         normalize them before this page builds filters/cards. One bad row should never white-screen Inventory. */
+      user = safeObject(user);
+      if (!user.role) user.role = "employee";
+      settings = safeObject(settings);
+      nurseries = safeArray(nurseries).map(n => safeObject(n));
+      plants = safeArray(plants)
+        .map((row, idx) => {
+          const p = safeObject(row);
+          const id = String(p.id || p.plantId || p.plantCode || p.barcodeValue || `inventory-row-${idx}`).trim();
+          const plantId = String(p.plantId || p.plantCode || p.barcodeValue || "").trim();
+          const cleanName = String(p.name || p.plantName || p.title || "").trim();
+          return {
+            ...p,
+            id,
+            plantId,
+            plantCode: String(p.plantCode || plantId || "").trim(),
+            barcodeValue: String(p.barcodeValue || plantId || p.plantCode || "").trim(),
+            name: cleanName,
+            status: String(p.status || "In Stock").trim() || "In Stock",
+            nurseryCode: String(p.nurseryCode || "").trim(),
+            nurseryName: String(p.nurseryName || "").trim(),
+            potSize: String(p.potSize || "").trim(),
+            dateAdded: String(p.dateAdded || p.createdAt || today()).slice(0, 10),
+            cost: +String(p.cost ?? "").replace(/[^0-9.\-]/g, "") || 0,
+            suggestedPrice: +String(p.suggestedPrice ?? p.listPrice ?? p.price ?? "").replace(/[^0-9.\-]/g, "") || 0
+          };
+        })
+        .filter(p => p.id || p.name || p.plantId || p.plantCode);
       const [search, setSearch] = useState("");
       const [actionView, setActionView] = useState("All Plants");
       const [fs, setFs] = useState("All");
@@ -33612,3 +33643,4 @@ ${local.summary || "Fallback completed."}`;
 </html>
 
 <!-- V195R — PDF Invoice Upload Fix: separate Choose PDF/File input + robust PDF.js detection. Backend/Gateway untouched. -->
+<!-- V278 — Inventory Crash Guard patch applied by ChatGPT on 2026-05-15. -->
