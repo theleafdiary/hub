@@ -24,6 +24,7 @@
   <!-- V233 — Phase 3 Role-Aware Home: replaces the crowded Today screen with simple Owner, Manager, and Employee mobile-first dashboards focused on what to do right now. -->
   <!-- V237 — Phase 6 Shipping Command Center: consolidates shipping into one mobile workflow with overview, pack, tracking, completed shipments, paperwork, shipping profit, problems, bundles, POs, and refunds. -->
   <!-- V277 — Safe Feature Merge From HTML 81 Into HTML 80: ports feature/bug fixes only, preserves HTML 80 design. -->
+  <!-- V279 — Shipping overview bottom actions redesigned into responsive card-style buttons for desktop and mobile. -->
   <!-- V278 — Inventory Crash Guard: normalizes malformed plant rows before Inventory renders and hardens plant name helpers so bad saved rows cannot white-screen the app. -->
   <!-- V259 FEATURE PORT — Shipping Pull/Packing step safety: safe packing-step toggles so Pull Plants does not crash Shipping. -->
   <!-- V265 FEATURE PORT — Show History Route Fix: Reports/Visual Reports Show History opens actual show sales history. -->
@@ -4250,6 +4251,117 @@
     }
     .ld-v234-plant-tab-label { color:inherit !important; }
     .ld-v234-plant-tab-icon { color:inherit !important; }
+
+
+    /* V279 — Shipping overview action cards */
+    .ld-v237-overview-actions {
+      display:grid !important;
+      grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+      gap:12px !important;
+      margin-top:14px !important;
+    }
+    .ld-v237-action-card {
+      appearance:none !important;
+      -webkit-appearance:none !important;
+      width:100% !important;
+      border-radius:20px !important;
+      border:1px solid #CDE0D5 !important;
+      background:#FFFFFF !important;
+      box-shadow:0 10px 28px rgba(13,43,26,.08) !important;
+      padding:15px 16px !important;
+      display:flex !important;
+      align-items:flex-start !important;
+      gap:12px !important;
+      text-align:left !important;
+      cursor:pointer !important;
+      transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease, background-color .14s ease !important;
+    }
+    .ld-v237-action-card:hover {
+      transform:translateY(-1px) !important;
+      box-shadow:0 14px 34px rgba(13,43,26,.12) !important;
+      border-color:#97d33e !important;
+    }
+    .ld-v237-action-card:focus-visible {
+      border-color:#97d33e !important;
+    }
+    .ld-v237-action-card.is-primary {
+      background:#000000 !important;
+      border-color:#000000 !important;
+      color:#FFFFFF !important;
+    }
+    .ld-v237-action-card.is-secondary {
+      background:#F0FBF4 !important;
+      border-color:#9DDEB4 !important;
+      color:#174D2F !important;
+    }
+    .ld-v237-action-icon {
+      width:48px !important;
+      min-width:48px !important;
+      height:48px !important;
+      border-radius:16px !important;
+      display:flex !important;
+      align-items:center !important;
+      justify-content:center !important;
+      font-size:24px !important;
+      line-height:1 !important;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.06) !important;
+    }
+    .ld-v237-action-card.is-primary .ld-v237-action-icon {
+      background:rgba(151,211,62,.16) !important;
+      color:#97d33e !important;
+    }
+    .ld-v237-action-card.is-secondary .ld-v237-action-icon {
+      background:#FFFFFF !important;
+      color:#2E8A55 !important;
+      box-shadow:inset 0 0 0 1px #CDE0D5 !important;
+    }
+    .ld-v237-action-copy {
+      display:flex !important;
+      flex-direction:column !important;
+      gap:4px !important;
+      min-width:0 !important;
+      flex:1 !important;
+    }
+    .ld-v237-action-copy strong {
+      display:block !important;
+      font-size:17px !important;
+      line-height:1.12 !important;
+      font-weight:950 !important;
+      color:inherit !important;
+    }
+    .ld-v237-action-copy small {
+      display:block !important;
+      font-size:12px !important;
+      line-height:1.42 !important;
+      font-weight:750 !important;
+      color:inherit !important;
+      opacity:.82 !important;
+      white-space:normal !important;
+    }
+    @media (max-width:760px) {
+      .ld-v237-overview-actions {
+        grid-template-columns:1fr !important;
+        gap:10px !important;
+      }
+      .ld-v237-action-card {
+        min-height:90px !important;
+        padding:14px 14px !important;
+        border-radius:18px !important;
+      }
+      .ld-v237-action-icon {
+        width:44px !important;
+        min-width:44px !important;
+        height:44px !important;
+        border-radius:14px !important;
+        font-size:22px !important;
+      }
+      .ld-v237-action-copy strong {
+        font-size:16px !important;
+      }
+      .ld-v237-action-copy small {
+        font-size:12px !important;
+      }
+    }
 
     .ld-v234-flow-grid {
       display:grid !important;
@@ -24160,7 +24272,7 @@ Cancel keeps this local/free.`);
 
         {tab === "overview" && <div className="ld-v237-ship-grid-2">
           <Card><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900, marginBottom:10 }}>Today's shipping flow</div>{[["1","Pack","Pull the right plant, inspect it, add insulation/paperwork if needed.","pack"],["2","Capture tracking","Take shipping label photo, scan barcode, or paste tracking.","tracking"],["3","Complete shipment","Confirm tracking/customer match and mark shipped/completed.","completed"],["4","Review money","Enter actual label cost so shipping profit is correct.","profit"]].map(([n,t,b,go])=><button key={n} onClick={()=>setTab(go)} className="ld-v237-step-row"><b>{n}</b><span><strong>{t}</strong><small>{b}</small></span></button>)}</Card>
-          <Card><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900, marginBottom:10 }}>Needs attention</div>{problems.length ? problems.slice(0,7).map((p,i)=><button key={i} onClick={()=>setTab(p.action)} className="ld-v237-problem-row"><span>{p.icon}</span><span><strong>{p.title}</strong><small>{p.sub}</small></span></button>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:16, fontWeight:900, color:C.g700 }}>✅ No shipping problems found in the active queue.</div>}<Row gap={8} wrap style={{ marginTop:12 }}><Btn sz="sm" onClick={()=>setTab("pack")}>Start Packing</Btn><Btn sz="sm" v="soft" onClick={()=>setTab("tracking")}>Add Tracking</Btn></Row></Card>
+          <Card><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900, marginBottom:10 }}>Needs attention</div>{problems.length ? problems.slice(0,7).map((p,i)=><button key={i} onClick={()=>setTab(p.action)} className="ld-v237-problem-row"><span>{p.icon}</span><span><strong>{p.title}</strong><small>{p.sub}</small></span></button>) : <div style={{ background:C.g50, border:`1px solid ${C.g200}`, borderRadius:16, padding:16, fontWeight:900, color:C.g700 }}>✅ No shipping problems found in the active queue.</div>}<div className="ld-v237-overview-actions"><button type="button" className="ld-v237-action-card is-primary" onClick={()=>setTab("pack")}><span className="ld-v237-action-icon">📦</span><span className="ld-v237-action-copy"><strong>Start Packing</strong><small>Open the packing queue and start pulling the orders that need work now.</small></span></button><button type="button" className="ld-v237-action-card is-secondary" onClick={()=>setTab("tracking")}><span className="ld-v237-action-icon">🔎</span><span className="ld-v237-action-copy"><strong>Add Tracking</strong><small>Scan, paste, or capture tracking so shipments can be completed cleanly.</small></span></button></div></Card>
         </div>}
 
         {tab === "pack" && <OrderPackingBoard plants={plants} setPlants={setPlants} user={user} setPage={setPage} casdCerts={casdCerts} setCasdCerts={setCasdCerts} addAudit={addAudit} />}
