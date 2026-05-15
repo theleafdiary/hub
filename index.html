@@ -21,6 +21,7 @@
   <!-- V234 — Phase 4 Plants + Labels Consolidation: Plants is now the mobile-first home for inventory, add/import, labels, barcode scan, photo sprint, bulk actions, and sold/archive queues. -->
   <!-- V233 — Phase 3 Role-Aware Home: replaces the crowded Today screen with simple Owner, Manager, and Employee mobile-first dashboards focused on what to do right now. -->
   <!-- V230 — Security Lockdown + Sync Menu: public signup removed, gateway token no longer hard-coded, mobile sync controls moved into a labeled dropdown. -->
+  <!-- V236 — Phase 5 Shows Consolidation: Shows now opens one Show Command Center with Overview, Build, Pull List, Live, Import, Match Problems, Profit, Pay, and Social tabs; legacy show routes open the correct tab. -->
   <!-- V217 — Local Sale TX Paperwork Alert: local sales to CA/AZ/TX/LA/HI now show state paperwork reminders and save paperwork-required flags. -->
   <!-- V214 — Local Sale Customer Capture: adds full customer/contact/address fields to Local Sale workflow and accounting reports. -->
   <!-- V213 — Local Sale Accounting: adds Mark Local Sale workflow, payment method capture, sold dates, local sale flags, and accounting report breakdowns. -->
@@ -3184,6 +3185,7 @@
   <!-- V187R — Phase 49 Owner Intelligence Perfection -->
   <!-- V176R — Phase 38 Show Workflow Perfection -->
   <script type="text/babel">
+
     /* V139R PHASE 1 MASTER PAGE CONSOLIDATION SHELL
        Goal: make Leaf Diary simple enough to use on day one.
        Creates one visible master page per business area: Today, Inventory, Labels/Photos, Shows/Sales, Shipping, Money, Advanced.
@@ -7048,7 +7050,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         };
         return { ...base, ...(v231[id] || {}) };
       };
-      const bottomTabTarget = id => id === "plants_ws" || id === "labels_ws" ? "inv" : id === "shows_ws" ? "runshow" : id;
+      const bottomTabTarget = id => id === "plants_ws" || id === "labels_ws" ? "inv" : id === "shows_ws" ? "showcommand" : id;
       const addContextLabel = (() => {
         const ws = getWorkspaceForPage(page);
         if (ws === "plants_ws") return "Plant";
@@ -7134,6 +7136,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         manual: "manual add plant single plant add inventory",
         showbuilder: "build show whatnot palmstreet live selling export show plan",
         runshow: "run a show show workflow build show pull plants export whatnot palmstreet live show import results auction mode",
+        showcommand: "shows command center build pull live import match problems profit cogs whatnot palmstreet",
         showimport: "import show sales upload sales sold plants bundle bundles whatnot palmstreet csv profit cogs",
         reports: "profit show profit daily profit weekly profit cogs money reports accounting",
         packorders: "pack orders orders to pack shipping ready to pack boxed",
@@ -7226,8 +7229,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           labels: { type:"labels_ws", panel:["Print Labels", "labels", "🏷️", "Print or reprint barcode labels for plants"] },
           photosprint: { type:"labels_ws", panel:["Scan Label + Take Photo", "photosprint", "📸", "Scan barcode, take photo, save it to the correct plant"] },
           scanlabel: { type:"labels_ws", panel:["Scan Plant Label", "scanlabel", "🔎", "Find a plant by barcode and fix label/photo issues"] },
-          showbuilder: { type:"shows_ws", panel:["Build Show", "showbuilder", "🎪", "Pick ready plants for Whatnot or Palmstreet"] },
-          showimport: { type:"shows_ws", panel:["Upload Show Sales", "showimport", "📥", "Import sold plants after the live show"] },
+          showbuilder: { type:"showcommand", panel:["Build Show", "showbuilder", "🎪", "Pick ready plants for Whatnot or Palmstreet"] },
+          showimport: { type:"showcommand", panel:["Upload Show Sales", "showimport", "📥", "Import sold plants after the live show"] },
           packorders: { type:"orders_ws", panel:["Pack Orders", "packorders", "📦", "Pack sold plants and prepare labels"] },
           orders_ws: { type:"orders_ws", panel:["Pack Orders", "packorders", "📦", "Pack sold plants and prepare labels"] },
           shiplabels: { type:"orders_ws", panel:["Scan Tracking", "shiplabels", "🔎", "Scan or photograph shipping label and match tracking"] },
@@ -9618,8 +9621,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       </div>;
     }
 
-    function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = {}, setSettings, users = [], phase3Config, phase4Routes, setPage }) {
-      const [tab, setTab] = useState("overview");
+    function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = {}, setSettings, users = [], phase3Config, phase4Routes, setPage, initialTab = "overview", setCasdCerts = () => {} }) {
+      const [tab, setTab] = useState(initialTab || "overview");
       const [platform, setPlatform] = useState(settings?.lastShowPlatform || "Whatnot");
       const [showType, setShowType] = useState("Balanced Profit Show");
       const [targetCount, setTargetCount] = useState(settings?.lastShowTargetCount || 60);
@@ -9640,6 +9643,27 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const showValue = showCart.reduce((s,p)=>s+(+p.suggestedPrice || +p.listPrice || +p.price || 0),0);
       const orders = groupSalesIntoOrders(plants);
       const recentImports = orders.filter(o => dateInLast(o.soldDate, 7));
+      const recentShowSold = sold7.length ? sold7 : sold30;
+      const showSaleAmount = p => +p.salePrice || +p.soldPrice || +p.sellerIncome || +p.suggestedPrice || +p.listPrice || +p.price || 0;
+      const showCostAmount = p => +p.cost || +p.unitCost || +p.purchaseCost || 0;
+      const showFeeAmount = p => +p.paymentFee || +p.platformFee || +p.palmstreetFee || +p.whatnotFee || +p.sellerFee || 0;
+      const showShipProfit = p => { try { if (typeof ldShippingProfit === "function") return +ldShippingProfit(p) || 0; } catch(e) {} return (+p.shippingChargedToCustomer || +p.shippingFee || +p.shippingRevenue || 0) - (+p.actualLabelCost || +p.actualShippingCost || +p.labelCost || 0) - (+p.shippingSuppliesCost || +p.packingSuppliesCost || 0); };
+      const showProfitSales = recentShowSold.reduce((s,p)=>s + showSaleAmount(p), 0);
+      const showProfitCogs = recentShowSold.reduce((s,p)=>s + showCostAmount(p), 0);
+      const showProfitFees = recentShowSold.reduce((s,p)=>s + showFeeAmount(p), 0);
+      const showProfitShipping = recentShowSold.reduce((s,p)=>s + showShipProfit(p), 0);
+      const showProfitGross = showProfitSales - showProfitCogs;
+      const showProfitTrue = showProfitSales - showProfitCogs - showProfitFees + showProfitShipping;
+      const showProfitAvg = recentShowSold.length ? showProfitSales / recentShowSold.length : 0;
+      const showMissingCost = recentShowSold.filter(p => !(showCostAmount(p) > 0));
+      const showPendingShipping = recentShowSold.filter(p => p.shippingCostPending || ((+p.shippingChargedToCustomer || +p.shippingFee || +p.shippingRevenue || 0) > 0 && !(+p.actualLabelCost || +p.actualShippingCost || +p.labelCost || 0)));
+      const showMissingOrder = recentShowSold.filter(p => !(p.orderNumber || p.orderNo || p.orderId || p.customerUsername || p.customerName || p.buyerName));
+      const showProblemRows = [
+        { icon:"💸", title:"Sold plants missing cost", count:showMissingCost.length, body:"These sold plants have no inventory cost/COGS. Profit will look too high until cost is fixed.", page:"inv", color:showMissingCost.length ? C.red : C.g600 },
+        { icon:"📦", title:"Shipping label cost pending", count:showPendingShipping.length, body:"These orders have shipping charged or pending labels without actual label cost saved yet.", page:"packorders", color:showPendingShipping.length ? C.amber : C.g600 },
+        { icon:"👤", title:"Buyer/order details missing", count:showMissingOrder.length, body:"These sold rows need customer/order info before packing and reports are clean.", page:"showimport", color:showMissingOrder.length ? C.blue : C.g600 },
+        { icon:"📥", title:"Recent imported order groups", count:recentImports.length, body:"Imported sales from the last 7 days that are ready to review, pack, or complete.", page:"packorders", color:recentImports.length ? C.purple : C.tx3 }
+      ];
       const commissionRate = +settings?.defaultCommissionPercent || 1;
       const estCommissionBase = sold7.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || 0),0);
       const estCommission = estCommissionBase * (commissionRate / 100);
@@ -9650,13 +9674,15 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const platforms = ["Whatnot", "Palmstreet", "Shopify Live", "Local Sale"];
       const showTypes = ["Balanced Profit Show", "Fast Auction", "Rare Plant Premium Show", "Clearance Show", "Tissue Culture Show", "Mixed Show", "Employee Hosted Show"];
       const tabs = [
-        { id:"overview", icon:"🎪", label:"Plan" },
+        { id:"overview", icon:"🎪", label:"Overview" },
+        { id:"build", icon:"🧠", label:"Build", hidden:!canManage },
+        { id:"prep", icon:"🧺", label:"Pull List" },
+        { id:"live", icon:"🎥", label:"Live" },
+        { id:"import", icon:"📥", label:"Import", hidden:!canManage },
+        { id:"problems", icon:"⚠️", label:"Problems", hidden:!canManage },
+        { id:"profit", icon:"💰", label:"Profit", hidden:!canManage },
         { id:"auction", icon:"🏷️", label:"Auctions", hidden:!canManage },
-        { id:"build", icon:"🧠", label:"Build Show", hidden:!canManage },
-        { id:"live", icon:"🎥", label:"Live Mode" },
-        { id:"import", icon:"📥", label:"Import Sales", hidden:!canManage },
-        { id:"prep", icon:"🧺", label:"Prep + Pull" },
-        { id:"pay", icon:"🤝", label:"Employee Pay", hidden:!canOwner },
+        { id:"pay", icon:"🤝", label:"Pay", hidden:!canOwner },
         { id:"content", icon:"📣", label:"Social" }
       ].filter(t => !t.hidden);
       const setShowField = (key, value) => {
@@ -9752,6 +9778,21 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           {tabs.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ background:tab===t.id ? "#000" : C.card, color:tab===t.id ? "#97d33e" : C.g900, border:`1.5px solid ${tab===t.id ? "#97d33e" : C.bd}`, borderRadius:999, padding:"11px 13px", fontWeight:900, fontFamily:F.body, cursor:"pointer", whiteSpace:"nowrap" }}>{t.icon} {t.label}</button>)}
         </div>
 
+        <div className="ld-v236-show-flow">
+          {[
+            ["1", "Build", "Pick photo-ready plants", canManage ? "build" : "prep"],
+            ["2", "Pull", "Stage and label plants", "prep"],
+            ["3", "Live", "Run the show", "live"],
+            ["4", "Import", "Upload sales CSV", canManage ? "import" : "live"],
+            ["5", "Profit", "Review COGS + net", canManage ? "profit" : "prep"]
+          ].map(([n,title,sub,target]) => (
+            <button key={n+title} className="ld-v236-show-step" onClick={()=>setTab(target)} style={{ cursor:"pointer", textAlign:"left" }}>
+              <span className="ld-v236-show-step-num">{n}</span>
+              <span style={{ display:"block", minWidth:0 }}><span className="ld-v236-show-step-title">{title}</span><span className="ld-v236-show-step-sub">{sub}</span></span>
+            </button>
+          ))}
+        </div>
+
         {tab === "overview" && <>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
             <KPI label="Ready For Show" value={photoReady.length} sub={$(readyValue)} color={C.g600} />
@@ -9783,6 +9824,40 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             ["Discounts", `${aging45.length} plant(s) are 45+ days old and should be reviewed for show pricing.`, "discounts", C.red]
           ].map(([title,body,page,color]) => <TaskCard key={title} icon="✅" title={title} body={body} button="Open" onClick={()=>setPage(page)} color={color} />)}</Card>
         </div>}
+        {tab === "problems" && canManage && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <Card style={{ borderTop:`4px solid ${showProblemRows.some(r=>r.count>0) ? C.red : C.g600}` }}>
+            <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:22, fontWeight:950, color:C.g900 }}>⚠️ Show Match Problems</div><div style={{ fontSize:12, color:C.tx3 }}>Fix these before packing so inventory, shipping, and profit stay correct.</div></div><Btn sz="sm" onClick={()=>setTab("import")}>Open Import</Btn></Row>
+            <div style={{ display:"grid", gap:10 }}>{showProblemRows.map(row => <button key={row.title} className="ld-v236-show-problem-card" onClick={()=> row.page === "showimport" ? setTab("import") : setPage(row.page)} style={{ borderLeftColor:row.color, cursor:"pointer", textAlign:"left", fontFamily:F.body }}>
+              <Row gap={12} center><div style={{ width:42, height:42, borderRadius:14, background:row.color+"1F", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{row.icon}</div><div style={{ flex:1, minWidth:0 }}><Row between center gap={8}><div style={{ fontWeight:950, color:C.g900 }}>{row.title}</div><Tag text={`${row.count}`} color={row.color} sm /></Row><div style={{ color:C.tx3, fontSize:12, lineHeight:1.35, marginTop:3 }}>{row.body}</div></div></Row>
+            </button>)}</div>
+          </Card>
+          <Card style={{ borderTop:`4px solid ${C.blue}` }}>
+            <div style={{ fontFamily:F.display, fontSize:22, fontWeight:950, color:C.g900, marginBottom:8 }}>📥 Recent Imported Sales</div>
+            {recentImports.length ? recentImports.slice(0,12).map(o => <Row key={o.orderId || o.customerUsername || Math.random()} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><div><div style={{ fontWeight:900, color:C.tx1, fontSize:13 }}>{o.customerUsername || o.customerName || "Buyer"}</div><div style={{ fontSize:11, color:C.tx3 }}>{o.soldDate || "No date"} · {o.plants?.length || 0} plant(s)</div></div><div style={{ fontWeight:950, color:C.g600 }}>{$(o.totalValue || 0)}</div></Row>) : <div style={{ background:C.cardAlt, borderRadius:14, padding:14, color:C.tx3, fontSize:13 }}>No recent imported order groups found. After a live show, use Import to upload Whatnot/Palmstreet sales.</div>}
+            <Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={()=>setTab("import")}>Import Sales</Btn><Btn v="soft" onClick={()=>setPage("packorders")}>Pack Orders</Btn></Row>
+          </Card>
+        </div>}
+
+        {tab === "profit" && canManage && <div>
+          <Card style={{ background:"#000", color:"#fff", border:"2px solid #97d33e", marginBottom:14 }}>
+            <Row between center wrap gap={10}><div><div style={{ fontSize:32 }}>💰</div><div style={{ fontFamily:F.display, color:"#97d33e", fontSize:28, fontWeight:950 }}>Show Profit Snapshot</div><div style={{ fontSize:12, color:"rgba(255,255,255,.68)">{recentShowSold.length ? "Using sold plants from the last 7 days, or last 30 days if no 7-day sales exist." : "No recent sold plants found yet."}</div></div><Row gap={8} wrap><Btn onClick={()=>setPage("reports")}>Open Full Reports</Btn><Btn v="soft" onClick={()=>setTab("import")}>Import Sales</Btn></Row></Row>
+          </Card>
+          <div className="ld-v236-show-profit-grid">
+            <KPI label="Plants Sold" value={recentShowSold.length} sub="recent show sales" color={C.blue} />
+            <KPI label="Plant Sales" value={$(showProfitSales)} sub={`Avg ${$(showProfitAvg)}`} color={C.gold} />
+            <KPI label="Sold Plant Cost / COGS" value={$(showProfitCogs)} sub="cost of sold plants" color={C.red} />
+            <KPI label="Plant Gross Profit" value={$(showProfitGross)} sub="sales minus COGS" color={showProfitGross >= 0 ? C.g600 : C.red} />
+            <KPI label="Platform Fees" value={$(showProfitFees)} sub="fees recorded on sales" color={showProfitFees ? C.amber : C.g600} />
+            <KPI label="Shipping Profit" value={$(showProfitShipping)} sub="charged minus labels/supplies" color={showProfitShipping >= 0 ? C.g600 : C.red} />
+            <KPI label="True Show Profit" value={$(showProfitTrue)} sub="sales - COGS - fees + ship" color={showProfitTrue >= 0 ? C.g600 : C.red} />
+            <KPI label="Missing Costs" value={showMissingCost.length} sub="fix before trusting profit" color={showMissingCost.length ? C.red : C.g600} />
+          </div>
+          <Card>
+            <Row between center wrap gap={10} style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontWeight:950, color:C.g900, fontSize:20 }}>Recent Sold Plants Behind This Profit</div><div style={{ color:C.tx3, fontSize:12 }}>Tap full reports for day, week, month, and per-show breakdowns.</div></div><Btn sz="sm" v="soft" onClick={()=>setPage("reports")}>Full Show Profit</Btn></Row>
+            {recentShowSold.length ? recentShowSold.slice(0,20).map((p,i)=><PullPlant key={(p.id || p.plantId || p.name || "sold")+i} p={p} idx={i}/>) : <div style={{ background:C.cardAlt, borderRadius:14, padding:15, color:C.tx3, fontSize:13 }}>No recent sold plants found. Import a show sale file first, then come back here.</div>}
+          </Card>
+        </div>}
+
         {tab === "pay" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>🤝 Employee Show Pay</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Use this after importing a show. Confirm who hosted, commission percent, and whether tips go 100% to the employee.</p><div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, margin:"12px 0" }}><KPI label="7-Day Sales Base" value={$(estCommissionBase)} color={C.gold}/><KPI label="Default Rate" value={`${commissionRate}%`} color={C.purple}/><KPI label="Est. Commission" value={$(estCommission)} color={C.g600}/></div><Row gap={8} wrap><Btn onClick={()=>setPage("commissions")}>Open Commissions</Btn><Btn v="soft" onClick={()=>setPage("payroll")}>Open Payroll</Btn><Btn v="outline" onClick={()=>setTab("import")}>Import Sales First</Btn></Row></Card>
           <Card style={{ borderTop:`4px solid ${C.blue}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>📥 Recent Show Imports</div>{recentImports.length ? recentImports.slice(0,10).map(o => <Row key={o.orderId} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><div><b style={{ fontSize:13 }}>{o.customerUsername || o.customerName || "Buyer"}</b><div style={{ fontSize:11, color:C.tx3 }}>{o.soldDate} · {o.plants?.length || 0} plant(s)</div></div><span style={{ fontWeight:900, color:C.g600 }}>{$(o.totalValue)}</span></Row>) : <p style={{ color:C.tx3, fontSize:13 }}>No recent imported sold groups found yet.</p>}</Card>
@@ -26449,7 +26524,7 @@ Cancel if you want to save money.`);
       </div>;
     }
 
-    const APP_VERSION = "Leaf Diary Business Hub — AI Recovery Build 2026-05-10";
+    const APP_VERSION = "Leaf Diary Business Hub — V236 Phase 5 Shows Consolidation";
     const PHASE1_SNAPSHOT_KEY = "leafdiary_phase1_snapshots";
     const PHASE1_ERROR_KEY = "leafdiary_phase1_error_log";
     const PHASE1_MAX_SNAPSHOTS = 18;
@@ -30335,9 +30410,9 @@ ${local.summary || "Fallback completed."}`;
           {page === "plantcapture" && <PlantCaptureWorkflow plants={plants} user={user} setPage={navigate} />}
           {page === "intake_ws" && <IntakeWorkflow plants={plants} setPlants={setPlants} nurseries={nurseries} setNurseries={setNurseries} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} expenses={expenses} setExpenses={setExpenses} />}
           {page === "shows_ws" && <WorkspaceHome type="shows_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
-          {page === "runshow" && <RunShowWorkflow plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} setPage={navigate} />}
-          {page === "showcommand" && <ShowCommandCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} />}
-          {page === "showprep" && <ShowPrepPullList plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} />}
+          {page === "runshow" && <ShowCommandCenter key="show-overview" initialTab="overview" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
+          {page === "showcommand" && <ShowCommandCenter key="show-command" initialTab="overview" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
+          {page === "showprep" && <ShowCommandCenter key="show-prep" initialTab="prep" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "packorders" && <OrderPackingBoard plants={plants} setPlants={setPlants} user={user} setPage={navigate} casdCerts={casdCerts} addAudit={addAudit} />}
           {page === "orders_ws" && <WorkspaceHome type="orders_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
           {page === "money_ws" && <WorkspaceHome type="money_ws" user={user} plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={expenseReceipts} casdCerts={casdCerts} settings={settings} setPage={navigate} />}
@@ -30377,7 +30452,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "inlineedit" && (user.role === "owner" || user.role === "manager") && <InlineEditCenter setPage={navigate} />}
           {page === "bulkactions" && (user.role === "owner" || user.role === "manager") && <BulkActionsCenter plants={plants} user={user} setPage={navigate} />}
           {page === "swipegestures" && <SwipeGestureCenter plants={plants} user={user} setPage={navigate} />}
-          {page === "showdragdrop" && (user.role === "owner" || user.role === "manager") && <DragDropShowBuilderCenter plants={plants} user={user} setPage={navigate} />}
+          {page === "showdragdrop" && (user.role === "owner" || user.role === "manager") && <ShowCommandCenter key="show-drag" initialTab="build" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "keyboardshortcuts" && <KeyboardShortcutsCenter user={user} setPage={navigate} />}
           {page === "datacharts" && CAN.seeReports(user.role) && <DataVisualizationCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} nurseries={nurseries} settings={settings} user={user} setPage={navigate} />}
           {page === "accessibility" && CAN.seeReports(user.role) && <AccessibilityCenter user={user} setPage={navigate} />}
@@ -30389,9 +30464,9 @@ ${local.summary || "Fallback completed."}`;
           {page === "scanlabel" && <ScanLabelFindPlantCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} settings={settings} />}
           {page === "photosprint" && <FastPhotoSprintCenter plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} setPage={navigate} />}
           {page === "sellthru" && CAN.seeReports(user.role) && <SellThrough plants={plants} nurseries={nurseries} setPage={navigate} />}
-          {page === "liveshow" && <LiveShowMode plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={navigate} />}
-          {page === "showbuilder" && <ShowBuilder plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} settings={settings} setSettings={setSettings} phase3Config={phase3Config} phase4Routes={phase4Routes} />}
-          {page === "showimport" && <ShowImport plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} users={users} settings={settings} setSettings={setSettings} setCasdCerts={setCasdCerts} />}
+          {page === "liveshow" && <ShowCommandCenter key="show-live" initialTab="live" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
+          {page === "showbuilder" && <ShowCommandCenter key="show-build" initialTab="build" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
+          {page === "showimport" && <ShowCommandCenter key="show-import" initialTab="import" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {page === "bills" && <Bills bills={bills} setBills={setBills} />}
@@ -30427,6 +30502,7 @@ ${local.summary || "Fallback completed."}`;
     const container = document.getElementById('root');
     const root = ReactDOM.createRoot(container);
     root.render(React.createElement(LeafDiaryErrorBoundary, null, React.createElement(App)));
+  
   </script>
 </body>
 
