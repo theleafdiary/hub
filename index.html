@@ -85,6 +85,8 @@
   <!-- V298 — Manager Finance + Shipping Platform Rules: manager can see/edit daily finance and money workflows while dangerous technical/admin repair tools stay owner-only; home shipping wording uses plant count vs shipment count; Whatnot remains tracking/docs-only unless seller-paid adjustment exists. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
+  <link rel="icon" type="image/png" sizes="32x32" href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=64" />
+  <link rel="shortcut icon" href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=64" />
   <style>
     * {
       box-sizing: border-box;
@@ -6944,6 +6946,58 @@
       const { data } = supabase.storage.from(PLANT_PHOTO_BUCKET).getPublicUrl(path);
       return { photoUrl: data.publicUrl, photoPath: path, photoUploadedAt: new Date().toISOString() };
     }
+
+    const ORDER_PACK_VIDEO_BUCKET = PLANT_PHOTO_BUCKET;
+    const ORDER_PACK_VIDEO_RETENTION_DAYS = 60;
+    const orderVideoSafeKey = order => safeFilePart(order?.orderId || order?.id || order?.customerUsername || order?.customerName || `order-${Date.now()}`);
+    const addDaysIso = (days = 60) => { const d = new Date(); d.setDate(d.getDate() + (+days || 60)); return d.toISOString(); };
+    function videoDurationSeconds(file) {
+      return new Promise(resolve => {
+        try {
+          const video = document.createElement("video");
+          const url = URL.createObjectURL(file);
+          video.preload = "metadata";
+          video.onloadedmetadata = () => { const d = Number.isFinite(video.duration) ? video.duration : 0; URL.revokeObjectURL(url); resolve(d); };
+          video.onerror = () => { URL.revokeObjectURL(url); resolve(0); };
+          video.src = url;
+        } catch(e) { resolve(0); }
+      });
+    }
+    async function uploadOrderPackingVideoFile(file, order, user = {}) {
+      if (!file) throw new Error("Choose a video first.");
+      if (!String(file.type || "").startsWith("video/")) throw new Error("Please upload a video file.");
+      const maxMb = 140;
+      if (file.size > maxMb * 1024 * 1024) throw new Error(`Video is too large (${Math.round(file.size/1024/1024)}MB). Keep the proof clip short or lower camera quality under ${maxMb}MB.`);
+      const duration = await videoDurationSeconds(file);
+      if (duration > 35 && !confirm(`This clip is about ${Math.round(duration)} seconds. For fast loading, use 10–20 seconds when possible. Upload anyway?`)) throw new Error("Video upload cancelled.");
+      const cleanOrder = orderVideoSafeKey(order);
+      const ext = String(file.name || "video.mp4").split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0,8) || "mp4";
+      const path = `order-videos/${today()}/${cleanOrder}-${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from(ORDER_PACK_VIDEO_BUCKET).upload(path, file, { contentType:file.type || "video/mp4", cacheControl:"5184000", upsert:true });
+      if (error) throw error;
+      const { data } = supabase.storage.from(ORDER_PACK_VIDEO_BUCKET).getPublicUrl(path);
+      return {
+        packingVideoUrl:data?.publicUrl || "",
+        packingVideoPath:path,
+        packingVideoBucket:ORDER_PACK_VIDEO_BUCKET,
+        packingVideoFileName:file.name || "packing-proof-video",
+        packingVideoSize:file.size || 0,
+        packingVideoType:file.type || "video/mp4",
+        packingVideoDuration:duration || 0,
+        packingVideoUploadedAt:new Date().toISOString(),
+        packingVideoUploadedBy:user?.name || user?.email || "Leaf Diary",
+        packingVideoExpiresAt:addDaysIso(ORDER_PACK_VIDEO_RETENTION_DAYS),
+        packingVideoRetentionDays:ORDER_PACK_VIDEO_RETENTION_DAYS
+      };
+    }
+    async function removeOrderPackingVideoFile(meta = {}) {
+      try {
+        const bucket = meta.packingVideoBucket || ORDER_PACK_VIDEO_BUCKET;
+        const path = meta.packingVideoPath || meta.prePackVideoPath || "";
+        if (bucket && path) await supabase.storage.from(bucket).remove([path]);
+      } catch(e) { try { console.warn("Order packing video cloud remove failed", e); } catch(_) {} }
+    }
+
     function imageFileToBase64(file, maxDim = 900, quality = 0.74) {
       return new Promise((resolve, reject) => {
         const img = new Image();
@@ -10582,22 +10636,25 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         if (["inv", "plants", "plants_ws", "labels", "labels_ws", "labelife", "scanlabel", "photosprint", "plantcapture", "upload", "manual", "history", "bulkactions", "inlineedit"].includes(v)) return role === "employee" ? "labels_ws" : "plants_ws";
         if (["shows", "shows_ws", "showcommand", "showbuilder", "showprep", "liveshow", "showimport", "runshow", "showdragdrop"].includes(v)) return "shows_ws";
         if (["orders", "orders_ws", "packorders", "ship", "shiplabels", "casd", "bundles", "pos", "refunds"].includes(v)) return "orders_ws";
-        if (["money", "money_ws", "reports", "receipts", "expense", "bills", "cashflow", "payroll", "commissions", "tax", "goals", "datacharts", "slotprofit", "buy_ws"].includes(v)) return role === "employee" ? "timecard" : "money_ws";
+        if (["reports", "visualreports", "visual_reports"].includes(v)) return role === "employee" ? "timecard" : "reports";
+        if (["money", "money_ws", "receipts", "expense", "bills", "cashflow", "payroll", "commissions", "tax", "goals", "datacharts", "slotprofit", "buy_ws"].includes(v)) return role === "employee" ? "timecard" : "money_ws";
         if (["admin", "admin_ws", "settings", "aihub", "command", "teamsync", "changelog"].includes(v)) return role === "owner" ? "admin_ws" : "today";
         if (v === "timecard") return "timecard";
         return v;
       };
       const ldV242Unique = arr => { const seen = new Set(); return safeArray(arr).filter(id => { const k = String(id || ""); if (!k || seen.has(k)) return false; seen.add(k); return true; }); };
-      const ldV242FooterDefaults = role === "employee" ? ["today", "labels_ws", "orders_ws", "timecard"] : ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws"];
+      const ldV242FooterDefaults = role === "employee" ? ["today", "labels_ws", "orders_ws", "timecard"] : ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "reports"];
       const ldV242AllowedFooter = role === "owner"
-        ? new Set(["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "admin_ws"])
+        ? new Set(["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "reports", "admin_ws"])
         : role === "manager"
-          ? new Set(["today", "plants_ws", "shows_ws", "orders_ws", "money_ws"])
+          ? new Set(["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "reports"])
           : new Set(["today", "labels_ws", "orders_ws", "timecard"]);
       const ldV242RawFooter = Array.isArray(role === "employee" ? settings?.employeeFooterTabs : settings?.footerTabs) ? (role === "employee" ? settings.employeeFooterTabs : settings.footerTabs) : [];
-      const ldV242OldDefaultFooter = ldV242RawFooter.some(id => ["dash", "command", "aihub", "upload", "manual", "emp_dash"].includes(String(id || ""))) && !ldV242RawFooter.some(id => ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "labels_ws", "timecard"].includes(String(id || "")));
-      const ldV242ConfiguredFooter = ldV242Unique(ldV242RawFooter.map(ldV242FooterAlias).filter(id => ldV242AllowedFooter.has(id))).slice(0, role === "employee" ? 4 : 5);
-      const bottomTabs = ((!ldV242OldDefaultFooter && ldV242ConfiguredFooter.length >= 4) ? ldV242ConfiguredFooter : ldV242FooterDefaults).slice(0, role === "employee" ? 4 : 5);
+      const ldV242OldDefaultFooter = ldV242RawFooter.some(id => ["dash", "command", "aihub", "upload", "manual", "emp_dash"].includes(String(id || ""))) && !ldV242RawFooter.some(id => ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "reports", "labels_ws", "timecard"].includes(String(id || "")));
+      const ldV303FooterMax = role === "employee" ? 4 : 6;
+      const ldV242ConfiguredFooter = ldV242Unique(ldV242RawFooter.map(ldV242FooterAlias).filter(id => ldV242AllowedFooter.has(id))).slice(0, ldV303FooterMax);
+      const ldV303BaseBottomTabs = ((!ldV242OldDefaultFooter && ldV242ConfiguredFooter.length >= 4) ? ldV242ConfiguredFooter : ldV242FooterDefaults).slice(0, ldV303FooterMax);
+      const bottomTabs = (role === "owner" || role === "manager") ? ldV242Unique([...ldV303BaseBottomTabs, "reports"]).filter(id => ldV242AllowedFooter.has(id)).slice(0, ldV303FooterMax) : ldV303BaseBottomTabs;
       const bottomTabMeta = id => {
         const base = workspaceById[id] || {};
         const v242 = {
@@ -10607,12 +10664,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           shows_ws:{ icon:"🎪", l:"Shows", sub:"Build, run, import" },
           orders_ws:{ icon:"📦", l:"Shipping", sub:"Pack and track" },
           money_ws:{ icon:"💵", l:"Money", sub:"Profit and bills" },
+          reports:{ icon:"📊", l:"Reports", sub:"Visual reports" },
           timecard:{ icon:"⏱️", l:"Time", sub:"Clock in/out" },
           admin_ws:{ icon:"⚙️", l:"Settings", sub:"Owner tools" }
         };
         return { ...base, ...(v242[id] || {}) };
       };
-      const bottomTabTarget = id => id === "plants_ws" || id === "labels_ws" ? "inv" : id === "shows_ws" ? "showcommand" : id === "orders_ws" ? "orders_ws" : id;
+      const bottomTabTarget = id => id === "plants_ws" || id === "labels_ws" ? "inv" : id === "shows_ws" ? "showcommand" : id === "orders_ws" ? "orders_ws" : id === "reports" ? "reports" : id;
       const addContextLabel = (() => {
         const ws = getWorkspaceForPage(page);
         if (ws === "plants_ws") return "Plant";
@@ -11040,7 +11098,15 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
 
         {pageHelpOpen && <PageHelpModal page={page} user={user} onClose={()=>setPageHelpOpen(false)} setPage={setPage} />}
         {/* V286: Floating green Quick Add/FAB removed so it no longer sits above the footer. Quick Add is available from the main menu. */}
-        <footer className="ld-v231-mainnav ld-v242-footer-nav" role="navigation" aria-label={`${roleLabel} main footer navigation`}>{bottomTabs.map(id => { const t = bottomTabMeta(id); const target = bottomTabTarget(id); const activeWorkflow = getWorkspaceForPage(page); const targetWorkflow = getWorkspaceForPage(target); const active = page === id || page === target || activeWorkflow === id || activeWorkflow === targetWorkflow || (id === "plants_ws" && (activeWorkflow === "intake_ws" || activeWorkflow === "labels_ws")) || (id === "labels_ws" && (activeWorkflow === "intake_ws" || activeWorkflow === "plants_ws" || page === "inv")) || (id === "money_ws" && activeWorkflow === "buy_ws") || (id === "timecard" && page === "timecard"); return <button key={id} className={`ld-v231-mainnav-btn ${active ? "is-active" : ""}`} onClick={()=>openPage(target)} title={t.sub ? `${t.l}: ${t.sub}` : t.l} aria-label={t.sub ? `${t.l}: ${t.sub}` : t.l}><span className="ld-v231-mainnav-icon">{t.icon}</span><span className="ld-v231-mainnav-label">{t.l}</span>{active && <div className="ld-v231-mainnav-activebar" />}{(id==="plants_ws" || id==="labels_ws") && plantCount > 0 && <span className="ld-v231-badge">{plantCount}</span>}{id==="orders_ws" && shippingCount > 0 && <span className="ld-v231-badge">{shippingCount}</span>}</button> })}</footer>
+        <footer className={`ld-v231-mainnav ld-v242-footer-nav ${bottomTabs.length > 5 ? "ld-v303-six-tab-footer" : ""}`} role="navigation" aria-label={`${roleLabel} main footer navigation`}>{bottomTabs.map(id => {
+          const t = bottomTabMeta(id);
+          const target = bottomTabTarget(id);
+          const activeWorkflow = getWorkspaceForPage(page);
+          const targetWorkflow = getWorkspaceForPage(target);
+          const baseActive = page === id || page === target || activeWorkflow === id || activeWorkflow === targetWorkflow || (id === "plants_ws" && (activeWorkflow === "intake_ws" || activeWorkflow === "labels_ws")) || (id === "labels_ws" && (activeWorkflow === "intake_ws" || activeWorkflow === "plants_ws" || page === "inv")) || (id === "money_ws" && activeWorkflow === "buy_ws") || (id === "timecard" && page === "timecard");
+          const active = id === "reports" ? page === "reports" : id === "money_ws" ? (page !== "reports" && baseActive) : baseActive;
+          return <button key={id} className={`ld-v231-mainnav-btn ${active ? "is-active" : ""}`} onClick={()=>openPage(target)} title={t.sub ? `${t.l}: ${t.sub}` : t.l} aria-label={t.sub ? `${t.l}: ${t.sub}` : t.l}><span className="ld-v231-mainnav-icon">{t.icon}</span><span className="ld-v231-mainnav-label">{t.l}</span>{active && <div className="ld-v231-mainnav-activebar" />}{(id==="plants_ws" || id==="labels_ws") && plantCount > 0 && <span className="ld-v231-badge">{plantCount}</span>}{id==="orders_ws" && shippingCount > 0 && <span className="ld-v231-badge">{shippingCount}</span>}</button>;
+        })}</footer>
         <style>{`body{margin:0}.pg-pad{padding:14px 14px 120px!important}.ld-workspace-card{transition:transform .12s ease, box-shadow .12s ease}.ld-workspace-card:active{transform:scale(.985)}.ld-ai-status-open{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important;text-align:center!important}.ld-clean-ai-grid button{white-space:normal!important;word-break:normal!important;overflow-wrap:anywhere!important}.ld-ai-status-open *{white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}@media(max-width:760px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:repeat(2,1fr)!important;}.ld-ai-status-open{font-size:8px!important;min-width:38px!important;padding:6px 6px!important;}}@media(max-width:380px){div[style*="grid-template-columns: repeat(2,1fr)"]{grid-template-columns:1fr!important;}}`}</style>
       </>;
     }
@@ -13807,6 +13873,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const [done, setDone] = useState(() => { try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch(e) { return {}; } });
       const [shippingDrafts, setShippingDrafts] = useState({});
       const [docBusyOrderId, setDocBusyOrderId] = useState("");
+      const [videoBusyOrderId, setVideoBusyOrderId] = useState("");
+      const cleanedExpiredOrderVideosRef = useRef(false);
       const saveDone = next => { setDone(next); try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch(e) {} };
       const toggleDone = key => saveDone({ ...done, [key]: !done[key] });
       const draftForOrder = order => shippingDrafts[order.orderId] || {
@@ -26972,6 +27040,8 @@ Cancel keeps this local/free.`);
       const [done, setDone] = useState(() => { try { const parsed = JSON.parse(localStorage.getItem(storageKey) || "{}"); return (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : {}; } catch(e) { return {}; } });
       const [shippingDrafts, setShippingDrafts] = useState({});
       const [docBusyOrderId, setDocBusyOrderId] = useState("");
+      const [videoBusyOrderId, setVideoBusyOrderId] = useState("");
+      const cleanedExpiredOrderVideosRef = useRef(false);
       const cleanDoneMap = value => (value && typeof value === "object" && !Array.isArray(value)) ? value : {};
       const saveDone = next => { const safeNext = cleanDoneMap(next); setDone(safeNext); try { localStorage.setItem(storageKey, JSON.stringify(safeNext)); } catch(e) { try { console.warn("Packing checklist local save failed", e); } catch(_) {} } };
       const toggleDone = key => { try { if (!key) return; const base = cleanDoneMap(done); saveDone({ ...base, [key]: !base[key] }); } catch(e) { try { console.error("Packing checklist toggle failed", e); } catch(_) {} alert("Packing checklist could not save that tap. Your order data is safe. Refresh and try again."); } };
@@ -27031,7 +27101,94 @@ Cancel keeps this local/free.`);
         addAudit && addAudit({ action:`Shipping finance saved for ${order?.customerName || order?.customerUsername || order?.orderId || "order"}: ${whatnot ? "Whatnot adjustment" : "charged"} $${chargedTotal.toFixed(2)}, label/adjustment $${labelTotal.toFixed(2)}, supplies $${suppliesTotal.toFixed(2)}`, user:user?.name || "", page:"Shipping" });
         alert(`Saved shipping money for ${order?.customerName || order?.customerUsername || "order"}. ${whatnot ? "Whatnot seller shipping impact" : "Shipping profit"}: $${(chargedTotal - labelTotal - suppliesTotal).toFixed(2)}`);
       };
-      const stepKey = (order, step) => `${String(order?.orderId || order?.id || order?.customerUsername || order?.customerName || order?.soldDate || "order")}-${String(step || "step")}`;
+
+      const videoOrderKey = order => String(order?.orderId || order?.id || order?.customerUsername || order?.customerName || "order");
+      const orderVideoMeta = order => {
+        const p = safeArray(order?.plants).find(x => x?.packingVideoUrl || x?.prePackVideoUrl || x?.packingVideoPath);
+        if (!p) return null;
+        return {
+          packingVideoUrl:p.packingVideoUrl || p.prePackVideoUrl || "",
+          packingVideoPath:p.packingVideoPath || p.prePackVideoPath || "",
+          packingVideoBucket:p.packingVideoBucket || ORDER_PACK_VIDEO_BUCKET,
+          packingVideoFileName:p.packingVideoFileName || "pre-pack-video",
+          packingVideoUploadedAt:p.packingVideoUploadedAt || p.prePackVideoUploadedAt || "",
+          packingVideoUploadedBy:p.packingVideoUploadedBy || "",
+          packingVideoExpiresAt:p.packingVideoExpiresAt || "",
+          packingVideoDuration:+p.packingVideoDuration || 0
+        };
+      };
+      const attachOrderVideo = async (order, file) => {
+        if (!file) return;
+        if (!setPlants) return alert("Video save is not available on this screen.");
+        const key = videoOrderKey(order);
+        setVideoBusyOrderId(key);
+        try {
+          const meta = await uploadOrderPackingVideoFile(file, order, user);
+          const orderPlants = safeArray(order?.plants);
+          const soldKeys = new Set(orderPlants.map(p => String(p.id || p.plantId || p.plantCode || p.barcode || "")).filter(Boolean));
+          setPlants(prev => safeArray(prev).map(p => {
+            const k = String(p.id || p.plantId || p.plantCode || p.barcode || "");
+            return soldKeys.has(k) ? {
+              ...p,
+              ...meta,
+              prePackVideoUrl:meta.packingVideoUrl,
+              prePackVideoPath:meta.packingVideoPath,
+              prePackVideoSaved:true,
+              prePackVideoAttachedToOrder:key,
+              prePackVideoRetentionDays:ORDER_PACK_VIDEO_RETENTION_DAYS,
+              packedVideoProof:true,
+              packedVideoProofAt:meta.packingVideoUploadedAt
+            } : p;
+          }));
+          addAudit && addAudit({ action:`Pre-pack video saved for ${order?.customerName || order?.customerUsername || key} (${orderPlants.length} plants, expires in ${ORDER_PACK_VIDEO_RETENTION_DAYS} days)`, user:user?.name || "", page:"Pack Orders" });
+          alert("Saved pre-pack video to the order. It will be marked for 60-day cleanup.");
+        } catch(e) {
+          alert("Could not upload video: " + (e?.message || String(e)));
+        } finally { setVideoBusyOrderId(""); }
+      };
+      const deleteOrderVideo = async order => {
+        const meta = orderVideoMeta(order);
+        if (!meta) return;
+        if (!confirm("Delete this pre-pack video from this order now?")) return;
+        const key = videoOrderKey(order);
+        setVideoBusyOrderId(key);
+        try {
+          await removeOrderPackingVideoFile(meta);
+          const orderPlants = safeArray(order?.plants);
+          const soldKeys = new Set(orderPlants.map(p => String(p.id || p.plantId || p.plantCode || p.barcode || "")).filter(Boolean));
+          setPlants(prev => safeArray(prev).map(p => {
+            const k = String(p.id || p.plantId || p.plantCode || p.barcode || "");
+            if (!soldKeys.has(k)) return p;
+            const n = { ...p };
+            ["packingVideoUrl","packingVideoPath","packingVideoBucket","packingVideoFileName","packingVideoSize","packingVideoType","packingVideoDuration","packingVideoUploadedAt","packingVideoUploadedBy","packingVideoExpiresAt","packingVideoRetentionDays","prePackVideoUrl","prePackVideoPath","prePackVideoSaved","prePackVideoAttachedToOrder","prePackVideoRetentionDays","packedVideoProof","packedVideoProofAt"].forEach(k => delete n[k]);
+            return n;
+          }));
+          addAudit && addAudit({ action:`Pre-pack video deleted for ${order?.customerName || order?.customerUsername || key}`, user:user?.name || "", page:"Pack Orders" });
+        } catch(e) { alert("Video delete failed: " + (e?.message || String(e))); }
+        finally { setVideoBusyOrderId(""); }
+      };
+      useEffect(() => {
+        if (cleanedExpiredOrderVideosRef.current || !setPlants) return;
+        cleanedExpiredOrderVideosRef.current = true;
+        const now = Date.now();
+        const expiredMetas = [];
+        setPlants(prev => {
+          let changed = false;
+          const next = safeArray(prev).map(p => {
+            const exp = p?.packingVideoExpiresAt || "";
+            if (!exp || new Date(exp).getTime() > now) return p;
+            if (p.packingVideoPath || p.packingVideoUrl) expiredMetas.push({ packingVideoBucket:p.packingVideoBucket || ORDER_PACK_VIDEO_BUCKET, packingVideoPath:p.packingVideoPath });
+            changed = true;
+            const n = { ...p };
+            ["packingVideoUrl","packingVideoPath","packingVideoBucket","packingVideoFileName","packingVideoSize","packingVideoType","packingVideoDuration","packingVideoUploadedAt","packingVideoUploadedBy","packingVideoExpiresAt","packingVideoRetentionDays","prePackVideoUrl","prePackVideoPath","prePackVideoSaved","prePackVideoAttachedToOrder","prePackVideoRetentionDays","packedVideoProof","packedVideoProofAt"].forEach(k => delete n[k]);
+            return n;
+          });
+          return changed ? next : prev;
+        });
+        expiredMetas.forEach(m => removeOrderPackingVideoFile(m));
+      }, [setPlants]);
+
+            const stepKey = (order, step) => `${String(order?.orderId || order?.id || order?.customerUsername || order?.customerName || order?.soldDate || "order")}-${String(step || "step")}`;
       const orderDone = (order, step) => !!cleanDoneMap(done)[stepKey(order, step)];
       const doneSteps = Object.values(cleanDoneMap(done)).filter(Boolean).length;
       const totalSteps = Math.max(1, activeOrders.length * 6);
@@ -27146,6 +27303,29 @@ Cancel keeps this local/free.`);
             </div>
             <div style={{ marginTop:6, fontSize:12, fontWeight:900, color:(moneyNum(draftForOrder(order).charged)-moneyNum(draftForOrder(order).label)-moneyNum(draftForOrder(order).supplies)) >= 0 ? C.g700 : C.red }}>Profit on shipment: {$(moneyNum(draftForOrder(order).charged)-moneyNum(draftForOrder(order).label)-moneyNum(draftForOrder(order).supplies))}</div>
           </div>
+          {(() => {
+            const videoMeta = orderVideoMeta(order);
+            const busy = videoBusyOrderId === videoOrderKey(order);
+            const uploaded = !!(videoMeta && videoMeta.packingVideoUrl);
+            return <div className="ld-v303-order-video-box">
+              <Row between center wrap gap={10}>
+                <div style={{ minWidth:0 }}>
+                  <div className="ld-v303-order-video-title">📹 Pre-pack video proof</div>
+                  <div className="ld-v303-order-video-sub">Take/upload the 10–20 second video before boxing so the customer order has condition proof without keeping clips on your phone.</div>
+                </div>
+                {uploaded ? <Tag text="Video Saved" color={C.g600} sm /> : <Tag text="Video Needed" color="#fb6392" sm />}
+              </Row>
+              <div className="ld-v303-order-video-actions">
+                <label className={`ld-v303-video-btn ${uploaded ? "green" : "primary"}`} style={{ opacity:busy ? .6 : 1, cursor:busy ? "wait" : "pointer" }}>
+                  {busy ? "Uploading…" : uploaded ? "Replace Video" : "Upload Video"}
+                  <input type="file" accept="video/*" capture="environment" disabled={busy} style={{ display:"none" }} onChange={e=>{ const f=e.target.files && e.target.files[0]; attachOrderVideo(order, f); e.target.value=""; }} />
+                </label>
+                {uploaded && <a className="ld-v303-video-btn" href={videoMeta.packingVideoUrl} target="_blank" rel="noreferrer">Open Video</a>}
+                {uploaded && <button type="button" className="ld-v303-video-btn danger" disabled={busy} onClick={()=>deleteOrderVideo(order)}>Delete Now</button>}
+              </div>
+              <div className="ld-v303-video-status">{uploaded ? `Saved ${videoMeta.packingVideoUploadedAt ? new Date(videoMeta.packingVideoUploadedAt).toLocaleDateString() : ""}${videoMeta.packingVideoExpiresAt ? ` · Auto-cleanup after ${new Date(videoMeta.packingVideoExpiresAt).toLocaleDateString()}` : " · 60-day retention"}` : "Stored in Supabase Storage under order-videos. Metadata is attached to each plant in this shipment."}</div>
+            </div>;
+          })()}
           {needsDoc && <div className="ld-v253-doc-box">
             <Row between center wrap gap={8}>
               <div style={{ minWidth:0 }}>
@@ -32530,7 +32710,7 @@ Cancel if you want to save money.`);
       { id: "b2", name: "Palmstreet Subscription", amount: 29, dueDate: new Date(Date.now() + 12 * 864e5).toISOString().split("T")[0], category: "Platform Fee", frequency: "Monthly", vendor: "Palmstreet", payMethod: "Credit Card", notes: "", status: "Unpaid", autoRenew: true },
       { id: "b3", name: "Storage Unit Rent", amount: 180, dueDate: new Date(Date.now() + 3 * 864e5).toISOString().split("T")[0], category: "Rent", frequency: "Monthly", vendor: "Public Storage", payMethod: "Credit Card", notes: "Unit #42B - climate controlled", status: "Unpaid", autoRenew: false },
     ];
-    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws"], employeeFooterTabs: ["today", "labels_ws", "orders_ws", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING, weeklyCapacity: 400, weeklyCapacityOverrideEnabled: false, weeklyCapacityThisWeek: 400, weeklyCapacityNote: "", weeklyCapacityUpdatedAt: "", weeklyCapacityUpdatedBy: "", targetPPS: 3.5, avgShippingCost: 8, phase11Enabled: true, platformFees: { palmstreetPercent: 12, whatnotPercent: 8, defaultPercent: 10, freeShippingThreshold: 0 }, ppsRatingThresholds: { A: 5, B: 3, C: 1.5 }, activeAuctions: [], auctionPickHistory: [], auctionSettings: { dailyLimit: 15, defaultDurationHours: 24, minAuctionPrice: 10, noSaleAutoDiscountPercent: 0 }, marketPricing: { enabled: true, discountPctBelowMarket: 7, minMarginPct: 55, maxCostPerLookup: 0.01, cacheHours: 24, requirePhoto: false, showSourceList: true, batchRateLimit: 5000, ownerApprovalRequired: true, allowManagerResearch: true, noNewPricingPage: true } };
+    const DEFAULT_SETTINGS = { marginTarget: 62, minProfit: 10, roundTo: 5, showCostOnLabels: false, empCanSeeSuggestedPrice: true, resellerCertData: null, resellerCertName: "", footerTabs: ["today", "plants_ws", "shows_ws", "orders_ws", "money_ws", "reports"], employeeFooterTabs: ["today", "labels_ws", "orders_ws", "timecard"], currentBankBalance: 0, goals: { monthlyRevenue: 0, monthlyProfit: 0, annualRevenue: 0, annualProfit: 0 }, locations: [{ id: "main", name: "Main Greenhouse", type: "Greenhouse", notes: "", isDefault: true }, { id: "storage", name: "Storage Unit", type: "Storage", notes: "", isDefault: false }], commissions: {}, showCommissions: [], defaultShowCommissionPercent: 1, autoDiscountRules: [{ days: 30, percent: 10, enabled: true }, { days: 60, percent: 20, enabled: true }, { days: 90, percent: 35, enabled: true }], cashSafetyBuffer: 15, aiAutoRunDailyCheck: false, aiSafeMode: true, aiDefaultTone: "friendly", aiShowMoneyToManagers: false, aiWeatherCheckEnabled: false, aiLastResults: {}, socialSettings: { facebookConnected: false, instagramConnected: false, xConnected: false, autoPostEnabled: false, approvalRequired: true, frequency: "daily", postTime: "19:00", defaultPlatforms: ["facebook", "instagram"], defaultTone: "premium rare plant seller", defaultHashtags: "#LeafDiary #RarePlants #Houseplants #PlantShop", nextPostDate: today() }, socialPosts: [], purchaseTraining: DEFAULT_PURCHASE_TRAINING, weeklyCapacity: 400, weeklyCapacityOverrideEnabled: false, weeklyCapacityThisWeek: 400, weeklyCapacityNote: "", weeklyCapacityUpdatedAt: "", weeklyCapacityUpdatedBy: "", targetPPS: 3.5, avgShippingCost: 8, phase11Enabled: true, platformFees: { palmstreetPercent: 12, whatnotPercent: 8, defaultPercent: 10, freeShippingThreshold: 0 }, ppsRatingThresholds: { A: 5, B: 3, C: 1.5 }, activeAuctions: [], auctionPickHistory: [], auctionSettings: { dailyLimit: 15, defaultDurationHours: 24, minAuctionPrice: 10, noSaleAutoDiscountPercent: 0 }, marketPricing: { enabled: true, discountPctBelowMarket: 7, minMarginPct: 55, maxCostPerLookup: 0.01, cacheHours: 24, requirePhoto: false, showSourceList: true, batchRateLimit: 5000, ownerApprovalRequired: true, allowManagerResearch: true, noNewPricingPage: true } };
 
     /* ══════════════════════════════════════════════════════════
        SUPABASE CLOUD SYNC
