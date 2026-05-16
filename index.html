@@ -33,6 +33,7 @@
   <!-- V290 — Visual Reports Drilldowns: adds clickable drilldown boards for alerts, photos, prices, aging inventory, shipping problems, shows, plant profit, Buy Smart, and payroll without touching Supabase/cloud sync. -->
   <!-- V291 — Visual Reports AI Owner Brief: adds owner-only AI-style recommendations, overnight/morning action plan, copy/download brief, and app-open alert board using saved CRM data only. Supabase/cloud sync unchanged. -->
   <!-- V292 — Styled Owner PDF Export: upgrades the existing Owner Report button to create a branded PDF file with KPI cards, alerts, AI actions, waterfall, compare, show, inventory, shipping, and payroll sections. No visible app layout changes; Supabase/cloud sync unchanged. -->
+  <!-- V302 — Plants To Pack count fix: home/dashboard cards keep the plant label but count only open sold plants still waiting for packing/tracking/review, not every historical sold plant. -->
   <!-- V300 — Home shipping wording fix: all home dashboards count plants to pack/review, while Shipping keeps shipment/group counts separate. -->
   <!-- V301 — Final Core Workflow Cleanup: receipt/expense automation audit, payroll/timecard cleanup logic, and smarter owner daily command decisions. No Supabase schema or layout overhaul. -->
   <!-- V279 — Shipping overview bottom actions redesigned into responsive card-style buttons for desktop and mobile. -->
@@ -8163,6 +8164,17 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       });
       return Object.values(map).map(o => ({ ...o, shippingProfit:+(moneyNum(o.shippingCharged)-moneyNum(o.actualLabelCost)-moneyNum(o.shippingSuppliesCost)).toFixed(2) })).sort((a,b) => String(b.soldDate).localeCompare(String(a.soldDate)));
     };
+    /* V302 — Count plants waiting to be packed/reviewed, not every sold plant ever.
+       Footer shipment badges can still use shipment groups, but home dashboard plant cards
+       must only count active sold plants that still need packing, tracking, docs, or review. */
+    const ldOpenPackingOrders = (plants = [], certs = []) => {
+      try {
+        return safeArray(groupSalesIntoOrders(plants)).filter(order => !ldOrderIsCompleted(order, certs));
+      } catch(e) {
+        return [];
+      }
+    };
+    const ldOpenPackingPlantCount = (orders = []) => safeArray(orders).reduce((sum, order) => sum + Math.max(0, safeArray(order?.plants).length), 0);
     const trackingUrl = (carrier, number) => {
       if (!number) return "";
       const n = encodeURIComponent(number);
@@ -11458,11 +11470,11 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const needsLabel = inStock.filter(p => !p.labelPrinted && !p.labelPrintedAt && !p.barcodePrintedAt);
       const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price));
       const aging45 = inStock.filter(p => (dHeld(p.dateAdded) || 0) >= 45);
-      const soldOrders = groupSalesIntoOrders(allPlants);
-      // V194 FIX: SimpleTodayDashboard owner cards use readyOrders.
-      // Keep it as a safe alias of soldOrders so CRM reset/empty data cannot crash startup.
+      const soldOrders = ldOpenPackingOrders(allPlants, casdCerts);
+      // V302 FIX: only active sold plants waiting for packing/tracking/review count here.
+      // Historical shipped/done sold plants stay in reports/history, but do not inflate Today.
       const readyOrders = safeArray(soldOrders);
-      const soldOrderPlantCount = readyOrders.reduce((sum, order) => sum + Math.max(1, safeArray(order?.plants).length), 0);
+      const soldOrderPlantCount = ldOpenPackingPlantCount(readyOrders);
       const soldShipmentCount = readyOrders.length;
       const month = monthKey();
       const soldMonth = sold.filter(p => monthKey(plantSaleDate(p)) === month);
@@ -11866,8 +11878,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const needsLabel = inStock.filter(p => !p.labelPrinted && !p.labelPrintedAt && !p.barcodePrintedAt);
       const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price || +p.saleTarget));
       const aging45 = inStock.filter(p => (dHeld(p.dateAdded || p.createdAt || p.created_at) || 0) >= 45);
-      const ordersToPack = safeArray(groupSalesIntoOrders(allPlants));
-      const plantsToPack = ordersToPack.reduce((sum, order) => sum + Math.max(1, safeArray(order?.plants).length), 0);
+      const ordersToPack = ldOpenPackingOrders(allPlants, casdCerts);
+      const plantsToPack = ldOpenPackingPlantCount(ordersToPack);
       const shipmentGroupsToPack = ordersToPack.length;
       const todayKey = today();
       const soldToday = sold.filter(p => String(plantSaleDate(p) || p.soldAt || p.soldDate || "").slice(0,10) === todayKey);
@@ -12100,7 +12112,9 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const inStock = plants.filter(p => p.status === "In Stock");
       const sold = plants.filter(p => p.status === "Sold");
       const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
-      const readyOrders = groupSalesIntoOrders(plants);
+      const readyOrders = ldOpenPackingOrders(plants, casdCerts);
+      const soldOrderPlantCount = ldOpenPackingPlantCount(readyOrders);
+      const soldShipmentCount = readyOrders.length;
       const month = monthKey();
       const soldMonth = sold.filter(p => monthKey(plantSaleDate(p)) === month);
       const monthSales = soldMonth.reduce((s,p)=>s+(+p.salePrice||+p.suggestedPrice||0),0);
@@ -14904,8 +14918,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const missingPrices = inStock.filter(p => !ldV301MoneyNum(p.suggestedPrice || p.listPrice || p.price || p.saleTarget));
       const needsLabels = inStock.filter(p => !p.labelPrinted && !p.labelPrintedAt && !p.barcodePrintedAt);
       const readyPlants = inStock.filter(p => !missingPhotos.includes(p) && !missingPrices.includes(p) && !needsLabels.includes(p));
-      const orders = typeof groupSalesIntoOrders === "function" ? safeArray(groupSalesIntoOrders(allPlants)) : [];
-      const plantsToPack = orders.reduce((sum,o)=>sum + Math.max(1, safeArray(o?.plants).length), 0);
+      const orders = typeof ldOpenPackingOrders === "function" ? safeArray(ldOpenPackingOrders(allPlants, casdCerts)) : [];
+      const plantsToPack = ldOpenPackingPlantCount(orders);
       const receiptAudit = ldV301BuildReceiptExpenseAudit({ receipts:allReceipts, expenses:allExpenses, bills:allBills });
       const payrollAudit = ldV301BuildPayrollAudit({ timecards:allTimecards, users:safeArray(settings.users), settings });
       const dueBills = allBills.filter(b => String(b.status || "Unpaid").toLowerCase() !== "paid" && daysUntil(b.dueDate || b.due_date) >= 0 && daysUntil(b.dueDate || b.due_date) <= 7);
