@@ -84,6 +84,9 @@
   <!-- V296 — Role Permission Lockdown: no layout changes. Adds central direct-route guards, safe role fallback redirects, owner/manager/employee access audit export, and blocks hidden/admin/financial pages from manager/employee direct access. -->
   <!-- V297 — Shipping End-to-End Cleanup: accurate shipment completion rules, HI state-doc checks, tracking-aware shipped status, shipping QA export, and cleaner packed/tracking/docs/label-cost status logic without layout redesign. -->
   <!-- V298 — Manager Finance + Shipping Platform Rules: manager can see/edit daily finance and money workflows while dangerous technical/admin repair tools stay owner-only; home shipping wording uses plant count vs shipment count; Whatnot remains tracking/docs-only unless seller-paid adjustment exists. -->
+  <!-- V307 — Header Customer Search: typing a buyer/customer name in the global header search now shows customer cards and opens the Customer Hub directly to that customer. -->
+  <!-- V308 — Customer Hub For Everyone: adds Customer Hub to the normal header navigation menu for owner, manager, and employee roles and keeps header customer search enabled for all roles. -->
+  <!-- V307 — Show Import Searchable Manual Match: replaces the unmatched-sales plant dropdown with a fast search-by-name-or-number picker for mobile and desktop. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <link rel="icon" type="image/png" sizes="32x32" href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=64" />
@@ -9801,7 +9804,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"social", icon:"📣", l:"Social Center", group:"Marketing", roles:["owner","manager","employee"] },
       { id:"content", icon:"✨", l:"AI Content", group:"Marketing", roles:["owner","manager"] },
       { id:"ship", icon:"✅", l:"Sold Review", group:"Orders", roles:["owner","manager"] },
-      { id:"customers", icon:"👥", l:"Buyers", group:"Orders", roles:["owner","manager"] },
+      { id:"customers", icon:"👥", l:"Customers", group:"Orders", roles:["owner","manager","employee"] },
       { id:"retention", icon:"💚", l:"Repeat Buyers", group:"Orders", roles:["owner","manager"] },
       { id:"refunds", icon:"↩️", l:"Refunds", group:"Orders", roles:["owner","manager"] },
       { id:"casd", icon:"📜", l:"Shipping State Docs", group:"Orders", roles:["owner","manager"] },
@@ -9909,7 +9912,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        Employees should not browse Inventory, Shows, Money, Advanced, pricing, imports, AI, reports, or repair tools.
        They only see the day-one work lanes below. Owner/manager access is not changed. */
     const LD_V170_EMPLOYEE_ALLOWED_TOOLS = new Set([
-      "employeeboard", "photosprint", "labels", "scanlabel", "packorders", "shiplabels", "timecard", "receipts"
+      "employeeboard", "photosprint", "labels", "scanlabel", "packorders", "shiplabels", "customers", "timecard", "receipts"
     ]);
     const LD_V170_EMPLOYEE_ALLOWED_WORKSPACES = new Set(["today", "labels_ws", "orders_ws"]);
     const ldV170EmployeeCanUse = id => LD_V170_EMPLOYEE_ALLOWED_TOOLS.has(String(id || "")) || LD_V170_EMPLOYEE_ALLOWED_WORKSPACES.has(String(id || ""));
@@ -9968,7 +9971,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     ]);
     const LD_V296_EMPLOYEE_ALLOWED_IDS = new Set([
       "today", "employeeboard", "labels_ws", "orders_ws",
-      "labels", "scanlabel", "photosprint", "packorders", "shiplabels", "timecard", "receipts"
+      "labels", "scanlabel", "photosprint", "packorders", "shiplabels", "customers", "timecard", "receipts"
     ]);
     const LD_V296_OWNER_FINANCIAL_IDS = new Set([]); // V298: manager/wife can access finance; employees are still blocked separately.
     function ldV296NormalizeRole(role = "employee") {
@@ -10647,7 +10650,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       };
     }
 
-    function Nav({ page, setPage, user, onLogout, plantCount, shippingCount = 0, billAlerts, onChangePassword, settings = {}, cloudControls = {}, themeMode = "light", onToggleTheme }) {
+    function Nav({ page, setPage, user, onLogout, plantCount, shippingCount = 0, billAlerts, onChangePassword, settings = {}, cloudControls = {}, themeMode = "light", onToggleTheme, plants = [] }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const [addOpen, setAddOpen] = useState(false);
       const [aiMenuOpen, setAiMenuOpen] = useState(false);
@@ -10667,7 +10670,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         if (["dash", "rolelauncher", "ownerboard", "managerboard", "emp_dash"].includes(v)) return "today";
         if (["inv", "plants", "plants_ws", "labels", "labels_ws", "labelife", "scanlabel", "photosprint", "plantcapture", "upload", "manual", "history", "bulkactions", "inlineedit"].includes(v)) return role === "employee" ? "labels_ws" : "plants_ws";
         if (["shows", "shows_ws", "showcommand", "showbuilder", "showprep", "liveshow", "showimport", "runshow", "showdragdrop"].includes(v)) return "shows_ws";
-        if (["orders", "orders_ws", "packorders", "ship", "shiplabels", "casd", "bundles", "pos", "refunds"].includes(v)) return "orders_ws";
+        if (["orders", "orders_ws", "packorders", "ship", "shiplabels", "customers", "casd", "bundles", "pos", "refunds"].includes(v)) return "orders_ws";
         if (["reports", "visualreports", "visual_reports"].includes(v)) return role === "employee" ? "timecard" : "reports";
         if (["money", "money_ws", "receipts", "expense", "bills", "cashflow", "payroll", "commissions", "tax", "goals", "datacharts", "slotprofit", "buy_ws"].includes(v)) return role === "employee" ? "timecard" : "money_ws";
         if (["admin", "admin_ws", "settings", "aihub", "command", "teamsync", "changelog"].includes(v)) return role === "owner" ? "admin_ws" : "today";
@@ -10818,6 +10821,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         showimport: "import show sales upload sales sold plants bundle bundles whatnot palmstreet csv profit cogs",
         reports: "profit show profit daily profit weekly profit cogs money reports accounting",
         packorders: "pack orders orders to pack shipping ready to pack boxed",
+        customers: "customers customer hub buyers buyer names usernames recipient order history customer list search customer",
         orders_ws: "shipping orders pack labels tracking completed shipments",
         shiplabels: "tracking scan label shipping label label cost",
         receipts: "receipt receipts upload expense supplies gas walmart home depot",
@@ -10837,6 +10841,81 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         airouter: "ai router ai model routing ai task routing model routes",
         aihub: "leaf diary ai ai center ai tools business ai"
       };
+      const headerCustomerSearchItems = (() => {
+        const canOpenCustomers = leafDiaryCanRenderPage("customers", role);
+        if (!canOpenCustomers) return [];
+        const clean = v => String(v || "").replace(/^@+/, "").trim();
+        const saleLike = p => String(p?.status || "").toLowerCase() === "sold" || !!p?.historicalImport || !!p?.saleImportKey || !!p?.saleLegacyKey || !!p?.orderNumber || !!p?.orderNo || String(p?.nurseryCode || "").toUpperCase() === "HIST";
+        const customerKeyOf = p => {
+          const username = clean(p?.customerUsername || p?.buyerUsername || p?.username || p?.customer || p?.palmstreetUsername);
+          const name = clean(p?.customerName || p?.buyerName || p?.recipientName || p?.shipToName);
+          const email = clean(p?.customerEmail || p?.email);
+          const phone = clean(p?.customerPhone || p?.phone);
+          const order = clean(p?.orderNumber || p?.orderNo || p?.whatnotOrderId || p?.platformOrderId);
+          return (username || email || phone || name || order || "").toLowerCase();
+        };
+        const displayOf = p => {
+          const username = clean(p?.customerUsername || p?.buyerUsername || p?.username || p?.customer || p?.palmstreetUsername);
+          const name = clean(p?.customerName || p?.buyerName || p?.recipientName || p?.shipToName);
+          const email = clean(p?.customerEmail || p?.email);
+          const order = clean(p?.orderNumber || p?.orderNo || p?.whatnotOrderId || p?.platformOrderId);
+          if (username) return username;
+          if (name) return name;
+          if (email) return email;
+          if (order) return `Unknown Customer ${order}`;
+          return "Unknown Customer";
+        };
+        const map = {};
+        safeArray(plants).filter(saleLike).forEach(p => {
+          const key = customerKeyOf(p);
+          if (!key) return;
+          if (!map[key]) {
+            map[key] = {
+              id:`__customer__${encodeURIComponent(key)}`,
+              customerKey:key,
+              icon:"👥",
+              title:`Customer: ${displayOf(p).startsWith("@") ? displayOf(p) : (clean(p?.customerUsername || p?.buyerUsername || p?.username || p?.customer || p?.palmstreetUsername) ? `@${displayOf(p)}` : displayOf(p))}`,
+              sub:"Customer record",
+              group:"Customer",
+              keywords:"",
+              displayName:displayOf(p),
+              username:clean(p?.customerUsername || p?.buyerUsername || p?.username || p?.customer || p?.palmstreetUsername),
+              name:clean(p?.customerName || p?.buyerName || p?.recipientName || p?.shipToName),
+              email:clean(p?.customerEmail || p?.email),
+              phone:clean(p?.customerPhone || p?.phone),
+              state:clean(p?.customerState || p?.buyerState || p?.state || p?.shippingState),
+              zip:clean(p?.customerZip || p?.zip || p?.shippingZip),
+              orderCountSet:new Set(),
+              items:0,
+              total:0,
+              lastOrder:"",
+              hayParts:[]
+            };
+          }
+          const c = map[key];
+          c.items += 1;
+          c.total += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || +p.suggestedPrice || 0);
+          const orderKey = clean(p?.shipmentId ? `SHIPMENT-${p.shipmentId}` : (p?.orderNumber || p?.orderNo || p?.whatnotOrderId || p?.platformOrderId || p?.saleImportKey || `${p?.rawProductVariant || p?.name || "Plant"}-${p?.soldDate || p?.saleDate || p?.dateAdded || ""}`));
+          if (orderKey) c.orderCountSet.add(orderKey);
+          const d = p?.soldDate || p?.saleDate || p?.orderDate || p?.soldAt || p?.createdAt || p?.dateAdded || "";
+          if (d && (!c.lastOrder || new Date(d) > new Date(c.lastOrder))) c.lastOrder = d;
+          c.state = c.state || clean(p?.customerState || p?.buyerState || p?.state || p?.shippingState);
+          c.zip = c.zip || clean(p?.customerZip || p?.zip || p?.shippingZip);
+          c.hayParts.push(p?.customerUsername, p?.buyerUsername, p?.username, p?.customer, p?.palmstreetUsername, p?.customerName, p?.buyerName, p?.recipientName, p?.shipToName, p?.customerEmail, p?.email, p?.customerPhone, p?.phone, p?.orderNumber, p?.orderNo, p?.whatnotOrderId, p?.platformOrderId, p?.customerState, p?.buyerState, p?.state, p?.shippingState, p?.customerZip, p?.zip, p?.shippingZip);
+        });
+        return Object.values(map).map(c => {
+          const orderCount = c.orderCountSet?.size || 0;
+          const last = c.lastOrder ? String(c.lastOrder).slice(0, 10) : "no date";
+          const state = c.state ? ` · ${c.state}` : "";
+          return {
+            ...c,
+            orderCount,
+            sub:`${orderCount} order(s) · ${c.items} item(s) · ${$(c.total)} · last ${last}${state}`,
+            keywords:[c.displayName, c.username, c.name, c.email, c.phone, c.state, c.zip, ...safeArray(c.hayParts)].filter(Boolean).join(" ")
+          };
+        }).sort((a,b) => (b.lastOrder || "").localeCompare(a.lastOrder || "") || b.total - a.total).slice(0, 250);
+      })();
+
       const headerSearchItems = (() => {
         const allowedWorkspaces = WORKSPACES
           .filter(w => !w.roles || w.roles.includes(role))
@@ -10861,17 +10940,35 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         ].filter(item => leafDiaryCanRenderPage(item.id, role));
         if (!q) return quick.slice(0, 7);
         const terms = q.split(/\s+/).filter(Boolean);
+        const customerMatches = q.length >= 2 ? headerCustomerSearchItems
+          .filter(item => {
+            const hay = `${item.title} ${item.sub} ${item.group} ${item.id} ${item.keywords || ""}`.toLowerCase();
+            return terms.every(term => hay.includes(term));
+          })
+          .slice(0, 5) : [];
         const matches = headerSearchItems
           .filter(item => {
             const hay = `${item.title} ${item.sub} ${item.group} ${item.id} ${item.keywords || ""}`.toLowerCase();
             return terms.every(term => hay.includes(term));
           })
-          .slice(0, 9);
+          .slice(0, Math.max(4, 9 - customerMatches.length));
         const guide = ldV125AppSearchAnswer(typed, role);
         const askItem = { id:"__ask_app_help__", icon:"🤖", title:`Ask: ${typed}`, sub:`Best page: ${guide.title}`, group:"App Help", askQuery:typed };
-        return [askItem, ...matches.filter(m => m.id !== guide.page)].slice(0, 10);
+        return [...customerMatches, askItem, ...matches.filter(m => m.id !== guide.page)].slice(0, 10);
       })();
       const openHeaderSearchResult = id => {
+        if (String(id || "").startsWith("__customer__")) {
+          const item = safeArray(headerSearchResults).find(r => r.id === id) || {};
+          const key = item.customerKey || decodeURIComponent(String(id || "").replace("__customer__", ""));
+          try {
+            sessionStorage.setItem("ld_header_customer_search_v1", JSON.stringify({ key, query:item.displayName || headerSearch, ts:Date.now() }));
+          } catch(e) {}
+          setHeaderSearchOpen(false);
+          setHeaderSearch("");
+          try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(e) {}
+          openPage("customers");
+          return;
+        }
         if (id === "__ask_app_help__") {
           const answer = ldV125AppSearchAnswer(headerSearch, role);
           setAppSearchHelp(answer);
@@ -10940,7 +11037,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           </button>
           <div className="ld-header-search" ref={headerSearchRef}>
             <span className="ld-header-search-icon">⌕</span>
-            <input ref={headerSearchInputRef} className="ld-header-search-input" value={headerSearch} onChange={e=>{ setHeaderSearch(e.target.value); setHeaderSearchOpen(!!e.target.value.trim()); }} onFocus={()=>setHeaderSearchOpen(true)} onKeyDown={headerSearchKeyDown} placeholder="Search plants, shows, shipping..." aria-label="Search Leaf Diary pages, tools, and app help" />
+            <input ref={headerSearchInputRef} className="ld-header-search-input" value={headerSearch} onChange={e=>{ setHeaderSearch(e.target.value); setHeaderSearchOpen(!!e.target.value.trim()); }} onFocus={()=>setHeaderSearchOpen(true)} onKeyDown={headerSearchKeyDown} placeholder="Search plants, customers, shows..." aria-label="Search Leaf Diary plants, customers, pages, tools, and app help" />
             {headerSearch && <button className="ld-header-search-clear" onMouseDown={e=>e.preventDefault()} onClick={()=>{ setHeaderSearch(""); setHeaderSearchOpen(false); try { headerSearchInputRef.current && headerSearchInputRef.current.blur(); } catch(err) {} }} aria-label="Clear search">×</button>}
             {headerSearchOpen && <div className="ld-header-search-results">
               {headerSearchResults.length ? headerSearchResults.map(item => <button key={item.id} className="ld-header-search-result" onMouseDown={e=>{ e.preventDefault(); openHeaderSearchResult(item.id); }} onClick={()=>openHeaderSearchResult(item.id)}>
@@ -30702,6 +30799,7 @@ Cancel if you want to save money.`);
       const [importMsg, setImportMsg] = useState("");
       const [duplicateInfo, setDuplicateInfo] = useState(null);
       const [lastImportResult, setLastImportResult] = useState(null);
+      const [manualMatchSearch, setManualMatchSearch] = useState({});
       const [importAudit, setImportAudit] = useState(null);
       const fileRef = useRef();
       const commissionEmployees = (users || []).filter(u => u.role !== "owner" && u.active !== false);
@@ -31302,12 +31400,102 @@ Cancel if you want to save money.`);
           bundleQuantity: qtyNeeded,
           bundleMatchCount,
           bundleMissingCount,
-          apply: !!plant && (importMode !== "exact" || bundleMatchCount >= qtyNeeded),
+          apply: plant ? (importMode !== "exact" || bundleMatchCount >= qtyNeeded) : (importMode !== "exact"),
           matchStatus: plant ? (bundleMissingCount ? "partial_bundle_match" : "matched") : "unmatched",
           historicalImport: !plant || bundleMissingCount > 0,
           needsReview: !plant || bundleMissingCount > 0
         };
       }));
+
+      const setManualMatchSearchForRow = (id, value) => setManualMatchSearch(prev => ({ ...prev, [id]: value }));
+      const clearManualMatchSearchForRow = id => setManualMatchSearch(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      const chooseManualMatch = (rowId, plantId) => {
+        setMatch(rowId, plantId);
+        clearManualMatchSearchForRow(rowId);
+      };
+      const manualMatchPlantHaystack = p => [
+        p?.id,
+        safePlantId(p),
+        p?.plantId,
+        p?.plantCode,
+        p?.barcodeValue,
+        p?.sku,
+        p?.name,
+        p?.botanicalName,
+        p?.potSize,
+        p?.nurseryCode,
+        p?.source
+      ].map(v => String(v || "")).join(" ").toLowerCase();
+
+      const manualMatchCandidatesForRow = r => {
+        const typed = cleanText(manualMatchSearch[r._id] || "");
+        const typedNorm = normKey(typed);
+        const rowCode = cleanText(r.extractedPlantCode || r.sku || "");
+        const rowCodeNorm = normKey(rowCode);
+        const titleTerms = cleanText(r.title || r.productVariant || "")
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter(t => t.length >= 3 && !["plant","plants","rare","live","sale","sold","tissue","culture","var","variegated","rooted","starter"].includes(t))
+          .slice(0, 8);
+        const typedTerms = typed.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 10);
+        const terms = typedTerms.length ? typedTerms : (rowCode ? [rowCode.toLowerCase()] : titleTerms);
+        const inStockPlants = safeArray(plants).filter(p => String(p?.status || "").toLowerCase() === "in stock");
+        if (!terms.length && !typedNorm) return inStockPlants.slice(0, 12);
+
+        return inStockPlants
+          .map(p => {
+            const codeBits = [p?.id, safePlantId(p), p?.plantId, p?.plantCode, p?.barcodeValue, p?.sku].map(normKey).filter(Boolean);
+            const hay = manualMatchPlantHaystack(p);
+            const plantName = String(p?.name || "").toLowerCase();
+            let score = 0;
+            if (rowCodeNorm && codeBits.includes(rowCodeNorm)) score += 220;
+            if (rowCodeNorm && codeBits.some(c => c.includes(rowCodeNorm))) score += 90;
+            if (typedNorm && codeBits.includes(typedNorm)) score += 180;
+            if (typedNorm && codeBits.some(c => c.includes(typedNorm))) score += 80;
+            if (typed && plantName.includes(typed.toLowerCase())) score += 55;
+            terms.forEach(t => {
+              const tNorm = normKey(t);
+              if (!tNorm) return;
+              if (codeBits.includes(tNorm)) score += 120;
+              else if (codeBits.some(c => c.includes(tNorm))) score += 45;
+              if (hay.includes(t.toLowerCase())) score += Math.min(35, 7 + t.length);
+            });
+            return { plant:p, score };
+          })
+          .filter(x => x.score > 0)
+          .sort((a, b) => b.score - a.score || String(a.plant.name || "").localeCompare(String(b.plant.name || "")))
+          .slice(0, 24)
+          .map(x => x.plant);
+      };
+
+      const renderManualMatchPicker = r => {
+        const query = manualMatchSearch[r._id] || "";
+        const suggestions = manualMatchCandidatesForRow(r);
+        return <div style={{ marginTop:8, background:C.card, border:`1px solid ${C.bd}`, borderLeft:`5px solid ${C.blue}`, borderRadius:14, padding:11 }}>
+          <div style={{ fontWeight:900, color:C.g900, fontSize:13, marginBottom:6 }}>🔎 Find the matching inventory plant</div>
+          <input
+            value={query}
+            onChange={e => setManualMatchSearchForRow(r._id, e.target.value)}
+            placeholder={`Search plant name or number${r.extractedPlantCode ? ` · found ${r.extractedPlantCode}` : ""}`}
+            style={{ width:"100%", padding:"11px 12px", border:`1px solid ${C.bd}`, borderRadius:12, fontSize:16, fontFamily:F.body, background:C.cardAlt, color:C.tx }}
+          />
+          <div style={{ fontSize:11, color:C.tx3, marginTop:6, lineHeight:1.35 }}>Type a plant number, barcode, or name. Example: E-23, B-004, Monstera Peru, Pink Princess.</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:8, marginTop:9 }}>
+            {suggestions.length ? suggestions.map(p => <button key={p.id} type="button" onClick={() => chooseManualMatch(r._id, p.id)} style={{ textAlign:"left", border:`1px solid ${C.bd}`, borderRadius:12, background:C.cardAlt, padding:10, cursor:"pointer", minHeight:62 }}>
+              <div style={{ fontWeight:900, color:C.g900, fontSize:13, lineHeight:1.15 }}>{toTC(p.name || "Unnamed Plant")}</div>
+              <div style={{ fontSize:11, color:C.tx3, marginTop:4, fontFamily:F.mono }}>{safePlantId(p) || p.plantId || p.plantCode || "No ID"} · {p.potSize || "No size"} · {$(p.suggestedPrice || p.listPrice || p.price || 0)}</div>
+            </button>) : <div style={{ gridColumn:"1 / -1", background:C.amberBg, border:`1px solid ${C.amber}55`, borderRadius:12, padding:10, fontSize:12, color:C.amber, fontWeight:800 }}>No in-stock plant found for that search. Try the plant number or a shorter plant name.</div>}
+          </div>
+          <Row gap={8} wrap style={{ marginTop:9 }}>
+            {r.extractedPlantCode && <Btn sz="sm" v="outline" onClick={() => setManualMatchSearchForRow(r._id, r.extractedPlantCode)}>Search {r.extractedPlantCode}</Btn>}
+            <Btn sz="sm" v="ghost" onClick={() => chooseManualMatch(r._id, "")}>Leave unmatched</Btn>
+          </Row>
+        </div>;
+      };
       const makeHistoricalSalePlant = (sale, idx) => {
         const fallbackId = `HIST-${String(idx + 1).padStart(4, "0")}`;
         const bundleSuffix = sale.bundleQuantity > 1 ? `-B${sale.bundleUnitIndex || idx + 1}` : "";
@@ -31820,10 +32008,7 @@ Cancel if you want to save money.`);
                   </label>
                 </Row>
               </Row>
-              {!r.duplicate && !r.matched && <select onChange={e => setMatch(r._id, e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.bd}`, borderRadius: 7, fontSize: 13, fontFamily: F.body, marginTop: 6 }}>
-                <option value="">— Leave unmatched as sold sale record —</option>
-                {plants.filter(p => p.status === "In Stock").map(p => <option key={p.id} value={p.id}>{p.name} · {p.plantId} · {$(p.suggestedPrice)}</option>)}
-              </select>}
+              {!r.duplicate && !r.matched && renderManualMatchPicker(r)}
             </Card>)}
             {matched.length > 350 && <div style={{ textAlign: "center", color: C.tx3, fontSize: 13, padding: 12 }}>Showing first 350 rows for speed. All {matched.length} rows will import if checked.</div>}
           </div>
@@ -31859,6 +32044,10 @@ Cancel if you want to save money.`);
       const [tab, setTab] = useState("customers");
       const [detail, setDetail] = useState(null);
       const [draft, setDraft] = useState({ status: "green", notes: "" });
+      const [customerSearchText, setCustomerSearchText] = useState(() => {
+        try { const saved = JSON.parse(sessionStorage.getItem("ld_header_customer_search_v1") || "null"); return saved?.query || ""; } catch(e) { return ""; }
+      });
+      const customerAutoOpenRef = useRef("");
       const [customerPreset, setCustomerPreset] = useState("all");
       const [customerStart, setCustomerStart] = useState(today());
       const [customerEnd, setCustomerEnd] = useState(today());
@@ -31991,6 +32180,23 @@ Cancel if you want to save money.`);
         setDraft({ status: c.status || "green", notes: c.notes || "" });
       };
 
+      useEffect(() => {
+        let saved = null;
+        try { saved = JSON.parse(sessionStorage.getItem("ld_header_customer_search_v1") || "null"); } catch(e) { saved = null; }
+        if (!saved || (!saved.key && !saved.query)) return;
+        const token = String(saved.ts || saved.key || saved.query || "");
+        if (customerAutoOpenRef.current === token) return;
+        if (customerPreset !== "all") { setCustomerPreset("all"); return; }
+        const terms = String(saved.query || "").toLowerCase().split(/\s+/).filter(Boolean);
+        const hayOf = c => [c.key, c.username, c.displayName, c.name, c.recipientName, c.email, c.phone, c.state, c.zip, ...safeArray(c.orders).flatMap(o => [o.orderNumber, o.orderNo, o.whatnotOrderId, o.platformOrderId, o.customerName, o.customerUsername, o.buyerUsername, o.recipientName])].filter(Boolean).join(" ").toLowerCase();
+        const hit = customers.find(c => c.key === saved.key) || customers.find(c => terms.length && terms.every(t => hayOf(c).includes(t)));
+        customerAutoOpenRef.current = token;
+        setTab("customers");
+        if (saved.query) setCustomerSearchText(saved.query);
+        if (hit) openCustomer(hit);
+        try { sessionStorage.removeItem("ld_header_customer_search_v1"); } catch(e) {}
+      }, [customers.length, customerPreset]);
+
       const saveCustomerFlags = () => {
         if (!detail) return;
         const key = detail.key;
@@ -32032,7 +32238,10 @@ Cancel if you want to save money.`);
         { id: "states", l: "🗺️ By State" }
       ];
 
-      const shownCustomers = tab === "blocked" ? customers.filter(c => ["red", "yellow"].includes(c.status)) : customers;
+      const customerSearchTerms = String(customerSearchText || "").toLowerCase().split(/\s+/).filter(Boolean);
+      const customerSearchHay = c => [c.key, c.username, c.displayName, c.name, c.recipientName, c.email, c.phone, c.state, c.zip, ...safeArray(c.orders).flatMap(o => [o.orderNumber, o.orderNo, o.whatnotOrderId, o.platformOrderId, o.name, o.title, o.rawProductVariant, o.productVariant, o.customerName, o.customerUsername, o.buyerUsername, o.recipientName])].filter(Boolean).join(" ").toLowerCase();
+      const baseShownCustomers = tab === "blocked" ? customers.filter(c => ["red", "yellow"].includes(c.status)) : customers;
+      const shownCustomers = customerSearchTerms.length ? baseShownCustomers.filter(c => customerSearchTerms.every(t => customerSearchHay(c).includes(t))) : baseShownCustomers;
 
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
         <SHdr icon="👥" title="Customer Hub" sub={`Palmstreet + Whatnot buyers · full address history · every plant purchased · showing ${customerDateLabel}`}
@@ -32054,6 +32263,20 @@ Cancel if you want to save money.`);
             <Inp label="Start Date" type="date" value={customerStart} onChange={setCustomerStart} />
             <Inp label="End Date" type="date" value={customerEnd} onChange={setCustomerEnd} />
           </Row>}
+        </Card>
+
+        <Card style={{ marginBottom: 14, borderLeft: `5px solid ${C.g600}` }}>
+          <Row between wrap center gap={10}>
+            <div style={{ flex:1, minWidth:240 }}>
+              <div style={{ fontFamily:F.display, fontSize:17, fontWeight:800, color:C.g900 }}>🔎 Find Customer</div>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>Search by buyer name, username, recipient name, order number, state, email, or phone.</div>
+            </div>
+            <div style={{ flex:"1 1 320px", minWidth:240, display:"flex", gap:8 }}>
+              <input value={customerSearchText} onChange={e => setCustomerSearchText(e.target.value)} placeholder="Type customer name or order number..." style={{ flex:1, minWidth:0, border:`1.5px solid ${C.bd}`, borderRadius:12, padding:"11px 12px", fontFamily:F.body, fontWeight:800, color:C.tx1, background:C.card }} />
+              {customerSearchText && <button onClick={() => setCustomerSearchText("")} style={{ border:`1px solid ${C.bd}`, background:C.cardAlt, color:C.tx2, borderRadius:12, padding:"0 12px", fontWeight:900, cursor:"pointer", fontFamily:F.body }}>Clear</button>}
+            </div>
+          </Row>
+          {customerSearchText && <div style={{ marginTop:10, fontSize:12, color:C.tx3, fontWeight:800 }}>Showing {shownCustomers.length} of {baseShownCustomers.length} customer(s) for: <span style={{ color:C.g700 }}>{customerSearchText}</span></div>}
         </Card>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
@@ -36700,7 +36923,7 @@ ${local.summary || "Fallback completed."}`;
 
       return <div style={{ fontFamily: F.body, background: C.bg, minHeight: "100vh", color: C.tx1, paddingBottom: 80 }}>
         {(showPwdModal || user?.mustChangePassword) && <ChangePasswordModal onClose={() => { if (!user?.mustChangePassword) setShowPwdModal(false); }} user={user} onSuccess={() => { setUsers(prev => prev.map(u => u.id === user.id ? { ...u, mustChangePassword: false } : u)); setUser(prev => prev ? { ...prev, mustChangePassword: false } : prev); setShowPwdModal(false); }} />}
-        <Nav page={page} setPage={navigate} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} shippingCount={shippingFooterCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} themeMode={themeMode} onToggleTheme={toggleThemeMode} cloudControls={{
+        <Nav page={page} setPage={navigate} user={user} onLogout={handleLogout} plantCount={inStockPlantCount} shippingCount={shippingFooterCount} billAlerts={billAlerts} onChangePassword={() => setShowPwdModal(true)} settings={settings} themeMode={themeMode} onToggleTheme={toggleThemeMode} plants={plants} cloudControls={{
           cloudSafeMode,
           teamSafeSync,
           pendingSyncCount,
@@ -36846,7 +37069,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "liveshow" && <ShowCommandCenter key="show-live" initialTab="live" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "showbuilder" && <ShowCommandCenter key="show-build" initialTab="build" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "showimport" && <ShowCommandCenter key="show-import" initialTab="import" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
-          {page === "customers" && CAN.seeReports(user.role) && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
+          {page === "customers" && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {false && page === "bills" && <Bills bills={bills} setBills={setBills} />}
           {false && page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
