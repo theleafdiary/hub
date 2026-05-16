@@ -34,6 +34,7 @@
   <!-- V291 — Visual Reports AI Owner Brief: adds owner-only AI-style recommendations, overnight/morning action plan, copy/download brief, and app-open alert board using saved CRM data only. Supabase/cloud sync unchanged. -->
   <!-- V292 — Styled Owner PDF Export: upgrades the existing Owner Report button to create a branded PDF file with KPI cards, alerts, AI actions, waterfall, compare, show, inventory, shipping, and payroll sections. No visible app layout changes; Supabase/cloud sync unchanged. -->
   <!-- V300 — Home shipping wording fix: all home dashboards count plants to pack/review, while Shipping keeps shipment/group counts separate. -->
+  <!-- V301 — Final Core Workflow Cleanup: receipt/expense automation audit, payroll/timecard cleanup logic, and smarter owner daily command decisions. No Supabase schema or layout overhaul. -->
   <!-- V279 — Shipping overview bottom actions redesigned into responsive card-style buttons for desktop and mobile. -->
   <!-- V284 — Show Command Center flow steps redesigned as premium responsive cards for mobile and desktop. -->
   <!-- V285 — Global button/card polish: upgrades remaining tiny tab rows and action buttons across Shows, Shipping, Pack Orders, Reports, Timecard, AI Center, and owner Admin Pages without touching Supabase. -->
@@ -11900,6 +11901,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       });
       const showReady = inStock.filter(p => (p.photoUrl || p.photoBase64 || p.imageUrl) && (+p.suggestedPrice || +p.listPrice || +p.price) && !needsLabel.includes(p));
       const v255Insights = buildV255SaasInsights({ plants:allPlants, expenses:allExpenses, bills:allBills, timecards:allTimecards, receipts:allReceipts, casdCerts, settings });
+      const v301OwnerPlan = ldV301BuildOwnerDailyPlan({ plants:allPlants, expenses:allExpenses, bills:allBills, timecards:allTimecards, receipts:allReceipts, settings, casdCerts });
 
       const go = (page) => setPage(page);
       const ButtonCard = ({ icon, title, sub, page, color = C.g600, primary = false }) => <button onClick={()=>go(page)} style={{ background:primary ? "#000" : C.card, color:primary ? "#fff" : C.tx1, border:`1px solid ${primary ? color : C.bd}`, borderLeft:`6px solid ${color}`, borderRadius:18, padding:"13px 12px", textAlign:"left", cursor:"pointer", fontFamily:F.body, boxShadow:primary ? "0 12px 32px rgba(0,0,0,.18)" : "0 7px 20px rgba(13,43,26,.055)" }}>
@@ -11927,7 +11929,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
 
       const employeePriority = myOpenShift ? { icon:"📸", title:"Start with assigned work", body:noPhoto.length ? `${noPhoto.length} plants need photos. Scan label, take photo, save, repeat.` : ordersToPack.length ? `${plantsToPack} plants across ${shipmentGroupsToPack} shipment/customer group(s) need packing.` : "Choose the task Eric or a manager assigned.", page:noPhoto.length ? "photosprint" : ordersToPack.length ? "packorders" : "employeeboard", cta:noPhoto.length ? "Take Photos" : ordersToPack.length ? "Pack Orders" : "My Tasks", color:noPhoto.length ? "#fb6392" : "#68d8ff" } : { icon:"⏱️", title:"Clock in first", body:"Clock in before scanning plants, taking photos, or packing orders.", page:"timecard", cta:"Clock In", color:C.g600 };
       const managerPriority = ordersToPack.length ? { icon:"📦", title:"Pack and ship first", body:`${plantsToPack} plant(s) across ${shipmentGroupsToPack} shipment/customer group(s) need packing, tracking, or review.`, page:"packorders", cta:"Open Shipping", color:"#68d8ff" } : noPhoto.length ? { icon:"📸", title:"Clear photo blockers", body:`${noPhoto.length} plant(s) need photos before show prep is clean.`, page:"photosprint", cta:"Take Photos", color:"#fb6392" } : { icon:"🎪", title:"Prep the next show", body:`${showReady.length} plant(s) appear ready for a show.`, page:"showbuilder", cta:"Build Show", color:"#ff8a3d" };
-      const ownerPriority = billsDue7.length ? { icon:"📅", title:"Bills due this week", body:`${billsDue7.length} bill(s) due in 7 days totaling ${$(billsDue7Total)}. Review before buying more plants.`, page:"bills", cta:"Review Bills", color:C.red } : ordersToPack.length ? { icon:"📦", title:"Shipping is the bottleneck", body:`${plantsToPack} plant(s) across ${shipmentGroupsToPack} shipment/customer group(s) need packing/tracking before the next buying push.`, page:"packorders", cta:"Pack Orders", color:"#68d8ff" } : receiptsNeedReview.length ? { icon:"🧾", title:"Profit needs clean receipts", body:`${receiptsNeedReview.length} receipt(s) need review so profit reports stay accurate.`, page:"receipts", cta:"Review Receipts", color:C.gold } : { icon:"💵", title:"Check profit then build", body:`Today profit is about ${$(profitToday)}. ${showReady.length} plants look show-ready.`, page:"reports", cta:"View Money", color:C.g600 };
+      const ownerPriority = v301OwnerPlan.priority || (billsDue7.length ? { icon:"📅", title:"Bills due this week", body:`${billsDue7.length} bill(s) due in 7 days totaling ${$(billsDue7Total)}. Review before buying more plants.`, page:"bills", cta:"Review Bills", color:C.red } : ordersToPack.length ? { icon:"📦", title:"Shipping is the bottleneck", body:`${plantsToPack} plant(s) across ${shipmentGroupsToPack} shipment/customer group(s) need packing/tracking before the next buying push.`, page:"packorders", cta:"Pack Orders", color:"#68d8ff" } : receiptsNeedReview.length ? { icon:"🧾", title:"Profit needs clean receipts", body:`${receiptsNeedReview.length} receipt(s) need review so profit reports stay accurate.`, page:"receipts", cta:"Review Receipts", color:C.gold } : { icon:"💵", title:"Check profit then build", body:`Today profit is about ${$(profitToday)}. ${showReady.length} plants look show-ready.`, page:"reports", cta:"View Money", color:C.g600 });
       const priority = isEmployee ? employeePriority : isManager ? managerPriority : ownerPriority;
 
       const employeeActions = [
@@ -12046,6 +12048,16 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             </Card>}
           </div>
         </div>
+
+        {isOwner && <Card style={{ marginTop:12, padding:16, background:"#000", color:"#fff", border:`1px solid #fb6392`, borderLeft:`6px solid #fb6392` }}>
+          <Row between center wrap gap={10} style={{ marginBottom:10 }}>
+            <div><div style={{ fontFamily:F.display, fontSize:21, color:"#fb6392", fontWeight:950 }}>🔥 Owner Daily Command Logic</div><div style={{ fontSize:12, color:"rgba(255,255,255,.72)", marginTop:2 }}>Score {v301OwnerPlan.score}/100 · picks the next move from shipping, receipts, payroll, photos, prices, bills, and show readiness.</div></div>
+            <Tag text={`${v301OwnerPlan.actions.length} action(s)`} color="#fb6392" />
+          </Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }} className="ld-phase3-quick-grid">
+            {v301OwnerPlan.actions.slice(0,3).map((a,i)=><button key={a.title+i} onClick={()=>go(a.page)} style={{ background:"rgba(255,255,255,.08)", color:"#fff", border:"1px solid rgba(255,255,255,.14)", borderLeft:`4px solid ${a.color || "#fb6392"}`, borderRadius:14, padding:"11px 12px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}><div style={{ fontWeight:950, fontSize:13 }}>{a.icon} {a.title}</div><div style={{ color:"rgba(255,255,255,.70)", fontSize:11, lineHeight:1.3, marginTop:3 }}>{a.body}</div></button>)}
+          </div>
+        </Card>}
 
         {!isEmployee && <V255SaasPowerPanel insights={v255Insights} setPage={go} />}
 
@@ -14807,6 +14819,132 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     }
 
 
+
+    /* ══════════════════════════════════════════════════════════
+       V301 FINAL CORE WORKFLOW CLEANUP HELPERS
+       Receipt/expense automation audit, payroll/timecard cleanup,
+       and owner daily command logic. Local data only; no Supabase schema changes.
+    ══════════════════════════════════════════════════════════ */
+    function ldV301MoneyNum(v) { return +(String(v ?? "").replace(/[^0-9.\-]/g, "")) || 0; }
+    function ldV301Norm(v) { return String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+    function ldV301Date(v) { return String(v || "").slice(0, 10); }
+    function ldV301ReceiptKey(r = {}) {
+      return [ldV301Norm(r.vendor_name || r.vendor || r.payee), ldV301Date(r.receipt_date || r.date || r.createdAt || r.created_at), ldV301MoneyNum(r.total || r.amount).toFixed(2)].join("|");
+    }
+    function ldV301ReceiptExpenseLinked(r = {}, expenses = []) {
+      const rid = r.id || r.receiptId || r.receipt_id;
+      if (rid && safeArray(expenses).some(e => String(e.receiptId || e.receipt_id || e.sourceReceiptId || "") === String(rid))) return true;
+      const key = ldV301ReceiptKey(r);
+      return safeArray(expenses).some(e => [ldV301Norm(e.vendor || e.vendor_name || e.payee), ldV301Date(e.date || e.expenseDate || e.createdAt || e.created_at), ldV301MoneyNum(e.amount || e.total).toFixed(2)].join("|") === key);
+    }
+    function ldV301BuildReceiptExpenseAudit({ receipts = [], expenses = [], bills = [] } = {}) {
+      const rs = safeArray(receipts), ex = safeArray(expenses), bs = safeArray(bills);
+      const duplicateGroups = Object.values(rs.reduce((m,r)=>{ const k = ldV301ReceiptKey(r); if (k && k !== "||0.00") (m[k]=m[k]||[]).push(r); return m; }, {})).filter(g => g.length > 1);
+      const needsReview = rs.filter(r => String(r.review_status || r.reviewStatus || r.status || "").toLowerCase().includes("review") || !String(r.main_category || r.mainCategory || r.category || "").trim());
+      const missingImages = rs.filter(r => !(r.receipt_image_url || r.receipt_image_data || r.imageUrl || r.image_url || r.imageBase64 || r.photoUrl || r.photoBase64));
+      const uncategorizedExpenses = ex.filter(e => !String(e.category || e.main_category || e.mainCategory || "").trim() || String(e.category || "").toLowerCase() === "other");
+      const expenseMissingFields = ex.filter(e => !String(e.vendor || e.vendor_name || e.payee || "").trim() || !ldV301MoneyNum(e.amount || e.total) || !ldV301Date(e.date || e.expenseDate || e.createdAt || e.created_at));
+      const unsyncedReceipts = rs.filter(r => {
+        const docType = String(r.document_type || r.docType || "receipt").toLowerCase();
+        const isBillOnly = docType.includes("bill") || r.synced_to_bills === true && r.synced_to_expenses === false;
+        return !isBillOnly && !ldV301ReceiptExpenseLinked(r, ex);
+      });
+      const billLikeReceipts = rs.filter(r => {
+        const docType = String(r.document_type || r.docType || "").toLowerCase();
+        return (docType.includes("bill") || r.due_date || r.is_recurring) && !bs.some(b => String(b.receiptId || b.receipt_id || "") === String(r.id || ""));
+      });
+      const blockers = duplicateGroups.length + needsReview.length + missingImages.length + uncategorizedExpenses.length + expenseMissingFields.length + unsyncedReceipts.length + billLikeReceipts.length;
+      const score = Math.max(0, Math.min(100, 100 - duplicateGroups.length*14 - needsReview.length*5 - missingImages.length*7 - uncategorizedExpenses.length*4 - expenseMissingFields.length*8 - unsyncedReceipts.length*6 - billLikeReceipts.length*6));
+      const actions = [
+        duplicateGroups.length ? { icon:"🧾", title:"Possible duplicate receipts", body:`${duplicateGroups.length} duplicate receipt group(s) found by vendor/date/amount. Review before tax export.`, severity:"warning", tab:"receipts" } : null,
+        needsReview.length ? { icon:"✅", title:"Receipts need review", body:`${needsReview.length} receipt(s) need category/status review.`, severity:"warning", tab:"receipts" } : null,
+        missingImages.length ? { icon:"📸", title:"Receipt images missing", body:`${missingImages.length} receipt(s) do not show an image backup. Add/keep a photo when possible.`, severity:"warning", tab:"receipts" } : null,
+        unsyncedReceipts.length ? { icon:"🔁", title:"Receipts not linked to expenses", body:`${unsyncedReceipts.length} receipt(s) may not have an expense record yet.`, severity:"warning", tab:"receipts" } : null,
+        billLikeReceipts.length ? { icon:"📅", title:"Bill-like receipts", body:`${billLikeReceipts.length} scanned bill(s) may need to become upcoming bills.`, severity:"info", tab:"bills" } : null,
+        uncategorizedExpenses.length ? { icon:"💳", title:"Expense categories need cleanup", body:`${uncategorizedExpenses.length} expense(s) are Other or missing category.`, severity:"warning", tab:"expenses" } : null,
+        expenseMissingFields.length ? { icon:"⚠️", title:"Expenses missing required fields", body:`${expenseMissingFields.length} expense(s) are missing vendor, date, or amount.`, severity:"danger", tab:"expenses" } : null,
+      ].filter(Boolean);
+      if (!actions.length) actions.push({ icon:"✅", title:"Receipt and expense records look clean", body:"No duplicate, missing-image, missing-category, or unsynced receipt blockers found.", severity:"success", tab:"receipts" });
+      return { score, blockers, duplicateGroups, needsReview, missingImages, uncategorizedExpenses, expenseMissingFields, unsyncedReceipts, billLikeReceipts, actions };
+    }
+    function ldV301BuildPayrollAudit({ timecards = [], users = [], settings = {} } = {}) {
+      const rows = safeArray(timecards), people = safeArray(users).filter(u => String(u.role || "").toLowerCase() !== "owner");
+      const todayKey = typeof today === "function" ? today() : new Date().toISOString().slice(0,10);
+      const openRows = rows.filter(t => !t.out && !t.clockOut && !t.clock_out && !t.endTime && String(t.status || "").toLowerCase() !== "closed");
+      const missedClockOuts = openRows.filter(t => ldV301Date(t.date || t.clockIn || t.clock_in || t.startTime) && ldV301Date(t.date || t.clockIn || t.clock_in || t.startTime) !== todayKey);
+      const missingPay = rows.filter(t => !openRows.includes(t) && !ldV301MoneyNum(t.totalPay || t.pay) && ldV301MoneyNum(t.hours || t.regularHours || t.overtimeHours) > 0);
+      const missingEmployee = rows.filter(t => !String(t.userId || t.userEmail || t.userName || t.name || "").trim());
+      const overLongOpen = openRows.filter(t => {
+        try {
+          const h = typeof shiftHours === "function" ? shiftHours(t.date || todayKey, t.in || t.clockIn || t.clock_in || "", "", t.break_ || 0) : 0;
+          return h > 10;
+        } catch(e) { return false; }
+      });
+      const unpaidCommissions = safeArray(settings.showCommissions).filter(c => String(c.status || "Unpaid").toLowerCase() !== "paid" && !c.paidAt);
+      const employeeNoRate = people.filter(u => {
+        try { const cfg = typeof employeePaySettings === "function" ? employeePaySettings(settings, u.id) : {}; return !ldV301MoneyNum(cfg.hourlyRate || u.hourlyRate || u.rate); } catch(e) { return false; }
+      });
+      const blockers = missedClockOuts.length + missingPay.length + missingEmployee.length + overLongOpen.length + unpaidCommissions.length + employeeNoRate.length;
+      const score = Math.max(0, Math.min(100, 100 - missedClockOuts.length*18 - missingPay.length*8 - missingEmployee.length*8 - overLongOpen.length*10 - unpaidCommissions.length*4 - employeeNoRate.length*7));
+      const actions = [
+        missedClockOuts.length ? { icon:"⏱️", title:"Missed clock-outs", body:`${missedClockOuts.length} open shift(s) are from a previous day. Close them before payroll.`, severity:"danger", tab:"timecard" } : null,
+        overLongOpen.length ? { icon:"⚠️", title:"Long open shifts", body:`${overLongOpen.length} shift(s) look longer than 10 hours and need review.`, severity:"warning", tab:"timecard" } : null,
+        missingPay.length ? { icon:"💵", title:"Pay totals missing", body:`${missingPay.length} closed timecard(s) have hours but no pay total.`, severity:"warning", tab:"payroll" } : null,
+        missingEmployee.length ? { icon:"👥", title:"Employee missing on timecard", body:`${missingEmployee.length} timecard(s) need an employee/name attached.`, severity:"warning", tab:"timecard" } : null,
+        employeeNoRate.length ? { icon:"⚙️", title:"Hourly rates missing", body:`${employeeNoRate.length} employee profile(s) may need hourly pay settings.`, severity:"info", tab:"payroll" } : null,
+        unpaidCommissions.length ? { icon:"🤝", title:"Unpaid commissions / tips", body:`${unpaidCommissions.length} show earning record(s) still need paid/marked paid.`, severity:"warning", tab:"payroll" } : null,
+      ].filter(Boolean);
+      if (!actions.length) actions.push({ icon:"✅", title:"Payroll/timecard cleanup looks clean", body:"No missed clock-out, missing pay, or unpaid commission blockers found.", severity:"success", tab:"timecard" });
+      return { score, blockers, openRows, missedClockOuts, missingPay, missingEmployee, overLongOpen, unpaidCommissions, employeeNoRate, actions };
+    }
+    function ldV301BuildOwnerDailyPlan({ plants = [], expenses = [], bills = [], timecards = [], receipts = [], settings = {}, casdCerts = [] } = {}) {
+      const allPlants = safeArray(plants), allBills = safeArray(bills), allReceipts = safeArray(receipts), allTimecards = safeArray(timecards), allExpenses = safeArray(expenses);
+      const inStock = allPlants.filter(p => String(p.status || "In Stock") === "In Stock");
+      const missingPhotos = inStock.filter(p => !(p.photoUrl || p.photoBase64 || p.imageUrl || p.image));
+      const missingPrices = inStock.filter(p => !ldV301MoneyNum(p.suggestedPrice || p.listPrice || p.price || p.saleTarget));
+      const needsLabels = inStock.filter(p => !p.labelPrinted && !p.labelPrintedAt && !p.barcodePrintedAt);
+      const readyPlants = inStock.filter(p => !missingPhotos.includes(p) && !missingPrices.includes(p) && !needsLabels.includes(p));
+      const orders = typeof groupSalesIntoOrders === "function" ? safeArray(groupSalesIntoOrders(allPlants)) : [];
+      const plantsToPack = orders.reduce((sum,o)=>sum + Math.max(1, safeArray(o?.plants).length), 0);
+      const receiptAudit = ldV301BuildReceiptExpenseAudit({ receipts:allReceipts, expenses:allExpenses, bills:allBills });
+      const payrollAudit = ldV301BuildPayrollAudit({ timecards:allTimecards, users:safeArray(settings.users), settings });
+      const dueBills = allBills.filter(b => String(b.status || "Unpaid").toLowerCase() !== "paid" && daysUntil(b.dueDate || b.due_date) >= 0 && daysUntil(b.dueDate || b.due_date) <= 7);
+      const bankBalance = ldV301MoneyNum(settings.currentBankBalance);
+      const soldMonth = allPlants.filter(p => String(p.status || "") === "Sold" && monthKey(plantSaleDate(p) || p.soldAt || p.soldDate) === monthKey());
+      const monthSales = soldMonth.reduce((s,p)=>s+ldV301MoneyNum(p.salePrice || p.soldPrice || p.suggestedPrice),0);
+      const monthCost = soldMonth.reduce((s,p)=>s+ldV301MoneyNum(p.cost || p.originalCost || p.unitCost),0);
+      const monthExpense = allExpenses.filter(e=>String(e.date || e.createdAt || e.created_at || "").slice(0,7) === monthKey()).reduce((s,e)=>s+ldV301MoneyNum(e.amount || e.total || e.cost),0);
+      const netMonth = monthSales - monthCost - monthExpense;
+      const actions = [];
+      const add = (icon,title,body,page,color,cta="Open") => actions.push({ icon,title,body,page,color,cta });
+      if (dueBills.length) add("📅", "Pay/check bills first", `${dueBills.length} bill(s) are due within 7 days before buying more inventory.`, "bills", C.red, "Bills");
+      if (plantsToPack) add("📦", "Pack shipments before buying", `${plantsToPack} plant(s) across ${orders.length} shipment/customer group(s) need packing or tracking.`, "packorders", "#68d8ff", "Pack");
+      if (receiptAudit.blockers) add("🧾", "Clean receipts for true profit", `${receiptAudit.blockers} receipt/expense cleanup item(s) are affecting reports and taxes.`, "receipts", C.gold, "Receipts");
+      if (payrollAudit.missedClockOuts.length) add("⏱️", "Fix missed timecards", `${payrollAudit.missedClockOuts.length} missed clock-out(s) must be fixed before payroll.`, "timecard", C.purple, "Timecards");
+      if (missingPhotos.length) add("📸", "Photo sprint", `${missingPhotos.length} in-stock plant(s) still need photos before show building.`, "photosprint", "#fb6392", "Photos");
+      if (missingPrices.length) add("💲", "Fix missing prices", `${missingPrices.length} plant(s) need a sell price before going live.`, "pricefix", C.amber, "Prices");
+      if (!actions.length && readyPlants.length) add("🎪", "Build the next show", `${readyPlants.length} plant(s) look ready with photo, label, and price.`, "showbuilder", "#ff8a3d", "Build");
+      if (!actions.length) add("🌿", "Add or prep inventory", "No major blockers found. Add plants, scan receipts, or build a clean show list.", "plants_ws", C.g600, "Plants");
+      const priority = actions[0] ? { icon:actions[0].icon, title:actions[0].title, body:actions[0].body, page:actions[0].page, cta:actions[0].cta, color:actions[0].color } : null;
+      const score = Math.max(0, Math.min(100, 100 - Math.min(25, plantsToPack*2) - Math.min(20, receiptAudit.blockers*2) - Math.min(20, payrollAudit.missedClockOuts.length*8) - Math.min(18, missingPhotos.length*1) - Math.min(15, missingPrices.length*2) - (netMonth < 0 ? 10 : 0)));
+      return { score, priority, actions, metrics:{ plantsToPack, shipments:orders.length, receiptBlockers:receiptAudit.blockers, payrollBlockers:payrollAudit.blockers, missingPhotos:missingPhotos.length, missingPrices:missingPrices.length, readyPlants:readyPlants.length, netMonth, bankBalance, dueBills:dueBills.length } };
+    }
+    function LDV301MiniAuditPanel({ title, sub, score = 100, items = [], onAction, color = "#fb6392" }) {
+      const shown = safeArray(items).slice(0, 5);
+      return <div style={{ background:"#000", color:"#fff", border:`1px solid ${color}`, borderRadius:18, padding:14, margin:"0 0 12px", boxShadow:"0 10px 28px rgba(0,0,0,.16)" }}>
+        <Row between center wrap gap={10} style={{ marginBottom:10 }}>
+          <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, color:"#fb6392", fontSize:20, fontWeight:950 }}>{title}</div>{sub && <div style={{ color:"rgba(255,255,255,.74)", fontSize:12, lineHeight:1.35, marginTop:3 }}>{sub}</div>}</div>
+          <span style={{ background:score >= 85 ? "#97d33e" : score >= 65 ? "#f5c542" : "#fb6392", color:"#000", borderRadius:999, padding:"7px 10px", fontWeight:950, fontSize:12 }}>{score}/100</span>
+        </Row>
+        <div style={{ display:"grid", gap:8 }}>
+          {shown.map((a,i)=><button key={(a.title||"item")+i} type="button" onClick={()=>onAction && onAction(a)} style={{ background:"rgba(255,255,255,.08)", color:"#fff", border:"1px solid rgba(255,255,255,.14)", borderLeft:`4px solid ${a.severity === "danger" ? "#fb6392" : a.severity === "success" ? "#97d33e" : "#f5c542"}`, borderRadius:13, padding:"10px 11px", textAlign:"left", cursor:onAction?"pointer":"default", fontFamily:F.body }}>
+            <div style={{ fontWeight:950, fontSize:13 }}>{a.icon || "•"} {a.title}</div>
+            <div style={{ color:"rgba(255,255,255,.70)", fontSize:11, marginTop:3, lineHeight:1.34 }}>{a.body}</div>
+          </button>)}
+        </div>
+      </div>;
+    }
+
     /* ══════════════════════════════════════════════════════════
        MONEY COMMAND CENTER
        Safe wrapper around existing Cash Flow, Receipts, Expenses,
@@ -14864,7 +15002,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const taxSales = revenueMonth * FL_SALES_TAX;
       const seTax = Math.max(0, netMonth) * FL_SE_TAX;
       const incomeTax = estIncomeTax(Math.max(0, netMonth));
+      const v301ReceiptAudit = ldV301BuildReceiptExpenseAudit({ receipts, expenses, bills });
+      const v301PayrollAudit = ldV301BuildPayrollAudit({ timecards, users, settings });
+      const v301OwnerPlan = ldV301BuildOwnerDailyPlan({ plants, expenses, bills, timecards, receipts, settings, casdCerts });
       const moneyIssues = [
+        { show:v301OwnerPlan?.actions?.length && canOwner, icon:"🔥", title:"Owner daily plan", body:`Top move: ${v301OwnerPlan.actions[0]?.title || "Review today"}. Readiness score ${v301OwnerPlan.score}/100.`, button:"Owner Plan", tab:v301OwnerPlan.actions[0]?.page === "bills" ? "bills" : v301OwnerPlan.actions[0]?.page === "timecard" ? "timecard" : v301OwnerPlan.actions[0]?.page === "receipts" ? "receipts" : "overview", color:"#fb6392" },
+        { show:v301ReceiptAudit.blockers>0, icon:"🧾", title:"Receipt/expense cleanup", body:`${v301ReceiptAudit.blockers} cleanup blocker(s): duplicates, missing images, categories, or unsynced expenses.`, button:"Cleanup", tab:"receipts", color:C.gold },
+        { show:v301PayrollAudit.blockers>0 && canOwner, icon:"⏱️", title:"Payroll/timecard cleanup", body:`${v301PayrollAudit.blockers} payroll/timecard issue(s) need review before checks/stubs.`, button:"Timecards", tab:"timecard", color:C.purple },
         { show:bills7Total>0, icon:"📅", title:"Bills due soon", body:`${$(bills7Total)} due within 7 days. Check this before buying inventory.`, button:"Open Bills", tab:"bills", color:C.red },
         { show:receiptReview.length>0, icon:"🧾", title:"Receipts need review", body:`${receiptReview.length} receipt(s) need category review so your records stay tax-ready.`, button:"Review Receipts", tab:"receipts", color:C.blue },
         { show:unpaidCommissions.length>0 && canOwner, icon:"🤝", title:"Employee commission pending", body:`${unpaidCommissions.length} commission record(s) may still need to be paid or marked paid.`, button:"Commissions", tab:"payroll", color:C.gold },
@@ -15007,13 +15151,16 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           <MoneyTask icon="📈" title="View Profit" body={`${$(revenueMonth)} sales this month, ${$(netMonth)} estimated net after COGS, fees, expenses, and payroll.`} button="Profit" onClick={()=>setTab("profit")} color={netMonth >= 0 ? C.g600 : C.red} />
           <MoneyTask icon="🧾" title="Tax Snapshot" body={`${$(taxSales)} estimated FL sales tax and ${$(seTax + incomeTax)} estimated owner tax snapshot for the month.`} button="Taxes" onClick={()=>setTab("taxes")} color={C.gold} />
           <MoneyTask icon="🎯" title="Set monthly targets" body="Use goals to keep sales, profit, and safe buying targets visible." button="Goals" onClick={()=>setTab("goals")} color={C.purple} />
+          {canOwner && <MoneyTask icon="🔥" title="Owner Daily Command" body={`Score ${v301OwnerPlan.score}/100 · ${v301OwnerPlan.actions[0]?.body || "Review today's best move."}`} button={v301OwnerPlan.actions[0]?.cta || "Open"} onClick={()=>{ const p=v301OwnerPlan.actions[0]?.page; if (p === "bills") setTab("bills"); else if (p === "receipts") setTab("receipts"); else if (p === "timecard") setTab("timecard"); else if (p === "packorders" || p === "photosprint" || p === "showbuilder" || p === "pricefix") setPage(p); else setTab("overview"); }} color="#fb6392" />}
+          <MoneyTask icon="🧹" title="Receipt / Expense Cleanup" body={`Tax-ready score ${v301ReceiptAudit.score}/100 · ${v301ReceiptAudit.blockers} blocker(s) found.`} button="Review" onClick={()=>setTab("receipts")} color={v301ReceiptAudit.blockers ? C.gold : C.g600} />
+          {canOwner && <MoneyTask icon="⏱️" title="Payroll / Timecard Cleanup" body={`Payroll score ${v301PayrollAudit.score}/100 · ${v301PayrollAudit.blockers} blocker(s) found.`} button="Review" onClick={()=>setTab("timecard")} color={v301PayrollAudit.blockers ? C.purple : C.g600} />}
         </div>}
 
-        {tab === "receipts" && <Card style={{ borderTop:`4px solid ${C.blue}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🧾 Add Receipt</div><div style={{ fontSize:12, color:C.tx3 }}>Take a receipt photo or choose from Camera Roll · {receiptReview.length} need review · {receiptNoImage.length} missing image</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("receipts")}>Review Saved Receipts</Btn></Row><ReceiptScanner receipts={receipts} setReceipts={setReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} /></Card>}
-        {tab === "expenses" && canManager && <Card style={{ borderTop:`4px solid ${C.red}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>💳 Expenses</div><div style={{ fontSize:12, color:C.tx3 }}>{$(expenseMonth)} expenses recorded this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("expense")}>Expense History</Btn></Row><Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} /></Card>}
+        {tab === "receipts" && <Card style={{ borderTop:`4px solid ${C.blue}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🧾 Add Receipt</div><div style={{ fontSize:12, color:C.tx3 }}>Take a receipt photo or choose from Camera Roll · {receiptReview.length} need review · {receiptNoImage.length} missing image</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("receipts")}>Review Saved Receipts</Btn></Row><LDV301MiniAuditPanel title="Receipt / Expense Cleanup" sub="Checks duplicates, missing images, unsynced expenses, bill-like receipts, and tax-ready categories before reports." score={v301ReceiptAudit.score} items={v301ReceiptAudit.actions} color={C.gold} onAction={(a)=>a.tab && setTab(a.tab)} /><ReceiptScanner receipts={receipts} setReceipts={setReceipts} expenses={expenses} setExpenses={setExpenses} bills={bills} setBills={setBills} addAudit={addAudit} user={user} /></Card>}
+        {tab === "expenses" && canManager && <Card style={{ borderTop:`4px solid ${C.red}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>💳 Expenses</div><div style={{ fontSize:12, color:C.tx3 }}>{$(expenseMonth)} expenses recorded this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("expense")}>Expense History</Btn></Row><LDV301MiniAuditPanel title="Expense Automation Check" sub="Finds uncategorized expenses, missing vendor/date/amount, and receipts that should have created expenses." score={v301ReceiptAudit.score} items={v301ReceiptAudit.actions.filter(a => a.tab === "expenses" || a.tab === "receipts")} color={C.red} onAction={(a)=>a.tab && setTab(a.tab)} /><Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} /></Card>}
         {tab === "bills" && canManager && <Card style={{ borderTop:`4px solid ${bills7Total ? C.red : C.g600}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>📅 Bills</div><div style={{ fontSize:12, color:C.tx3 }}>{$(bills7Total)} due in 7 days · {$(bills14Total)} due in 14 days.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("bills")}>Bill History</Btn></Row><Bills bills={bills} setBills={setBills} /></Card>}
-        {tab === "timecard" && <Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>⏱️ Timecard</div><div style={{ fontSize:12, color:C.tx3 }}>Clock in/out and keep employee hours clean.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("timecard")}>Timecard History</Btn></Row><TimecardCommandCenter compact={true} timecards={timecards} setTimecards={setTimecards} user={user} employees={users} settings={settings} setSettings={setSettings} addAudit={addAudit} setPage={setPage} /></Card>}
-        {tab === "payroll" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>👥 Payroll</div><div style={{ fontSize:12, color:C.tx3 }}>{$(payrollMonth)} payroll/timecard pay this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("payroll")}>Open Details</Btn></Row><Payroll timecards={timecards} employees={users} settings={settings} setSettings={setSettings} user={user} /></Card><Card style={{ borderTop:`4px solid ${C.gold}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🤝 Commissions</div><div style={{ fontSize:12, color:C.tx3 }}>{unpaidCommissions.length} unpaid · {$(commissionTotal)} estimated open commission.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("commissions")}>Open Details</Btn></Row><CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} /></Card></div>}
+        {tab === "timecard" && <Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>⏱️ Timecard</div><div style={{ fontSize:12, color:C.tx3 }}>Clock in/out and keep employee hours clean.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("timecard")}>Timecard History</Btn></Row>{canOwner && <LDV301MiniAuditPanel title="Payroll / Timecard Cleanup" sub="Checks missed clock-outs, long open shifts, missing pay totals, missing employees, hourly rates, and unpaid commissions." score={v301PayrollAudit.score} items={v301PayrollAudit.actions} color={C.purple} onAction={(a)=>a.tab && setTab(a.tab)} />}<TimecardCommandCenter compact={true} timecards={timecards} setTimecards={setTimecards} user={user} employees={users} settings={settings} setSettings={setSettings} addAudit={addAudit} setPage={setPage} /></Card>}
+        {tab === "payroll" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><div style={{ gridColumn:"1 / -1" }}><LDV301MiniAuditPanel title="Payroll Cleanup Before Paychecks" sub="Run this before creating checks or stubs so missed clock-outs, missing pay totals, rates, tips, and commissions are visible." score={v301PayrollAudit.score} items={v301PayrollAudit.actions} color={C.purple} onAction={(a)=>a.tab && setTab(a.tab)} /></div><Card style={{ borderTop:`4px solid ${C.purple}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>👥 Payroll</div><div style={{ fontSize:12, color:C.tx3 }}>{$(payrollMonth)} payroll/timecard pay this month.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("payroll")}>Open Details</Btn></Row><Payroll timecards={timecards} employees={users} settings={settings} setSettings={setSettings} user={user} /></Card><Card style={{ borderTop:`4px solid ${C.gold}`, padding:14 }}><Row between center wrap style={{ marginBottom:10 }}><div><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900 }}>🤝 Commissions</div><div style={{ fontSize:12, color:C.tx3 }}>{unpaidCommissions.length} unpaid · {$(commissionTotal)} estimated open commission.</div></div><Btn sz="sm" v="soft" onClick={()=>openFull("commissions")}>Open Details</Btn></Row><CommissionCenter plants={plants} timecards={timecards} users={users} settings={settings} setSettings={setSettings} /></Card></div>}
         {tab === "profit" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1.1fr .9fr", gap:12 }}><Card style={{ borderTop:`4px solid ${netMonth >= 0 ? C.g600 : C.red}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:10 }}>📈 Profit Snapshot</div><SimpleLine label="Month sales" value={$(revenueMonth)} color={C.gold} /><SimpleLine label="Platform fees" value={`-${$(feesMonth)}`} color={C.red} /><SimpleLine label="Cost of plants sold" value={`-${$(cogsMonth)}`} color={C.red} /><SimpleLine label="Gross after COGS + fees" value={$(grossMonth)} color={grossMonth >= 0 ? C.g600 : C.red} /><SimpleLine label="Expenses" value={`-${$(expenseMonth)}`} color={C.red} /><SimpleLine label="Payroll" value={`-${$(payrollMonth)}`} color={C.purple} /><SimpleLine label="Estimated net" value={$(netMonth)} color={netMonth >= 0 ? C.g600 : C.red} /><Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={()=>setPage("reports")}>Reports</Btn><Btn v="soft" onClick={()=>setPage("slotprofit")}>What Makes Money</Btn></Row></Card><Card style={{ borderTop:`4px solid ${C.g600}` }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:10 }}>🌿 Inventory Money</div><SimpleLine label="In-stock cost" value={$(inventoryCost)} color={C.gold} /><SimpleLine label="Suggested sell value" value={$(inventoryValue)} color={C.g600} /><SimpleLine label="Potential gross spread" value={$(inventoryValue - inventoryCost)} color={(inventoryValue - inventoryCost) >= 0 ? C.g600 : C.red} /><SimpleLine label="7-day revenue" value={$(revenue7)} color={C.blue} /><SimpleLine label="30-day gross after COGS/fees" value={$(gross30)} color={gross30 >= 0 ? C.g600 : C.red} /><Btn v="outline" style={{ marginTop:12 }} onClick={()=>setPage("buy_ws")}>Open What Should I Buy?</Btn></Card></div>}
         
         {tab === "reports" && canOwner && <VisualReportsCenter plants={plants} expenses={expenses} bills={bills} timecards={timecards} receipts={receipts} nurseries={nurseries} casdCerts={casdCerts} settings={settings} user={user} setPage={setPage} />}
