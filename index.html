@@ -8128,8 +8128,18 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     const ldOrderPlants = o => safeArray(o?.plants);
     const ldOrderStateOf = o => String(o?.state || o?.shippingState || o?.customerState || "").toUpperCase().trim();
     const ldOrderTrackingOf = o => ldOrderPlants(o).map(p => p.trackingNumber || p.tracking || p.shipmentTracking || p.labelTracking || "").find(Boolean) || String(o?.trackingNumber || o?.tracking || o?.shipmentTracking || "").trim();
-    const ldOrderHasTracking = o => !!ldOrderTrackingOf(o) || ldOrderPlants(o).some(p => p.shippedDate || p.deliveredDate || /ship|deliver|fulfilled|complete|done/i.test(String(p.fulfillmentStatus || p.shipmentStatus || p.trackingStatus || "")));
-    const ldOrderPacked = o => ldOrderPlants(o).some(p => p.packedAt || p.platformReadyAt || /pack|ready|label|ship|done|complete/i.test(String(p.fulfillmentStatus || p.shipmentStatus || "")));
+    const ldOrderMarkedCompleted = o => {
+      const plants = ldOrderPlants(o);
+      if (/complete|completed|done|fulfilled|shipped/i.test(String(o?.fulfillmentStatus || o?.shipmentStatus || o?.shippingStatus || o?.status || ""))) return true;
+      if (o?.shipmentCompletedAt || o?.orderCompletedAt || o?.completedAt || o?.packedCompleteAt) return true;
+      if (!plants.length) return false;
+      return plants.every(p =>
+        p?.shipmentCompletedAt || p?.orderCompletedAt || p?.completedAt ||
+        /complete|completed|done|fulfilled|shipped/i.test(String(p?.fulfillmentStatus || p?.shipmentStatus || p?.shippingStatus || p?.trackingStatus || ""))
+      );
+    };
+    const ldOrderHasTracking = o => !!ldOrderTrackingOf(o) || ldOrderMarkedCompleted(o) || ldOrderPlants(o).some(p => p.shippedDate || p.deliveredDate || /ship|deliver|fulfilled|complete|done/i.test(String(p.fulfillmentStatus || p.shipmentStatus || p.trackingStatus || "")));
+    const ldOrderPacked = o => ldOrderMarkedCompleted(o) || ldOrderPlants(o).some(p => p.packedAt || p.platformReadyAt || /pack|ready|label|ship|done|complete/i.test(String(p.fulfillmentStatus || p.shipmentStatus || "")));
     const ldOrderChargedTotal = o => moneyNum(o?.shippingCharged || o?.shippingRevenue || o?.shippingCollected) || ldOrderPlants(o).reduce((s,p)=>s+ldShippingCharged(p),0);
     const ldOrderLabelCostTotal = o => moneyNum(o?.actualLabelCost || o?.actualShippingCost || o?.labelCost || o?.shippingCost || o?.whatnotShippingAdjustmentCost) || ldOrderPlants(o).reduce((s,p)=>s+ldActualLabelCost(p),0);
     const ldOrderSuppliesTotal = o => moneyNum(o?.shippingSuppliesCost || o?.packingSuppliesCost) || ldOrderPlants(o).reduce((s,p)=>s+ldShippingSuppliesCost(p),0);
@@ -8155,15 +8165,19 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     };
     const ldOrderCompletionBlocks = (o, certs = []) => {
       const blocks = [];
-      if (!ldOrderHasTracking(o)) blocks.push("tracking");
+      /* V304: If Eric/manager marks the shipment/order Completed, it is done for packing-count purposes.
+         Tracking is optional; Whatnot often stays tracking-only inside Whatnot and should not keep plants in the packing count. */
+      if (ldOrderMarkedCompleted(o)) return blocks;
+      if (!ldOrderHasTracking(o)) blocks.push("tracking optional");
       if (ldOrderNeedsLabelCostTotal(o)) blocks.push("label cost");
       if (ldOrderNeedsStateDoc(o) && !ldOrderHasStateDocArchive(o, certs)) blocks.push("state docs");
       return blocks;
     };
-    const ldOrderIsCompleted = (o, certs = []) => ldOrderCompletionBlocks(o, certs).length === 0 && ldOrderHasTracking(o);
+    const ldOrderIsCompleted = (o, certs = []) => ldOrderMarkedCompleted(o) || (ldOrderCompletionBlocks(o, certs).length === 0 && (ldOrderHasTracking(o) || ldOrderPacked(o)));
     const ldOrderShippingStatus = (o, certs = []) => {
+      if (ldOrderMarkedCompleted(o)) return { id:"completed", label:"Completed", blocks:[] };
       const blocks = ldOrderCompletionBlocks(o, certs);
-      if (!ldOrderHasTracking(o)) return { id: ldOrderPacked(o) ? "packed_needs_tracking" : "ready_to_pack", label: ldOrderPacked(o) ? "Packed · needs tracking" : "Ready to pack", blocks };
+      if (!ldOrderHasTracking(o)) return { id: ldOrderPacked(o) ? "packed_needs_tracking" : "ready_to_pack", label: ldOrderPacked(o) ? "Packed · tracking optional" : "Ready to pack", blocks };
       if (blocks.length) return { id:"needs_review", label:`Shipped · fix ${blocks.join(", ")}`, blocks };
       return { id:"completed", label:"Completed", blocks:[] };
     };
@@ -8208,7 +8222,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         };
         if (!map[key].platform || map[key].platform === "Manual") map[key].platform = platform;
         if (ldShippingMode(p) === "whatnot_seller_adjustment") map[key].sellerShippingMode = "whatnot_seller_adjustment";
-        map[key].plants.push({ id: p.id, name: p.name, potSize: p.potSize, plantId: p.plantId || p.plantCode, salePrice: +p.salePrice || +p.suggestedPrice || 0, platform, shippingChargedToCustomer: charged, actualLabelCost: label, shippingSuppliesCost: supplies, shippingProfit: +(charged-label-supplies).toFixed(2), shippingCostPending: !!plantPending, trackingNumber: p.trackingNumber || p.tracking || "", carrier: p.carrier || "", shippedDate: p.shippedDate || "", deliveredDate: p.deliveredDate || "", includesHeatPack: !!(p.includesHeatPack || p.heatPackAdded), packingSlipGenerated: !!p.packingSlipGenerated, fulfillmentStatus: p.fulfillmentStatus || p.shipmentStatus || "", packedAt: p.packedAt || "", platformReadyAt: p.platformReadyAt || "", paperworkAdded: !!p.paperworkAdded, stateDocChecked: !!p.stateDocChecked, insulationAdded: !!p.insulationAdded, fulfillmentNote: p.fulfillmentNote || "" });
+        map[key].plants.push({ id: p.id, name: p.name, potSize: p.potSize, plantId: p.plantId || p.plantCode, salePrice: +p.salePrice || +p.suggestedPrice || 0, platform, shippingChargedToCustomer: charged, actualLabelCost: label, shippingSuppliesCost: supplies, shippingProfit: +(charged-label-supplies).toFixed(2), shippingCostPending: !!plantPending, trackingNumber: p.trackingNumber || p.tracking || "", carrier: p.carrier || "", shippedDate: p.shippedDate || "", deliveredDate: p.deliveredDate || "", includesHeatPack: !!(p.includesHeatPack || p.heatPackAdded), packingSlipGenerated: !!p.packingSlipGenerated, fulfillmentStatus: p.fulfillmentStatus || p.shipmentStatus || "", shipmentStatus: p.shipmentStatus || p.fulfillmentStatus || "", shippingStatus: p.shippingStatus || "", orderCompletedAt: p.orderCompletedAt || "", shipmentCompletedAt: p.shipmentCompletedAt || "", completedAt: p.completedAt || "", packedAt: p.packedAt || "", platformReadyAt: p.platformReadyAt || "", paperworkAdded: !!p.paperworkAdded, stateDocChecked: !!p.stateDocChecked, insulationAdded: !!p.insulationAdded, fulfillmentNote: p.fulfillmentNote || "" });
         map[key].totalValue += (+p.salePrice || +p.suggestedPrice || 0);
         map[key].shippingCharged += charged;
         map[key].actualLabelCost += label;
@@ -26182,20 +26196,27 @@ Cancel keeps this local/free.`);
         if (busyUser) return;
         setBusyUser(true);
         try {
-          const original = safeArray(users).find(u => u.id === editId);
+          const currentUsers = safeArray(users);
+          const original = currentUsers.find(u => u.id === editId);
           if (!original) throw new Error("Could not find the user record you are editing. Close the form and open Edit again.");
           let profile = buildProfile();
+          profile.name = String(profile.name || "").trim();
+          profile.phone = String(profile.phone || "").trim();
+          profile.jobTitle = String(profile.jobTitle || "").trim();
+          profile.email = normalizeEmail(profile.email || original.email || "");
           if (!profile.name) throw new Error("Name is required.");
 
-          /* V299: Create User allows commission/profile-only users. Edit User must allow the same.
-             If email is blank, keep the old email or create a safe local-only placeholder instead of crashing. */
+          /* V304: Business Settings edit-user save is local-first and crash-proof.
+             Name/phone edits must save even for profile-only/commission users with no real Supabase Auth login. */
           if (!profile.email) {
             const safeName = String(profile.name || "employee").trim().toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "") || "employee";
-            profile = { ...profile, email: original.email || `${safeName}.${original.id || Date.now()}@leafdiary.local`, loginDisabled: true };
+            profile = { ...profile, email: original.email || `${safeName}.${original.id || editId || Date.now()}@leafdiary.local`, loginDisabled: true };
           }
-          if (userExists(profile.email)) throw new Error("That email already exists in your app users.");
+          const profileEmail = normalizeEmail(profile.email);
+          const duplicate = currentUsers.some(u => u.id !== editId && normalizeEmail(u.email) === profileEmail && profileEmail && !profileEmail.endsWith("@leafdiary.local"));
+          if (duplicate) throw new Error("That email already exists in your app users.");
 
-          const otherActiveOwners = safeArray(users).filter(u => u.id !== editId && u.role === "owner" && u.active !== false).length;
+          const otherActiveOwners = currentUsers.filter(u => u.id !== editId && u.role === "owner" && u.active !== false).length;
           if (original.role === "owner" && (profile.role !== "owner" || profile.active === false) && otherActiveOwners < 1) {
             throw new Error("You must keep at least one active owner account.");
           }
@@ -26211,16 +26232,31 @@ Cancel keeps this local/free.`);
             updatedBy: user?.name || user?.email || "Owner"
           };
 
-          let updatedUsers = safeArray(users).map(u => u.id === editId ? finalProfile : u);
-          if (!updatedUsers.some(u => u.id === finalProfile.id)) updatedUsers = [...updatedUsers, finalProfile];
-          setUsers(updatedUsers);
-          try { await cloudUpsertState("users", updatedUsers); } catch (cloudErr) { console.warn("Explicit edited user cloud save failed", cloudErr); }
-          addAudit && addAudit({ action: `Admin updated user ${finalProfile.email || finalProfile.name}`, user: user?.name || "Owner", page: "Admin" });
-          closeForm();
-          setAuthMsg("✅ User profile saved. If cloud sync is offline, the app kept the change locally and will retry sync.");
+          const updatedUsers = currentUsers.map(u => u.id === editId ? finalProfile : u);
+          const safeUpdatedUsers = updatedUsers.some(u => u.id === finalProfile.id) ? updatedUsers : [...updatedUsers, finalProfile];
+
+          /* Local first. This prevents one failed Supabase/state call from white-screening Business Settings. */
+          try { localStorage.setItem("leafDiaryUsersBackupV304", JSON.stringify(safeUpdatedUsers)); } catch (_) {}
+          try { setUsers(() => safeUpdatedUsers); } catch (stateErr) {
+            console.error("Admin user local state save failed", stateErr);
+            try { window.__LEAF_DIARY_ADMIN_SAVE_LAST_ERROR = { message:String(stateErr?.message || stateErr), at:new Date().toISOString(), finalProfile }; } catch(_) {}
+            throw new Error("The app blocked the user save locally: " + (stateErr?.message || String(stateErr)));
+          }
+
+          /* Cloud/audit after UI save. Failure here shows a warning but does not crash or erase the edit. */
+          setTimeout(async () => {
+            try { await cloudUpsertState("users", safeUpdatedUsers); }
+            catch (cloudErr) { console.warn("Edited user cloud save queued/local only", cloudErr); try { ldV294QueueCloudFailure({ kind:"adminUserSave", method:"UPSERT_STATE", table:"users", error:cloudErr }); } catch(_) {} }
+            try { addAudit && addAudit({ action: `Admin updated user ${finalProfile.email || finalProfile.name}`, user: user?.name || "Owner", page: "Admin" }); } catch (auditErr) { console.warn("Admin user save audit failed", auditErr); }
+          }, 0);
+
+          setAuthMsg("✅ User profile saved. If Supabase is offline, the local backup kept the change and cloud sync will retry.");
+          setShowAdd(false);
+          setEditId(null);
+          setForm({ ...blank, tempPassword: "" });
         } catch (err) {
           console.error("Admin edit user save failed", err);
-          try { phase1LogError("admin_edit_user_save_failed", err, { editId, email: form?.email || "" }); } catch (_) {}
+          try { phase1LogError("admin_edit_user_save_failed", err, { editId, email: form?.email || "", name: form?.name || "" }); } catch (_) {}
           setAuthErr("User save failed: " + (err?.message || String(err)));
         } finally {
           setBusyUser(false);
@@ -27270,10 +27306,47 @@ Cancel keeps this local/free.`);
         ])));
         downloadCsv(`leaf-diary-packing-board-${today()}.csv`, rows);
       };
+      const markOrderCompleted = order => {
+        if (!setPlants) { toggleDone(stepKey(order, "ready")); return; }
+        const orderPlants = safeArray(order?.plants);
+        const soldKeys = new Set(orderPlants.map(p => String(p.id || p.plantId || p.plantCode || p.barcode || "")).filter(Boolean));
+        if (!soldKeys.size) { toggleDone(stepKey(order, "ready")); return; }
+        const now = new Date().toISOString();
+        setPlants(prev => safeArray(prev).map(p => {
+          const k = String(p.id || p.plantId || p.plantCode || p.barcode || "");
+          return soldKeys.has(k) ? {
+            ...p,
+            packedAt: p.packedAt || now,
+            platformReadyAt: p.platformReadyAt || now,
+            shipmentCompletedAt: now,
+            orderCompletedAt: now,
+            fulfillmentStatus: "Completed",
+            shipmentStatus: "Completed",
+            shippingStatus: "Completed",
+            trackingOptional: true,
+            trackingNotRequired: true,
+            completedBy: user?.name || user?.email || "Leaf Diary",
+            completedFromPackingBoard: true,
+            stateDocChecked: p.stateDocChecked || !ldOrderNeedsStateDoc(order),
+            shippingCostPending: ldIsWhatnot(order) ? false : p.shippingCostPending
+          } : p;
+        }));
+        const base = cleanDoneMap(done);
+        saveDone({
+          ...base,
+          [stepKey(order, "buyer")]: true,
+          [stepKey(order, "pull")]: true,
+          [stepKey(order, "inspect")]: true,
+          [stepKey(order, "pack")]: true,
+          [stepKey(order, "paperwork")]: true,
+          [stepKey(order, "ready")]: true
+        });
+        addAudit && addAudit({ action:`Marked shipment completed from Pack Orders for ${order?.customerName || order?.customerUsername || order?.orderId || "order"}. Tracking remains optional.`, user:user?.name || "", page:"Pack Orders" });
+      };
       const StepBox = ({ order, step, label, sub, color = C.g600 }) => {
         const k = stepKey(order, step);
-        const checked = !!cleanDoneMap(done)[k];
-        return <button type="button" className={`ld-v259-pack-step ${checked ? "is-done" : ""}`} onClick={(e)=>{ try { e.preventDefault(); e.stopPropagation(); toggleDone(k); } catch(err) { console.error("Packing step click failed", err); alert("Could not save this packing step. Your order data is safe."); } }} style={{ background:checked ? C.g50 : C.card, border:`1.5px solid ${checked ? color : C.bd}`, borderRadius:12, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}>
+        const checked = !!cleanDoneMap(done)[k] || (step === "ready" && ldOrderMarkedCompleted(order));
+        return <button type="button" className={`ld-v259-pack-step ${checked ? "is-done" : ""}`} onClick={(e)=>{ try { e.preventDefault(); e.stopPropagation(); if (step === "ready" && !checked) markOrderCompleted(order); else toggleDone(k); } catch(err) { console.error("Packing step click failed", err); alert("Could not save this packing step. Your order data is safe."); } }} style={{ background:checked ? C.g50 : C.card, border:`1.5px solid ${checked ? color : C.bd}`, borderRadius:12, padding:"10px 11px", textAlign:"left", cursor:"pointer", fontFamily:F.body }}>
           <Row gap={8} center><span style={{ width:24, height:24, borderRadius:999, background:checked ? color : C.cardAlt, color:checked ? "#fff" : C.tx3, display:"inline-flex", alignItems:"center", justifyContent:"center", fontWeight:900, flexShrink:0 }}>{checked ? "✓" : ""}</span><div><div style={{ fontSize:12, fontWeight:900, color:C.g900 }}>{label}</div>{sub && <div style={{ fontSize:10, color:C.tx3, marginTop:2 }}>{sub}</div>}</div></Row>
         </button>;
       };
@@ -27283,7 +27356,7 @@ Cancel keeps this local/free.`);
         const coldCheck = ldOrderNeedsColdCheck(order);
         const buyer = order.customerUsername || order.customerName || "Buyer";
         const packedLocal = orderDone(order, "packed");
-        const readyLocal = orderDone(order, "ready");
+        const readyLocal = orderDone(order, "ready") || ldOrderMarkedCompleted(order);
         const shipStatus = v297ShipStatus(order);
         const tracking = ldOrderTrackingOf(order);
         const labelPending = ldOrderNeedsLabelCostTotal(order);
@@ -27297,7 +27370,7 @@ Cancel keeps this local/free.`);
             <div style={{ fontSize:11, color:C.tx3, lineHeight:1.35, marginBottom:8 }}>Palmstreet: enter one label cost for the customer box. Whatnot: shipping is handled by Whatnot, enter only seller-paid/adjustment costs if any.</div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:8 }}>
               <Inp label="Shipping Charged" type="number" value={draftForOrder(order).charged} onChange={v=>setShipDraft(order,"charged",v)} placeholder="0.00" />
-              <Inp label="Actual Label Cost" type="number" value={draftForOrder(order).label} onChange={v=>setShipDraft(order,"label",v)} placeholder="0.00" />
+              <Inp label={ldIsWhatnot(order) ? "Seller Adjustment" : "Actual Label Cost"} type="number" value={draftForOrder(order).label} onChange={v=>setShipDraft(order,"label",v)} placeholder="0.00" />
               <Inp label="Supplies Cost" type="number" value={draftForOrder(order).supplies} onChange={v=>setShipDraft(order,"supplies",v)} placeholder="0.00" />
               <Btn sz="sm" onClick={()=>saveShippingFinanceForOrder(order)}>Save Shipping Profit</Btn>
             </div>
@@ -36560,7 +36633,7 @@ ${local.summary || "Fallback completed."}`;
           const docsStates = ["CA","AZ","TX","LA","HI"];
           const stateOfOrder = o => String(o.state || o.shippingState || "").toUpperCase();
           const orderPlants = o => safeArray(o?.plants);
-          const orderHasTracking = o => !!orderPlants(o).map(p => p.trackingNumber || p.tracking || p.shipmentTracking || "").find(Boolean) || orderPlants(o).some(p => p.shippedDate || p.deliveredDate || /ship|deliver|fulfilled|complete/i.test(String(p.fulfillmentStatus || p.shipmentStatus || "")));
+          const orderHasTracking = o => ldOrderHasTracking(o);
           const orderLabel = o => moneyNum(o.actualLabelCost || o.actualShippingCost || o.labelCost) || orderPlants(o).reduce((sum,p)=>sum+ldActualLabelCost(p),0);
           const orderCharged = o => moneyNum(o.shippingCharged || o.shippingRevenue || o.shippingCollected) || orderPlants(o).reduce((sum,p)=>sum+ldShippingCharged(p),0);
           const hasDoc = o => safeArray(casdCerts).some(c => {
@@ -36573,7 +36646,7 @@ ${local.summary || "Fallback completed."}`;
             const whatnot = ldIsWhatnot(o);
             const docsMissing = docsStates.includes(stateOfOrder(o)) && !hasDoc(o);
             const labelMissing = !whatnot && orderCharged(o) > 0 && orderLabel(o) <= 0;
-            return !orderHasTracking(o) || docsMissing || labelMissing;
+            return !ldOrderIsCompleted(o, casdCerts) && (!orderHasTracking(o) || docsMissing || labelMissing);
           }).length;
         } catch(e) { return 0; }
       })();
