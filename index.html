@@ -6964,25 +6964,42 @@
       });
     }
     async function uploadOrderPackingVideoFile(file, order, user = {}) {
-      if (!file) throw new Error("Choose a video first.");
-      if (!String(file.type || "").startsWith("video/")) throw new Error("Please upload a video file.");
-      const maxMb = 140;
-      if (file.size > maxMb * 1024 * 1024) throw new Error(`Video is too large (${Math.round(file.size/1024/1024)}MB). Keep the proof clip short or lower camera quality under ${maxMb}MB.`);
-      const duration = await videoDurationSeconds(file);
-      if (duration > 35 && !confirm(`This clip is about ${Math.round(duration)} seconds. For fast loading, use 10–20 seconds when possible. Upload anyway?`)) throw new Error("Video upload cancelled.");
+      if (!file) throw new Error("Choose a photo or video first.");
+      const rawType = String(file.type || "").toLowerCase();
+      const isVideo = rawType.startsWith("video/");
+      const isImage = rawType.startsWith("image/");
+      if (!isVideo && !isImage) throw new Error("Please upload a photo or video proof file.");
       const cleanOrder = orderVideoSafeKey(order);
-      const ext = String(file.name || "video.mp4").split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0,8) || "mp4";
-      const path = `order-videos/${today()}/${cleanOrder}-${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from(ORDER_PACK_VIDEO_BUCKET).upload(path, file, { contentType:file.type || "video/mp4", cacheControl:"5184000", upsert:true });
+      let uploadFile = file;
+      let contentType = file.type || (isImage ? "image/jpeg" : "video/mp4");
+      let duration = 0;
+      let ext = String(file.name || (isImage ? "proof.jpg" : "video.mp4")).split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0,8) || (isImage ? "jpg" : "mp4");
+      if (isImage) {
+        uploadFile = await resizeImageFile(file, 1600, 0.86);
+        contentType = "image/jpeg";
+        ext = "jpg";
+      } else {
+        const maxMb = 140;
+        if (file.size > maxMb * 1024 * 1024) throw new Error(`Video is too large (${Math.round(file.size/1024/1024)}MB). Keep the proof clip short or lower camera quality under ${maxMb}MB.`);
+        duration = await videoDurationSeconds(file);
+        if (duration > 35 && !confirm(`This clip is about ${Math.round(duration)} seconds. For fast loading, use 10–20 seconds when possible. Upload anyway?`)) throw new Error("Video upload cancelled.");
+      }
+      const proofKind = isImage ? "photo" : "video";
+      const path = `order-videos/${today()}/${cleanOrder}-${Date.now()}-${proofKind}.${ext}`;
+      const { error } = await supabase.storage.from(ORDER_PACK_VIDEO_BUCKET).upload(path, uploadFile, { contentType, cacheControl:"5184000", upsert:true });
       if (error) throw error;
       const { data } = supabase.storage.from(ORDER_PACK_VIDEO_BUCKET).getPublicUrl(path);
+      const publicUrl = data?.publicUrl || "";
       return {
-        packingVideoUrl:data?.publicUrl || "",
+        packingProofUrl:publicUrl,
+        packingProofPath:path,
+        packingProofKind:proofKind,
+        packingVideoUrl:publicUrl,
         packingVideoPath:path,
         packingVideoBucket:ORDER_PACK_VIDEO_BUCKET,
-        packingVideoFileName:file.name || "packing-proof-video",
-        packingVideoSize:file.size || 0,
-        packingVideoType:file.type || "video/mp4",
+        packingVideoFileName:file.name || (isImage ? "packing-proof-photo" : "packing-proof-video"),
+        packingVideoSize:uploadFile.size || file.size || 0,
+        packingVideoType:contentType,
         packingVideoDuration:duration || 0,
         packingVideoUploadedAt:new Date().toISOString(),
         packingVideoUploadedBy:user?.name || user?.email || "Leaf Diary",
@@ -27140,13 +27157,19 @@ Cancel keeps this local/free.`);
 
       const videoOrderKey = order => String(order?.orderId || order?.id || order?.customerUsername || order?.customerName || "order");
       const orderVideoMeta = order => {
-        const p = safeArray(order?.plants).find(x => x?.packingVideoUrl || x?.prePackVideoUrl || x?.packingVideoPath);
+        const p = safeArray(order?.plants).find(x => x?.packingProofUrl || x?.packingVideoUrl || x?.prePackVideoUrl || x?.packingVideoPath || x?.packingProofPath);
         if (!p) return null;
+        const url = p.packingProofUrl || p.packingVideoUrl || p.prePackVideoUrl || "";
+        const type = p.packingVideoType || p.packingProofType || "";
         return {
-          packingVideoUrl:p.packingVideoUrl || p.prePackVideoUrl || "",
-          packingVideoPath:p.packingVideoPath || p.prePackVideoPath || "",
+          packingProofUrl:url,
+          packingProofPath:p.packingProofPath || p.packingVideoPath || p.prePackVideoPath || "",
+          packingProofKind:p.packingProofKind || (String(type).toLowerCase().startsWith("image/") ? "photo" : "video"),
+          packingVideoUrl:url,
+          packingVideoPath:p.packingVideoPath || p.packingProofPath || p.prePackVideoPath || "",
           packingVideoBucket:p.packingVideoBucket || ORDER_PACK_VIDEO_BUCKET,
-          packingVideoFileName:p.packingVideoFileName || "pre-pack-video",
+          packingVideoFileName:p.packingVideoFileName || "pre-pack-proof",
+          packingVideoType:type,
           packingVideoUploadedAt:p.packingVideoUploadedAt || p.prePackVideoUploadedAt || "",
           packingVideoUploadedBy:p.packingVideoUploadedBy || "",
           packingVideoExpiresAt:p.packingVideoExpiresAt || "",
@@ -27169,17 +27192,21 @@ Cancel keeps this local/free.`);
               ...meta,
               prePackVideoUrl:meta.packingVideoUrl,
               prePackVideoPath:meta.packingVideoPath,
+              prePackProofUrl:meta.packingProofUrl || meta.packingVideoUrl,
+              prePackProofPath:meta.packingProofPath || meta.packingVideoPath,
+              prePackProofKind:meta.packingProofKind || "video",
               prePackVideoSaved:true,
               prePackVideoAttachedToOrder:key,
               prePackVideoRetentionDays:ORDER_PACK_VIDEO_RETENTION_DAYS,
               packedVideoProof:true,
+              packedProofSaved:true,
               packedVideoProofAt:meta.packingVideoUploadedAt
             } : p;
           }));
-          addAudit && addAudit({ action:`Pre-pack video saved for ${order?.customerName || order?.customerUsername || key} (${orderPlants.length} plants, expires in ${ORDER_PACK_VIDEO_RETENTION_DAYS} days)`, user:user?.name || "", page:"Pack Orders" });
-          alert("Saved pre-pack video to the order. It will be marked for 60-day cleanup.");
+          addAudit && addAudit({ action:`Pre-pack ${meta.packingProofKind || "proof"} saved for ${order?.customerName || order?.customerUsername || key} (${orderPlants.length} plants, expires in ${ORDER_PACK_VIDEO_RETENTION_DAYS} days)`, user:user?.name || "", page:"Pack Orders" });
+          alert(`Saved pre-pack ${meta.packingProofKind === "photo" ? "photo" : "video"} proof to this customer order. It is marked for 60-day cleanup.`);
         } catch(e) {
-          alert("Could not upload video: " + (e?.message || String(e)));
+          alert("Could not upload proof: " + (e?.message || String(e)));
         } finally { setVideoBusyOrderId(""); }
       };
       const deleteOrderVideo = async order => {
@@ -27196,7 +27223,7 @@ Cancel keeps this local/free.`);
             const k = String(p.id || p.plantId || p.plantCode || p.barcode || "");
             if (!soldKeys.has(k)) return p;
             const n = { ...p };
-            ["packingVideoUrl","packingVideoPath","packingVideoBucket","packingVideoFileName","packingVideoSize","packingVideoType","packingVideoDuration","packingVideoUploadedAt","packingVideoUploadedBy","packingVideoExpiresAt","packingVideoRetentionDays","prePackVideoUrl","prePackVideoPath","prePackVideoSaved","prePackVideoAttachedToOrder","prePackVideoRetentionDays","packedVideoProof","packedVideoProofAt"].forEach(k => delete n[k]);
+            ["packingProofUrl","packingProofPath","packingProofKind","prePackProofUrl","prePackProofPath","prePackProofKind","packedProofSaved","packingVideoUrl","packingVideoPath","packingVideoBucket","packingVideoFileName","packingVideoSize","packingVideoType","packingVideoDuration","packingVideoUploadedAt","packingVideoUploadedBy","packingVideoExpiresAt","packingVideoRetentionDays","prePackVideoUrl","prePackVideoPath","prePackVideoSaved","prePackVideoAttachedToOrder","prePackVideoRetentionDays","packedVideoProof","packedVideoProofAt"].forEach(k => delete n[k]);
             return n;
           }));
           addAudit && addAudit({ action:`Pre-pack video deleted for ${order?.customerName || order?.customerUsername || key}`, user:user?.name || "", page:"Pack Orders" });
@@ -27216,7 +27243,7 @@ Cancel keeps this local/free.`);
             if (p.packingVideoPath || p.packingVideoUrl) expiredMetas.push({ packingVideoBucket:p.packingVideoBucket || ORDER_PACK_VIDEO_BUCKET, packingVideoPath:p.packingVideoPath });
             changed = true;
             const n = { ...p };
-            ["packingVideoUrl","packingVideoPath","packingVideoBucket","packingVideoFileName","packingVideoSize","packingVideoType","packingVideoDuration","packingVideoUploadedAt","packingVideoUploadedBy","packingVideoExpiresAt","packingVideoRetentionDays","prePackVideoUrl","prePackVideoPath","prePackVideoSaved","prePackVideoAttachedToOrder","prePackVideoRetentionDays","packedVideoProof","packedVideoProofAt"].forEach(k => delete n[k]);
+            ["packingProofUrl","packingProofPath","packingProofKind","prePackProofUrl","prePackProofPath","prePackProofKind","packedProofSaved","packingVideoUrl","packingVideoPath","packingVideoBucket","packingVideoFileName","packingVideoSize","packingVideoType","packingVideoDuration","packingVideoUploadedAt","packingVideoUploadedBy","packingVideoExpiresAt","packingVideoRetentionDays","prePackVideoUrl","prePackVideoPath","prePackVideoSaved","prePackVideoAttachedToOrder","prePackVideoRetentionDays","packedVideoProof","packedVideoProofAt"].forEach(k => delete n[k]);
             return n;
           });
           return changed ? next : prev;
@@ -27380,23 +27407,36 @@ Cancel keeps this local/free.`);
             const videoMeta = orderVideoMeta(order);
             const busy = videoBusyOrderId === videoOrderKey(order);
             const uploaded = !!(videoMeta && videoMeta.packingVideoUrl);
+            const proofKind = videoMeta?.packingProofKind === "photo" ? "Photo" : "Video";
+            const cleanKey = `${orderVideoSafeKey(order)}-${i}`;
+            const photoInputId = `ld-order-proof-photo-${cleanKey}`;
+            const videoInputId = `ld-order-proof-video-${cleanKey}`;
+            const uploadInputId = `ld-order-proof-upload-${cleanKey}`;
             return <div className="ld-v303-order-video-box">
               <Row between center wrap gap={10}>
                 <div style={{ minWidth:0 }}>
-                  <div className="ld-v303-order-video-title">📹 Pre-pack video proof</div>
-                  <div className="ld-v303-order-video-sub">Take/upload the 10–20 second video before boxing so the customer order has condition proof without keeping clips on your phone.</div>
+                  <div className="ld-v303-order-video-title">📹 Pre-pack photo / video proof</div>
+                  <div className="ld-v303-order-video-sub">Use the buttons below on this exact customer order. Take a quick photo, record a 10–20 second video, or upload one from your iPhone camera roll before boxing.</div>
                 </div>
-                {uploaded ? <Tag text="Video Saved" color={C.g600} sm /> : <Tag text="Video Needed" color="#fb6392" sm />}
+                {uploaded ? <Tag text={`${proofKind} Saved`} color={C.g600} sm /> : <Tag text="Proof Needed" color="#fb6392" sm />}
               </Row>
               <div className="ld-v303-order-video-actions">
-                <label className={`ld-v303-video-btn ${uploaded ? "green" : "primary"}`} style={{ opacity:busy ? .6 : 1, cursor:busy ? "wait" : "pointer" }}>
-                  {busy ? "Uploading…" : uploaded ? "Replace Video" : "Upload Video"}
-                  <input type="file" accept="video/*" capture="environment" disabled={busy} style={{ display:"none" }} onChange={e=>{ const f=e.target.files && e.target.files[0]; attachOrderVideo(order, f); e.target.value=""; }} />
+                <label htmlFor={photoInputId} className={`ld-v303-video-btn camera ${busy ? "is-disabled" : ""}`}>
+                  {busy ? "Uploading…" : "📷 Take Photo Now"}
+                  <input id={photoInputId} type="file" accept="image/*" capture="environment" disabled={busy} style={{ display:"none" }} onChange={e=>{ const f=e.target.files && e.target.files[0]; attachOrderVideo(order, f); e.target.value=""; }} />
                 </label>
-                {uploaded && <a className="ld-v303-video-btn" href={videoMeta.packingVideoUrl} target="_blank" rel="noreferrer">Open Video</a>}
+                <label htmlFor={videoInputId} className={`ld-v303-video-btn primary ${busy ? "is-disabled" : ""}`}>
+                  {busy ? "Uploading…" : uploaded ? "🎥 Replace With Video" : "🎥 Take Video Now"}
+                  <input id={videoInputId} type="file" accept="video/*" capture="environment" disabled={busy} style={{ display:"none" }} onChange={e=>{ const f=e.target.files && e.target.files[0]; attachOrderVideo(order, f); e.target.value=""; }} />
+                </label>
+                <label htmlFor={uploadInputId} className={`ld-v303-video-btn upload ${busy ? "is-disabled" : ""}`}>
+                  {busy ? "Uploading…" : "📁 Upload From Phone"}
+                  <input id={uploadInputId} type="file" accept="image/*,video/*" disabled={busy} style={{ display:"none" }} onChange={e=>{ const f=e.target.files && e.target.files[0]; attachOrderVideo(order, f); e.target.value=""; }} />
+                </label>
+                {uploaded && <a className="ld-v303-video-btn open" href={videoMeta.packingVideoUrl} target="_blank" rel="noreferrer">Open {proofKind}</a>}
                 {uploaded && <button type="button" className="ld-v303-video-btn danger" disabled={busy} onClick={()=>deleteOrderVideo(order)}>Delete Now</button>}
               </div>
-              <div className="ld-v303-video-status">{uploaded ? `Saved ${videoMeta.packingVideoUploadedAt ? new Date(videoMeta.packingVideoUploadedAt).toLocaleDateString() : ""}${videoMeta.packingVideoExpiresAt ? ` · Auto-cleanup after ${new Date(videoMeta.packingVideoExpiresAt).toLocaleDateString()}` : " · 60-day retention"}` : "Stored in Supabase Storage under order-videos. Metadata is attached to each plant in this shipment."}</div>
+              <div className="ld-v303-video-status">{uploaded ? `${proofKind} saved ${videoMeta.packingVideoUploadedAt ? new Date(videoMeta.packingVideoUploadedAt).toLocaleDateString() : ""}${videoMeta.packingVideoDuration ? ` · ${Math.round(videoMeta.packingVideoDuration)} sec` : ""}${videoMeta.packingVideoExpiresAt ? ` · Auto-cleanup after ${new Date(videoMeta.packingVideoExpiresAt).toLocaleDateString()}` : " · 60-day retention"}` : "Nothing is saved yet. Tap Take Photo Now, Take Video Now, or Upload From Phone. It saves to this customer shipment and attaches the proof metadata to every plant in this order."}</div>
             </div>;
           })()}
           {needsDoc && <div className="ld-v253-doc-box">
