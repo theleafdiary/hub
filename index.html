@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="LEAF DIARY - BUSINESS HUB" />
   <meta name="theme-color" content="#174D2F" />
   <meta name="referrer" content="no-referrer" />
-  <title>LEAF DIARY - BUSINESS HUB · V291 Visual Reports AI Owner Brief</title>
+  <title>LEAF DIARY - BUSINESS HUB · V292 Styled Owner PDF Export</title>
   <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
   <!-- V239 — Phase 8 Settings Security QA: consolidates Settings, Security, AI, Cloud, Developer Tools, QA, release readiness, and SaaS production checklist into one owner command center. -->
   <!-- V238 — Phase 7 Money Command Center: consolidates receipts, expenses, bills, payroll, commissions, cash flow, show profit, reports, tax, goals, Buy Smart, and charts into one mobile Money workflow. -->
@@ -32,6 +32,7 @@
   <!-- V289 — Visual Reports Alerts + Compare: adds owner alert cards, month-over-month comparison, printable owner report export, and drill-down action buttons without touching Supabase/cloud sync. -->
   <!-- V290 — Visual Reports Drilldowns: adds clickable drilldown boards for alerts, photos, prices, aging inventory, shipping problems, shows, plant profit, Buy Smart, and payroll without touching Supabase/cloud sync. -->
   <!-- V291 — Visual Reports AI Owner Brief: adds owner-only AI-style recommendations, overnight/morning action plan, copy/download brief, and app-open alert board using saved CRM data only. Supabase/cloud sync unchanged. -->
+  <!-- V292 — Styled Owner PDF Export: upgrades the existing Owner Report button to create a branded PDF file with KPI cards, alerts, AI actions, waterfall, compare, show, inventory, shipping, and payroll sections. No visible app layout changes; Supabase/cloud sync unchanged. -->
   <!-- V279 — Shipping overview bottom actions redesigned into responsive card-style buttons for desktop and mobile. -->
   <!-- V284 — Show Command Center flow steps redesigned as premium responsive cards for mobile and desktop. -->
   <!-- V285 — Global button/card polish: upgrades remaining tiny tab rows and action buttons across Shows, Shipping, Pack Orders, Reports, Timecard, AI Center, and owner Admin Pages without touching Supabase. -->
@@ -14019,10 +14020,209 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         safeArray(activeDrilldown.rows).forEach(r => rows.push([r.label, r.sub, r.value, r.tag || activeDrilldown.title]));
         downloadCsv(`leaf-diary-drilldown-${activeDrilldown.id}-${today()}.csv`, rows);
       };
-      const exportOwnerHtmlReport = () => {
-        const esc = v => String(v ?? "").replace(/[&<>]/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;" }[ch]));
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Leaf Diary Owner Report</title><style>body{font-family:Arial,sans-serif;background:#f6f7f5;color:#122216;padding:28px}h1{margin:0 0 4px}.sub{color:#49604f;margin-bottom:20px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.card{background:#fff;border:1px solid #d9e6dc;border-radius:16px;padding:14px;box-shadow:0 4px 12px rgba(0,0,0,.06)}.k{font-size:12px;color:#5d725f;font-weight:700;text-transform:uppercase}.v{font-size:26px;font-weight:900;margin-top:5px}.alert{border-left:6px solid #fb6392}.good{border-left-color:#97d33e}.warn{border-left-color:#f5c542}table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden}td,th{padding:9px;border-bottom:1px solid #e5eee7;text-align:left;font-size:13px}@media print{body{background:#fff}.card{box-shadow:none}}</style></head><body><h1>Leaf Diary Owner Report</h1><div class="sub">${esc(range.label)} · exported ${esc(today())}</div><div class="grid"><div class="card"><div class="k">Net Profit</div><div class="v">${esc($(netProfit))}</div></div><div class="card"><div class="k">Plant Sales</div><div class="v">${esc($(sales))}</div></div><div class="card"><div class="k">Safe Buy Budget</div><div class="v">${esc($(safeSpend))}</div></div><div class="card"><div class="k">Inventory Cost</div><div class="v">${esc($(inventoryCost))}</div></div></div><h2>Owner Alerts</h2>${smartAlerts.map(a=>`<div class="card alert ${esc(a.tone)}"><b>${esc(a.icon)} ${esc(a.title)} — ${esc(a.value)}</b><br>${esc(a.sub)}</div>`).join("")}<h2>Compare</h2><table><tr><th>Metric</th><th>Now</th><th>Previous</th><th>Change</th></tr>${compareRows.map(r=>`<tr><td>${esc(r.label)}</td><td>${esc(r.money ? $(r.current) : numberFmt(r.current, r.suffix || ""))}</td><td>${esc(r.money ? $(r.previous) : numberFmt(r.previous, r.suffix || ""))}</td><td>${r.change >= 0 ? "+" : ""}${Math.round(r.change || 0)}%</td></tr>`).join("")}</table><p class="sub">Use your browser print button to save this as a PDF for your wife, bookkeeper, or monthly review.</p></body></html>`;
-        downloadBlob(new Blob([html], { type:"text/html;charset=utf-8" }), `leaf-diary-owner-report-${today()}.html`);
+      const exportOwnerHtmlReport = async () => {
+        const esc = v => String(v ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
+        const cleanPdfText = v => String(v ?? "")
+          .replace(/[\u{1F300}-\u{1FAFF}]/gu, "")
+          .replace(/[^\x20-\x7E]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        const safeMoney = v => $(moneyNum(v));
+        const safePct = v => `${Math.round(moneyNum(v) || 0)}%`;
+        const shortLabel = (v, n = 38) => {
+          const t = cleanPdfText(v || "Unknown");
+          return t.length > n ? t.slice(0, n - 1) + "…" : t;
+        };
+        const htmlBarRows = (rows = [], money = true) => {
+          const max = Math.max(1, ...safeArray(rows).map(r => Math.abs(moneyNum(r.value))));
+          return safeArray(rows).slice(0, 8).map(r => {
+            const value = moneyNum(r.value);
+            const width = Math.max(4, Math.round((Math.abs(value) / max) * 100));
+            const cls = value < 0 ? "negative" : "positive";
+            return `<div class="pdf-bar-row"><div class="pdf-bar-label">${esc(r.label)}</div><div class="pdf-bar-track"><div class="pdf-bar ${cls}" style="width:${width}%"></div></div><div class="pdf-bar-value">${esc(money ? $(value) : numberFmt(value, r.suffix || ""))}</div></div>`;
+          }).join("") || `<div class="muted">No data for this section.</div>`;
+        };
+        const htmlReport = () => `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Leaf Diary Owner PDF Report</title><style>
+          @page{size:letter;margin:0.45in}*{box-sizing:border-box}body{margin:0;background:#f4f7f3;color:#111b14;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.42}.page{background:#fff;min-height:10in;padding:22px;border-radius:18px;border:1px solid #dce8dd;box-shadow:0 8px 24px rgba(0,0,0,.08);margin:0 0 18px}.hero{background:#050505;color:#fff;border-radius:24px;padding:24px;border:2px solid #97d33e;position:relative;overflow:hidden}.hero:after{content:"";position:absolute;right:-50px;top:-50px;width:180px;height:180px;border-radius:999px;background:radial-gradient(circle,rgba(251,99,146,.45),rgba(151,211,62,.12),transparent 70%)}.brand{letter-spacing:3px;text-transform:uppercase;color:#97d33e;font-weight:900;font-size:11px}.title{font-size:32px;font-weight:900;margin:8px 0 4px}.subtitle{color:rgba(255,255,255,.76);max-width:560px}.pillrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.pill{border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);padding:7px 10px;font-weight:800}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}.card{background:#fff;border:1px solid #dde9df;border-radius:17px;padding:13px;box-shadow:0 4px 14px rgba(0,0,0,.05)}.k{font-size:10px;color:#54715c;text-transform:uppercase;letter-spacing:.7px;font-weight:900}.v{font-size:21px;font-weight:900;margin-top:5px;color:#0e1f15}.s{font-size:10px;color:#6c7d70;margin-top:3px}.section{margin-top:18px}.section h2{font-size:18px;margin:0 0 7px;color:#0e1f15}.section-note{font-size:11px;color:#647468;margin-bottom:9px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}.alert{border-left:7px solid #fb6392}.alert.good{border-left-color:#97d33e}.alert.warn{border-left-color:#f5c542}.alert-title{font-weight:900;font-size:13px}.alert-sub{color:#526658;font-size:11px;margin-top:3px}.action{display:grid;grid-template-columns:28px 1fr auto;gap:9px;align-items:start;border:1px solid #e1ebe4;border-radius:14px;padding:10px;margin-bottom:8px}.action-num{height:24px;width:24px;border-radius:999px;background:#050505;color:#97d33e;display:flex;align-items:center;justify-content:center;font-weight:900}.action-impact{font-size:10px;color:#0e1f15;background:#eef8ee;border-radius:999px;padding:4px 7px;font-weight:900;white-space:nowrap}.pdf-bar-row{display:grid;grid-template-columns:132px 1fr 72px;gap:8px;align-items:center;margin:7px 0}.pdf-bar-label{font-size:10px;color:#1a2a1e;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pdf-bar-track{height:12px;border-radius:999px;background:#edf3ed;overflow:hidden;border:1px solid #d9e7dc}.pdf-bar{height:100%;border-radius:999px;background:#97d33e}.pdf-bar.negative{background:#fb6392}.pdf-bar-value{text-align:right;font-size:10px;font-weight:900}.waterfall-row{display:grid;grid-template-columns:140px 1fr 82px;gap:8px;align-items:center;margin:7px 0}.waterfall-name{font-size:10px;font-weight:900}.table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #e0e9e3;border-radius:14px;overflow:hidden;background:#fff}.table th{background:#0e1f15;color:#97d33e;text-align:left;font-size:10px;padding:8px;text-transform:uppercase;letter-spacing:.4px}.table td{font-size:10px;padding:8px;border-top:1px solid #e8f0ea}.muted{color:#738174;font-size:11px}.footer{margin-top:18px;border-top:1px solid #e0e9e3;padding-top:10px;color:#6e7b70;font-size:10px;display:flex;justify-content:space-between;gap:10px}.print-note{margin-top:10px;background:#eef8ee;border:1px solid #c9e6ce;border-radius:12px;padding:9px;color:#174d2f;font-weight:800}.page-break{break-before:page}@media print{body{background:#fff}.page{box-shadow:none;border:0;border-radius:0;margin:0;min-height:auto}.no-print{display:none!important}.hero{-webkit-print-color-adjust:exact;print-color-adjust:exact}.card,.table,.action{break-inside:avoid}.section{break-inside:avoid}}
+        </style></head><body><div class="page"><div class="hero"><div class="brand">Leaf Diary Business Hub</div><div class="title">Owner PDF Report</div><div class="subtitle">Executive snapshot for cash, profit, inventory, shipping, show readiness, buying decisions, payroll, and owner action planning.</div><div class="pillrow"><div class="pill">${esc(range.label)}</div><div class="pill">Generated ${esc(today())}</div><div class="pill">Platform: ${esc(platformFilter === "all" ? "All" : platformFilter)}</div><div class="pill">Readiness: ${esc(aiReadinessScore)}/100</div></div></div>
+        <div class="grid"><div class="card"><div class="k">Net Profit</div><div class="v">${esc($(netProfit))}</div><div class="s">True net after COGS, fees, shipping, expenses, and payroll.</div></div><div class="card"><div class="k">Sales</div><div class="v">${esc($(sales))}</div><div class="s">${esc(sold.length)} sold plant row(s).</div></div><div class="card"><div class="k">Safe Buy Budget</div><div class="v">${esc($(safeSpend))}</div><div class="s">Cash guard for inventory buying.</div></div><div class="card"><div class="k">Inventory Cost</div><div class="v">${esc($(inventoryCost))}</div><div class="s">Cash tied up in in-stock plants.</div></div><div class="card"><div class="k">Show Ready</div><div class="v">${esc(sellReady)}</div><div class="s">Photo-ready and priced plants.</div></div><div class="card"><div class="k">Show Blockers</div><div class="v">${esc(showBlockers)}</div><div class="s">Missing photos, prices, or margins.</div></div><div class="card"><div class="k">Shipping Profit</div><div class="v">${esc($(shippingProfit))}</div><div class="s">Charged minus labels and supplies.</div></div><div class="card"><div class="k">Margin</div><div class="v">${esc(safePct(margin))}</div><div class="s">Net profit divided by sales.</div></div></div>
+        <div class="section two"><div class="card"><h2>Top Owner Alerts</h2><div class="section-note">Fix these first before buying or building the next show.</div>${smartAlerts.slice(0,6).map(a=>`<div class="card alert ${esc(a.tone || "warn")}" style="box-shadow:none;margin-bottom:8px"><div class="alert-title">${esc(a.title)} — ${esc(a.value)}</div><div class="alert-sub">${esc(a.sub)}</div></div>`).join("") || `<div class="muted">No urgent alerts right now.</div>`}</div><div class="card"><h2>Tomorrow Plan</h2><div class="section-note">Simple operating plan pulled from the same CRM numbers.</div>${aiTomorrowPlan.map((r,i)=>`<div class="action"><div class="action-num">${i+1}</div><div><b>${esc(r.title)}</b><div class="alert-sub">${esc(r.sub)}</div></div><div class="action-impact">Do next</div></div>`).join("")}</div></div>
+        <div class="footer"><span>Leaf Diary · rare roots, real love</span><span>Source: saved CRM data only</span></div></div>
+        <div class="page page-break"><div class="section two"><div class="card"><h2>Profit Waterfall</h2><div class="section-note">Gross sales down to true net profit.</div>${waterfallRows.map(r=>`<div class="waterfall-row"><div class="waterfall-name">${esc(r.label)}</div><div class="pdf-bar-track"><div class="pdf-bar ${moneyNum(r.value)<0 ? "negative" : "positive"}" style="width:${Math.max(4, Math.round((Math.abs(moneyNum(r.value)) / Math.max(1, ...waterfallRows.map(x=>Math.abs(moneyNum(x.value))))) * 100))}%"></div></div><div class="pdf-bar-value">${esc($(moneyNum(r.value)))}</div></div>`).join("")}</div><div class="card"><h2>Cash Forecast</h2><div class="section-note">Cash view before buying more inventory.</div>${htmlBarRows(cashForecastRows, true)}<div class="print-note">Safe buy budget: ${esc($(safeSpend))}. Keep spending under this number unless you intentionally override cash safety.</div></div></div>
+        <div class="section two"><div class="card"><h2>AI Owner Actions</h2>${aiRecommendationRows.slice(0,8).map((r,i)=>`<div class="action"><div class="action-num">${i+1}</div><div><b>${esc(r.title)}</b><div class="alert-sub">${esc(r.body)}</div></div><div class="action-impact">${esc(r.impact)}</div></div>`).join("")}</div><div class="card"><h2>Inventory Health</h2><div class="section-note">Plants that may block cash or show quality.</div>${htmlBarRows([{label:"Need photos",value:noPhoto.length},{label:"Need prices",value:noPrice.length},{label:"Low margin",value:lowMarginRows.length},{label:"Aging 45+ days",value:aging45.length},{label:"In stock",value:inStock.length}], false)}</div></div>
+        <div class="section two"><div class="card"><h2>Shipping Health</h2>${htmlBarRows([{label:"Shipping charged",value:shippingCharged},{label:"Label cost",value:labelCost},{label:"Supplies",value:suppliesCost},{label:"Shipping profit",value:shippingProfit}], true)}<div class="print-note">Missing tracking: ${esc(missingTracking.length)} · missing label cost: ${esc(missingLabelCost.length)} · state docs: ${esc(docsMissing.length)}</div></div><div class="card"><h2>Payroll / Labor</h2>${htmlBarRows([{label:"Sales",value:sales},{label:"Payroll",value:payrollTotal},{label:"Net profit",value:netProfit}], true)}<div class="print-note">Labor percentage: ${esc(safePct(laborPct))}. Keep labor focused on bottlenecks that unlock shipping and sales.</div></div></div>
+        <div class="footer"><span>Owner PDF Report</span><span>${esc(range.label)} · ${esc(today())}</span></div></div>
+        <div class="page page-break"><div class="section"><h2>Period Comparison</h2><div class="section-note">Current period compared with the matching previous period.</div><table class="table"><thead><tr><th>Metric</th><th>Now</th><th>Previous</th><th>Change</th></tr></thead><tbody>${compareRows.map(r=>`<tr><td>${esc(r.label)}</td><td>${esc(r.money ? $(r.current) : numberFmt(r.current, r.suffix || ""))}</td><td>${esc(r.money ? $(r.previous) : numberFmt(r.previous, r.suffix || ""))}</td><td>${r.change >= 0 ? "+" : ""}${Math.round(r.change || 0)}%</td></tr>`).join("")}</tbody></table></div>
+        <div class="section two"><div class="card"><h2>Top Shows</h2>${showRows.slice(0,8).map(r=>`<div class="action"><div class="action-num">${esc(r.plants || r.count || 0)}</div><div><b>${esc(shortLabel(r.show, 34))}</b><div class="alert-sub">${esc(r.platform)} · ${esc(r.date)} · avg ${esc($(r.avg || 0))}</div></div><div class="action-impact">${esc($(r.value))}</div></div>`).join("") || `<div class="muted">No show data for this period.</div>`}</div><div class="card"><h2>Top Plant Profit</h2>${plantProfitRows.slice(0,8).map((r,i)=>`<div class="action"><div class="action-num">${i+1}</div><div><b>${esc(shortLabel(r.name, 34))}</b><div class="alert-sub">${esc(r.platform)} · sale ${esc($(r.sale))} · cost ${esc($(r.cost))}</div></div><div class="action-impact">${esc($(r.value))}</div></div>`).join("") || `<div class="muted">No plant profit rows yet.</div>`}</div></div>
+        <div class="section two"><div class="card"><h2>Low Margin Review</h2>${lowMarginRows.slice(0,7).map((r,i)=>`<div class="action"><div class="action-num">${i+1}</div><div><b>${esc(shortLabel(r.name, 34))}</b><div class="alert-sub">${esc(r.id || "")}${r.id ? " · " : ""}${esc($(r.cost))} cost → ${esc($(r.price))} price</div></div><div class="action-impact">${esc(safePct(r.margin))}</div></div>`).join("") || `<div class="muted">No low margin plants in this view.</div>`}</div><div class="card"><h2>Owner Notes</h2><div class="print-note">Use this PDF for a quick review with your wife, bookkeeper, or team. The report is generated from saved Leaf Diary app data. Missing plant cost, label cost, tracking, and state paperwork will make profit numbers less accurate until cleaned up.</div><div class="print-note no-print">Browser note: the app creates a real PDF when PDFLib is available. If your browser blocks it, the fallback opens a print-ready report that can be saved as PDF.</div></div></div>
+        <div class="footer"><span>Leaf Diary Business Hub</span><span>End of report</span></div></div></body></html>`;
+        const downloadHtmlFallback = () => {
+          const html = htmlReport();
+          const w = window.open("", "_blank", "noopener,noreferrer,width=980,height=1100");
+          if (w && w.document) {
+            w.document.open();
+            w.document.write(html + `<script>setTimeout(function(){try{window.focus();window.print();}catch(e){}},450);<\/script>`);
+            w.document.close();
+          } else {
+            downloadBlob(new Blob([html], { type:"text/html;charset=utf-8" }), `leaf-diary-owner-pdf-report-${today()}.html`);
+          }
+        };
+        try {
+          if (!window.PDFLib || !PDFLib.PDFDocument) {
+            downloadHtmlFallback();
+            return;
+          }
+          const { PDFDocument, StandardFonts, rgb } = PDFLib;
+          const pdfDoc = await PDFDocument.create();
+          const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+          const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+          const pageW = 612, pageH = 792, marginX = 42;
+          const colors = {
+            black: rgb(0.02,0.02,0.02), ink: rgb(0.05,0.12,0.08), green: rgb(0.592,0.827,0.243), darkGreen: rgb(0.05,0.18,0.10), pink: rgb(0.984,0.388,0.572), gold: rgb(0.961,0.773,0.259), soft: rgb(0.955,0.975,0.955), line: rgb(0.84,0.90,0.85), white: rgb(1,1,1), muted: rgb(0.34,0.45,0.37)
+          };
+          let page, y;
+          const newPage = (darkHeader = false) => {
+            page = pdfDoc.addPage([pageW, pageH]);
+            page.drawRectangle({ x:0, y:0, width:pageW, height:pageH, color:colors.soft });
+            y = pageH - 40;
+            if (darkHeader) {
+              page.drawRectangle({ x:28, y:pageH-172, width:pageW-56, height:140, color:colors.black, borderColor:colors.green, borderWidth:1.5 });
+              page.drawText("LEAF DIARY BUSINESS HUB", { x:marginX, y:pageH-62, size:9, font:bold, color:colors.green });
+              page.drawText("OWNER PDF REPORT", { x:marginX, y:pageH-96, size:26, font:bold, color:colors.white });
+              page.drawText(cleanPdfText(`${range.label}  |  Generated ${today()}  |  Platform ${platformFilter === "all" ? "All" : platformFilter}`), { x:marginX, y:pageH-118, size:10, font, color:rgb(.78,.86,.78) });
+              page.drawText(cleanPdfText(`Readiness ${aiReadinessScore}/100  |  Safe Buy ${$(safeSpend)}  |  Net Profit ${$(netProfit)}`), { x:marginX, y:pageH-138, size:10, font:bold, color:colors.gold });
+              y = pageH - 198;
+            }
+          };
+          const ensure = h => { if (y - h < 52) { footer(); newPage(false); } };
+          const footer = () => {
+            page.drawLine({ start:{x:marginX,y:38}, end:{x:pageW-marginX,y:38}, thickness:.6, color:colors.line });
+            page.drawText("Leaf Diary Business Hub - saved CRM data only", { x:marginX, y:24, size:7.5, font, color:colors.muted });
+            page.drawText(cleanPdfText(today()), { x:pageW-marginX-55, y:24, size:7.5, font, color:colors.muted });
+          };
+          const wrapLines = (text, maxWidth, size, useBold = false) => {
+            const f = useBold ? bold : font;
+            const words = cleanPdfText(text).split(/\s+/).filter(Boolean);
+            const lines = [];
+            let line = "";
+            words.forEach(word => {
+              const test = line ? `${line} ${word}` : word;
+              if (f.widthOfTextAtSize(test, size) <= maxWidth) line = test;
+              else { if (line) lines.push(line); line = word; }
+            });
+            if (line) lines.push(line);
+            return lines.length ? lines : [""];
+          };
+          const drawTextWrap = (text, x, y0, maxWidth, size = 9, opts = {}) => {
+            const lines = wrapLines(text, maxWidth, size, opts.bold);
+            lines.forEach((ln, i) => page.drawText(ln, { x, y:y0-(i*(size+3)), size, font:opts.bold ? bold : font, color:opts.color || colors.ink }));
+            return y0 - (lines.length * (size+3));
+          };
+          const sectionTitle = title => { ensure(32); page.drawText(cleanPdfText(title), { x:marginX, y, size:15, font:bold, color:colors.ink }); y -= 20; };
+          const statCard = (x, y0, w, h, label, value, sub, color = colors.green) => {
+            page.drawRectangle({ x, y:y0-h, width:w, height:h, color:colors.white, borderColor:colors.line, borderWidth:1 });
+            page.drawRectangle({ x, y:y0-h, width:5, height:h, color });
+            page.drawText(cleanPdfText(label).toUpperCase(), { x:x+12, y:y0-17, size:7.5, font:bold, color:colors.muted });
+            page.drawText(cleanPdfText(value), { x:x+12, y:y0-39, size:16, font:bold, color:colors.ink });
+            drawTextWrap(sub, x+12, y0-54, w-22, 7.5, { color:colors.muted });
+          };
+          const statGrid = items => {
+            const w = (pageW - marginX*2 - 24) / 4, h = 76;
+            items.forEach((it, idx) => {
+              const col = idx % 4, row = Math.floor(idx / 4);
+              statCard(marginX + col*(w+8), y - row*(h+10), w, h, it.label, it.value, it.sub, it.color || colors.green);
+            });
+            y -= Math.ceil(items.length/4)*(h+10) + 8;
+          };
+          const actionRow = (num, title, body, impact, tone = "good") => {
+            ensure(55);
+            const h = 48, x = marginX, w = pageW - marginX*2;
+            page.drawRectangle({ x, y:y-h, width:w, height:h, color:colors.white, borderColor:colors.line, borderWidth:.8 });
+            page.drawRectangle({ x, y:y-h, width:30, height:h, color:tone === "bad" ? colors.pink : tone === "warn" ? colors.gold : colors.green });
+            page.drawText(String(num), { x:x+11, y:y-29, size:11, font:bold, color:colors.black });
+            page.drawText(cleanPdfText(title), { x:x+40, y:y-16, size:10, font:bold, color:colors.ink });
+            drawTextWrap(body, x+40, y-30, w-160, 7.8, { color:colors.muted });
+            page.drawText(shortLabel(impact, 18), { x:x+w-112, y:y-27, size:7.5, font:bold, color:colors.darkGreen });
+            y -= h + 7;
+          };
+          const barRows = (title, rows = [], money = true) => {
+            sectionTitle(title);
+            const max = Math.max(1, ...safeArray(rows).map(r=>Math.abs(moneyNum(r.value))));
+            safeArray(rows).slice(0,9).forEach(r => {
+              ensure(24);
+              const value = moneyNum(r.value);
+              page.drawText(shortLabel(r.label, 24), { x:marginX, y:y-2, size:8.2, font:bold, color:colors.ink });
+              page.drawRectangle({ x:marginX+130, y:y-5, width:300, height:10, color:rgb(.91,.95,.92), borderColor:colors.line, borderWidth:.4 });
+              page.drawRectangle({ x:marginX+130, y:y-5, width:Math.max(4, Math.min(300, 300*Math.abs(value)/max)), height:10, color:value < 0 ? colors.pink : colors.green });
+              page.drawText(cleanPdfText(money ? $(value) : numberFmt(value, r.suffix || "")), { x:pageW-marginX-78, y:y-4, size:8, font:bold, color:colors.ink });
+              y -= 19;
+            });
+            y -= 6;
+          };
+          const table = (title, headers, rows) => {
+            sectionTitle(title);
+            const x = marginX, w = pageW - marginX*2;
+            ensure(30);
+            page.drawRectangle({ x, y:y-22, width:w, height:22, color:colors.black });
+            const colW = w / headers.length;
+            headers.forEach((h,i)=>page.drawText(cleanPdfText(h), { x:x+i*colW+6, y:y-14, size:7.2, font:bold, color:colors.green }));
+            y -= 22;
+            safeArray(rows).slice(0,12).forEach((row, ri) => {
+              ensure(24);
+              page.drawRectangle({ x, y:y-22, width:w, height:22, color:ri%2 ? rgb(.98,.99,.98) : colors.white, borderColor:colors.line, borderWidth:.25 });
+              row.forEach((cell,i)=>drawTextWrap(cell, x+i*colW+6, y-9, colW-10, 7.2, { color:colors.ink, bold:i===0 }));
+              y -= 22;
+            });
+            y -= 8;
+          };
+
+          newPage(true);
+          statGrid([
+            {label:"Net Profit", value:$(netProfit), sub:"After COGS, fees, shipping, expenses, and payroll.", color:netProfit >= 0 ? colors.green : colors.pink},
+            {label:"Sales", value:$(sales), sub:`${sold.length} sold plant rows in this view.`, color:colors.gold},
+            {label:"Safe Buy", value:$(safeSpend), sub:"Inventory buying room after bills/payroll.", color:safeSpend > 0 ? colors.green : colors.pink},
+            {label:"Inventory Cost", value:$(inventoryCost), sub:"Cash tied up in current stock.", color:colors.pink},
+            {label:"Show Ready", value:String(sellReady), sub:"Priced and photographed plants.", color:colors.green},
+            {label:"Blockers", value:String(showBlockers), sub:"Photos, prices, or low margins.", color:showBlockers ? colors.pink : colors.green},
+            {label:"Shipping", value:$(shippingProfit), sub:"Shipping charged minus real costs.", color:shippingProfit >= 0 ? colors.green : colors.pink},
+            {label:"Margin", value:safePct(margin), sub:"Net profit divided by sales.", color:margin >= 20 ? colors.green : colors.gold},
+          ]);
+          sectionTitle("Top Owner Alerts");
+          smartAlerts.slice(0,6).forEach((a,i)=>actionRow(i+1, `${a.title} - ${a.value}`, a.sub, a.tone === "good" ? "OK" : "Fix", a.tone));
+          footer();
+
+          newPage(false);
+          sectionTitle("AI Owner Action Plan");
+          aiRecommendationRows.slice(0,8).forEach((r,i)=>actionRow(i+1, r.title, r.body, r.impact, r.tone));
+          sectionTitle("Tomorrow Plan");
+          aiTomorrowPlan.forEach((r,i)=>actionRow(i+1, r.title, r.sub, "Do next", "good"));
+          footer();
+
+          newPage(false);
+          barRows("Profit Waterfall", waterfallRows, true);
+          barRows("Cash Forecast", cashForecastRows, true);
+          barRows("Inventory Health", [{label:"Need photos",value:noPhoto.length},{label:"Need prices",value:noPrice.length},{label:"Low margin",value:lowMarginRows.length},{label:"Aging 45+ days",value:aging45.length},{label:"In stock",value:inStock.length}], false);
+          barRows("Shipping Health", [{label:"Shipping charged",value:shippingCharged},{label:"Label cost",value:labelCost},{label:"Supplies",value:suppliesCost},{label:"Shipping profit",value:shippingProfit}], true);
+          footer();
+
+          newPage(false);
+          table("Period Compare", ["Metric","Now","Previous","Change"], compareRows.map(r => [r.label, r.money ? $(r.current) : numberFmt(r.current, r.suffix || ""), r.money ? $(r.previous) : numberFmt(r.previous, r.suffix || ""), `${r.change >= 0 ? "+" : ""}${Math.round(r.change || 0)}%`]));
+          table("Top Shows", ["Show","Platform","Date","Profit"], showRows.map(r => [r.show, r.platform, r.date, $(r.value)]));
+          footer();
+
+          newPage(false);
+          table("Top Plant Profit", ["Plant","Platform","Sale","Profit"], plantProfitRows.map(r => [r.name, r.platform, $(r.sale), $(r.value)]));
+          table("Low Margin Review", ["Plant","Cost","Price","Margin"], lowMarginRows.map(r => [r.name, $(r.cost), $(r.price), safePct(r.margin)]));
+          sectionTitle("Owner Notes");
+          drawTextWrap("This report is generated from saved Leaf Diary Business Hub CRM data only. Missing plant cost, label cost, tracking, and state paperwork can make profit numbers less accurate until cleaned up.", marginX, y, pageW-marginX*2, 9, { color:colors.muted });
+          footer();
+
+          const pdfBytes = await pdfDoc.save();
+          downloadBlob(new Blob([pdfBytes], { type:"application/pdf" }), `leaf-diary-owner-report-${today()}.pdf`);
+        } catch (err) {
+          console.error("Owner PDF export failed", err);
+          downloadHtmlFallback();
+        }
       };
       const exportVisualReport = () => {
         const rows = [["Metric","Value","Period"],["Sales",sales,range.label],["Plant Cost / COGS",cogs,range.label],["Plant Gross Profit",grossPlantProfit,range.label],["Fees",fees,range.label],["Shipping Charged",shippingCharged,range.label],["Label Cost",labelCost,range.label],["Average Label Cost",avgLabelCost,range.label],["Shipping Profit",shippingProfit,range.label],["Expenses",expenseTotal,range.label],["Payroll",payrollTotal,range.label],["Net Profit",netProfit,range.label],["Average Sale",avgSale,range.label],["Average Profit Per Plant",avgProfit,range.label],["Margin %",margin,range.label],["Inventory Cost",inventoryCost,"Current"],["Inventory Suggested Value",inventoryValue,"Current"],["Safe Buy Budget",safeSpend,"Next 14 Days"],["Show Blockers",showBlockers,"Current"],[],["Top Shows","Platform","Date","Profit","Plants"]];
