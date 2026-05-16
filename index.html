@@ -33,6 +33,7 @@
   <!-- V290 — Visual Reports Drilldowns: adds clickable drilldown boards for alerts, photos, prices, aging inventory, shipping problems, shows, plant profit, Buy Smart, and payroll without touching Supabase/cloud sync. -->
   <!-- V291 — Visual Reports AI Owner Brief: adds owner-only AI-style recommendations, overnight/morning action plan, copy/download brief, and app-open alert board using saved CRM data only. Supabase/cloud sync unchanged. -->
   <!-- V292 — Styled Owner PDF Export: upgrades the existing Owner Report button to create a branded PDF file with KPI cards, alerts, AI actions, waterfall, compare, show, inventory, shipping, and payroll sections. No visible app layout changes; Supabase/cloud sync unchanged. -->
+  <!-- V300 — Home shipping wording fix: all home dashboards count plants to pack/review, while Shipping keeps shipment/group counts separate. -->
   <!-- V279 — Shipping overview bottom actions redesigned into responsive card-style buttons for desktop and mobile. -->
   <!-- V284 — Show Command Center flow steps redesigned as premium responsive cards for mobile and desktop. -->
   <!-- V285 — Global button/card polish: upgrades remaining tiny tab rows and action buttons across Shows, Shipping, Pack Orders, Reports, Timecard, AI Center, and owner Admin Pages without touching Supabase. -->
@@ -11522,7 +11523,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const topBlocker = topNeeds[0] || { icon:"✅", title:"No urgent blockers", count:0, body:"Start with the job you want to complete next.", page:"today", color:C.g600 };
         const ownerCards = [
           { icon:topBlocker.icon, title:"Top blocker", value:topBlocker.count, body:topBlocker.title, page:topBlocker.page, color:topBlocker.color },
-          { icon:"📦", title:"Ship now", value:soldOrderPlantCount, body:`plants across ${soldShipmentCount} shipment/customer group(s)`, page:"orders_ws", color:"#68d8ff" },
+          { icon:"📦", title:"Plants to pack", value:soldOrderPlantCount, body:`plants across ${soldShipmentCount} shipment/customer group(s)`, page:"orders_ws", color:"#68d8ff" },
           { icon:"🧾", title:"Review receipts", value:receiptsNeedReview.length, body:"uncategorized or needs review", page:"money_ws", color:C.gold },
           { icon:"💵", title:"Month profit check", value:$(monthProfit), body:`sales ${$(monthSales)} · expenses ${$(monthExpenses)} · cash ${$(cashWarning)}`, page:"money_ws", color: cashWarning >= 0 ? C.g600 : C.red }
         ];
@@ -11865,6 +11866,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const noPrice = inStock.filter(p => !(+p.suggestedPrice || +p.listPrice || +p.price || +p.saleTarget));
       const aging45 = inStock.filter(p => (dHeld(p.dateAdded || p.createdAt || p.created_at) || 0) >= 45);
       const ordersToPack = safeArray(groupSalesIntoOrders(allPlants));
+      const plantsToPack = ordersToPack.reduce((sum, order) => sum + Math.max(1, safeArray(order?.plants).length), 0);
+      const shipmentGroupsToPack = ordersToPack.length;
       const todayKey = today();
       const soldToday = sold.filter(p => String(plantSaleDate(p) || p.soldAt || p.soldDate || "").slice(0,10) === todayKey);
       const sold7 = sold.filter(p => dateInLast(plantSaleDate(p) || p.soldAt || p.soldDate, 7));
@@ -11922,21 +11925,21 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         </Row>
       </button>;
 
-      const employeePriority = myOpenShift ? { icon:"📸", title:"Start with assigned work", body:noPhoto.length ? `${noPhoto.length} plants need photos. Scan label, take photo, save, repeat.` : ordersToPack.length ? `${ordersToPack.length} order groups need packing.` : "Choose the task Eric or a manager assigned.", page:noPhoto.length ? "photosprint" : ordersToPack.length ? "packorders" : "employeeboard", cta:noPhoto.length ? "Take Photos" : ordersToPack.length ? "Pack Orders" : "My Tasks", color:noPhoto.length ? "#fb6392" : "#68d8ff" } : { icon:"⏱️", title:"Clock in first", body:"Clock in before scanning plants, taking photos, or packing orders.", page:"timecard", cta:"Clock In", color:C.g600 };
-      const managerPriority = ordersToPack.length ? { icon:"📦", title:"Pack and ship first", body:`${ordersToPack.length} sold order group(s) need packing, tracking, or review.`, page:"packorders", cta:"Open Shipping", color:"#68d8ff" } : noPhoto.length ? { icon:"📸", title:"Clear photo blockers", body:`${noPhoto.length} plant(s) need photos before show prep is clean.`, page:"photosprint", cta:"Take Photos", color:"#fb6392" } : { icon:"🎪", title:"Prep the next show", body:`${showReady.length} plant(s) appear ready for a show.`, page:"showbuilder", cta:"Build Show", color:"#ff8a3d" };
-      const ownerPriority = billsDue7.length ? { icon:"📅", title:"Bills due this week", body:`${billsDue7.length} bill(s) due in 7 days totaling ${$(billsDue7Total)}. Review before buying more plants.`, page:"bills", cta:"Review Bills", color:C.red } : ordersToPack.length ? { icon:"📦", title:"Shipping is the bottleneck", body:`${ordersToPack.length} sold order group(s) need packing/tracking before the next buying push.`, page:"packorders", cta:"Pack Orders", color:"#68d8ff" } : receiptsNeedReview.length ? { icon:"🧾", title:"Profit needs clean receipts", body:`${receiptsNeedReview.length} receipt(s) need review so profit reports stay accurate.`, page:"receipts", cta:"Review Receipts", color:C.gold } : { icon:"💵", title:"Check profit then build", body:`Today profit is about ${$(profitToday)}. ${showReady.length} plants look show-ready.`, page:"reports", cta:"View Money", color:C.g600 };
+      const employeePriority = myOpenShift ? { icon:"📸", title:"Start with assigned work", body:noPhoto.length ? `${noPhoto.length} plants need photos. Scan label, take photo, save, repeat.` : ordersToPack.length ? `${plantsToPack} plants across ${shipmentGroupsToPack} shipment/customer group(s) need packing.` : "Choose the task Eric or a manager assigned.", page:noPhoto.length ? "photosprint" : ordersToPack.length ? "packorders" : "employeeboard", cta:noPhoto.length ? "Take Photos" : ordersToPack.length ? "Pack Orders" : "My Tasks", color:noPhoto.length ? "#fb6392" : "#68d8ff" } : { icon:"⏱️", title:"Clock in first", body:"Clock in before scanning plants, taking photos, or packing orders.", page:"timecard", cta:"Clock In", color:C.g600 };
+      const managerPriority = ordersToPack.length ? { icon:"📦", title:"Pack and ship first", body:`${plantsToPack} plant(s) across ${shipmentGroupsToPack} shipment/customer group(s) need packing, tracking, or review.`, page:"packorders", cta:"Open Shipping", color:"#68d8ff" } : noPhoto.length ? { icon:"📸", title:"Clear photo blockers", body:`${noPhoto.length} plant(s) need photos before show prep is clean.`, page:"photosprint", cta:"Take Photos", color:"#fb6392" } : { icon:"🎪", title:"Prep the next show", body:`${showReady.length} plant(s) appear ready for a show.`, page:"showbuilder", cta:"Build Show", color:"#ff8a3d" };
+      const ownerPriority = billsDue7.length ? { icon:"📅", title:"Bills due this week", body:`${billsDue7.length} bill(s) due in 7 days totaling ${$(billsDue7Total)}. Review before buying more plants.`, page:"bills", cta:"Review Bills", color:C.red } : ordersToPack.length ? { icon:"📦", title:"Shipping is the bottleneck", body:`${plantsToPack} plant(s) across ${shipmentGroupsToPack} shipment/customer group(s) need packing/tracking before the next buying push.`, page:"packorders", cta:"Pack Orders", color:"#68d8ff" } : receiptsNeedReview.length ? { icon:"🧾", title:"Profit needs clean receipts", body:`${receiptsNeedReview.length} receipt(s) need review so profit reports stay accurate.`, page:"receipts", cta:"Review Receipts", color:C.gold } : { icon:"💵", title:"Check profit then build", body:`Today profit is about ${$(profitToday)}. ${showReady.length} plants look show-ready.`, page:"reports", cta:"View Money", color:C.g600 };
       const priority = isEmployee ? employeePriority : isManager ? managerPriority : ownerPriority;
 
       const employeeActions = [
         { icon:"⏱️", title:myOpenShift ? "Clock Out" : "Clock In", sub:myOpenShift ? "End your shift when finished." : "Start your shift before work.", page:"timecard", color:C.g600, primary:!myOpenShift },
         { icon:"📸", title:"Take Plant Photos", sub:`${noPhoto.length} missing photos.`, page:"photosprint", color:"#fb6392", primary:!!myOpenShift && noPhoto.length>0 },
         { icon:"🔎", title:"Scan Label", sub:"Find one plant by barcode.", page:"scanlabel", color:C.blue },
-        { icon:"📦", title:"Pack Orders", sub:`${ordersToPack.length} order group(s).`, page:"packorders", color:"#68d8ff" },
+        { icon:"📦", title:"Pack Orders", sub:`${plantsToPack} plant(s) · ${shipmentGroupsToPack} shipment group(s).`, page:"packorders", color:"#68d8ff" },
         { icon:"🏷️", title:"Labels", sub:`${needsLabel.length} need labels.`, page:"labels", color:C.gold },
         { icon:"✅", title:"My Tasks", sub:"Employee task board.", page:"employeeboard", color:C.g700 }
       ];
       const managerActions = [
-        { icon:"📦", title:"Pack Orders", sub:`${ordersToPack.length} group(s) waiting.`, page:"packorders", color:"#68d8ff", primary:ordersToPack.length>0 },
+        { icon:"📦", title:"Pack Orders", sub:`${plantsToPack} plant(s) · ${shipmentGroupsToPack} shipment group(s) waiting.`, page:"packorders", color:"#68d8ff", primary:ordersToPack.length>0 },
         { icon:"📸", title:"Photo Sprint", sub:`${noPhoto.length} photo blocker(s).`, page:"photosprint", color:"#fb6392" },
         { icon:"🎪", title:"Build Show", sub:`${showReady.length} show-ready plants.`, page:"showbuilder", color:"#ff8a3d" },
         { icon:"📥", title:"Import Sales", sub:"Upload Whatnot/Palmstreet file.", page:"showimport", color:C.blue },
@@ -11945,7 +11948,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       ];
       const ownerActions = [
         { icon:"💰", title:"Show / Daily Profit", sub:"COGS, sales, fees, shipping, true profit.", page:"reports", color:C.g600, primary:true },
-        { icon:"📦", title:"Shipping Queue", sub:`${ordersToPack.length} order group(s).`, page:"packorders", color:"#68d8ff" },
+        { icon:"📦", title:"Shipping Queue", sub:`${plantsToPack} plant(s) · ${shipmentGroupsToPack} shipment group(s).`, page:"packorders", color:"#68d8ff" },
         { icon:"🧾", title:"Receipts", sub:`${receiptsNeedReview.length} need review.`, page:"receipts", color:C.gold },
         { icon:"📅", title:"Bills", sub:`${billsDue7.length} due this week.`, page:"bills", color:billsDue7.length ? C.red : C.g600 },
         { icon:"🎪", title:"Build / Import Show", sub:"Prep, run, import, match.", page:"shows_ws", color:"#ff8a3d" },
@@ -11954,15 +11957,15 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const actions = isEmployee ? employeeActions : isManager ? managerActions : ownerActions;
       const alerts = isEmployee ? [
         { icon:"📸", title:"Photos needed", count:noPhoto.length, sub:"Use Photo Sprint.", page:"photosprint", color:"#fb6392" },
-        { icon:"📦", title:"Orders to pack", count:ordersToPack.length, sub:"Packing board.", page:"packorders", color:"#68d8ff" },
+        { icon:"📦", title:"Plants to pack", count:plantsToPack, sub:`${shipmentGroupsToPack} shipment/customer group(s).`, page:"packorders", color:"#68d8ff" },
         { icon:"🏷️", title:"Labels needed", count:needsLabel.length, sub:"Print or scan labels.", page:"labels", color:C.gold }
       ] : isManager ? [
-        { icon:"📦", title:"Orders to pack", count:ordersToPack.length, sub:"Get orders completed.", page:"packorders", color:"#68d8ff" },
+        { icon:"📦", title:"Plants to pack", count:plantsToPack, sub:`${shipmentGroupsToPack} shipment/customer group(s).`, page:"packorders", color:"#68d8ff" },
         { icon:"📸", title:"Missing photos", count:noPhoto.length, sub:"Blocks show prep.", page:"photosprint", color:"#fb6392" },
         { icon:"💲", title:"Missing prices", count:noPrice.length, sub:"Price before show.", page:"inv", color:C.red },
         { icon:"⏳", title:"Aging 45+ days", count:aging45.length, sub:"Discount, bundle, or push.", page:"discounts", color:C.amber }
       ] : [
-        { icon:"📦", title:"Orders to pack", count:ordersToPack.length, sub:"Shipping bottleneck.", page:"packorders", color:"#68d8ff" },
+        { icon:"📦", title:"Plants to pack", count:plantsToPack, sub:`${shipmentGroupsToPack} shipment/customer group(s).`, page:"packorders", color:"#68d8ff" },
         { icon:"🧾", title:"Receipts need review", count:receiptsNeedReview.length, sub:"Keeps profit accurate.", page:"receipts", color:C.gold },
         { icon:"📅", title:"Bills due 7 days", count:billsDue7.length, sub:`${$(billsDue7Total)} due soon.`, page:"bills", color:billsDue7.length ? C.red : C.g600 },
         { icon:"📸", title:"Missing photos", count:noPhoto.length, sub:"Blocks show-ready inventory.", page:"photosprint", color:"#fb6392" }
@@ -11999,17 +12002,17 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         {isOwner ? <div className="ld-phase3-stat-grid">
           <Stat label="Today Net" value={$(profitToday)} sub={`${soldToday.length} sold · COGS ${$(cogsToday)}`} color={profitToday >= 0 ? C.g600 : C.red} page="reports" />
           <Stat label="This Week" value={$(profit7)} sub={`${sold7.length} plants sold`} color={profit7 >= 0 ? C.g600 : C.red} page="reports" />
-          <Stat label="Orders" value={ordersToPack.length} sub="need packing/review" color={ordersToPack.length ? C.amber : C.g600} page="packorders" />
+          <Stat label="Plants" value={plantsToPack} sub={`${shipmentGroupsToPack} shipment/customer group(s)`} color={plantsToPack ? C.amber : C.g600} page="packorders" />
           <Stat label="Bills Due" value={billsDue7.length} sub={`${$(billsDue7Total)} in 7 days`} color={billsDue7.length ? C.red : C.g600} page="bills" />
         </div> : isManager ? <div className="ld-phase3-stat-grid">
           <Stat label="Team Clocked In" value={activeClockIns.length} sub="open shifts today" color={C.g600} page="timecard" />
-          <Stat label="Orders" value={ordersToPack.length} sub="pack / tracking" color={ordersToPack.length ? C.amber : C.g600} page="packorders" />
+          <Stat label="Plants" value={plantsToPack} sub={`${shipmentGroupsToPack} shipment/customer group(s)`} color={plantsToPack ? C.amber : C.g600} page="packorders" />
           <Stat label="Missing Photos" value={noPhoto.length} sub="before show" color="#fb6392" page="photosprint" />
           <Stat label="Show Ready" value={showReady.length} sub="photo + price + label" color={C.g600} page="showbuilder" />
         </div> : <div className="ld-phase3-stat-grid">
           <Stat label="Shift" value={myOpenShift ? "In" : "Out"} sub={myOpenShift ? "clocked in" : "clock in first"} color={myOpenShift ? C.g600 : C.amber} page="timecard" />
           <Stat label="Photos" value={noPhoto.length} sub="need photos" color="#fb6392" page="photosprint" />
-          <Stat label="Orders" value={ordersToPack.length} sub="to pack" color="#68d8ff" page="packorders" />
+          <Stat label="Plants" value={plantsToPack} sub={`${shipmentGroupsToPack} shipment/customer group(s)`} color="#68d8ff" page="packorders" />
           <Stat label="Labels" value={needsLabel.length} sub="need labels" color={C.gold} page="labels" />
         </div>}
 
@@ -12095,7 +12098,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const canOpen = id => tools.some(t => t.id === id) || WORKSPACES.some(w => w.id === id);
       const open = id => canOpen(id) && setPage(id);
       const pack = {
-        today:{ icon:"🏠", title:"Today", sub:"Daily command center.", hero:"What are you doing right now?", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["No Photos",noPhoto.length,"fix before show"],["Orders To Pack",readyOrders.length,"sold groups"],["Month Sales",$(monthSales),"sold this month"]], sections:[
+        today:{ icon:"🏠", title:"Today", sub:"Daily command center.", hero:"What are you doing right now?", color:"#97d33e", kpis:[["In Stock",inStock.length,"plants"],["No Photos",noPhoto.length,"fix before show"],["Plants To Pack",soldOrderPlantCount,`${soldShipmentCount} shipment/customer group(s)`],["Month Sales",$(monthSales),"sold this month"]], sections:[
           { title:"Daily Jobs", items:[["Buy Plants / Upload Invoice","upload","🌿","Add nursery purchases, create plant numbers, then print labels"],["Print Labels","labels","🏷️","Print barcode labels for new or missing-label plants"],["Take Plant Photos","photosprint","📸","Scan label, take photo, save, and move to the next plant"],["Build Show","shows_ws","🎪","Build Whatnot or Palmstreet show from ready inventory"],["Upload Show Sales","showimport","📥","Import sold CSV after the live show"],["Pack Orders","packorders","📦","Pack sold plants and prepare shipment"],["Scan Tracking","shiplabels","🔎","Scan/photo shipping label and match tracking"],["Add Receipt","receipts","🧾","Gas, supplies, shipping materials, or business expense"]] },
           { title:"Needs Attention", items:[["Plants Missing Photos","labels_ws","📸","Fix photo blockers before a show"],["Orders To Ship","orders_ws","📦","Review sold groups and tracking"],["Receipts To Review","money_ws","🧾","Confirm receipt category and totals"],["Advanced / Owner Tools","admin_ws","⚙️","AI, sync, backup, settings, and hidden old screens"]] }
         ]},
@@ -12117,7 +12120,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           { title:"Needs Attention", items:[["Missing Photos Before Show","labels_ws","📸","Send plants without photos to Plants"],["Price Missing Plants","plants_ws","💲","Open Inventory to fix missing prices"],["Send Orders To Shipping","orders_ws","📦","Move sold orders into packing and tracking"]] },
           { title:"History + Owner Review", items:[["Show History / Reports","reports","📈","Review sales, sell-through, profit, and what worked"],["Tips / Commissions","commissions","🤝","Review employee tips and commission payouts"],["Hidden Old Show Tools","admin_ws","⚙️","Advanced auctions, bundles, and old show tools live under Advanced"]] }
         ]},
-        orders_ws:{ icon:"📦", title:"Shipping", sub:"One page for every shipping job: pack orders, capture label/tracking, match customers, mark shipped, and review problems.", hero:"Pack order → capture label/tracking → match customer → mark shipped → next box", color:"#68d8ff", kpis:[["Orders To Pack",readyOrders.length,"sold groups"],["Tracking Needed",readyOrders.length,"confirm before shipped"],["State Docs",casdCerts.length,"paperwork"],["Problems","↩️","refund / DOA"]], sections:[
+        orders_ws:{ icon:"📦", title:"Shipping", sub:"One page for every shipping job: pack orders, capture label/tracking, match customers, mark shipped, and review problems.", hero:"Pack order → capture label/tracking → match customer → mark shipped → next box", color:"#68d8ff", kpis:[["Plants To Pack",soldOrderPlantCount,`${soldShipmentCount} shipment/customer group(s)`],["Tracking Needed",readyOrders.length,"confirm before shipped"],["State Docs",casdCerts.length,"paperwork"],["Problems","↩️","refund / DOA"]], sections:[
           { title:"Start Shipping Work", items:[["Pack Orders","packorders","📦","Pick a sold order, pull the plant, and pack the box"],["Take Shipping Label Photo","shiplabels","📷","Take or upload a label photo so the app can read tracking"],["Scan Tracking","shiplabels","🔎","Scan, paste, or type the tracking number"],["Match Tracking To Customer","ship","✅","Confirm the tracking belongs to the right buyer and plant"]] },
           { title:"Finish Orders", items:[["Mark / Review Shipped","customers","✅","Save shipped status only after tracking is matched"],["Shipped Archive","customers","📚","Look up past customers, tracking, and shipped boxes"],["Shipping State Docs","casd","📜","Create or review required state paperwork when needed"]] },
           { title:"Fix Shipping Problems", items:[["Refunds / Problems","refunds","↩️","Track DOA, claims, lost packages, and follow-up"],["What Still Needs Shipping?","dataai","💬","Owner helper for unresolved packing/tracking work"],["Hidden Old Shipping Tools","admin_ws","⚙️","Old scanners and deep tools stay in Advanced"]] }
@@ -27018,7 +27021,7 @@ Cancel keeps this local/free.`);
           <Row between center wrap gap={12}><div><div style={{ fontFamily:F.display, fontSize:26, color:"#68d8ff", fontWeight:900 }}>Pack orders without guessing</div><div style={{ fontSize:13, color:"rgba(255,255,255,.72)", marginTop:4 }}>Import sales first, then use this board to pull, inspect, paperwork-check, and pack each sold group.</div></div><div style={{ minWidth:160 }}><div style={{ fontSize:11, color:"rgba(255,255,255,.62)", fontWeight:900, marginBottom:5 }}>Local Packing Progress</div><div style={{ height:10, background:"rgba(255,255,255,.14)", borderRadius:999, overflow:"hidden" }}><div style={{ height:"100%", width:`${progress}%`, background:"#68d8ff" }} /></div><div style={{ fontSize:11, color:"rgba(255,255,255,.66)", marginTop:5 }}>{progress}% checked today</div></div></Row>
         </Card>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:12 }}>
-          <KPI label="Orders To Pack" value={notPacked.length} sub="recent/active sold groups" color={notPacked.length ? C.amber : C.g600} />
+          <KPI label="Shipments To Pack" value={notPacked.length} sub={`${activeOrders.reduce((s,o)=>s+safeArray(o.plants).length,0)} plants in queue`} color={notPacked.length ? C.amber : C.g600} />
           <KPI label="Plants Sold" value={activeOrders.reduce((s,o)=>s+safeArray(o.plants).length,0)} sub="in packing queue" color={C.blue} />
           <KPI label="Paperwork Checks" value={docOrders.length} sub="CA/AZ/TX/LA/HI" color={docOrders.length ? C.purple : C.g600} />
           <KPI label="Cold Pack Checks" value={coldOrders.length} sub="cold-weather states" color={coldOrders.length ? C.blue : C.g600} />
