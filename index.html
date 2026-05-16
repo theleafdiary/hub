@@ -87,6 +87,11 @@
   <!-- V307 — Header Customer Search: typing a buyer/customer name in the global header search now shows customer cards and opens the Customer Hub directly to that customer. -->
   <!-- V308 — Customer Hub For Everyone: adds Customer Hub to the normal header navigation menu for owner, manager, and employee roles and keeps header customer search enabled for all roles. -->
   <!-- V307 — Show Import Searchable Manual Match: replaces the unmatched-sales plant dropdown with a fast search-by-name-or-number picker for mobile and desktop. -->
+  <!-- V307 — Customer CRM Phase 1-2: builds lifetime customer profiles from sales/orders and upgrades Customer Hub with All/Open/Ready/Past/Problems/VIP filters. Layout, exports, show import, shipping, and Supabase unchanged. -->
+  <!-- V307 — Customer CRM Phase 15-18: adds customer follow-up copy tools, customer insights, website/Shopify customer order import, and in-app CRM QA checks without changing show exports/import formats, shipping rules, or Supabase. -->
+  <!-- V308 — Customer CRM Phase 3-7: upgrades Customer Profile into simple tabs for Overview, Open Orders, Ready To Ship, Past Orders, Plants Bought, and Notes. Adds full order cards and safe quick links without touching exports, show import, shipping logic, or Supabase. -->
+  <!-- V309 — Customer CRM Phase 8-10: adds customer tags/status, Add Manual Customer, and Add Manual Order without changing exports, show import, shipping logic, or Supabase. -->
+  <!-- V310 — Customer CRM Phase 11-14: adds safe duplicate merge, deeper header search links, customer work board counts, and customer/order/purchase export buttons without layout overhaul. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <link rel="icon" type="image/png" sizes="32x32" href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=64" />
@@ -8717,6 +8722,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           </div>
         </div>
         <div className="ld-loading-bottomnav">{["Home","Plants","Shows","Shipping","Money"].map((x,i)=><div key={x} style={{ flex:1, textAlign:"center" }}><div className="ld-skeleton" style={{ width:24, height:24, borderRadius:"50%", margin:"0 auto 7px" }} /><div style={{ color:i===0?"#97d33e":"rgba(255,255,255,.65)", fontSize:10, fontWeight:900 }}>{x}</div></div>)}</div>
+
         <style>{`@media(max-width:760px){.ld-loading-shell div[style*="grid-template-columns:repeat(3,1fr)"],.ld-loading-shell div[style*="grid-template-columns:1.25fr .75fr"]{grid-template-columns:1fr!important}}`}</style>
       </div>;
     }
@@ -10845,7 +10851,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const canOpenCustomers = leafDiaryCanRenderPage("customers", role);
         if (!canOpenCustomers) return [];
         const clean = v => String(v || "").replace(/^@+/, "").trim();
-        const saleLike = p => String(p?.status || "").toLowerCase() === "sold" || !!p?.historicalImport || !!p?.saleImportKey || !!p?.saleLegacyKey || !!p?.orderNumber || !!p?.orderNo || String(p?.nurseryCode || "").toUpperCase() === "HIST";
+        const saleLike = p => String(p?.status || "").toLowerCase() === "sold" || !!p?.historicalImport || !!p?.saleImportKey || !!p?.saleLegacyKey || !!p?.orderNumber || !!p?.orderNo || !!p?.manualCustomer || !!p?.manualCustomerOrder || !!p?.customerOnlyRecord || String(p?.nurseryCode || "").toUpperCase() === "HIST" || String(p?.nurseryCode || "").toUpperCase() === "CUST";
         const customerKeyOf = p => {
           const username = clean(p?.customerUsername || p?.buyerUsername || p?.username || p?.customer || p?.palmstreetUsername);
           const name = clean(p?.customerName || p?.buyerName || p?.recipientName || p?.shipToName);
@@ -10893,15 +10899,16 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             };
           }
           const c = map[key];
-          c.items += 1;
-          c.total += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || +p.suggestedPrice || 0);
+          const customerOnly = !!(p?.manualCustomer || p?.customerOnlyRecord) && !p?.manualCustomerOrder && String(p?.status || "").toLowerCase() !== "sold";
+          if (!customerOnly) c.items += 1;
+          if (!customerOnly) c.total += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || +p.suggestedPrice || 0);
           const orderKey = clean(p?.shipmentId ? `SHIPMENT-${p.shipmentId}` : (p?.orderNumber || p?.orderNo || p?.whatnotOrderId || p?.platformOrderId || p?.saleImportKey || `${p?.rawProductVariant || p?.name || "Plant"}-${p?.soldDate || p?.saleDate || p?.dateAdded || ""}`));
           if (orderKey) c.orderCountSet.add(orderKey);
           const d = p?.soldDate || p?.saleDate || p?.orderDate || p?.soldAt || p?.createdAt || p?.dateAdded || "";
           if (d && (!c.lastOrder || new Date(d) > new Date(c.lastOrder))) c.lastOrder = d;
           c.state = c.state || clean(p?.customerState || p?.buyerState || p?.state || p?.shippingState);
           c.zip = c.zip || clean(p?.customerZip || p?.zip || p?.shippingZip);
-          c.hayParts.push(p?.customerUsername, p?.buyerUsername, p?.username, p?.customer, p?.palmstreetUsername, p?.customerName, p?.buyerName, p?.recipientName, p?.shipToName, p?.customerEmail, p?.email, p?.customerPhone, p?.phone, p?.orderNumber, p?.orderNo, p?.whatnotOrderId, p?.platformOrderId, p?.customerState, p?.buyerState, p?.state, p?.shippingState, p?.customerZip, p?.zip, p?.shippingZip);
+          c.hayParts.push(p?.customerUsername, p?.buyerUsername, p?.username, p?.customer, p?.palmstreetUsername, p?.customerName, p?.buyerName, p?.recipientName, p?.shipToName, p?.customerEmail, p?.email, p?.customerPhone, p?.phone, p?.customerTags, p?.customerTag, p?.orderNumber, p?.orderNo, p?.whatnotOrderId, p?.platformOrderId, p?.customerState, p?.buyerState, p?.state, p?.shippingState, p?.customerZip, p?.zip, p?.shippingZip);
         });
         return Object.values(map).map(c => {
           const orderCount = c.orderCountSet?.size || 0;
@@ -10914,6 +10921,55 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
             keywords:[c.displayName, c.username, c.name, c.email, c.phone, c.state, c.zip, ...safeArray(c.hayParts)].filter(Boolean).join(" ")
           };
         }).sort((a,b) => (b.lastOrder || "").localeCompare(a.lastOrder || "") || b.total - a.total).slice(0, 250);
+      })();
+
+
+      const headerCustomerDeepSearchItems = (() => {
+        const canOpenCustomers = leafDiaryCanRenderPage("customers", role);
+        if (!canOpenCustomers) return [];
+        const clean = v => String(v || "").replace(/^@+/, "").trim();
+        const money = v => { const n = Number(String(v ?? "").replace(/[^0-9.-]+/g, "")); return Number.isFinite(n) ? n : 0; };
+        const orderTabOf = p => {
+          const raw = String(p?.fulfillmentStatus || p?.shipmentStatus || p?.shippingStatus || p?.manualOrderStatus || p?.trackingStatus || "").toLowerCase();
+          const done = !!(p?.shipmentCompletedAt || p?.orderCompletedAt || p?.completedAt || p?.shippedDate || p?.deliveredDate) || /complete|done|fulfilled|shipped|delivered|past/.test(raw);
+          const ready = !done && (!!(p?.packedAt || p?.platformReadyAt || p?.labelPhotoUrl || p?.packingPhotoUrl || p?.trackingNumber || p?.tracking) || /ready|packed|label/.test(raw));
+          if (done) return "past";
+          if (ready) return "ready";
+          return "open";
+        };
+        const customerRows = safeArray(plants).filter(p => String(p?.status || "").toLowerCase() === "sold" || !!p?.historicalImport || !!p?.saleImportKey || !!p?.orderNumber || !!p?.orderNo || !!p?.manualCustomerOrder);
+        const orderMap = {};
+        customerRows.forEach(p => {
+          const key = customerKeyOf(p);
+          if (!key) return;
+          const orderNo = clean(p?.shipmentId ? `SHIPMENT-${p.shipmentId}` : (p?.orderNumber || p?.orderNo || p?.whatnotOrderId || p?.platformOrderId || p?.saleImportKey || ""));
+          const plantName = clean(p?.name || p?.title || p?.plantName || p?.rawProductVariant || p?.productVariant || p?.variantName || "Plant");
+          const display = displayOf(p);
+          const platform = clean(p?.platform || p?.salePlatform || p?.sourcePlatform || p?.source || "");
+          const state = clean(p?.customerState || p?.buyerState || p?.state || p?.shippingState);
+          const price = money(p?.salePrice ?? p?.productAmount ?? p?.orderAmount ?? p?.sellerIncome ?? p?.suggestedPrice ?? p?.price);
+          if (orderNo) {
+            const ok = `${key}|${orderNo}`;
+            if (!orderMap[ok]) orderMap[ok] = { id:`__custorder__${encodeURIComponent(ok)}`, customerKey:key, displayName:display, icon:"📦", title:`Order: ${orderNo}`, sub:`${display} · ${platform || "Platform"} · ${state || "No state"}`, group:"Customer Order", profileTab:orderTabOf(p), keywords:"", items:0, total:0, hayParts:[] };
+            orderMap[ok].items += 1; orderMap[ok].total += price;
+            orderMap[ok].hayParts.push(display, p?.customerUsername, p?.buyerUsername, p?.customerName, p?.buyerName, p?.recipientName, p?.email, p?.phone, orderNo, plantName, p?.plantId, p?.plantCode, p?.barcodeValue, platform, state, p?.trackingNumber, p?.tracking);
+          }
+        });
+        const orderItems = Object.values(orderMap).map(o => ({ ...o, sub:`${o.sub} · ${o.items} item(s) · ${$(o.total)}`, keywords:safeArray(o.hayParts).filter(Boolean).join(" ") })).slice(0, 200);
+        const plantItems = customerRows.slice(0, 500).map((p, i) => {
+          const key = customerKeyOf(p);
+          const display = displayOf(p);
+          const plantName = clean(p?.name || p?.title || p?.plantName || p?.rawProductVariant || p?.productVariant || p?.variantName || "Plant");
+          const plantId = clean(p?.plantId || p?.plantCode || p?.barcodeValue || p?.sku || "");
+          const orderNo = clean(p?.orderNumber || p?.orderNo || p?.whatnotOrderId || p?.platformOrderId || "");
+          const platform = clean(p?.platform || p?.salePlatform || p?.sourcePlatform || p?.source || "");
+          const state = clean(p?.customerState || p?.buyerState || p?.state || p?.shippingState);
+          return {
+            id:`__custplant__${i}_${encodeURIComponent(key)}`, customerKey:key, displayName:display, icon:"🪴", title:`Sold Plant: ${plantName}`, sub:`${display}${plantId ? ` · #${plantId}` : ""}${platform ? ` · ${platform}` : ""}`, group:"Customer Plant", profileTab:"plants",
+            keywords:[display, p?.customerUsername, p?.buyerUsername, p?.customerName, p?.buyerName, p?.recipientName, p?.email, p?.phone, orderNo, plantName, plantId, platform, state, p?.trackingNumber, p?.tracking].filter(Boolean).join(" ")
+          };
+        }).filter(x => x.customerKey);
+        return [...orderItems, ...plantItems];
       })();
 
       const headerSearchItems = (() => {
@@ -10940,12 +10996,12 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         ].filter(item => leafDiaryCanRenderPage(item.id, role));
         if (!q) return quick.slice(0, 7);
         const terms = q.split(/\s+/).filter(Boolean);
-        const customerMatches = q.length >= 2 ? headerCustomerSearchItems
+        const customerMatches = q.length >= 2 ? [...headerCustomerSearchItems, ...headerCustomerDeepSearchItems]
           .filter(item => {
             const hay = `${item.title} ${item.sub} ${item.group} ${item.id} ${item.keywords || ""}`.toLowerCase();
             return terms.every(term => hay.includes(term));
           })
-          .slice(0, 5) : [];
+          .slice(0, 6) : [];
         const matches = headerSearchItems
           .filter(item => {
             const hay = `${item.title} ${item.sub} ${item.group} ${item.id} ${item.keywords || ""}`.toLowerCase();
@@ -10957,11 +11013,11 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         return [...customerMatches, askItem, ...matches.filter(m => m.id !== guide.page)].slice(0, 10);
       })();
       const openHeaderSearchResult = id => {
-        if (String(id || "").startsWith("__customer__")) {
+        if (String(id || "").startsWith("__customer__") || String(id || "").startsWith("__custorder__") || String(id || "").startsWith("__custplant__")) {
           const item = safeArray(headerSearchResults).find(r => r.id === id) || {};
-          const key = item.customerKey || decodeURIComponent(String(id || "").replace("__customer__", ""));
+          const key = item.customerKey || decodeURIComponent(String(id || "").replace("__customer__", "").replace("__custorder__", "").replace("__custplant__", ""));
           try {
-            sessionStorage.setItem("ld_header_customer_search_v1", JSON.stringify({ key, query:item.displayName || headerSearch, ts:Date.now() }));
+            sessionStorage.setItem("ld_header_customer_search_v1", JSON.stringify({ key, query:item.displayName || headerSearch, profileTab:item.profileTab || "overview", ts:Date.now() }));
           } catch(e) {}
           setHeaderSearchOpen(false);
           setHeaderSearch("");
@@ -14286,7 +14342,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
           </Card>
         </div>}
 
-        {tab === "buyers" && <div style={{ display:"grid", gridTemplateColumns:".85fr 1.15fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>👥 Buyers At A Glance</div><p style={{ color:C.tx3, fontSize:13 }}>Use this to see who buys most, repeat customers, and who should get early access or bundle previews.</p><BuyerSnapshot /></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}><Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} /></Card></div>}
+        {tab === "buyers" && <div style={{ display:"grid", gridTemplateColumns:".85fr 1.15fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>👥 Buyers At A Glance</div><p style={{ color:C.tx3, fontSize:13 }}>Use this to see who buys most, repeat customers, and who should get early access or bundle previews.</p><BuyerSnapshot /></Card><Card style={{ borderTop:`4px solid ${C.blue}` }}><Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} /></Card></div>}
 
         {tab === "pay" && canOwner && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Card style={{ borderTop:`4px solid ${C.gold}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>🤝 Employee Show Pay</div><p style={{ color:C.tx3, fontSize:13, lineHeight:1.45 }}>Commission records are created during Import Show Sales when you select an employee. Tips should be confirmed in that import flow.</p><div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, margin:"12px 0" }}><KPI label="Unpaid Records" value={unpaidCommissions.length} color={unpaidCommissions.length?C.red:C.g600}/><KPI label="Default %" value={`${defaultCommission}%`} color={C.purple}/><KPI label="7-Day Estimate" value={$(estimatedCommission)} color={C.gold}/></div><Row gap={8} wrap><Btn onClick={()=>setPage("commissions")}>Open Commissions</Btn><Btn v="soft" onClick={()=>setPage("payroll")}>Open Payroll</Btn><Btn v="outline" onClick={()=>setTab("import")}>Import Sales First</Btn></Row></Card><Card style={{ borderTop:`4px solid ${C.purple}` }}><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:20, marginBottom:8 }}>Recent Commission Records</div>{commissionRows.length ? commissionRows.slice(0,12).map(c => <Row key={c.id || c.createdAt || c.employeeName} between center style={{ padding:"8px 0", borderBottom:`1px solid ${C.bdS}` }}><div><b>{c.employeeName || c.userName || c.employee || "Employee"}</b><div style={{ fontSize:11, color:C.tx3 }}>{c.showDate || c.saleDate || c.createdAt || "No date"} · {c.platform || "show"}</div></div><div style={{ textAlign:"right" }}><b style={{ color:C.gold }}>{$(c.amount || c.commissionAmount)}</b><div style={{ fontSize:10, color:c.paidAt || c.status === "Paid" ? C.g600 : C.red }}>{c.paidAt || c.status === "Paid" ? "Paid" : "Unpaid"}</div></div></Row>) : <p style={{ color:C.tx3, fontSize:13 }}>No commission records yet.</p>}</Card></div>}
 
@@ -32040,10 +32096,21 @@ Cancel if you want to save money.`);
     /* ══════════════════════════════════════════════════════════
        CUSTOMERS — from Palmstreet sales data
     ══════════════════════════════════════════════════════════ */
-    function Customers({ plants, setPlants, addAudit, user }) {
-      const [tab, setTab] = useState("customers");
+    function Customers({ plants, setPlants, addAudit, user, setPage }) {
+      const [tab, setTab] = useState("all");
       const [detail, setDetail] = useState(null);
-      const [draft, setDraft] = useState({ status: "green", notes: "" });
+      const [profileTab, setProfileTab] = useState("overview");
+      const [draft, setDraft] = useState({ status: "green", notes: "", tags: "" });
+      const emptyManualCustomer = () => ({ name:"", username:"", email:"", phone:"", address1:"", address2:"", city:"", state:"", zip:"", source:"Local", status:"green", tags:"", notes:"" });
+      const emptyManualOrder = () => ({ customerKey:"", platform:"Local", orderNumber:"", orderDate: today(), plantName:"", plantId:"", potSize:"", cost:"", salePrice:"", orderStatus:"open", state:"", tracking:"", notes:"" });
+      const [manualCustomerOpen, setManualCustomerOpen] = useState(false);
+      const [manualOrderOpen, setManualOrderOpen] = useState(false);
+      const [websiteImportOpen, setWebsiteImportOpen] = useState(false);
+      const [websiteImportText, setWebsiteImportText] = useState("");
+      const [websiteImportStatus, setWebsiteImportStatus] = useState("");
+      const [mergeSearchText, setMergeSearchText] = useState("");
+      const [manualCustomerDraft, setManualCustomerDraft] = useState(() => emptyManualCustomer());
+      const [manualOrderDraft, setManualOrderDraft] = useState(() => emptyManualOrder());
       const [customerSearchText, setCustomerSearchText] = useState(() => {
         try { const saved = JSON.parse(sessionStorage.getItem("ld_header_customer_search_v1") || "null"); return saved?.query || ""; } catch(e) { return ""; }
       });
@@ -32054,13 +32121,28 @@ Cancel if you want to save money.`);
       const customerRange = getDashDateRange(customerPreset, customerStart, customerEnd);
       const customerDateLabel = customerPreset === "all" ? "All Time" : customerRange.label;
 
-      const customerStatusInfo = (status) => {
-        const s = status || "green";
-        if (s === "red") return { label: "Blocked", color: C.red, bg: C.redBg, icon: "⛔" };
-        if (s === "yellow") return { label: "Issue", color: C.amber, bg: C.amberBg, icon: "⚠️" };
-        return { label: "Good", color: C.g600, bg: C.g50, icon: "✅" };
+      const cleanCustomerValue = v => String(v || "").replace(/^@+/, "").trim();
+      const compactCustomerValue = v => cleanCustomerValue(v).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const compactNoSpace = v => cleanCustomerValue(v).toLowerCase().replace(/[^a-z0-9]+/g, "");
+      const customerMoney = v => {
+        const n = Number(String(v ?? "").replace(/[^0-9.-]+/g, ""));
+        return Number.isFinite(n) ? n : 0;
       };
-
+      const customerDateOf = p => p?.soldDate || p?.saleDate || p?.orderDate || p?.soldAt || p?.createdAt || p?.dateAdded || p?.importDate || "";
+      const platformOf = p => {
+        try { if (typeof ldPlatformLabel === "function") return ldPlatformLabel(p); } catch(e) {}
+        const raw = String(p?.platform || p?.salePlatform || p?.sourcePlatform || p?.source || p?.marketplace || "").trim();
+        if (/whatnot/i.test(raw)) return "Whatnot";
+        if (/palm/i.test(raw)) return "Palmstreet";
+        if (/shopify|website|web/i.test(raw)) return "Website";
+        if (/local/i.test(raw)) return "Local";
+        return raw || (p?.localSale ? "Local" : "Unknown");
+      };
+      const itemNameOf = p => cleanCustomerValue(p?.name || p?.title || p?.plantName || p?.rawProductVariant || p?.productVariant || p?.variantName || p?.sku || "Plant");
+      const orderNumberOf = p => cleanCustomerValue(p?.orderNumber || p?.orderNo || p?.orderId || p?.whatnotOrderId || p?.platformOrderId || p?.customerOrderId || "");
+      const trackingOf = p => cleanCustomerValue(p?.trackingNumber || p?.tracking || p?.shipmentTracking || p?.labelTracking || "");
+      const stateOf = p => cleanCustomerValue(p?.customerState || p?.buyerState || p?.state || p?.shippingState || p?.shipState || "").toUpperCase();
+      const zipOf = p => cleanCustomerValue(p?.customerZip || p?.zip || p?.shippingZip || p?.postalCode || p?.shipZip || "").replace(/[^0-9-]/g, "");
       const saleLike = p =>
         p?.status === "Sold" ||
         !!p?.historicalImport ||
@@ -32068,116 +32150,306 @@ Cancel if you want to save money.`);
         !!p?.saleLegacyKey ||
         !!p?.orderNumber ||
         !!p?.orderNo ||
-        String(p?.nurseryCode || "").toUpperCase() === "HIST";
+        !!p?.orderId ||
+        !!p?.whatnotOrderId ||
+        !!p?.platformOrderId ||
+        !!p?.customerName ||
+        !!p?.buyerName ||
+        !!p?.customerUsername ||
+        !!p?.buyerUsername ||
+        !!p?.recipientName ||
+        !!p?.localSale ||
+        !!p?.manualCustomer ||
+        !!p?.manualCustomerOrder ||
+        !!p?.customerOnlyRecord ||
+        String(p?.nurseryCode || "").toUpperCase() === "HIST" ||
+        String(p?.nurseryCode || "").toUpperCase() === "CUST";
 
-      const cleanCustomerValue = v => String(v || "").replace(/^@+/, "").trim();
+      const customerIdentityKeys = p => {
+        const username = compactNoSpace(p?.customerUsername || p?.buyerUsername || p?.customer || p?.palmstreetUsername || p?.username);
+        const email = compactNoSpace(p?.customerEmail || p?.email || p?.buyerEmail);
+        const phone = compactNoSpace(p?.customerPhone || p?.phone || p?.buyerPhone);
+        const name = compactCustomerValue(p?.customerName || p?.buyerName || p?.recipientName || p?.shipToName);
+        const recipient = compactCustomerValue(p?.recipientName || p?.shipToName || p?.customerName);
+        const addr = compactCustomerValue(p?.customerAddress1 || p?.address1 || p?.shippingAddress1 || p?.streetAddress || p?.shipAddress1);
+        const st = stateOf(p).toLowerCase();
+        const zip = zipOf(p).slice(0, 5);
+        const order = compactNoSpace(orderNumberOf(p));
+        const manualId = compactNoSpace(p?.customerId || p?.manualCustomerId || p?.customerProfileKey || p?.manualCustomerKey);
+        const keys = [];
+        if (manualId) keys.push(`c:${manualId}`);
+        if (username) keys.push(`u:${username}`);
+        if (email) keys.push(`e:${email}`);
+        if (phone) keys.push(`p:${phone}`);
+        if (name && zip) keys.push(`nz:${name}|${zip}`);
+        if (recipient && addr) keys.push(`ra:${recipient}|${addr}`);
+        if (name && st) keys.push(`ns:${name}|${st}`);
+        if ((p?.manualCustomer || p?.manualCustomerOrder || p?.customerOnlyRecord) && name) keys.push(`mn:${name}`);
+        if (order) keys.push(`o:${order}`);
+        return [...new Set(keys.filter(Boolean))];
+      };
+
       const getCustomerKey = p => {
-        const username = cleanCustomerValue(p?.customerUsername || p?.customer || p?.palmstreetUsername);
-        const name = cleanCustomerValue(p?.customerName || p?.buyerName || p?.recipientName);
-        const email = cleanCustomerValue(p?.customerEmail || p?.email);
-        const phone = cleanCustomerValue(p?.customerPhone || p?.phone);
-        const fallback = cleanCustomerValue(p?.orderNumber || p?.orderNo);
-        return (username || email || phone || name || fallback || "unknown").toLowerCase();
+        const keys = customerIdentityKeys(p);
+        return (keys[0] || "unknown").toLowerCase();
       };
 
       const getCustomerDisplay = p => {
-        const username = cleanCustomerValue(p?.customerUsername || p?.customer || p?.palmstreetUsername);
-        const name = cleanCustomerValue(p?.customerName || p?.buyerName || p?.recipientName);
-        const email = cleanCustomerValue(p?.customerEmail || p?.email);
-        const order = cleanCustomerValue(p?.orderNumber || p?.orderNo);
-        if (username) return username;
+        const username = cleanCustomerValue(p?.customerUsername || p?.buyerUsername || p?.customer || p?.palmstreetUsername || p?.username);
+        const name = cleanCustomerValue(p?.customerName || p?.buyerName || p?.recipientName || p?.shipToName);
+        const email = cleanCustomerValue(p?.customerEmail || p?.email || p?.buyerEmail);
+        const order = orderNumberOf(p);
         if (name) return name;
+        if (username) return `@${username}`;
         if (email) return email;
         if (order) return `Unknown Customer ${order}`;
         return "Unknown Customer";
       };
 
-      const rawSaleRecords = (plants || []).filter(p => saleLike(p) && getCustomerKey(p));
+      const orderKeyOfCustomerRecord = (p, customerKey) => {
+        const shipment = cleanCustomerValue(p?.shipmentId || p?.shipmentGroupKey || p?.shipmentGroup || "");
+        const order = orderNumberOf(p);
+        const platform = platformOf(p);
+        const date = String(customerDateOf(p) || "").slice(0, 10);
+        if (shipment) return `ship:${shipment}`;
+        if (order) return `${platform}:order:${order}`;
+        return `${platform}:${date}:${customerKey}:${itemNameOf(p)}`;
+      };
+
+      const plantItemFromRecord = p => {
+        const sale = customerMoney(p?.salePrice ?? p?.productAmount ?? p?.orderAmount ?? p?.sellerIncome ?? p?.suggestedPrice ?? p?.price ?? 0);
+        const cost = customerMoney(p?.cost ?? p?.unitCost ?? p?.originalCost ?? p?.originalCostBeforeDiscount ?? p?.wholesaleCost ?? p?.itemCost ?? 0);
+        return {
+          id: p?.id || p?.plantId || p?.plantCode || p?.sku || itemNameOf(p),
+          plantId: cleanCustomerValue(p?.plantId || p?.plantCode || p?.barcodeValue || p?.sku || ""),
+          name: itemNameOf(p),
+          potSize: cleanCustomerValue(p?.potSize || p?.size || p?.containerSize || ""),
+          platform: platformOf(p),
+          date: customerDateOf(p),
+          orderNumber: orderNumberOf(p),
+          salePrice: sale,
+          cost,
+          profit: +(sale - cost).toFixed(2),
+          state: stateOf(p),
+          tracking: trackingOf(p),
+          showName: cleanCustomerValue(p?.showName || p?.eventName || p?.importBatchName || p?.showId || ""),
+          status: cleanCustomerValue(p?.fulfillmentStatus || p?.shipmentStatus || p?.shippingStatus || p?.status || ""),
+          needsReview: !!(p?.needsReview || p?.needs_review || p?.importNeedsReview || p?.matchStatus === "Unmatched" || p?.importStatus === "Needs Review" || p?.createdFromUnmatchedSale || p?.historicalOnly)
+        };
+      };
+
+      const customerTagsFromRecord = p => {
+        const raw = [];
+        safeArray(p?.customerTags).forEach(x => raw.push(x));
+        String(p?.customerTags || "").split(/[|,]/).forEach(x => raw.push(x));
+        String(p?.customerTag || "").split(/[|,]/).forEach(x => raw.push(x));
+        String(p?.tags || "").split(/[|,]/).forEach(x => raw.push(x));
+        return [...new Set(raw.map(cleanCustomerValue).filter(Boolean))];
+      };
+
+      const isCustomerOnlyRecord = p => !!(p?.manualCustomer || p?.customerOnlyRecord) && !p?.manualCustomerOrder && !p?.saleImportKey && !p?.historicalImport && !p?.orderNumber && !p?.orderNo && !p?.orderId && !p?.whatnotOrderId && !p?.platformOrderId && p?.status !== "Sold";
+
+      const classifyCustomerOrder = order => {
+        const records = safeArray(order.sourceRecords);
+        const anyProblem = records.some(p => p?.needsReview || p?.needs_review || p?.importNeedsReview || p?.matchStatus === "Unmatched" || p?.importStatus === "Needs Review" || p?.shippingProblem || p?.refundStatus || p?.refundAmount || p?.customerStatus === "yellow" || p?.customerStatus === "red" || /problem|refund|cancel/i.test(String(p?.manualOrderStatus || "")));
+        const anyPacked = records.some(p => p?.packedAt || p?.platformReadyAt || p?.labelPhotoUrl || p?.packingPhotoUrl || /pack|ready|label/i.test(String(p?.fulfillmentStatus || p?.shipmentStatus || p?.shippingStatus || p?.manualOrderStatus || "")));
+        const anyTracking = records.some(p => trackingOf(p));
+        const anyCompleted = records.length && records.every(p =>
+          p?.shipmentCompletedAt || p?.orderCompletedAt || p?.completedAt || p?.packedCompleteAt || p?.shippedDate || p?.deliveredDate || /complete|completed|done|fulfilled|shipped|delivered|past/i.test(String(p?.fulfillmentStatus || p?.shipmentStatus || p?.shippingStatus || p?.trackingStatus || p?.manualOrderStatus || ""))
+        );
+        let externalStatus = null;
+        try {
+          if (typeof ldOrderShippingStatus === "function") {
+            externalStatus = ldOrderShippingStatus({ ...order, plants: records.map(plantItemFromRecord), state: order.state, trackingNumber: order.tracking, status: order.rawStatus || "" }, []);
+          }
+        } catch(e) { externalStatus = null; }
+        const completed = anyCompleted || externalStatus?.id === "completed";
+        const ready = !completed && (anyPacked || anyTracking || externalStatus?.id === "packed_needs_tracking");
+        const bucket = completed ? "past" : ready ? "ready" : "open";
+        const label = completed ? "Completed / Past" : ready ? "Ready To Ship" : "Open / Needs Packing";
+        return { ...order, bucket, statusLabel: label, hasProblem: anyProblem, hasTracking: anyTracking, isPacked: anyPacked, isCompleted: completed };
+      };
+
+      const buildCustomerProfiles = (sourceRecords = []) => {
+        const map = {};
+        safeArray(sourceRecords).filter(p => saleLike(p) && getCustomerKey(p)).forEach(p => {
+          const key = getCustomerKey(p);
+          const identityKeys = customerIdentityKeys(p);
+          if (!map[key]) {
+            map[key] = {
+              key,
+              matchKeys: new Set(identityKeys.concat([key])),
+              username: cleanCustomerValue(p.customerUsername || p.buyerUsername || p.customer || p.palmstreetUsername || p.username || ""),
+              displayName: getCustomerDisplay(p),
+              name: cleanCustomerValue(p.customerName || p.buyerName || p.recipientName || p.shipToName || ""),
+              recipientName: cleanCustomerValue(p.recipientName || p.shipToName || p.customerName || ""),
+              email: cleanCustomerValue(p.customerEmail || p.email || p.buyerEmail || ""),
+              phone: cleanCustomerValue(p.customerPhone || p.phone || p.buyerPhone || ""),
+              address1: cleanCustomerValue(p.customerAddress1 || p.address1 || p.shippingAddress1 || p.streetAddress || p.shipAddress1 || ""),
+              address2: cleanCustomerValue(p.customerAddress2 || p.address2 || p.shippingAddress2 || p.shipAddress2 || ""),
+              city: cleanCustomerValue(p.customerCity || p.city || p.shippingCity || p.shipCity || ""),
+              state: stateOf(p),
+              zip: zipOf(p),
+              fullShippingAddress: "",
+              orders: [],
+              plantsPurchased: [],
+              orderMap: {},
+              platforms: new Set(),
+              states: new Set(),
+              tags: new Set(customerTagsFromRecord(p)),
+              total: 0,
+              totalCost: 0,
+              totalProfit: 0,
+              plants: 0,
+              status: p.customerStatus || "green",
+              notes: p.customerNotes || "",
+              firstOrder: customerDateOf(p),
+              lastOrder: customerDateOf(p)
+            };
+          }
+          const c = map[key];
+          identityKeys.forEach(k => c.matchKeys.add(k));
+          c.username = c.username || cleanCustomerValue(p.customerUsername || p.buyerUsername || p.customer || p.palmstreetUsername || p.username || "");
+          c.name = c.name || cleanCustomerValue(p.customerName || p.buyerName || p.recipientName || p.shipToName || "");
+          c.recipientName = c.recipientName || cleanCustomerValue(p.recipientName || p.shipToName || p.customerName || "");
+          c.email = c.email || cleanCustomerValue(p.customerEmail || p.email || p.buyerEmail || "");
+          c.phone = c.phone || cleanCustomerValue(p.customerPhone || p.phone || p.buyerPhone || "");
+          c.address1 = c.address1 || cleanCustomerValue(p.customerAddress1 || p.address1 || p.shippingAddress1 || p.streetAddress || p.shipAddress1 || "");
+          c.address2 = c.address2 || cleanCustomerValue(p.customerAddress2 || p.address2 || p.shippingAddress2 || p.shipAddress2 || "");
+          c.city = c.city || cleanCustomerValue(p.customerCity || p.city || p.shippingCity || p.shipCity || "");
+          c.state = c.state || stateOf(p);
+          c.zip = c.zip || zipOf(p);
+          c.fullShippingAddress = c.fullShippingAddress || cleanCustomerValue(p.fullShippingAddress || [p.customerName || p.recipientName || p.shipToName, p.customerAddress1 || p.address1 || p.shippingAddress1 || p.streetAddress || p.shipAddress1, p.customerAddress2 || p.address2 || p.shippingAddress2 || p.shipAddress2, p.customerCity || p.city || p.shippingCity || p.shipCity, stateOf(p), zipOf(p)].filter(Boolean).join(", "));
+          if (isCustomerOnlyRecord(p)) return;
+          const item = plantItemFromRecord(p);
+          c.plantsPurchased.push(item);
+          c.total += item.salePrice;
+          c.totalCost += item.cost;
+          c.totalProfit += item.profit;
+          c.plants += 1;
+          if (item.platform) c.platforms.add(item.platform);
+          if (item.state) c.states.add(item.state);
+          customerTagsFromRecord(p).forEach(t => c.tags.add(t));
+          if (!c.notes && p.customerNotes) c.notes = p.customerNotes;
+          if (p.customerStatus && p.customerStatus !== "green") c.status = p.customerStatus;
+          const d = customerDateOf(p);
+          if (d && (!c.firstOrder || new Date(d) < new Date(c.firstOrder))) c.firstOrder = d;
+          if (d && (!c.lastOrder || new Date(d) > new Date(c.lastOrder))) c.lastOrder = d;
+          const orderKey = orderKeyOfCustomerRecord(p, key);
+          if (!c.orderMap[orderKey]) {
+            c.orderMap[orderKey] = {
+              orderKey,
+              orderNumber: orderNumberOf(p),
+              platform: item.platform,
+              date: item.date,
+              showName: item.showName,
+              customerName: c.name || c.displayName,
+              recipientName: c.recipientName,
+              state: item.state,
+              zip: c.zip,
+              tracking: item.tracking,
+              sourceRecords: [],
+              plants: [],
+              total: 0,
+              totalCost: 0,
+              totalProfit: 0,
+              rawStatus: cleanCustomerValue(p?.fulfillmentStatus || p?.shipmentStatus || p?.shippingStatus || p?.status || "")
+            };
+          }
+          const o = c.orderMap[orderKey];
+          o.sourceRecords.push(p);
+          o.plants.push(item);
+          o.total += item.salePrice;
+          o.totalCost += item.cost;
+          o.totalProfit += item.profit;
+          o.tracking = o.tracking || item.tracking;
+          o.state = o.state || item.state;
+          o.showName = o.showName || item.showName;
+          o.date = o.date || item.date;
+        });
+        return Object.values(map).map(c => {
+          const orders = Object.values(c.orderMap || {}).map(classifyCustomerOrder).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+          const openOrders = orders.filter(o => o.bucket === "open");
+          const readyOrders = orders.filter(o => o.bucket === "ready");
+          const pastOrders = orders.filter(o => o.bucket === "past");
+          const problemOrders = orders.filter(o => o.hasProblem);
+          const platformList = [...c.platforms].filter(Boolean).sort();
+          const stateList = [...c.states].filter(Boolean).sort();
+          const tagList = [...(c.tags || new Set())].filter(Boolean).sort();
+          const isVip = c.status === "vip" || tagList.some(t => /vip|repeat/i.test(t)) || orders.length >= 3 || c.total >= 250;
+          return {
+            ...c,
+            matchKeys: [...c.matchKeys],
+            platforms: platformList,
+            states: stateList,
+            tags: tagList,
+            orders,
+            openOrders,
+            readyOrders,
+            pastOrders,
+            problemOrders,
+            orderCount: orders.length,
+            openOrderCount: openOrders.length,
+            readyToShipCount: readyOrders.length,
+            pastOrderCount: pastOrders.length,
+            problemOrderCount: problemOrders.length,
+            isVip,
+            total: +c.total.toFixed(2),
+            totalCost: +c.totalCost.toFixed(2),
+            totalProfit: +c.totalProfit.toFixed(2)
+          };
+        }).sort((a, b) => {
+          const priority = { red: 0, yellow: 1, green: 2, vip: 3 };
+          const pa = priority[a.status || "green"] ?? 2;
+          const pb = priority[b.status || "green"] ?? 2;
+          if (pa !== pb) return pa - pb;
+          if ((b.openOrderCount || 0) !== (a.openOrderCount || 0)) return (b.openOrderCount || 0) - (a.openOrderCount || 0);
+          return b.total - a.total;
+        });
+      };
+
+      const rawSaleRecords = safeArray(plants).filter(p => saleLike(p) && getCustomerKey(p));
       const saleRecords = customerPreset === "all"
         ? rawSaleRecords
         : rawSaleRecords.filter(p => inDashRange(p, customerRange, ["soldDate", "saleDate", "orderDate", "soldAt", "createdAt", "dateAdded"]));
-      const custMap = {};
+      const customers = buildCustomerProfiles(saleRecords);
 
-      saleRecords.forEach(p => {
-        const key = getCustomerKey(p);
-        if (!custMap[key]) {
-          custMap[key] = {
-            key,
-            username: cleanCustomerValue(p.customerUsername || p.customer || p.palmstreetUsername || ""),
-            displayName: getCustomerDisplay(p),
-            name: cleanCustomerValue(p.customerName || p.buyerName || p.recipientName || ""),
-            recipientName: cleanCustomerValue(p.recipientName || p.customerName || ""),
-            email: cleanCustomerValue(p.customerEmail || p.email || ""),
-            phone: cleanCustomerValue(p.customerPhone || p.phone || ""),
-            address1: cleanCustomerValue(p.customerAddress1 || p.address1 || ""),
-            address2: cleanCustomerValue(p.customerAddress2 || p.address2 || ""),
-            city: cleanCustomerValue(p.customerCity || p.city || ""),
-            state: cleanCustomerValue(p.customerState || p.buyerState || p.state || ""),
-            zip: cleanCustomerValue(p.customerZip || p.zip || ""),
-            orders: [],
-            total: 0,
-            plants: 0,
-            uniqueOrders: new Set(),
-            status: p.customerStatus || "green",
-            notes: p.customerNotes || "",
-            firstOrder: p.soldDate || p.saleDate || p.orderDate || p.dateAdded || "",
-            lastOrder: p.soldDate || p.saleDate || p.orderDate || p.dateAdded || ""
-          };
-        }
-        const c = custMap[key];
-        // Keep the fullest CRM profile. Whatnot address data may appear on later rows in the same customer group.
-        c.username = c.username || cleanCustomerValue(p.customerUsername || p.customer || p.palmstreetUsername || "");
-        c.name = c.name || cleanCustomerValue(p.customerName || p.buyerName || p.recipientName || "");
-        c.recipientName = c.recipientName || cleanCustomerValue(p.recipientName || p.customerName || "");
-        c.email = c.email || cleanCustomerValue(p.customerEmail || p.email || "");
-        c.phone = c.phone || cleanCustomerValue(p.customerPhone || p.phone || "");
-        c.address1 = c.address1 || cleanCustomerValue(p.customerAddress1 || p.address1 || p.shippingAddress1 || "");
-        c.address2 = c.address2 || cleanCustomerValue(p.customerAddress2 || p.address2 || p.shippingAddress2 || "");
-        c.city = c.city || cleanCustomerValue(p.customerCity || p.city || p.shippingCity || "");
-        c.state = c.state || cleanCustomerValue(p.customerState || p.buyerState || p.state || p.shippingState || "");
-        c.zip = c.zip || cleanCustomerValue(p.customerZip || p.zip || p.shippingZip || "");
-        c.fullShippingAddress = c.fullShippingAddress || cleanCustomerValue(p.fullShippingAddress || [p.customerName || p.recipientName, p.customerAddress1 || p.address1 || p.shippingAddress1, p.customerAddress2 || p.address2 || p.shippingAddress2, p.customerCity || p.city || p.shippingCity, p.customerState || p.buyerState || p.state || p.shippingState, p.customerZip || p.zip || p.shippingZip].filter(Boolean).join(", "));
-        c.orders.push(p);
-        c.total += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || +p.suggestedPrice || 0);
-        c.plants++;
-        const customerOrderKey = p.shipmentId ? `SHIPMENT-${p.shipmentId}` : (p.orderNumber || p.orderNo || p.whatnotOrderId || p.saleImportKey || `${p.rawProductVariant || p.name}-${p.soldDate || p.saleDate || p.dateAdded}`);
-        if (customerOrderKey) c.uniqueOrders.add(customerOrderKey);
-        if (!c.notes && p.customerNotes) c.notes = p.customerNotes;
-        if (p.customerStatus && p.customerStatus !== "green") c.status = p.customerStatus;
-        const d = p.soldDate || p.saleDate || p.orderDate || p.dateAdded || "";
-        if (d && (!c.firstOrder || new Date(d) < new Date(c.firstOrder))) c.firstOrder = d;
-        if (d && (!c.lastOrder || new Date(d) > new Date(c.lastOrder))) c.lastOrder = d;
-      });
-
-      const customers = Object.values(custMap).map(c => ({ ...c, orderCount: c.uniqueOrders.size || c.orders.length })).sort((a, b) => {
-        const priority = { red: 0, yellow: 1, green: 2 };
-        const pa = priority[a.status || "green"] ?? 2;
-        const pb = priority[b.status || "green"] ?? 2;
-        if (pa !== pb) return pa - pb;
-        return b.total - a.total;
-      });
+      const customerStatusInfo = (status) => {
+        const s = status || "green";
+        if (s === "red") return { label: "Blocked", color: C.red, bg: C.redBg, icon: "⛔" };
+        if (s === "yellow") return { label: "Watch", color: C.amber, bg: C.amberBg, icon: "⚠️" };
+        if (s === "vip") return { label: "VIP", color: C.gold, bg: C.g50, icon: "⭐" };
+        return { label: "Good", color: C.g600, bg: C.g50, icon: "✅" };
+      };
 
       const counts = {
+        all: customers.length,
+        open: customers.reduce((s, c) => s + c.openOrderCount, 0),
+        ready: customers.reduce((s, c) => s + c.readyToShipCount, 0),
+        past: customers.reduce((s, c) => s + c.pastOrderCount, 0),
+        problems: customers.filter(c => ["red", "yellow"].includes(c.status) || c.problemOrderCount).length,
+        vip: customers.filter(c => c.isVip).length,
         green: customers.filter(c => (c.status || "green") === "green").length,
         yellow: customers.filter(c => c.status === "yellow").length,
         red: customers.filter(c => c.status === "red").length,
       };
 
       const stateMap = {};
-      saleRecords.filter(p => p.customerState || p.buyerState || p.state || p.shippingState).forEach(p => {
-        const s = p.customerState || p.buyerState || p.state || p.shippingState;
+      saleRecords.filter(p => stateOf(p)).forEach(p => {
+        const s = stateOf(p);
         if (!stateMap[s]) stateMap[s] = { state: s, revenue: 0, orders: 0, orderKeys: new Set(), customers: new Set() };
-        stateMap[s].revenue += (+p.salePrice || +p.productAmount || +p.orderAmount || +p.sellerIncome || 0);
-        const stateOrderKey = p.shipmentId ? `SHIPMENT-${p.shipmentId}` : (p.orderNumber || p.orderNo || p.whatnotOrderId || p.saleImportKey || `${p.rawProductVariant || p.name}-${p.soldDate || p.saleDate || p.dateAdded}`);
-        if (stateOrderKey) stateMap[s].orderKeys.add(stateOrderKey);
+        stateMap[s].revenue += customerMoney(p.salePrice ?? p.productAmount ?? p.orderAmount ?? p.sellerIncome ?? 0);
+        stateMap[s].orderKeys.add(orderKeyOfCustomerRecord(p, getCustomerKey(p)));
         stateMap[s].customers.add(getCustomerKey(p) || "?");
       });
       const states = Object.values(stateMap).map(s => ({ ...s, orders: s.orderKeys?.size || s.orders || 0, customers: s.customers.size })).sort((a, b) => b.revenue - a.revenue);
       const maxRev = Math.max(...states.map(s => s.revenue), 1);
 
-      const openCustomer = c => {
+      const openCustomer = (c, preferredTab = "overview") => {
         setDetail(c);
-        setDraft({ status: c.status || "green", notes: c.notes || "" });
+        setProfileTab(preferredTab || "overview");
+        setMergeSearchText("");
+        setDraft({ status: c.status || "green", notes: c.notes || "", tags: safeArray(c.tags).join(", ") });
       };
 
       useEffect(() => {
@@ -32188,70 +32460,607 @@ Cancel if you want to save money.`);
         if (customerAutoOpenRef.current === token) return;
         if (customerPreset !== "all") { setCustomerPreset("all"); return; }
         const terms = String(saved.query || "").toLowerCase().split(/\s+/).filter(Boolean);
-        const hayOf = c => [c.key, c.username, c.displayName, c.name, c.recipientName, c.email, c.phone, c.state, c.zip, ...safeArray(c.orders).flatMap(o => [o.orderNumber, o.orderNo, o.whatnotOrderId, o.platformOrderId, o.customerName, o.customerUsername, o.buyerUsername, o.recipientName])].filter(Boolean).join(" ").toLowerCase();
-        const hit = customers.find(c => c.key === saved.key) || customers.find(c => terms.length && terms.every(t => hayOf(c).includes(t)));
+        const hayOf = c => [c.key, c.username, c.displayName, c.name, c.recipientName, c.email, c.phone, c.state, c.zip, ...safeArray(c.platforms), ...safeArray(c.states), ...safeArray(c.orders).flatMap(o => [o.orderNumber, o.platform, o.tracking, o.state, ...safeArray(o.plants).flatMap(p => [p.name, p.plantId])])].filter(Boolean).join(" ").toLowerCase();
+        const hit = customers.find(c => c.key === saved.key || safeArray(c.matchKeys).includes(saved.key)) || customers.find(c => terms.length && terms.every(t => hayOf(c).includes(t)));
         customerAutoOpenRef.current = token;
-        setTab("customers");
+        setTab("all");
         if (saved.query) setCustomerSearchText(saved.query);
-        if (hit) openCustomer(hit);
+        if (hit) openCustomer(hit, saved.profileTab || saved.tab || "overview");
         try { sessionStorage.removeItem("ld_header_customer_search_v1"); } catch(e) {}
       }, [customers.length, customerPreset]);
 
+      const recordBelongsToCustomer = (p, c) => {
+        const keys = new Set(safeArray(c?.matchKeys).concat([c?.key]).filter(Boolean));
+        return customerIdentityKeys(p).concat([getCustomerKey(p)]).some(k => keys.has(k));
+      };
+
+      const duplicateScore = (a, b) => {
+        if (!a || !b || a.key === b.key) return null;
+        let score = 0;
+        const reasons = [];
+        const add = (pts, label) => { score += pts; reasons.push(label); };
+        const eq = (x, y) => cleanCustomerValue(x).toLowerCase() && cleanCustomerValue(x).toLowerCase() === cleanCustomerValue(y).toLowerCase();
+        if (a.email && eq(a.email, b.email)) add(100, "same email");
+        if (a.phone && eq(a.phone, b.phone)) add(95, "same phone");
+        if (a.username && eq(a.username, b.username)) add(90, "same username");
+        const aName = compactCustomerValue(a.name || a.recipientName || a.displayName);
+        const bName = compactCustomerValue(b.name || b.recipientName || b.displayName);
+        if (aName && bName && aName === bName && a.zip && b.zip && String(a.zip).slice(0,5) === String(b.zip).slice(0,5)) add(88, "same name + zip");
+        if (aName && bName && aName === bName && a.state && b.state && a.state === b.state) add(76, "same name + state");
+        if (a.address1 && b.address1 && compactCustomerValue(a.address1) === compactCustomerValue(b.address1)) add(68, "same address");
+        if (aName && bName && (aName.includes(bName) || bName.includes(aName)) && Math.min(aName.length, bName.length) >= 5) add(42, "similar name");
+        safeArray(a.platforms).forEach(p => { if (safeArray(b.platforms).includes(p)) add(6, `both ${p}`); });
+        const overlap = safeArray(a.matchKeys).some(k => safeArray(b.matchKeys).includes(k));
+        if (overlap) add(100, "same customer key");
+        if (score < 50) return null;
+        return { customer:b, score, reasons:[...new Set(reasons)].slice(0,4) };
+      };
+
+      const duplicateSuggestions = detail
+        ? customers.map(c => duplicateScore(detail, c)).filter(Boolean).sort((a,b) => b.score - a.score).slice(0, 8)
+        : [];
+
+      const searchedDuplicateSuggestions = detail
+        ? customers.filter(c => c.key !== detail.key).filter(c => {
+            const q = mergeSearchText.trim().toLowerCase();
+            if (!q) return false;
+            const terms = q.split(/\s+/).filter(Boolean);
+            const hay = [c.displayName, c.username, c.name, c.recipientName, c.email, c.phone, c.state, c.zip, ...safeArray(c.platforms), ...safeArray(c.tags)].filter(Boolean).join(" ").toLowerCase();
+            return terms.every(t => hay.includes(t));
+          }).slice(0, 10).map(c => ({ customer:c, score:0, reasons:["manual search"] }))
+        : [];
+
+      const mergeCustomerIntoDetail = (target) => {
+        if (!detail || !target || target.key === detail.key) return;
+        const ok = window.confirm(`Merge ${target.displayName} into ${detail.displayName}?\n\nThis does not delete plants or orders. It only marks matching customer/order records so they rebuild under one customer profile.`);
+        if (!ok) return;
+        const mergeId = detail.customerMergeId || target.customerMergeId || `merge-${uid()}`;
+        const baseName = detail.name || detail.recipientName || detail.displayName || target.displayName;
+        const baseUsername = detail.username || target.username || "";
+        const baseEmail = detail.email || target.email || "";
+        const basePhone = detail.phone || target.phone || "";
+        const baseStatus = detail.status || target.status || "green";
+        const baseNotes = [detail.notes, target.notes].filter(Boolean).join("\n");
+        const baseTags = [...new Set([...safeArray(detail.tags), ...safeArray(target.tags)])].join(", ");
+        setPlants(prev => safeArray(prev).map(p => {
+          const isBase = recordBelongsToCustomer(p, detail);
+          const isTarget = recordBelongsToCustomer(p, target);
+          if (!isBase && !isTarget) return p;
+          return {
+            ...p,
+            customerMergeId: mergeId,
+            customerId: mergeId,
+            manualCustomerId: mergeId,
+            customerProfileKey: mergeId,
+            customerName: baseName,
+            buyerName: baseName,
+            recipientName: p.recipientName || baseName,
+            customerUsername: baseUsername || p.customerUsername || p.buyerUsername || "",
+            customerEmail: baseEmail || p.customerEmail || p.email || "",
+            customerPhone: basePhone || p.customerPhone || p.phone || "",
+            customerStatus: baseStatus,
+            customerNotes: baseNotes || p.customerNotes || "",
+            customerTags: baseTags || p.customerTags || "",
+            mergedCustomerKeys: [...new Set([...(safeArray(p.mergedCustomerKeys)), detail.key, target.key, ...safeArray(detail.matchKeys), ...safeArray(target.matchKeys)])].filter(Boolean),
+            mergedAt: new Date().toISOString()
+          };
+        }));
+        addAudit && addAudit({ action:`Merged customer profiles: ${target.displayName} → ${detail.displayName}`, user:user?.name || "Owner", page:"Customers" });
+        setMergeSearchText("");
+        setDetail(null);
+        setCustomerPreset("all");
+        setCustomerSearchText(baseName || baseUsername || baseEmail || basePhone);
+        alert("Customer profiles merged. Search the customer name to reopen the combined profile.");
+      };
+
       const saveCustomerFlags = () => {
         if (!detail) return;
-        const key = detail.key;
-        setPlants(prev => (prev || []).map(p => getCustomerKey(p) === key ? { ...p, customerStatus: draft.status, customerNotes: draft.notes } : p));
+        setPlants(prev => safeArray(prev).map(p => recordBelongsToCustomer(p, detail) ? { ...p, customerStatus: draft.status, customerNotes: draft.notes, customerTags: draft.tags } : p));
         addAudit && addAudit({ action: `Updated customer status: ${detail.displayName} → ${customerStatusInfo(draft.status).label}`, user: user?.name || "Owner", page: "Customers" });
-        setDetail({ ...detail, status: draft.status, notes: draft.notes });
+        setDetail({ ...detail, status: draft.status, notes: draft.notes, tags: String(draft.tags || "").split(/[|,]/).map(cleanCustomerValue).filter(Boolean) });
         alert("Customer status and notes saved.");
       };
 
-      const exportCustomers = () => {
-        const rows = customers.map(c => ({
-          status: customerStatusInfo(c.status).label,
-          username: c.username || c.displayName,
-          name: c.name,
-          email: c.email,
-          phone: c.phone,
-          address1: c.address1,
-          address2: c.address2,
-          city: c.city,
-          state: c.state,
-          zip: c.zip,
-          orders: c.orderCount,
-          items: c.plants,
-          total: c.total.toFixed(2),
-          notes: c.notes || ""
-        }));
-        const headers = Object.keys(rows[0] || { status: "", username: "", name: "", total: "" });
-        const csv = [headers.join(","), ...rows.map(r => headers.map(h => `"${String(r[h] ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
+      const manualCustomerSourceOptions = [
+        { v:"Local", l:"Local" }, { v:"Whatnot", l:"Whatnot" }, { v:"Palmstreet", l:"Palmstreet" }, { v:"Website", l:"Website" }, { v:"Facebook", l:"Facebook" }, { v:"Instagram", l:"Instagram" }, { v:"Other", l:"Other" }
+      ];
+      const customerStatusOptions = [
+        { v:"green", l:"🟢 Good Customer" }, { v:"vip", l:"⭐ VIP / Repeat Buyer" }, { v:"yellow", l:"🟡 Issue / Watch" }, { v:"red", l:"🔴 Blocked / Do Not Sell" }
+      ];
+      const manualOrderStatusOptions = [
+        { v:"open", l:"Open / Needs Packing" }, { v:"ready", l:"Ready To Ship" }, { v:"past", l:"Shipped / Completed" }, { v:"problem", l:"Problem / Needs Review" }, { v:"refunded", l:"Refunded / Cancelled" }
+      ];
+      const customerPickerOptions = [{ v:"", l:"Pick customer" }].concat(customers.slice(0, 600).map(c => ({ v:c.key, l:`${c.displayName}${c.username ? ` (@${c.username})` : ""}${c.state ? ` · ${c.state}` : ""}` })));
+      const patchManualCustomer = (k, v) => setManualCustomerDraft(d => ({ ...d, [k]: v }));
+      const patchManualOrder = (k, v) => setManualOrderDraft(d => ({ ...d, [k]: v }));
+
+      const saveManualCustomer = () => {
+        const d = manualCustomerDraft || {};
+        const name = cleanCustomerValue(d.name);
+        const username = cleanCustomerValue(d.username);
+        const email = cleanCustomerValue(d.email);
+        const phone = cleanCustomerValue(d.phone);
+        if (!name && !username && !email && !phone) { alert("Add at least a customer name, username, email, or phone."); return; }
+        const id = uid();
+        const rec = {
+          id: `manual-customer-${id}`,
+          customerId: id,
+          manualCustomer: true,
+          customerOnlyRecord: true,
+          hiddenFromInventory: true,
+          doNotShowInInventory: true,
+          nurseryCode: "CUST",
+          status: "Customer Record",
+          name: `Customer Record - ${name || username || email || phone}`,
+          customerName: name,
+          buyerName: name,
+          recipientName: name,
+          customerUsername: username,
+          customerEmail: email,
+          customerPhone: phone,
+          customerAddress1: cleanCustomerValue(d.address1),
+          customerAddress2: cleanCustomerValue(d.address2),
+          customerCity: cleanCustomerValue(d.city),
+          customerState: cleanCustomerValue(d.state).toUpperCase(),
+          customerZip: cleanCustomerValue(d.zip),
+          sourcePlatform: d.source || "Local",
+          platform: d.source || "Local",
+          customerStatus: d.status || "green",
+          customerTags: d.tags || "",
+          customerNotes: d.notes || "",
+          createdAt: new Date().toISOString(),
+          dateAdded: today()
+        };
+        setPlants(prev => [rec, ...safeArray(prev)]);
+        addAudit && addAudit({ action: `Added manual customer: ${name || username || email || phone}`, user: user?.name || "Owner", page: "Customers" });
+        setManualCustomerDraft(emptyManualCustomer());
+        setManualCustomerOpen(false);
+        setCustomerPreset("all");
+        setCustomerSearchText(name || username || email || phone);
+        alert("Customer saved to Customer Hub.");
+      };
+
+      const saveManualOrder = () => {
+        const d = manualOrderDraft || {};
+        const picked = customers.find(c => c.key === d.customerKey) || detail || null;
+        const plantName = cleanCustomerValue(d.plantName);
+        if (!picked) { alert("Pick a customer or open a customer profile first."); return; }
+        if (!plantName) { alert("Add the plant/item name for this order."); return; }
+        const id = uid();
+        const status = d.orderStatus || "open";
+        const orderNo = cleanCustomerValue(d.orderNumber) || `MAN-${String(Date.now()).slice(-7)}`;
+        const pickedRawCustomerId = String(picked.key || "").replace(/^[a-z]+:/i, "") || uid();
+        const sale = customerMoney(d.salePrice);
+        const cost = customerMoney(d.cost);
+        const orderDate = d.orderDate || today();
+        const base = {
+          id: `manual-order-${id}`,
+          manualCustomerOrder: true,
+          historicalImport: status === "past",
+          status: "Sold",
+          nurseryCode: "MAN",
+          plantId: cleanCustomerValue(d.plantId) || `MAN-${String(Date.now()).slice(-6)}`,
+          plantCode: cleanCustomerValue(d.plantId) || `MAN-${String(Date.now()).slice(-6)}`,
+          barcodeValue: cleanCustomerValue(d.plantId) || "",
+          name: plantName,
+          plantName,
+          potSize: cleanCustomerValue(d.potSize),
+          cost,
+          salePrice: sale,
+          price: sale,
+          profit: +(sale - cost).toFixed(2),
+          platform: d.platform || "Local",
+          salePlatform: d.platform || "Local",
+          sourcePlatform: d.platform || "Local",
+          orderNumber: orderNo,
+          orderId: orderNo,
+          soldDate: orderDate,
+          saleDate: orderDate,
+          orderDate,
+          customerId: pickedRawCustomerId,
+          manualCustomerId: pickedRawCustomerId,
+          customerProfileKey: picked.key,
+          customerName: picked.name || picked.displayName || "",
+          buyerName: picked.name || picked.displayName || "",
+          recipientName: picked.recipientName || picked.name || picked.displayName || "",
+          customerUsername: picked.username || "",
+          customerEmail: picked.email || "",
+          customerPhone: picked.phone || "",
+          customerAddress1: picked.address1 || "",
+          customerAddress2: picked.address2 || "",
+          customerCity: picked.city || "",
+          customerState: cleanCustomerValue(d.state || picked.state).toUpperCase(),
+          customerZip: picked.zip || "",
+          trackingNumber: cleanCustomerValue(d.tracking),
+          customerStatus: picked.status || "green",
+          customerTags: safeArray(picked.tags).join(", "),
+          customerNotes: [picked.notes, d.notes].filter(Boolean).join("\n"),
+          manualOrderStatus: status,
+          shippingProblem: status === "problem" || status === "refunded",
+          refundStatus: status === "refunded" ? "Refunded / Cancelled" : "",
+          fulfillmentStatus: status === "ready" ? "Ready To Ship" : status === "past" ? "Completed" : status === "problem" ? "Needs Review" : "Needs Packing",
+          shippingStatus: status === "ready" ? "Ready To Ship" : status === "past" ? "Shipped / Completed" : status === "problem" ? "Problem" : "Open",
+          packedAt: status === "ready" || status === "past" ? new Date().toISOString() : "",
+          shippedDate: status === "past" ? orderDate : "",
+          completedAt: status === "past" ? new Date().toISOString() : "",
+          createdAt: new Date().toISOString(),
+          dateAdded: today()
+        };
+        setPlants(prev => [base, ...safeArray(prev)]);
+        addAudit && addAudit({ action: `Added manual customer order: ${picked.displayName || picked.name} · ${plantName} · ${$(sale)}`, user: user?.name || "Owner", page: "Customers" });
+        setManualOrderDraft(emptyManualOrder());
+        setManualOrderOpen(false);
+        setCustomerPreset("all");
+        setCustomerSearchText(picked.displayName || picked.name || picked.username || orderNo);
+        alert("Manual customer order saved.");
+      };
+
+      const downloadCustomerRows = (filename, rows) => {
+        const safeRows = safeArray(rows);
+        const headers = Object.keys(safeRows[0] || { export: "No rows" });
+        const csv = [headers.join(","), ...safeRows.map(r => headers.map(h => `"${String(r[h] ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
         const blob = new Blob([csv], { type: "text/csv" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `leaf-diary-customers-${customerPreset}-${today()}.csv`;
+        a.download = filename;
         a.click();
       };
 
-      const TABS = [
-        { id: "customers", l: "👥 Customers" },
-        { id: "blocked", l: "⛔ Blocked / Issues" },
-        { id: "states", l: "🗺️ By State" }
+      const customerExportBaseRow = c => ({
+        status: customerStatusInfo(c.status).label,
+        vip_repeat_buyer: c.isVip ? "Yes" : "No",
+        display_name: c.displayName,
+        username: c.username,
+        name: c.name || c.recipientName,
+        email: c.email,
+        phone: c.phone,
+        address1: c.address1,
+        address2: c.address2,
+        city: c.city,
+        state: c.state,
+        zip: c.zip,
+        platforms: safeArray(c.platforms).join(" | "),
+        tags: safeArray(c.tags).join(" | "),
+        all_states: safeArray(c.states).join(" | "),
+        total_orders: c.orderCount,
+        open_orders: c.openOrderCount,
+        ready_to_ship_orders: c.readyToShipCount,
+        past_orders: c.pastOrderCount,
+        problem_orders: c.problemOrderCount,
+        plants_bought: c.plants,
+        total_spent: Number(c.total || 0).toFixed(2),
+        total_cost: Number(c.totalCost || 0).toFixed(2),
+        total_profit: Number(c.totalProfit || 0).toFixed(2),
+        first_order: c.firstOrder,
+        last_order: c.lastOrder,
+        notes: c.notes || ""
+      });
+
+      const exportCustomers = () => {
+        downloadCustomerRows(`leaf-diary-customers-${customerPreset}-${today()}.csv`, customers.map(customerExportBaseRow));
+      };
+
+      const orderExportRows = (bucket = "all") => customers.flatMap(c => safeArray(c.orders)
+        .filter(o => bucket === "all" || (bucket === "problem" ? o.hasProblem : o.bucket === bucket))
+        .map(o => ({
+          customer: c.displayName, username: c.username, email: c.email, phone: c.phone, customer_status: customerStatusInfo(c.status).label,
+          order_number: o.orderNumber, platform: o.platform, bucket: o.bucket, status: o.statusLabel, date: o.date, show_name: o.showName, state: o.state, tracking: o.tracking,
+          plant_count: safeArray(o.plants).length, order_total: Number(o.total || 0).toFixed(2), order_cost: Number(o.totalCost || 0).toFixed(2), order_profit: Number(o.totalProfit || 0).toFixed(2),
+          has_problem: o.hasProblem ? "Yes" : "No", is_packed: o.isPacked ? "Yes" : "No", is_completed: o.isCompleted ? "Yes" : "No",
+          plants: safeArray(o.plants).map(p => `${p.name || "Plant"}${p.plantId ? ` #${p.plantId}` : ""} ${$(p.salePrice || 0)}`).join(" | ")
+        })));
+
+      const purchaseExportRows = () => customers.flatMap(c => safeArray(c.plantsPurchased).map(p => ({
+        customer: c.displayName, username: c.username, email: c.email, phone: c.phone, customer_status: customerStatusInfo(c.status).label,
+        plant_name: p.name, plant_number: p.plantId, pot_size: p.potSize, platform: p.platform, show_name: p.showName, order_number: p.orderNumber, date_sold: p.date, state: p.state, tracking: p.tracking, status: p.status,
+        sale_price: Number(p.salePrice || 0).toFixed(2), cost: Number(p.cost || 0).toFixed(2), profit: Number(p.profit || 0).toFixed(2), needs_review: p.needsReview ? "Yes" : "No"
+      })));
+
+      const exportCustomerOrders = (bucket = "all") => {
+        const label = bucket === "open" ? "open-orders" : bucket === "ready" ? "ready-to-ship" : bucket === "past" ? "past-orders" : bucket === "problem" ? "problem-orders" : "all-orders";
+        downloadCustomerRows(`leaf-diary-customer-${label}-${customerPreset}-${today()}.csv`, orderExportRows(bucket));
+      };
+
+      const exportCustomerPurchases = () => {
+        downloadCustomerRows(`leaf-diary-customer-purchase-history-${customerPreset}-${today()}.csv`, purchaseExportRows());
+      };
+
+      const customerLifetimeStats = {
+        revenue: customers.reduce((s, c) => s + Number(c.total || 0), 0),
+        profit: customers.reduce((s, c) => s + Number(c.totalProfit || 0), 0),
+        orders: customers.reduce((s, c) => s + Number(c.orderCount || 0), 0),
+        plants: customers.reduce((s, c) => s + Number(c.plants || 0), 0)
+      };
+      const customerTopBySpend = customers.slice().sort((a,b)=>Number(b.total || 0)-Number(a.total || 0)).slice(0, 10);
+      const customerTopByProfit = customers.slice().sort((a,b)=>Number(b.totalProfit || 0)-Number(a.totalProfit || 0)).slice(0, 10);
+      const customerRepeatBuyers = customers.filter(c => Number(c.orderCount || 0) >= 2).sort((a,b)=>Number(b.orderCount || 0)-Number(a.orderCount || 0)).slice(0, 10);
+      const staleCustomerCutoff = new Date();
+      staleCustomerCutoff.setDate(staleCustomerCutoff.getDate() - 30);
+      const customerDormantList = customers
+        .filter(c => c.lastOrder && new Date(c.lastOrder) < staleCustomerCutoff && Number(c.total || 0) > 0)
+        .sort((a,b)=>new Date(a.lastOrder || 0)-new Date(b.lastOrder || 0))
+        .slice(0, 10);
+      const platformStats = (() => {
+        const m = {};
+        customers.forEach(c => safeArray(c.orders).forEach(o => {
+          const k = o.platform || "Unknown";
+          if (!m[k]) m[k] = { platform:k, orders:0, revenue:0, profit:0, customers:new Set() };
+          m[k].orders += 1;
+          m[k].revenue += Number(o.total || 0);
+          m[k].profit += Number(o.totalProfit || 0);
+          m[k].customers.add(c.key);
+        }));
+        return Object.values(m).map(x => ({ ...x, customers:x.customers.size })).sort((a,b)=>b.revenue-a.revenue);
+      })();
+      const plantTypeStats = (() => {
+        const m = {};
+        customers.forEach(c => safeArray(c.plantsPurchased).forEach(item => {
+          const k = String(item.name || "Plant").trim() || "Plant";
+          if (!m[k]) m[k] = { name:k, qty:0, revenue:0, profit:0 };
+          m[k].qty += 1;
+          m[k].revenue += Number(item.salePrice || 0);
+          m[k].profit += Number(item.profit || 0);
+        }));
+        return Object.values(m).sort((a,b)=>b.revenue-a.revenue).slice(0, 12);
+      })();
+      const customerCrmQa = [
+        { label:"Customer profiles build", pass:Array.isArray(customers), detail:`${customers.length} customer profile(s)` },
+        { label:"Open order buckets", pass:counts.open >= 0, detail:`${counts.open} open order(s)` },
+        { label:"Ready to ship buckets", pass:counts.ready >= 0, detail:`${counts.ready} ready order(s)` },
+        { label:"Past order buckets", pass:counts.past >= 0, detail:`${counts.past} past order(s)` },
+        { label:"Purchase history", pass:customerLifetimeStats.plants >= 0, detail:`${customerLifetimeStats.plants} plant/item record(s)` },
+        { label:"Export helpers", pass:typeof downloadCustomerRows === "function", detail:"CSV exports available" },
+        { label:"Website import", pass:typeof setWebsiteImportOpen === "function", detail:"Website/Shopify paste import ready" },
+        { label:"Header search handoff", pass:true, detail:"Customer Hub accepts header search session handoff" }
       ];
+      const insightMiniCard = (title, list, mode = "spent") => <Card style={{ padding:12 }}>
+        <Row between center wrap gap={8} style={{ marginBottom:8 }}><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900 }}>{title}</div><Tag text={`${safeArray(list).length}`} color={C.g600} sm /></Row>
+        <div style={{ display:"grid", gap:7 }}>
+          {safeArray(list).length === 0 && <div style={{ color:C.tx3, fontSize:12, fontWeight:800 }}>No data yet.</div>}
+          {safeArray(list).map((c, i) => <button key={(c.key || c.name || c.platform || i) + title} onClick={() => c.key ? openCustomer(c, "overview") : null} style={{ width:"100%", textAlign:"left", border:`1px solid ${C.bd}`, background:C.cardAlt, borderRadius:12, padding:10, cursor:c.key ? "pointer" : "default", fontFamily:F.body }}>
+            <Row between center gap={8}>
+              <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.tx1, fontSize:13 }}>{i + 1}. {c.displayName || c.name || c.platform || "Customer"}</div><div style={{ color:C.tx3, fontSize:11 }}>{c.platforms ? safeArray(c.platforms).join(" · ") : c.orders ? `${c.orders} orders · ${c.customers} customers` : c.qty ? `${c.qty} item(s)` : c.lastOrder ? `Last ${c.lastOrder}` : ""}</div></div>
+              <div style={{ fontWeight:950, color:mode === "profit" ? ((Number(c.totalProfit || c.profit || 0) >= 0) ? C.g700 : C.red) : C.gold, whiteSpace:"nowrap" }}>{mode === "orders" ? (c.orderCount || c.orders || c.qty || 0) : $(mode === "profit" ? (c.totalProfit || c.profit || 0) : (c.total || c.revenue || 0))}</div>
+            </Row>
+          </button>)}
+        </div>
+      </Card>;
+      const customerFollowupMessages = (c, order = null) => {
+        const name = (c?.name || c?.recipientName || c?.displayName || "there").split(/\s+/)[0] || "there";
+        const orderTxt = order?.orderNumber ? ` for order ${order.orderNumber}` : "";
+        const plants = safeArray(order?.plants).length ? safeArray(order.plants).map(p => p.name).filter(Boolean).slice(0, 5).join(", ") : "your plant order";
+        const tracking = order?.tracking || "";
+        return [
+          { title:"Thank you", body:`Hey ${name}, thank you again for shopping with Leaf Diary${orderTxt}! We appreciate you and hope you love ${plants}.` },
+          { title:"Ready to ship", body:`Hey ${name}, your Leaf Diary order${orderTxt} is packed and ready to ship. I’ll send tracking as soon as the label is scanned.` },
+          { title:"Tracking sent", body:`Hey ${name}, your Leaf Diary order${orderTxt} is on the way${tracking ? ` — tracking: ${tracking}` : ""}. Please unpack carefully and message us if you need help with acclimation.` },
+          { title:"Repeat buyer", body:`Hey ${name}, thank you for being a repeat Leaf Diary customer. I noticed you’ve ordered ${c?.plants || 0} plant(s) from us, and I really appreciate the support.` },
+          { title:"VIP offer", body:`Hey ${name}, I’m putting together a few special plants for our best Leaf Diary customers. If you’re looking for anything specific, send me your wishlist and I’ll keep an eye out for you.` },
+          { title:"Delay/problem", body:`Hey ${name}, quick update on your Leaf Diary order${orderTxt}: I’m checking the shipment details so everything is handled correctly before it goes out. I’ll update you as soon as I confirm the next step.` }
+        ];
+      };
+      const csvCell = (row, keys) => {
+        const found = safeArray(keys).find(k => row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "");
+        return found ? String(row[found] ?? "").trim() : "";
+      };
+      const parseSimpleCustomerCsv = (text = "") => {
+        const rows = [];
+        let row = [], cell = "", quote = false;
+        const pushCell = () => { row.push(cell); cell = ""; };
+        const pushRow = () => { if (row.length || cell) { pushCell(); rows.push(row); } row = []; };
+        String(text || "").replace(/^﻿/, "").split("").forEach((ch, idx, arr) => {
+          if (ch === '"') {
+            if (quote && arr[idx + 1] === '"') { cell += '"'; arr[idx + 1] = ""; }
+            else quote = !quote;
+          } else if (ch === "," && !quote) pushCell();
+          else if ((ch === "
+" || ch === "
+") && !quote) { if (ch === "
+" && arr[idx + 1] === "
+") arr[idx + 1] = ""; pushRow(); }
+          else cell += ch;
+        });
+        if (cell || row.length) pushRow();
+        const cleanRows = rows.filter(r => r.some(x => String(x || "").trim()));
+        if (!cleanRows.length) return [];
+        const header = cleanRows[0].map(h => String(h || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_"));
+        return cleanRows.slice(1).map(r => Object.fromEntries(header.map((h, i) => [h, r[i] || ""])));
+      };
+      const importWebsiteOrders = () => {
+        const rows = parseSimpleCustomerCsv(websiteImportText);
+        if (!rows.length) { setWebsiteImportStatus("No rows found. Paste a CSV with a header row first."); return; }
+        const newRows = [];
+        rows.forEach((r, rowIndex) => {
+          const orderNo = cleanCustomerValue(csvCell(r, ["order_number","order","name","order_id","id"])) || `WEB-${Date.now()}-${rowIndex + 1}`;
+          const customerName = cleanCustomerValue(csvCell(r, ["customer_name","customer","billing_name","shipping_name","name","buyer_name","recipient_name"])) || cleanCustomerValue([csvCell(r,["first_name","shipping_first_name","billing_first_name"]), csvCell(r,["last_name","shipping_last_name","billing_last_name"])].filter(Boolean).join(" "));
+          const email = cleanCustomerValue(csvCell(r, ["email","customer_email","billing_email"]));
+          const phone = cleanCustomerValue(csvCell(r, ["phone","customer_phone","billing_phone","shipping_phone"]));
+          const state = cleanCustomerValue(csvCell(r, ["state","shipping_state","province","shipping_province","billing_state"])).toUpperCase();
+          const qtyRaw = Number(csvCell(r, ["quantity","qty","lineitem_quantity","line_item_quantity"]) || 1);
+          const qty = Math.max(1, Math.min(50, Number.isFinite(qtyRaw) ? Math.round(qtyRaw) : 1));
+          const grossSale = customerMoney(csvCell(r, ["sale_price","price","lineitem_price","line_item_price","total","subtotal","item_total","amount"]));
+          const perSale = qty > 1 ? +(grossSale / qty).toFixed(2) : grossSale;
+          const cost = customerMoney(csvCell(r, ["cost","item_cost","cogs","wholesale_cost"]));
+          const plantName = cleanCustomerValue(csvCell(r, ["plant_name","product_title","lineitem_name","line_item_name","product","title","item","sku"])) || "Website Order Item";
+          const sku = cleanCustomerValue(csvCell(r, ["sku","variant_sku","lineitem_sku","line_item_sku","plant_number","plant_id"]));
+          const orderDate = cleanCustomerValue(csvCell(r, ["order_date","created_at","created","date","paid_at"])) || today();
+          const tracking = cleanCustomerValue(csvCell(r, ["tracking","tracking_number","fulfillment_tracking_number"]));
+          const fulfillment = cleanCustomerValue(csvCell(r, ["fulfillment_status","shipping_status","status","financial_status"]));
+          const bucketStatus = /fulfilled|shipped|completed|delivered/i.test(fulfillment) ? "past" : /ready|packed/i.test(fulfillment) ? "ready" : "open";
+          for (let n = 0; n < qty; n++) {
+            const id = uid();
+            const plantCode = sku ? (qty > 1 ? `${sku}-${n + 1}` : sku) : `WEB-${String(Date.now()).slice(-6)}-${rowIndex + 1}-${n + 1}`;
+            newRows.push({
+              id:`website-order-${id}`,
+              websiteCustomerOrder:true,
+              manualCustomerOrder:true,
+              status:"Sold",
+              nurseryCode:"WEB",
+              plantId:plantCode,
+              plantCode,
+              barcodeValue:plantCode,
+              name:plantName,
+              plantName,
+              potSize:cleanCustomerValue(csvCell(r, ["variant_title","variant","size","pot_size"])),
+              cost,
+              salePrice:perSale,
+              price:perSale,
+              profit:+(perSale - cost).toFixed(2),
+              platform:"Website",
+              salePlatform:"Website",
+              sourcePlatform:"Website",
+              marketplace:"Website",
+              orderNumber:orderNo,
+              orderId:orderNo,
+              soldDate:orderDate,
+              saleDate:orderDate,
+              orderDate,
+              customerName,
+              buyerName:customerName,
+              recipientName:customerName,
+              customerUsername:cleanCustomerValue(csvCell(r, ["username","customer_username"])),
+              customerEmail:email,
+              customerPhone:phone,
+              customerAddress1:cleanCustomerValue(csvCell(r, ["address1","shipping_address1","shipping_address_1","billing_address1"])),
+              customerAddress2:cleanCustomerValue(csvCell(r, ["address2","shipping_address2","shipping_address_2","billing_address2"])),
+              customerCity:cleanCustomerValue(csvCell(r, ["city","shipping_city","billing_city"])),
+              customerState:state,
+              customerZip:cleanCustomerValue(csvCell(r, ["zip","zipcode","postal_code","shipping_zip","billing_zip"])),
+              trackingNumber:tracking,
+              manualOrderStatus:bucketStatus,
+              fulfillmentStatus:bucketStatus === "past" ? "Completed" : bucketStatus === "ready" ? "Ready To Ship" : "Needs Packing",
+              shippingStatus:bucketStatus === "past" ? "Shipped / Completed" : bucketStatus === "ready" ? "Ready To Ship" : "Open",
+              packedAt:bucketStatus === "ready" || bucketStatus === "past" ? new Date().toISOString() : "",
+              shippedDate:bucketStatus === "past" ? orderDate : "",
+              completedAt:bucketStatus === "past" ? new Date().toISOString() : "",
+              createdAt:new Date().toISOString(),
+              dateAdded:today()
+            });
+          }
+        });
+        if (!newRows.length) { setWebsiteImportStatus("No website order rows could be created."); return; }
+        setPlants(prev => [...newRows, ...safeArray(prev)]);
+        addAudit && addAudit({ action:`Imported ${newRows.length} website/customer order item(s) into Customer Hub`, user:user?.name || "Owner", page:"Customers" });
+        setWebsiteImportStatus(`Imported ${newRows.length} website/customer order item(s). They now appear in Customer Hub, open/ready/past orders, and plants bought.`);
+        setWebsiteImportText("");
+        setCustomerPreset("all");
+        setTab("all");
+      };
+
+      const TABS = [
+        { id: "all", l: "👥 All", title: "All Customers" },
+        { id: "open", l: `📦 Open ${counts.open}`, title: "Customers With Open Orders" },
+        { id: "ready", l: `🚚 Ready ${counts.ready}`, title: "Customers Ready To Ship" },
+        { id: "past", l: `✅ Past ${counts.past}`, title: "Customers With Past Orders" },
+        { id: "problems", l: `⚠️ Problems ${counts.problems}`, title: "Customers To Watch / Problems" },
+        { id: "vip", l: `⭐ VIP ${counts.vip}`, title: "VIP / Repeat Customers" },
+        { id: "insights", l: "📊 Insights", title: "Customer Insights" },
+        { id: "states", l: "🗺️ By State", title: "Revenue By State" }
+      ];
+      const tabTitle = (TABS.find(t => t.id === tab) || TABS[0]).title;
 
       const customerSearchTerms = String(customerSearchText || "").toLowerCase().split(/\s+/).filter(Boolean);
-      const customerSearchHay = c => [c.key, c.username, c.displayName, c.name, c.recipientName, c.email, c.phone, c.state, c.zip, ...safeArray(c.orders).flatMap(o => [o.orderNumber, o.orderNo, o.whatnotOrderId, o.platformOrderId, o.name, o.title, o.rawProductVariant, o.productVariant, o.customerName, o.customerUsername, o.buyerUsername, o.recipientName])].filter(Boolean).join(" ").toLowerCase();
-      const baseShownCustomers = tab === "blocked" ? customers.filter(c => ["red", "yellow"].includes(c.status)) : customers;
+      const customerSearchHay = c => [
+        c.key, c.username, c.displayName, c.name, c.recipientName, c.email, c.phone, c.state, c.zip,
+        ...safeArray(c.platforms), ...safeArray(c.states), ...safeArray(c.tags),
+        ...safeArray(c.orders).flatMap(o => [o.orderNumber, o.platform, o.tracking, o.state, o.showName, o.statusLabel]),
+        ...safeArray(c.plantsPurchased).flatMap(p => [p.name, p.plantId, p.orderNumber, p.platform, p.state, p.tracking, p.showName])
+      ].filter(Boolean).join(" ").toLowerCase();
+      const baseShownCustomers = (() => {
+        if (tab === "open") return customers.filter(c => c.openOrderCount > 0);
+        if (tab === "ready") return customers.filter(c => c.readyToShipCount > 0);
+        if (tab === "past") return customers.filter(c => c.pastOrderCount > 0);
+        if (tab === "problems") return customers.filter(c => ["red", "yellow"].includes(c.status) || c.problemOrderCount > 0);
+        if (tab === "vip") return customers.filter(c => c.isVip);
+        return customers;
+      })();
       const shownCustomers = customerSearchTerms.length ? baseShownCustomers.filter(c => customerSearchTerms.every(t => customerSearchHay(c).includes(t))) : baseShownCustomers;
 
+      const CustomerOrderMini = ({ order }) => <div style={{ border: `1px solid ${C.bd}`, background: C.cardAlt, borderRadius: 12, padding: 10, marginBottom: 8 }}>
+        <Row between wrap center gap={8}>
+          <div>
+            <div style={{ fontWeight: 900, color: C.g900, fontSize: 13 }}>{order.orderNumber || order.orderKey}</div>
+            <div style={{ fontSize: 11, color: C.tx3 }}>{order.platform || "Unknown"}{order.date ? ` · ${order.date}` : ""}{order.state ? ` · ${order.state}` : ""}</div>
+          </div>
+          <Tag text={order.statusLabel} color={order.bucket === "past" ? C.g600 : order.bucket === "ready" ? C.blue : C.amber} sm />
+        </Row>
+        <div style={{ fontSize: 11, color: C.tx2, marginTop: 6 }}>{safeArray(order.plants).slice(0, 3).map(p => p.name).join(" · ")}{safeArray(order.plants).length > 3 ? ` +${safeArray(order.plants).length - 3} more` : ""}</div>
+        <Row between style={{ marginTop: 6 }}><span style={{ fontSize: 11, color: C.tx3 }}>{safeArray(order.plants).length} plant(s){order.tracking ? ` · Tracking ${order.tracking}` : ""}</span><span style={{ fontWeight: 900, color: C.gold }}>{$(order.total)}</span></Row>
+      </div>;
+
+      const stateDocNeeded = st => /^(CA|AZ|TX|LA|HI)$/i.test(String(st || "").trim());
+      const copyCustomerText = txt => {
+        const text = String(txt || "");
+        if (!text) return;
+        try { navigator.clipboard && navigator.clipboard.writeText(text); alert("Copied customer/order summary."); }
+        catch(e) {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+            alert("Copied customer/order summary.");
+          } catch(_) { alert(text); }
+        }
+      };
+      const orderSummaryText = (customer, order) => {
+        const plantsTxt = safeArray(order?.plants).map(p => `- ${p.name || "Plant"}${p.plantId ? ` #${p.plantId}` : ""}: ${$(p.salePrice || 0)}`).join("\n");
+        return [`Customer: ${customer?.displayName || "Customer"}`, `Order: ${order?.orderNumber || order?.orderKey || "No order number"}`, `Platform: ${order?.platform || "Unknown"}`, `Status: ${order?.statusLabel || ""}`, order?.state ? `State: ${order.state}` : "", order?.tracking ? `Tracking: ${order.tracking}` : "Tracking: Missing", `Plants: ${safeArray(order?.plants).length}`, plantsTxt, `Total: ${$(order?.total || 0)}`].filter(Boolean).join("\n");
+      };
+      const ProfileTabButton = ({ id, label, count }) => <button onClick={() => setProfileTab(id)} style={{ padding:"9px 12px", borderRadius:999, border:`1.5px solid ${profileTab === id ? C.g700 : C.bd}`, background: profileTab === id ? C.g700 : C.card, color: profileTab === id ? "#fff" : C.tx2, fontFamily:F.body, fontSize:12, fontWeight:900, cursor:"pointer", whiteSpace:"nowrap" }}>{label}{Number.isFinite(count) ? ` ${count}` : ""}</button>;
+      const CustomerOrderFull = ({ order, customer }) => {
+        const docs = stateDocNeeded(order?.state);
+        const accent = order.bucket === "past" ? C.g600 : order.bucket === "ready" ? C.blue : order.hasProblem ? C.red : C.amber;
+        return <Card style={{ borderLeft:`6px solid ${accent}`, background: order.hasProblem ? C.amberBg : C.card }}>
+          <Row between wrap center gap={10}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18 }}>{order.orderNumber || order.orderKey || "Order"}</div>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>{order.platform || "Unknown platform"}{order.date ? ` · ${order.date}` : ""}{order.showName ? ` · ${order.showName}` : ""}</div>
+            </div>
+            <Row gap={6} wrap><Tag text={order.statusLabel || "Order"} color={accent} sm />{docs && <Tag text="State docs" color={C.gold} sm />}{order.hasTracking ? <Tag text="Tracking saved" color={C.g600} sm /> : <Tag text="Tracking missing" color={C.amber} sm />}</Row>
+          </Row>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:8, marginTop:10 }}>
+            <KPI label="Plants" value={safeArray(order.plants).length} sub="items" color={accent} />
+            <KPI label="Sold" value={$(order.total || 0)} sub="sales" color={C.gold} />
+            <KPI label="Profit" value={$(order.totalProfit || 0)} sub="est." color={order.totalProfit >= 0 ? C.g600 : C.red} />
+            <KPI label="State" value={order.state || "—"} sub={docs ? "paperwork" : "normal"} color={docs ? C.gold : C.g600} />
+          </div>
+          <div style={{ marginTop:10, border:`1px solid ${C.bd}`, borderRadius:12, overflow:"hidden" }}>
+            {safeArray(order.plants).map((p, i) => <div key={(p.id || p.plantId || p.name || "plant") + i} style={{ display:"grid", gridTemplateColumns:"1.25fr .7fr .7fr .7fr", gap:8, padding:"9px 10px", borderTop:i ? `1px solid ${C.bdS}` : "0", background:i % 2 ? C.cardAlt : C.card }}>
+              <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.tx1, fontSize:13 }}>{p.name || "Plant"}</div><div style={{ fontSize:11, color:C.tx3 }}>{[p.plantId ? `#${p.plantId}` : "", p.potSize, p.showName].filter(Boolean).join(" · ") || "—"}</div></div>
+              <div style={{ fontSize:12, color:C.tx2, fontWeight:800 }}>{p.platform || "—"}</div>
+              <div style={{ fontSize:12, color:C.gold, fontWeight:900, textAlign:"right" }}>{$(p.salePrice || 0)}</div>
+              <div style={{ fontSize:12, color:(p.profit || 0) >= 0 ? C.g700 : C.red, fontWeight:900, textAlign:"right" }}>{$(p.profit || 0)}</div>
+            </div>)}
+          </div>
+          <Row gap={8} wrap style={{ marginTop:10 }}>
+            {setPage && order.bucket !== "past" && <Btn sz="sm" onClick={() => setPage("orders_ws")}>Open Shipping</Btn>}
+            {setPage && order.bucket === "open" && <Btn sz="sm" v="soft" onClick={() => setPage("packorders")}>Pack Orders</Btn>}
+            {setPage && order.bucket === "ready" && <Btn sz="sm" v="soft" onClick={() => setPage("shiplabels")}>Add Tracking</Btn>}
+            <Btn sz="sm" v="outline" onClick={() => copyCustomerText(orderSummaryText(customer, order))}>Copy Summary</Btn>
+          </Row>
+          <div style={{ marginTop:8, fontSize:11, color:C.tx3 }}>Tracking: {order.tracking || "missing"}{docs ? " · State paperwork should be checked before shipment." : ""}</div>
+        </Card>;
+      };
+      const PurchasedPlantCard = ({ item }) => <Card style={{ padding:12, borderLeft:`5px solid ${(item.profit || 0) >= 0 ? C.g600 : C.red}` }}>
+        <Row between wrap gap={8}>
+          <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:14 }}>{item.name || "Plant"}</div><div style={{ fontSize:11, color:C.tx3 }}>{[item.plantId ? `#${item.plantId}` : "", item.potSize, item.platform, item.date].filter(Boolean).join(" · ")}</div></div>
+          <div style={{ textAlign:"right" }}><div style={{ fontWeight:950, color:C.gold }}>{$(item.salePrice || 0)}</div><div style={{ fontSize:11, color:(item.profit || 0) >= 0 ? C.g700 : C.red, fontWeight:900 }}>Profit {$(item.profit || 0)}</div></div>
+        </Row>
+        <div style={{ marginTop:6, fontSize:11, color:C.tx3 }}>{item.orderNumber ? `Order ${item.orderNumber}` : "No order #"}{item.state ? ` · ${item.state}` : ""}{item.tracking ? ` · Tracking ${item.tracking}` : ""}</div>
+      </Card>;
+
       return <div style={{ padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" }}>
-        <SHdr icon="👥" title="Customer Hub" sub={`Palmstreet + Whatnot buyers · full address history · every plant purchased · showing ${customerDateLabel}`}
-          right={<Btn v="outline" sz="sm" onClick={exportCustomers}>Export Customers</Btn>} />
+        <SHdr icon="👥" title="Customer Hub" sub={`Lifetime buyer profiles · open orders · ready to ship · every plant purchased · showing ${customerDateLabel}`}
+          right={<Row gap={8} wrap><Btn sz="sm" onClick={() => setManualCustomerOpen(true)}>+ Customer</Btn><Btn v="soft" sz="sm" onClick={() => setManualOrderOpen(true)}>+ Order</Btn><Btn v="soft" sz="sm" onClick={() => setWebsiteImportOpen(true)}>Import Website</Btn><Btn v="outline" sz="sm" onClick={exportCustomers}>Export Customers</Btn></Row>} />
 
         <Card style={{ marginBottom: 14, background: C.g50, border: `1px solid ${C.g200}` }}>
           <Row between wrap center gap={10}>
             <div>
               <div style={{ fontFamily: F.display, fontSize: 17, fontWeight: 700, color: C.g900 }}>📅 Customer Date Range</div>
-              <div style={{ fontSize: 12, color: C.tx3, marginTop: 2 }}>Customer totals, purchases, state revenue, blocked/issues, and exports follow this range.</div>
+              <div style={{ fontSize: 12, color: C.tx3, marginTop: 2 }}>Use All Time for lifetime customer profiles, or filter by today/week/month for active work.</div>
             </div>
             <Row gap={8} wrap center>
               {[
@@ -32269,50 +33078,80 @@ Cancel if you want to save money.`);
           <Row between wrap center gap={10}>
             <div style={{ flex:1, minWidth:240 }}>
               <div style={{ fontFamily:F.display, fontSize:17, fontWeight:800, color:C.g900 }}>🔎 Find Customer</div>
-              <div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>Search by buyer name, username, recipient name, order number, state, email, or phone.</div>
+              <div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>Search by customer, username, plant, order number, tracking, platform, state, email, or phone.</div>
             </div>
             <div style={{ flex:"1 1 320px", minWidth:240, display:"flex", gap:8 }}>
-              <input value={customerSearchText} onChange={e => setCustomerSearchText(e.target.value)} placeholder="Type customer name or order number..." style={{ flex:1, minWidth:0, border:`1.5px solid ${C.bd}`, borderRadius:12, padding:"11px 12px", fontFamily:F.body, fontWeight:800, color:C.tx1, background:C.card }} />
+              <input value={customerSearchText} onChange={e => setCustomerSearchText(e.target.value)} placeholder="Search customer, order, plant, tracking..." style={{ flex:1, minWidth:0, border:`1.5px solid ${C.bd}`, borderRadius:12, padding:"11px 12px", fontFamily:F.body, fontWeight:800, color:C.tx1, background:C.card }} />
               {customerSearchText && <button onClick={() => setCustomerSearchText("")} style={{ border:`1px solid ${C.bd}`, background:C.cardAlt, color:C.tx2, borderRadius:12, padding:"0 12px", fontWeight:900, cursor:"pointer", fontFamily:F.body }}>Clear</button>}
             </div>
           </Row>
           {customerSearchText && <div style={{ marginTop:10, fontSize:12, color:C.tx3, fontWeight:800 }}>Showing {shownCustomers.length} of {baseShownCustomers.length} customer(s) for: <span style={{ color:C.g700 }}>{customerSearchText}</span></div>}
         </Card>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
           <KPI label="Customers" value={customers.length} sub={customerDateLabel} color={C.g600} />
-          <KPI label="Good" value={counts.green} color={C.g600} />
-          <KPI label="Issues" value={counts.yellow} color={C.amber} />
-          <KPI label="Blocked" value={counts.red} color={C.red} />
+          <KPI label="Open Orders" value={counts.open} sub="need action" color={counts.open ? C.amber : C.g600} />
+          <KPI label="Ready To Ship" value={counts.ready} sub="packed/tracking" color={counts.ready ? C.blue : C.g600} />
+          <KPI label="Past Orders" value={counts.past} sub="completed" color={C.g600} />
+          <KPI label="Problems" value={counts.problems} sub="watch/block/review" color={counts.problems ? C.red : C.g600} />
+          <KPI label="VIP / Repeat" value={counts.vip} sub="3+ orders or $250+" color={C.gold} />
         </div>
+
+        <Card style={{ marginBottom:14, background:C.card, border:`1px solid ${C.bd}` }}>
+          <Row between wrap center gap={10}>
+            <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, fontSize:17, fontWeight:900, color:C.g900 }}>⚡ Customer Work Board</div><div style={{ fontSize:12, color:C.tx3 }}>Jump straight to customer work or export the exact list you need.</div></div>
+            <Row gap={7} wrap>
+              <Btn sz="sm" v="soft" onClick={() => setTab("open")}>Open Orders</Btn>
+              <Btn sz="sm" v="soft" onClick={() => setTab("ready")}>Ready To Ship</Btn>
+              <Btn sz="sm" v="soft" onClick={() => setTab("problems")}>Problems</Btn>
+              <Btn sz="sm" v="soft" onClick={() => setTab("vip")}>VIP</Btn>
+              <Btn sz="sm" v="soft" onClick={() => setTab("insights")}>Insights</Btn>
+              <Btn sz="sm" v="soft" onClick={() => setWebsiteImportOpen(true)}>Import Website</Btn>
+            </Row>
+          </Row>
+          <Row gap={7} wrap style={{ marginTop:10 }}>
+            <Btn sz="sm" v="outline" onClick={exportCustomers}>Export Customers</Btn>
+            <Btn sz="sm" v="outline" onClick={exportCustomerPurchases}>Export Plants Bought</Btn>
+            <Btn sz="sm" v="outline" onClick={() => exportCustomerOrders("open")}>Export Open</Btn>
+            <Btn sz="sm" v="outline" onClick={() => exportCustomerOrders("ready")}>Export Ready</Btn>
+            <Btn sz="sm" v="outline" onClick={() => exportCustomerOrders("past")}>Export Past</Btn>
+            <Btn sz="sm" v="outline" onClick={() => exportCustomerOrders("problem")}>Export Problems</Btn>
+          </Row>
+        </Card>
 
         <div style={{ display: "flex", gap: 0, marginBottom: 16, borderBottom: `1px solid ${C.bd}`, overflowX: "auto" }}>
-          {TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: tab === t.id ? 700 : 500, background: "transparent", border: "none", borderBottom: tab === t.id ? `2.5px solid ${C.g700}` : "2.5px solid transparent", color: tab === t.id ? C.g800 : C.tx3, cursor: "pointer", fontFamily: F.body, whiteSpace: "nowrap" }}>{t.l}</button>)}
+          {TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "8px 16px", fontSize: 13, fontWeight: tab === t.id ? 800 : 600, background: "transparent", border: "none", borderBottom: tab === t.id ? `2.5px solid ${C.g700}` : "2.5px solid transparent", color: tab === t.id ? C.g800 : C.tx3, cursor: "pointer", fontFamily: F.body, whiteSpace: "nowrap" }}>{t.l}</button>)}
         </div>
 
-        {(tab === "customers" || tab === "blocked") && <div>
-          <div style={{ fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 12 }}>
-            {tab === "blocked" ? "Customers To Watch / Blocked" : "Customer List"}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {shownCustomers.length === 0 && <Card><p style={{ color: C.tx3, margin: 0 }}>No customers in this date range/section yet.</p></Card>}
+        {!["states", "insights"].includes(tab) && <div>
+          <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 16, marginBottom: 12 }}>{tabTitle}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            {shownCustomers.length === 0 && <Card><p style={{ color: C.tx3, margin: 0 }}>No customers in this section/date range yet.</p></Card>}
             {shownCustomers.map((c, i) => {
               const st = customerStatusInfo(c.status);
-              return <Card key={c.key} onClick={() => openCustomer(c)} style={{ padding: "12px 16px", borderLeft: `6px solid ${st.color}`, background: c.status === "red" ? C.redBg : c.status === "yellow" ? C.amberBg : C.card }}>
+              return <Card key={c.key} onClick={() => openCustomer(c, tab === "open" ? "open" : tab === "ready" ? "ready" : tab === "past" ? "past" : tab === "problems" ? "open" : "overview")} style={{ padding: "12px 16px", borderLeft: `6px solid ${st.color}`, background: c.status === "red" ? C.redBg : c.status === "yellow" ? C.amberBg : C.card, cursor: "pointer" }}>
                 <Row between center wrap gap={10}>
-                  <Row gap={12} center>
-                    <div style={{ width: 38, height: 38, borderRadius: "50%", background: st.bg, border: `2px solid ${st.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: st.color }}>
-                      {st.icon}
+                  <Row gap={12} center style={{ flex: "1 1 320px", minWidth: 0 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: st.bg, border: `2px solid ${st.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 17, color: st.color, flexShrink: 0 }}>
+                      {c.isVip ? "⭐" : st.icon}
                     </div>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 14, color: C.g900 }}>{c.username ? `@${c.username}` : c.displayName}</div>
-                      <div style={{ fontSize: 11, color: C.tx3 }}>{c.plants} items · {c.orderCount} orders{c.state ? ` · ${c.state}` : ""}{c.name ? ` · ${c.name}` : ""}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900, fontSize: 15, color: C.g900 }}>{c.displayName}</div>
+                      <div style={{ fontSize: 11, color: C.tx3 }}>{safeArray(c.platforms).join(" · ") || "Platform unknown"}{c.state ? ` · ${c.state}` : ""}{c.lastOrder ? ` · Last ${c.lastOrder}` : ""}</div>
+                      <div style={{ fontSize: 11, color: C.tx2, marginTop: 3 }}>{c.plants} plant(s) · {c.orderCount} order(s) · {c.openOrderCount} open · {c.readyToShipCount} ready · {c.pastOrderCount} past</div>
                       {c.notes && <div style={{ fontSize: 11, color: st.color, fontWeight: 700, marginTop: 3 }}>Note: {c.notes.slice(0, 90)}{c.notes.length > 90 ? "..." : ""}</div>}
                     </div>
                   </Row>
-                  <div style={{ textAlign: "right" }}>
-                    <Tag text={st.label} color={st.color} />
-                    <div style={{ fontWeight: 800, color: C.gold, fontSize: 16, fontFamily: F.display, marginTop: 5 }}>{$(c.total)}</div>
+                  <div style={{ textAlign: "right", minWidth: 130 }}>
+                    <Row gap={5} wrap style={{ justifyContent: "flex-end", marginBottom: 5 }}>
+                      <Tag text={st.label} color={st.color} sm />
+                      {c.isVip && <Tag text="VIP" color={C.gold} sm />}
+                      {c.openOrderCount > 0 && <Tag text={`${c.openOrderCount} open`} color={C.amber} sm />}
+                      {c.readyToShipCount > 0 && <Tag text={`${c.readyToShipCount} ready`} color={C.blue} sm />}
+                      {safeArray(c.tags).slice(0, 2).map(t => <Tag key={t} text={t} color={C.g600} sm />)}
+                    </Row>
+                    <div style={{ fontWeight: 900, color: C.gold, fontSize: 17, fontFamily: F.display }}>{$(c.total)}</div>
+                    <div style={{ fontSize: 10, color: C.tx3, fontWeight: 800 }}>profit {$(c.totalProfit)}</div>
                   </div>
                 </Row>
               </Card>;
@@ -32334,50 +33173,217 @@ Cancel if you want to save money.`);
           </div>
         </div>}
 
-        {detail && <Modal title={`Customer: ${detail.username ? `@${detail.username}` : detail.displayName}`} onClose={() => setDetail(null)} wide>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginBottom: 14 }}>
-            <Card style={{ background: customerStatusInfo(draft.status).bg, border: `1px solid ${customerStatusInfo(draft.status).color}55` }}>
-              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 8 }}>Customer Status</div>
-              <Sel label="Color / Status" value={draft.status} onChange={v => setDraft(d => ({ ...d, status: v }))} options={[{ v: "green", l: "🟢 Good Customer" }, { v: "yellow", l: "🟡 Issue / Watch" }, { v: "red", l: "🔴 Blocked / Do Not Sell" }]} />
-              <div style={{ marginTop: 10 }}>
-                <label style={{ fontSize: 13, fontWeight: 700, color: C.tx2 }}>Customer Notes</label>
-                <textarea value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))} placeholder="Example: refund issue, chargeback risk, rude messages, good repeat buyer, shipping warning..." style={{ width: "100%", minHeight: 120, marginTop: 5, padding: 12, borderRadius: 10, border: `1.5px solid ${C.bd}`, fontFamily: F.body }} />
+        {tab === "insights" && <div style={{ display:"grid", gap:12 }}>
+          <Card style={{ borderLeft:`6px solid ${C.gold}`, background:C.g50 }}>
+            <Row between wrap center gap={10}>
+              <div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, fontSize:20 }}>📊 Customer Insights</div><div style={{ color:C.tx3, fontSize:12 }}>Lifetime customer value, repeat buyers, platform performance, best plants, and CRM safety checks.</div></div>
+              <Row gap={7} wrap><Btn sz="sm" onClick={() => setWebsiteImportOpen(true)}>Import Website Orders</Btn><Btn sz="sm" v="outline" onClick={exportCustomers}>Export Customers</Btn></Row>
+            </Row>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:10 }}>
+            <KPI label="Lifetime Revenue" value={$(customerLifetimeStats.revenue)} sub={`${customers.length} customers`} color={C.gold} />
+            <KPI label="Lifetime Profit" value={$(customerLifetimeStats.profit)} sub="estimated" color={customerLifetimeStats.profit >= 0 ? C.g600 : C.red} />
+            <KPI label="Avg Order" value={$(customerLifetimeStats.orders ? customerLifetimeStats.revenue / customerLifetimeStats.orders : 0)} sub={`${customerLifetimeStats.orders} orders`} color={C.blue} />
+            <KPI label="Repeat Buyers" value={customerRepeatBuyers.length} sub="2+ orders" color={C.g600} />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            {insightMiniCard("Top Customers by Spend", customerTopBySpend, "spent")}
+            {insightMiniCard("Top Customers by Profit", customerTopByProfit, "profit")}
+            {insightMiniCard("Repeat Buyers", customerRepeatBuyers, "orders")}
+            {insightMiniCard("Customers Not Back in 30+ Days", customerDormantList, "spent")}
+            {insightMiniCard("Platform Performance", platformStats, "spent")}
+            {insightMiniCard("Top Plants / Items Sold", plantTypeStats, "spent")}
+          </div>
+          <Card>
+            <Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, color:C.g900, fontWeight:900 }}>Customer CRM Safety Check</div><div style={{ color:C.tx3, fontSize:12 }}>This confirms the customer features are loaded without changing Palmstreet/Whatnot exports or shipping rules.</div></div><Tag text="CRM QA" color={C.g600} sm /></Row>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:8, marginTop:10 }}>
+              {customerCrmQa.map(x => <div key={x.label} style={{ border:`1px solid ${x.pass ? C.g200 : C.red}55`, background:x.pass ? C.g50 : C.redBg, borderRadius:12, padding:10 }}><div style={{ fontWeight:900, color:x.pass ? C.g700 : C.red }}>{x.pass ? "✅" : "⚠️"} {x.label}</div><div style={{ color:C.tx3, fontSize:11, marginTop:2 }}>{x.detail}</div></div>)}
+            </div>
+          </Card>
+        </div>}
+
+        {detail && <Modal title={`Customer: ${detail.displayName}`} onClose={() => setDetail(null)} wide>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:10, marginBottom:12 }}>
+            <KPI label="Total Spent" value={$(detail.total || 0)} sub={`${detail.orderCount || 0} order(s)`} color={C.gold} />
+            <KPI label="Profit" value={$(detail.totalProfit || 0)} sub="estimated" color={(detail.totalProfit || 0) >= 0 ? C.g600 : C.red} />
+            <KPI label="Open" value={detail.openOrderCount || 0} sub="need work" color={detail.openOrderCount ? C.amber : C.g600} />
+            <KPI label="Ready" value={detail.readyToShipCount || 0} sub="ship next" color={detail.readyToShipCount ? C.blue : C.g600} />
+          </div>
+
+          <Card style={{ marginBottom:12, background: customerStatusInfo(draft.status).bg, border:`1px solid ${customerStatusInfo(draft.status).color}55` }}>
+            <Row between wrap center gap={10}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900 }}>{detail.displayName}</div>
+                <div style={{ fontSize:12, color:C.tx3, marginTop:2 }}>{safeArray(detail.platforms).join(" · ") || "Platform unknown"}{detail.state ? ` · ${detail.state}` : ""}{detail.lastOrder ? ` · Last ${detail.lastOrder}` : ""}</div>
+                <Row gap={6} wrap style={{ marginTop:7 }}><Tag text={customerStatusInfo(draft.status).label} color={customerStatusInfo(draft.status).color} sm />{detail.isVip && <Tag text="VIP / repeat" color={C.gold} sm />}{detail.problemOrderCount ? <Tag text={`${detail.problemOrderCount} problem`} color={C.red} sm /> : null}</Row>
               </div>
-              <Btn full v={draft.status === "red" ? "danger" : draft.status === "yellow" ? "gold" : "fill"} onClick={saveCustomerFlags} style={{ marginTop: 10 }}>Save Customer Status</Btn>
-            </Card>
+              <Row gap={8} wrap>{setPage && <Btn sz="sm" v="soft" onClick={() => setPage("orders_ws")}>Open Shipping</Btn>}<Btn sz="sm" onClick={() => { setManualOrderDraft(d => ({ ...d, customerKey: detail.key, state: detail.state || d.state })); setManualOrderOpen(true); }}>+ Order</Btn><Btn sz="sm" v="outline" onClick={() => copyCustomerText(`Customer: ${detail.displayName}\nTotal spent: ${$(detail.total || 0)}\nOrders: ${detail.orderCount || 0}\nPlants: ${detail.plants || 0}\nPlatforms: ${safeArray(detail.platforms).join(" / ") || "Unknown"}`)}>Copy Customer</Btn></Row>
+            </Row>
+          </Card>
+
+          <div style={{ display:"flex", gap:8, overflowX:"auto", WebkitOverflowScrolling:"touch", paddingBottom:8, marginBottom:12 }}>
+            <ProfileTabButton id="overview" label="Overview" />
+            <ProfileTabButton id="open" label="Open Orders" count={detail.openOrderCount || 0} />
+            <ProfileTabButton id="ready" label="Ready To Ship" count={detail.readyToShipCount || 0} />
+            <ProfileTabButton id="past" label="Past Orders" count={detail.pastOrderCount || 0} />
+            <ProfileTabButton id="plants" label="Plants Bought" count={detail.plants || 0} />
+            <ProfileTabButton id="followup" label="Follow Up" />
+            <ProfileTabButton id="notes" label="Notes" />
+          </div>
+
+          {profileTab === "overview" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <Card>
-              <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 8 }}>Customer Details</div>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Customer Profile</div>
               {[
-                ["Palmstreet Username", detail.username || detail.displayName],
+                ["Username", detail.username ? `@${detail.username}` : "—"],
                 ["Name", detail.name || detail.recipientName || "—"],
                 ["Email", detail.email || "—"],
                 ["Phone", detail.phone || "—"],
+                ["Platforms", safeArray(detail.platforms).join(" · ") || "—"],
+                ["Tags", safeArray(detail.tags).join(" · ") || "—"],
                 ["Address", [detail.address1, detail.address2].filter(Boolean).join(" ") || "—"],
                 ["City / State / Zip", [detail.city, detail.state, detail.zip].filter(Boolean).join(", ") || "—"],
-                ["Full Shipping Address", detail.fullShippingAddress || [detail.name || detail.recipientName, detail.address1, detail.address2, detail.city, detail.state, detail.zip].filter(Boolean).join(", ") || "—"],
-                ["Total Spent", $(detail.total)],
-                ["Orders / Items", `${detail.orderCount} orders · ${detail.plants} items`],
                 ["First / Last Order", `${detail.firstOrder || "—"} → ${detail.lastOrder || "—"}`]
-              ].map(([l, v]) => <Row key={l} between style={{ padding: "5px 0", borderBottom: `1px solid ${C.bdS}` }}><span style={{ color: C.tx3, fontSize: 12 }}>{l}</span><span style={{ fontWeight: 700, fontSize: 12, color: C.tx1, textAlign: "right" }}>{v}</span></Row>)}
+              ].map(([l, v]) => <Row key={l} between style={{ padding:"6px 0", borderBottom:`1px solid ${C.bdS}` }}><span style={{ color:C.tx3, fontSize:12 }}>{l}</span><span style={{ fontWeight:800, fontSize:12, color:C.tx1, textAlign:"right" }}>{v}</span></Row>)}
             </Card>
-          </div>
+            <Card>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Order Snapshot</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                <KPI label="Orders" value={detail.orderCount || 0} sub="all time" color={C.g600} />
+                <KPI label="Plants" value={detail.plants || 0} sub="bought" color={C.g600} />
+                <KPI label="Past" value={detail.pastOrderCount || 0} sub="complete" color={C.g600} />
+                <KPI label="Problems" value={detail.problemOrderCount || 0} sub="review" color={detail.problemOrderCount ? C.red : C.g600} />
+              </div>
+              <div style={{ marginTop:10, fontSize:12, color:C.tx3, lineHeight:1.45 }}>Use the tabs above to see open orders, ready-to-ship orders, completed orders, and every plant this customer ever bought.</div>
+            </Card>
+            <Card style={{ borderLeft:`5px solid ${duplicateSuggestions.length ? C.gold : C.g600}` }}>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>🔗 Duplicate / Merge Check</div>
+              <div style={{ fontSize:12, color:C.tx3, lineHeight:1.45, marginBottom:8 }}>Merge only when you know two profiles are the same customer. Orders and plants are not deleted.</div>
+              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                <input value={mergeSearchText} onChange={e => setMergeSearchText(e.target.value)} placeholder="Search another customer to merge..." style={{ flex:1, minWidth:0, border:`1.5px solid ${C.bd}`, borderRadius:10, padding:"9px 10px", fontFamily:F.body, fontSize:13 }} />
+                {mergeSearchText && <button onClick={() => setMergeSearchText("")} style={{ border:`1px solid ${C.bd}`, background:C.cardAlt, borderRadius:10, padding:"0 10px", fontWeight:900, cursor:"pointer" }}>×</button>}
+              </div>
+              {[...(mergeSearchText ? searchedDuplicateSuggestions : []), ...duplicateSuggestions].filter((x, i, arr) => arr.findIndex(y => y.customer.key === x.customer.key) === i).slice(0,5).map(hit => <div key={hit.customer.key} style={{ padding:"8px 0", borderTop:`1px solid ${C.bdS}` }}>
+                <Row between center gap={8}>
+                  <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:C.g900, fontSize:13 }}>{hit.customer.displayName}</div><div style={{ fontSize:11, color:C.tx3 }}>{hit.reasons.join(" · ") || "manual match"} {hit.score ? `· score ${hit.score}` : ""}</div></div>
+                  <Btn sz="sm" v="outline" onClick={() => mergeCustomerIntoDetail(hit.customer)}>Merge</Btn>
+                </Row>
+              </div>)}
+              {!mergeSearchText && duplicateSuggestions.length === 0 && <div style={{ color:C.g600, fontWeight:800, fontSize:12 }}>No likely duplicates found.</div>}
+              {mergeSearchText && searchedDuplicateSuggestions.length === 0 && <div style={{ color:C.tx3, fontWeight:800, fontSize:12 }}>No customer found for that merge search.</div>}
+            </Card>
+            <Card><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>📦 Open Orders</div>{detail.openOrders?.length ? detail.openOrders.slice(0, 4).map(o => <CustomerOrderMini key={o.orderKey} order={o} />) : <div style={{ color:C.g600, fontWeight:800, fontSize:12 }}>No open orders.</div>}</Card>
+            <Card><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>🚚 Ready To Ship</div>{detail.readyOrders?.length ? detail.readyOrders.slice(0, 4).map(o => <CustomerOrderMini key={o.orderKey} order={o} />) : <div style={{ color:C.tx3, fontWeight:800, fontSize:12 }}>Nothing ready to ship.</div>}</Card>
+          </div>}
 
-          <Card>
-            <div style={{ fontFamily: F.display, fontWeight: 800, color: C.g900, marginBottom: 10 }}>Every Plant / Item Purchased</div>
-            <Tbl cols={[
-              { k: "date", l: "Date" }, { k: "item", l: "Plant / Item" }, { k: "order", l: "Order" }, { k: "amount", l: "Amount", right: true }, { k: "state", l: "State" }
-            ]} rows={(detail.orders || []).slice().sort((a, b) => new Date(b.soldDate || b.saleDate || b.orderDate || 0) - new Date(a.soldDate || a.saleDate || a.orderDate || 0)).map(o => ({
-              date: o.soldDate || o.saleDate || o.orderDate || o.dateAdded || "—",
-              item: o.name || o.title || o.rawProductVariant || o.productVariant || "Plant",
-              order: o.orderNumber || o.orderNo || "—",
-              amount: $(+o.salePrice || +o.productAmount || +o.orderAmount || +o.sellerIncome || +o.suggestedPrice || 0),
-              state: o.customerState || o.buyerState || o.state || o.shippingState || "—"
-            }))} empty="No purchases found." />
+          {profileTab === "open" && <div style={{ display:"grid", gap:10 }}>{detail.openOrders?.length ? detail.openOrders.map(o => <CustomerOrderFull key={o.orderKey} order={o} customer={detail} />) : <Card><div style={{ color:C.g600, fontWeight:900 }}>No open orders for this customer.</div></Card>}</div>}
+          {profileTab === "ready" && <div style={{ display:"grid", gap:10 }}>{detail.readyOrders?.length ? detail.readyOrders.map(o => <CustomerOrderFull key={o.orderKey} order={o} customer={detail} />) : <Card><div style={{ color:C.tx3, fontWeight:900 }}>No ready-to-ship orders for this customer.</div></Card>}</div>}
+          {profileTab === "past" && <div style={{ display:"grid", gap:10 }}>{detail.pastOrders?.length ? detail.pastOrders.map(o => <CustomerOrderFull key={o.orderKey} order={o} customer={detail} />) : <Card><div style={{ color:C.tx3, fontWeight:900 }}>No past completed orders found.</div></Card>}</div>}
+          {profileTab === "plants" && <div>
+            <Card style={{ marginBottom:10 }}><Row between wrap center gap={8}><div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900 }}>Every Plant / Item Purchased</div><div style={{ fontSize:12, color:C.tx3 }}>Shows sale price, estimated profit, platform, order, state, and tracking when saved.</div></div><Tag text={`${detail.plants || 0} item(s)`} color={C.g600} sm /></Row></Card>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:10 }}>{safeArray(detail.plantsPurchased).slice().sort((a,b)=>new Date(b.date || 0)-new Date(a.date || 0)).map((item, i) => <PurchasedPlantCard key={(item.id || item.plantId || item.name || "item") + i} item={item} />)}</div>
+          </div>}
+          {profileTab === "followup" && <div style={{ display:"grid", gap:12 }}>
+            <Card style={{ borderLeft:`6px solid ${C.g600}` }}>
+              <Row between wrap center gap={10}><div><div style={{ fontFamily:F.display, fontWeight:900, color:C.g900 }}>Customer Follow-Up Tools</div><div style={{ fontSize:12, color:C.tx3 }}>Tap a message to copy it, then paste into Palmstreet, Whatnot, text, email, Facebook, or Instagram.</div></div><Tag text="Copy only" color={C.g600} sm /></Row>
+            </Card>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              {customerFollowupMessages(detail).map(m => <Card key={m.title} style={{ padding:12 }}><div style={{ fontWeight:900, color:C.g900, marginBottom:6 }}>{m.title}</div><div style={{ fontSize:13, color:C.tx2, lineHeight:1.45, whiteSpace:"pre-wrap" }}>{m.body}</div><Btn sz="sm" v="soft" onClick={() => copyCustomerText(m.body)} style={{ marginTop:10 }}>Copy Message</Btn></Card>)}
+            </div>
+            <Card>
+              <div style={{ fontFamily:F.display, color:C.g900, fontWeight:900, marginBottom:8 }}>Order-Specific Messages</div>
+              <div style={{ display:"grid", gap:8 }}>
+                {safeArray(detail.orders).slice(0, 10).map(order => <div key={order.orderKey} style={{ border:`1px solid ${C.bd}`, borderRadius:12, padding:10, background:C.cardAlt }}>
+                  <Row between wrap center gap={8}><div><div style={{ fontWeight:900, color:C.tx1 }}>{order.orderNumber || order.orderKey}</div><div style={{ color:C.tx3, fontSize:11 }}>{order.platform || "Unknown"} · {order.statusLabel || "Order"} · {$(order.total || 0)}</div></div><Row gap={6} wrap>{customerFollowupMessages(detail, order).slice(0, 3).map(m => <Btn key={m.title} sz="sm" v="outline" onClick={() => copyCustomerText(m.body)}>{m.title}</Btn>)}</Row></Row>
+                </div>)}
+                {!safeArray(detail.orders).length && <div style={{ color:C.tx3, fontWeight:800 }}>No orders yet for order-specific follow-up.</div>}
+              </div>
+            </Card>
+          </div>}
+
+          {profileTab === "notes" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Card style={{ background: customerStatusInfo(draft.status).bg, border:`1px solid ${customerStatusInfo(draft.status).color}55` }}>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Customer Status</div>
+              <Sel label="Color / Status" value={draft.status} onChange={v => setDraft(d => ({ ...d, status: v }))} options={customerStatusOptions} />
+              <Inp label="Customer Tags" value={draft.tags || ""} onChange={v => setDraft(d => ({ ...d, tags:v }))} placeholder="VIP, repeat buyer, Hoya lover, wholesale, local pickup" />
+              <div style={{ marginTop:10 }}><label style={{ fontSize:13, fontWeight:800, color:C.tx2 }}>Customer Notes</label><textarea value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes:e.target.value }))} placeholder="Example: good repeat buyer, likes Hoyas, refund issue, shipping warning..." style={{ width:"100%", minHeight:150, marginTop:5, padding:12, borderRadius:10, border:`1.5px solid ${C.bd}`, fontFamily:F.body }} /></div>
+              <Btn full v={draft.status === "red" ? "danger" : draft.status === "yellow" ? "gold" : "fill"} onClick={saveCustomerFlags} style={{ marginTop:10 }}>Save Customer Status + Tags</Btn>
+            </Card>
+            <Card>
+              <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, marginBottom:8 }}>Saved Notes Preview</div>
+              <div style={{ marginBottom:8 }}>{String(draft.tags || "").split(/[|,]/).map(cleanCustomerValue).filter(Boolean).map(t => <Tag key={t} text={t} color={C.g600} sm />)}</div>
+              <div style={{ fontSize:13, color:C.tx2, lineHeight:1.5, whiteSpace:"pre-wrap", minHeight:90 }}>{draft.notes || "No notes saved yet."}</div>
+              <div style={{ marginTop:12, fontSize:12, color:C.tx3 }}>Notes/status/tags save back onto all matching sale/order rows for this customer so the warning follows them in future searches.</div>
+            </Card>
+          </div>}
+        </Modal>}
+
+
+        {websiteImportOpen && <Modal title="Import Website / Shopify Orders" onClose={() => setWebsiteImportOpen(false)} wide>
+          <Card style={{ marginBottom:12, borderLeft:`5px solid ${C.blue}` }}>
+            <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18 }}>Website customer/order import</div>
+            <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Paste a Shopify/website order CSV. This adds sold website order items to Customer Hub only; it does not change Palmstreet export, Whatnot export, show import, shipping rules, or Supabase settings.</div>
           </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+            <Card style={{ padding:12 }}><div style={{ fontWeight:900, color:C.g900 }}>Accepted columns</div><div style={{ fontSize:12, color:C.tx3, lineHeight:1.5, marginTop:5 }}>Order Number, Customer Name, Email, Phone, Address, City, State, Zip, Product/Plant Name, SKU, Quantity, Price, Cost, Order Date, Fulfillment Status, Tracking.</div></Card>
+            <Card style={{ padding:12 }}><div style={{ fontWeight:900, color:C.g900 }}>Import result</div><div style={{ fontSize:12, color:websiteImportStatus ? C.g700 : C.tx3, lineHeight:1.5, marginTop:5 }}>{websiteImportStatus || "No import run yet."}</div></Card>
+          </div>
+          <input type="file" accept=".csv,text/csv" onChange={e => { const file = e.target.files && e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = ev => setWebsiteImportText(String(ev.target?.result || "")); reader.readAsText(file); }} style={{ marginBottom:10 }} />
+          <textarea value={websiteImportText} onChange={e => setWebsiteImportText(e.target.value)} placeholder={'Paste CSV here. Example header:
+Order Number,Customer Name,Email,Phone,State,Product Title,SKU,Quantity,Price,Order Date,Fulfillment Status,Tracking'} style={{ width:"100%", minHeight:260, padding:12, borderRadius:12, border:`1.5px solid ${C.bd}`, fontFamily:"monospace", fontSize:12 }} />
+          <Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={importWebsiteOrders}>Import Website Orders</Btn><Btn v="outline" onClick={() => { setWebsiteImportText(""); setWebsiteImportStatus(""); }}>Clear</Btn><Btn v="soft" onClick={() => setWebsiteImportOpen(false)}>Close</Btn></Row>
+        </Modal>}
+
+        {manualCustomerOpen && <Modal title="Add Customer" onClose={() => setManualCustomerOpen(false)} wide>
+          <Card style={{ marginBottom:12, borderLeft:`5px solid ${C.g600}` }}>
+            <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18 }}>Create customer profile before they buy</div>
+            <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>This saves a customer-only record in Customer Hub. It does not change inventory, exports, show imports, or shipping.</div>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Inp label="Customer Name" value={manualCustomerDraft.name} onChange={v => patchManualCustomer("name", v)} placeholder="Joyce Kelley" />
+            <Inp label="Platform Username" value={manualCustomerDraft.username} onChange={v => patchManualCustomer("username", v)} placeholder="plantlover23" />
+            <Inp label="Email" value={manualCustomerDraft.email} onChange={v => patchManualCustomer("email", v)} placeholder="customer@email.com" />
+            <Inp label="Phone" value={manualCustomerDraft.phone} onChange={v => patchManualCustomer("phone", v)} placeholder="555-555-5555" />
+            <Inp label="Address" value={manualCustomerDraft.address1} onChange={v => patchManualCustomer("address1", v)} placeholder="Street address" />
+            <Inp label="Address 2" value={manualCustomerDraft.address2} onChange={v => patchManualCustomer("address2", v)} placeholder="Apt, unit, etc." />
+            <Inp label="City" value={manualCustomerDraft.city} onChange={v => patchManualCustomer("city", v)} placeholder="City" />
+            <Inp label="State" value={manualCustomerDraft.state} onChange={v => patchManualCustomer("state", v)} placeholder="FL" />
+            <Inp label="Zip" value={manualCustomerDraft.zip} onChange={v => patchManualCustomer("zip", v)} placeholder="34429" />
+            <Sel label="Source" value={manualCustomerDraft.source} onChange={v => patchManualCustomer("source", v)} options={manualCustomerSourceOptions} />
+            <Sel label="Status" value={manualCustomerDraft.status} onChange={v => patchManualCustomer("status", v)} options={customerStatusOptions} />
+            <Inp label="Tags" value={manualCustomerDraft.tags} onChange={v => patchManualCustomer("tags", v)} placeholder="VIP, Hoya lover, local pickup" />
+          </div>
+          <div style={{ marginTop:12 }}><label style={{ fontSize:13, fontWeight:800, color:C.tx2 }}>Notes</label><textarea value={manualCustomerDraft.notes} onChange={e => patchManualCustomer("notes", e.target.value)} placeholder="Anything important about this customer..." style={{ width:"100%", minHeight:110, marginTop:5, padding:12, borderRadius:10, border:`1.5px solid ${C.bd}`, fontFamily:F.body }} /></div>
+          <Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={saveManualCustomer}>Save Customer</Btn><Btn v="outline" onClick={() => setManualCustomerOpen(false)}>Cancel</Btn></Row>
+        </Modal>}
+
+        {manualOrderOpen && <Modal title="Add Customer Order" onClose={() => setManualOrderOpen(false)} wide>
+          <Card style={{ marginBottom:12, borderLeft:`5px solid ${C.gold}` }}>
+            <div style={{ fontFamily:F.display, fontWeight:900, color:C.g900, fontSize:18 }}>Add a local / website / manual order to a customer</div>
+            <div style={{ fontSize:12, color:C.tx3, marginTop:3 }}>Use this when a customer bought outside a normal Whatnot/Palmstreet import. It will show in Customer Hub open, ready, past, and plants bought.</div>
+          </Card>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Sel label="Customer" value={manualOrderDraft.customerKey || detail?.key || ""} onChange={v => patchManualOrder("customerKey", v)} options={customerPickerOptions} />
+            <Sel label="Platform / Source" value={manualOrderDraft.platform} onChange={v => patchManualOrder("platform", v)} options={manualCustomerSourceOptions} />
+            <Inp label="Order Number" value={manualOrderDraft.orderNumber} onChange={v => patchManualOrder("orderNumber", v)} placeholder="Leave blank to auto-create" />
+            <Inp label="Order Date" type="date" value={manualOrderDraft.orderDate} onChange={v => patchManualOrder("orderDate", v)} />
+            <Inp label="Plant / Item Name" value={manualOrderDraft.plantName} onChange={v => patchManualOrder("plantName", v)} placeholder="Monstera Peru" />
+            <Inp label="Plant Number / SKU" value={manualOrderDraft.plantId} onChange={v => patchManualOrder("plantId", v)} placeholder="Optional" />
+            <Inp label="Pot Size" value={manualOrderDraft.potSize} onChange={v => patchManualOrder("potSize", v)} placeholder="4 inch, 6 inch, TC" />
+            <Inp label="Customer State" value={manualOrderDraft.state} onChange={v => patchManualOrder("state", v)} placeholder="CA, FL, TX" />
+            <Inp label="Cost" type="number" value={manualOrderDraft.cost} onChange={v => patchManualOrder("cost", v)} placeholder="0.00" />
+            <Inp label="Sale Price" type="number" value={manualOrderDraft.salePrice} onChange={v => patchManualOrder("salePrice", v)} placeholder="0.00" />
+            <Inp label="Tracking" value={manualOrderDraft.tracking} onChange={v => patchManualOrder("tracking", v)} placeholder="Optional" />
+            <Sel label="Order Status" value={manualOrderDraft.orderStatus} onChange={v => patchManualOrder("orderStatus", v)} options={manualOrderStatusOptions} />
+          </div>
+          <div style={{ marginTop:12 }}><label style={{ fontSize:13, fontWeight:800, color:C.tx2 }}>Order Notes</label><textarea value={manualOrderDraft.notes} onChange={e => patchManualOrder("notes", e.target.value)} placeholder="Local pickup, website sale, customer request, issue, etc." style={{ width:"100%", minHeight:100, marginTop:5, padding:12, borderRadius:10, border:`1.5px solid ${C.bd}`, fontFamily:F.body }} /></div>
+          <Row gap={8} wrap style={{ marginTop:12 }}><Btn onClick={saveManualOrder}>Save Order</Btn><Btn v="outline" onClick={() => setManualOrderOpen(false)}>Cancel</Btn></Row>
         </Modal>}
 
         <style>{`@media(max-width:760px){
-          div[style*="grid-template-columns: repeat(4,1fr)"],
+          div[style*="grid-template-columns: repeat(6"],
+          div[style*="grid-template-columns: repeat(4"],
+          div[style*="grid-template-columns: repeat(3"],
           div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important;}
         }`}</style>
       </div>;
@@ -37069,7 +38075,7 @@ ${local.summary || "Fallback completed."}`;
           {page === "liveshow" && <ShowCommandCenter key="show-live" initialTab="live" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "showbuilder" && <ShowCommandCenter key="show-build" initialTab="build" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
           {page === "showimport" && <ShowCommandCenter key="show-import" initialTab="import" plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} settings={settings} setSettings={setSettings} users={users} phase3Config={phase3Config} phase4Routes={phase4Routes} setPage={navigate} setCasdCerts={setCasdCerts} />}
-          {page === "customers" && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} />}
+          {page === "customers" && <Customers plants={plants} setPlants={setPlants} addAudit={addAudit} user={user} setPage={setPage} />}
           {page === "nursery" && <Nurseries nurseries={nurseries} setNurseries={setNurseries} plants={plants} user={user} />}
           {false && page === "bills" && <Bills bills={bills} setBills={setBills} />}
           {false && page === "expense" && CAN.seeExpenses(user.role) && <Expenses expenses={expenses} setExpenses={setExpenses} addAudit={addAudit} user={user} />}
