@@ -76,6 +76,8 @@
   <!-- V293 — Stability + Mobile QA: non-layout hardening only. Adds startup storage preflight, runtime error capture, blank-screen watchdog, live self-test, and last-good local backup without changing menus, pages, footer, Supabase, or visible layout. -->
   <!-- V294 — Supabase Save/Sync Audit: non-layout hardening only. Adds local cloud request auditing, save/load success/failure logs, failed sync queue notes, local save integrity metadata, and hidden owner diagnostic export without changing menus, pages, footer, Supabase credentials, or visible layout. -->
   <!-- V295 — Readability + Timecard Button Polish: fixes dark green text on black premium cards and redesigns Timecard action buttons/cards so owner payroll/timecard tools are readable on desktop and mobile. -->
+  <!-- V296 — Role Permission Lockdown: no layout changes. Adds central direct-route guards, safe role fallback redirects, owner/manager/employee access audit export, and blocks hidden/admin/financial pages from manager/employee direct access. -->
+  <!-- V297 — Shipping End-to-End Cleanup: accurate shipment completion rules, HI state-doc checks, tracking-aware shipped status, shipping QA export, and cleaner packed/tracking/docs/label-cost status logic without layout redesign. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -8053,6 +8055,52 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     };
     const ldShippingSuppliesCost = p => moneyNum(p?.shippingSuppliesCost ?? p?.packingSuppliesCost ?? 0);
     const ldSellerNeedsLabelCost = x => !ldIsWhatnot(x) && (moneyNum(x?.shippingCharged || x?.shippingRevenue || x?.shippingCollected) > 0 || ldShippingCharged(x) > 0 || !!x?.shippingCostPending);
+
+    /* V297 — shared shipping completion helpers. These are data rules only; they do not redesign any page. */
+    const LD_STATE_DOC_STATES = ["CA", "AZ", "TX", "LA", "HI"];
+    const LD_COLD_SHIP_STATES = ["AK","CO","CT","IA","ID","IL","IN","KS","MA","ME","MI","MN","MO","MT","ND","NE","NH","NJ","NY","OH","PA","RI","SD","UT","VT","WA","WI","WV","WY"];
+    const ldOrderPlants = o => safeArray(o?.plants);
+    const ldOrderStateOf = o => String(o?.state || o?.shippingState || o?.customerState || "").toUpperCase().trim();
+    const ldOrderTrackingOf = o => ldOrderPlants(o).map(p => p.trackingNumber || p.tracking || p.shipmentTracking || p.labelTracking || "").find(Boolean) || String(o?.trackingNumber || o?.tracking || o?.shipmentTracking || "").trim();
+    const ldOrderHasTracking = o => !!ldOrderTrackingOf(o) || ldOrderPlants(o).some(p => p.shippedDate || p.deliveredDate || /ship|deliver|fulfilled|complete|done/i.test(String(p.fulfillmentStatus || p.shipmentStatus || p.trackingStatus || "")));
+    const ldOrderPacked = o => ldOrderPlants(o).some(p => p.packedAt || p.platformReadyAt || /pack|ready|label|ship|done|complete/i.test(String(p.fulfillmentStatus || p.shipmentStatus || "")));
+    const ldOrderChargedTotal = o => moneyNum(o?.shippingCharged || o?.shippingRevenue || o?.shippingCollected) || ldOrderPlants(o).reduce((s,p)=>s+ldShippingCharged(p),0);
+    const ldOrderLabelCostTotal = o => moneyNum(o?.actualLabelCost || o?.actualShippingCost || o?.labelCost || o?.shippingCost || o?.whatnotShippingAdjustmentCost) || ldOrderPlants(o).reduce((s,p)=>s+ldActualLabelCost(p),0);
+    const ldOrderSuppliesTotal = o => moneyNum(o?.shippingSuppliesCost || o?.packingSuppliesCost) || ldOrderPlants(o).reduce((s,p)=>s+ldShippingSuppliesCost(p),0);
+    const ldOrderNeedsStateDoc = o => LD_STATE_DOC_STATES.includes(ldOrderStateOf(o));
+    const ldOrderNeedsColdCheck = o => LD_COLD_SHIP_STATES.includes(ldOrderStateOf(o));
+    const ldOrderNeedsLabelCostTotal = o => ldSellerNeedsLabelCost(o) && ldOrderChargedTotal(o) > 0 && ldOrderLabelCostTotal(o) <= 0;
+    const ldOrderHasStateDocArchive = (o, certs = []) => {
+      if (!ldOrderNeedsStateDoc(o)) return true;
+      const st = ldOrderStateOf(o);
+      const names = [o?.customerName, o?.customerUsername, o?.recipientName].map(v => String(v || "").toLowerCase().trim()).filter(Boolean);
+      const zip = String(o?.zip || o?.shippingZip || "").replace(/\D/g, "").slice(0, 5);
+      const addr = String(o?.address1 || o?.shippingAddress1 || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      return safeArray(certs).some(c => {
+        const dest = String(c?.destination || c?.state || "").toUpperCase().trim();
+        if (st && dest && dest !== st) return false;
+        const cn = String(c?.consigneeName || c?.customerName || c?.recipientName || "").toLowerCase();
+        const ca = String(c?.consigneeAddress || c?.address || "").toLowerCase();
+        const nameHit = names.some(n => n && (cn.includes(n) || n.includes(cn)));
+        const zipHit = zip && ca.includes(zip);
+        const addrHit = addr && addr.length > 5 && ca.replace(/[^a-z0-9]+/g, " ").includes(addr.split(" ").slice(0, 3).join(" "));
+        return nameHit || zipHit || addrHit;
+      });
+    };
+    const ldOrderCompletionBlocks = (o, certs = []) => {
+      const blocks = [];
+      if (!ldOrderHasTracking(o)) blocks.push("tracking");
+      if (ldOrderNeedsLabelCostTotal(o)) blocks.push("label cost");
+      if (ldOrderNeedsStateDoc(o) && !ldOrderHasStateDocArchive(o, certs)) blocks.push("state docs");
+      return blocks;
+    };
+    const ldOrderIsCompleted = (o, certs = []) => ldOrderCompletionBlocks(o, certs).length === 0 && ldOrderHasTracking(o);
+    const ldOrderShippingStatus = (o, certs = []) => {
+      const blocks = ldOrderCompletionBlocks(o, certs);
+      if (!ldOrderHasTracking(o)) return { id: ldOrderPacked(o) ? "packed_needs_tracking" : "ready_to_pack", label: ldOrderPacked(o) ? "Packed · needs tracking" : "Ready to pack", blocks };
+      if (blocks.length) return { id:"needs_review", label:`Shipped · fix ${blocks.join(", ")}`, blocks };
+      return { id:"completed", label:"Completed", blocks:[] };
+    };
     const ldShippingProfit = p => +(ldShippingCharged(p) - ldActualLabelCost(p) - ldShippingSuppliesCost(p)).toFixed(2);
     const orderKeyOf = p => {
       const platform = ldPlatformLabel(p);
@@ -9780,12 +9828,95 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const known = new Set([...ROOT_PAGES, ...TOOL_CATALOG.map(t => t.id), "appcheck"]);
       return known.has(normalized);
     }
+    /* V296 — Role Permission Lockdown.
+       No layout changes. This hardens direct route access, old saved-page access,
+       search/shortcut routing, and hidden/admin/financial tools by role. */
+    const LD_V296_MANAGER_BLOCKED_IDS = new Set([
+      ...LD_V158_OWNER_ONLY_ADVANCED_IDS,
+      "admin_ws", "admin", "teamsync", "cleanup", "devtools", "appcheck", "workflowqa", "releasecenter",
+      "ollama", "ollamadoctor", "aigateway", "airouter", "phase2qa", "invoicetrainer",
+      "ownerboard", "execai", "command", "dataai", "aihub",
+      "cashflow", "slotprofit", "payroll", "commissions", "tax", "goals", "reports", "datacharts",
+      "expense", "bills", "discounts", "nursery", "pos", "intel", "locations", "bulkactions", "inlineedit"
+    ]);
+    const LD_V296_EMPLOYEE_ALLOWED_IDS = new Set([
+      "today", "employeeboard", "labels_ws", "orders_ws",
+      "labels", "scanlabel", "photosprint", "packorders", "shiplabels", "timecard", "receipts"
+    ]);
+    const LD_V296_OWNER_FINANCIAL_IDS = new Set([
+      "cashflow", "slotprofit", "payroll", "commissions", "tax", "goals", "reports", "datacharts",
+      "expense", "bills", "buy_ws", "intel", "nursery", "pos"
+    ]);
+    function ldV296NormalizeRole(role = "employee") {
+      const r = String(role || "employee").toLowerCase();
+      return r === "owner" || r === "admin" ? "owner" : r === "manager" ? "manager" : "employee";
+    }
+    function ldV296RoleAllowsKnownPage(normalized, role = "employee") {
+      const r = ldV296NormalizeRole(role);
+      const id = String(normalized || "");
+      if (!id) return false;
+      if (r === "owner") return true;
+      if (id === "today") return true;
+      if (r === "employee") return LD_V296_EMPLOYEE_ALLOWED_IDS.has(id);
+      if (r === "manager") {
+        if (LD_V296_MANAGER_BLOCKED_IDS.has(id)) return false;
+        if (LD_V296_OWNER_FINANCIAL_IDS.has(id)) return false;
+        return true;
+      }
+      return false;
+    }
+    function ldV296FallbackForBlockedPage(id, role = "employee") {
+      const r = ldV296NormalizeRole(role);
+      const home = leafDiaryRoleHome(r);
+      const normalizedHome = ldV151NormalizePageId(home, r);
+      if (normalizedHome && normalizedHome !== id) return normalizedHome;
+      return r === "owner" ? "ownerboard" : r === "manager" ? "managerboard" : "employeeboard";
+    }
+    function ldV296BuildRoleAudit() {
+      const ids = Array.from(new Set([...ROOT_PAGES, ...WORKSPACES.map(w => w.id), ...TOOL_CATALOG.map(t => t.id)])).sort();
+      const rows = ids.map(id => ({
+        id,
+        label: getPageLabel(id),
+        owner: leafDiaryCanRenderPage(id, "owner"),
+        manager: leafDiaryCanRenderPage(id, "manager"),
+        employee: leafDiaryCanRenderPage(id, "employee"),
+        workspace: getWorkspaceForPage(id)
+      }));
+      return {
+        version:"V296",
+        ranAt:new Date().toISOString(),
+        counts:{
+          total:rows.length,
+          owner:rows.filter(r=>r.owner).length,
+          manager:rows.filter(r=>r.manager).length,
+          employee:rows.filter(r=>r.employee).length,
+          employeeBlocked:rows.filter(r=>!r.employee).length,
+          managerBlocked:rows.filter(r=>!r.manager).length
+        },
+        rows
+      };
+    }
+    function ldV296DownloadRoleAudit() {
+      const report = ldV296BuildRoleAudit();
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type:"application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `leaf-diary-v296-role-permission-audit-${today()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{ try { URL.revokeObjectURL(url); a.remove(); } catch(e) {} }, 1200);
+      return report;
+    }
+    try { window.__LEAF_DIARY_V296_ROLE_PERMISSION_LOCKDOWN = { version:"V296", status:"installed", audit:ldV296BuildRoleAudit, downloadAudit:ldV296DownloadRoleAudit }; } catch(e) {}
+
     function leafDiaryCanRenderPage(id, role = "employee") {
       const normalized = ldV151NormalizePageId(id, role);
       if (!leafDiaryKnownPage(normalized)) return false;
+      if (!ldV296RoleAllowsKnownPage(normalized, role)) return false;
       if (normalized === "today") return true;
       if (!ldV158CanOpenAdvancedId(normalized, role)) return false;
-      if (role === "employee" && !ldV170EmployeeCanUse(normalized)) return false;
+      if (role === "employee" && !LD_V296_EMPLOYEE_ALLOWED_IDS.has(normalized)) return false;
       if (role === "owner") return true;
       const tool = TOOL_CATALOG.find(t => t.id === normalized);
       const workspace = WORKSPACES.find(w => w.id === normalized);
@@ -26226,28 +26357,30 @@ Cancel keeps this local/free.`);
       const allOrders = groupSalesIntoOrders(plants).sort((a,b)=>String(b.soldDate || "").localeCompare(String(a.soldDate || "")));
       const recentOrders = allOrders.filter(o => dateInLast(o.soldDate, 21));
       const orders = recentOrders.length ? recentOrders : allOrders.slice(0, 75);
-      const statesNeedDocs = ["CA","AZ","TX","LA","HI"];
-      const coldStates = ["AK","CO","CT","IA","ID","IL","IN","KS","MA","ME","MI","MN","MO","MT","ND","NE","NH","NJ","NY","OH","PA","RI","SD","UT","VT","WA","WI","WV","WY"];
-      const orderPlants = o => safeArray(o?.plants);
-      const orderTracking = o => orderPlants(o).map(p => p.trackingNumber || p.tracking || p.shipmentTracking || "").find(Boolean) || "";
-      const orderHasTracking = o => !!orderTracking(o) || orderPlants(o).some(p => p.shippedDate || p.deliveredDate || /ship|deliver|fulfilled|complete/i.test(String(p.fulfillmentStatus || p.shipmentStatus || "")));
-      const orderPacked = o => orderPlants(o).some(p => p.packedAt || p.platformReadyAt || /pack|ready/i.test(String(p.fulfillmentStatus || p.shipmentStatus || "")));
-      const stateOf = o => String(o.state || o.shippingState || "").toUpperCase();
-      const docOrders = orders.filter(o => statesNeedDocs.includes(stateOf(o)));
-      const coldOrders = orders.filter(o => coldStates.includes(stateOf(o)));
-      const readyToPack = orders.filter(o => !orderHasTracking(o));
+      const statesNeedDocs = LD_STATE_DOC_STATES;
+      const coldStates = LD_COLD_SHIP_STATES;
+      const orderPlants = o => ldOrderPlants(o);
+      const orderTracking = o => ldOrderTrackingOf(o);
+      const orderHasTracking = o => ldOrderHasTracking(o);
+      const orderPacked = o => ldOrderPacked(o);
+      const stateOf = o => ldOrderStateOf(o);
+      const hasDocForOrder = o => ldOrderHasStateDocArchive(o, casdCerts);
+      // V251/V297: define money/status helpers before pendingLabelCost uses them. Mobile/React crashed on Shipping when orderCharged/orderLabel were still in the TDZ.
+      const orderCharged = o => ldOrderChargedTotal(o);
+      const orderLabel = o => ldOrderLabelCostTotal(o);
+      const orderSupplies = o => ldOrderSuppliesTotal(o);
+      const orderNeedsDocs = o => ldOrderNeedsStateDoc(o);
+      const orderNeedsLabelCost = o => ldOrderNeedsLabelCostTotal(o);
+      const orderIsCompletedShipment = o => ldOrderIsCompleted(o, casdCerts);
+      const docOrders = orders.filter(orderNeedsDocs);
+      const coldOrders = orders.filter(o => ldOrderNeedsColdCheck(o));
+      const readyToPack = orders.filter(o => !orderPacked(o) && !orderHasTracking(o));
       const trackingNeeded = orders.filter(o => !orderHasTracking(o));
-      const completed = orders.filter(orderHasTracking);
-      const hasDocForOrder = o => safeArray(casdCerts).some(c => {
-        const nm = String(o.customerName || o.customerUsername || "").toLowerCase();
-        return (nm && String(c.consigneeName || "").toLowerCase().includes(nm)) || String(c.destination || "").toUpperCase() === stateOf(o);
-      });
+      const packedNeedsTracking = orders.filter(o => orderPacked(o) && !orderHasTracking(o));
+      const completed = orders.filter(orderIsCompletedShipment);
+      const needsCompletionReview = orders.filter(o => orderHasTracking(o) && !orderIsCompletedShipment(o));
       const missingDocs = docOrders.filter(o => !hasDocForOrder(o));
-      // V251: define these helpers before pendingLabelCost uses them. Mobile/React crashed on Shipping when orderCharged/orderLabel were still in the TDZ.
-      const orderCharged = o => moneyNum(o.shippingCharged || o.shippingRevenue || o.shippingCollected) || orderPlants(o).reduce((s,p)=>s+ldShippingCharged(p),0);
-      const orderLabel = o => moneyNum(o.actualLabelCost || o.actualShippingCost || o.labelCost) || orderPlants(o).reduce((s,p)=>s+ldActualLabelCost(p),0);
-      const orderSupplies = o => moneyNum(o.shippingSuppliesCost || o.packingSuppliesCost) || orderPlants(o).reduce((s,p)=>s+ldShippingSuppliesCost(p),0);
-      const pendingLabelCost = orders.filter(o => ldSellerNeedsLabelCost(o) && orderCharged(o) > 0 && orderLabel(o) <= 0);
+      const pendingLabelCost = orders.filter(orderNeedsLabelCost);
       const shippingCharged = orders.reduce((s,o)=>s+orderCharged(o),0);
       const labelCost = orders.reduce((s,o)=>s+orderLabel(o),0);
       const suppliesCost = orders.reduce((s,o)=>s+orderSupplies(o),0);
@@ -26273,7 +26406,7 @@ Cancel keeps this local/free.`);
               <div style={{ fontSize:12, color:C.tx3 }}>{order.soldDate || "No date"} · {orderPlants(order).length} plant(s) · {$(order.totalValue || 0)}</div>
               {tracking && <div style={{ fontFamily:F.mono, fontSize:11, color:C.blue, marginTop:4 }}>{tracking}</div>}
             </div>
-            <Row gap={6} wrap>{order.platform && <Tag text={order.platform} color={ldIsWhatnot(order) ? C.blue : C.g600} sm />}{st && <Tag text={st} color={statesNeedDocs.includes(st) ? C.purple : C.blue} sm />}{done && <Tag text="Completed" color={C.g600} sm />}{!done && <Tag text="Needs Tracking" color={C.amber} sm />}{hasDocForOrder(order) && <Tag text="Doc Saved" color={C.purple} sm />}</Row>
+            <Row gap={6} wrap>{order.platform && <Tag text={order.platform} color={ldIsWhatnot(order) ? C.blue : C.g600} sm />}{st && <Tag text={st} color={statesNeedDocs.includes(st) ? C.purple : C.blue} sm />}{done && <Tag text="Completed" color={C.g600} sm />}{!done && !orderPacked(order) && <Tag text="Ready To Pack" color={C.amber} sm />}{!done && orderPacked(order) && !orderHasTracking(order) && <Tag text="Packed · Needs Tracking" color={C.amber} sm />}{orderNeedsLabelCost(order) && <Tag text="Label Cost Pending" color={C.gold} sm />}{orderNeedsDocs(order) && !hasDocForOrder(order) && <Tag text="Docs Missing" color={C.red} sm />}{hasDocForOrder(order) && orderNeedsDocs(order) && <Tag text="Doc Saved" color={C.purple} sm />}</Row>
           </Row>
         </Card>;
       };
@@ -26412,17 +26545,35 @@ Cancel keeps this local/free.`);
         if (labelPlatformFilter === "palmstreet_needed") return needsPalmstreetCost;
         if (labelPlatformFilter === "whatnot_track") return whatnot;
         if (labelPlatformFilter === "adjustments") return whatnot && orderLabel(o) > 0;
-        if (labelPlatformFilter === "docs") return statesNeedDocs.includes(stateOf(o)) && !hasDocForOrder(o);
+        if (labelPlatformFilter === "docs") return orderNeedsDocs(o) && !hasDocForOrder(o);
         if (labelPlatformFilter === "tracking") return !orderHasTracking(o);
         return true;
       });
+      const v297ExportShippingQa = () => {
+        const rows = [["Order", "Customer", "Platform", "State", "Plants", "Tracking", "Packed", "Status", "Blocks", "Shipping Charged", "Label Cost", "Supplies", "Shipping Profit", "State Docs Archived"]];
+        orders.forEach(o => {
+          const charged = orderCharged(o), label = orderLabel(o), supplies = orderSupplies(o);
+          const status = ldOrderShippingStatus(o, casdCerts);
+          rows.push([o.orderId || "", o.customerName || o.customerUsername || "", o.platform || "", stateOf(o), orderPlants(o).length, orderTracking(o), orderPacked(o) ? "Yes" : "No", status.label, status.blocks.join(" | "), charged.toFixed(2), label.toFixed(2), supplies.toFixed(2), (charged - label - supplies).toFixed(2), hasDocForOrder(o) ? "Yes" : (orderNeedsDocs(o) ? "No" : "Not required")]);
+        });
+        downloadCsv(`leaf-diary-shipping-qa-${today()}.csv`, rows);
+      };
+      useEffect(() => {
+        try {
+          window.__LEAF_DIARY_V297_SHIPPING_AUDIT = {
+            version: "V297",
+            summary: { orders: orders.length, readyToPack: readyToPack.length, packedNeedsTracking: packedNeedsTracking.length, trackingNeeded: trackingNeeded.length, needsCompletionReview: needsCompletionReview.length, missingDocs: missingDocs.length, pendingLabelCost: pendingLabelCost.length, completed: completed.length, shippingProfit },
+            downloadReport: v297ExportShippingQa
+          };
+        } catch(e) {}
+      }, [orders.length, readyToPack.length, packedNeedsTracking.length, trackingNeeded.length, needsCompletionReview.length, missingDocs.length, pendingLabelCost.length, completed.length, shippingProfit]);
 
       return <div className="ld-page ld-v237-shipping-center" style={{ padding:"14px 14px 120px", background:C.bg, minHeight:"100vh", fontFamily:F.body }}>
-        <SHdr icon="📦" title="Shipping Command Center" sub="One place to pack orders, capture labels/tracking, complete shipments, save state docs, and see shipping profit." right={<Row gap={8} wrap>{canManage && <Btn v="outline" onClick={()=>setPage("showimport")}>Import Sales</Btn>}<Btn onClick={()=>setTab("pack")}>Pack Orders</Btn></Row>} />
+        <SHdr icon="📦" title="Shipping Command Center" sub="One place to pack orders, capture labels/tracking, complete shipments, save state docs, and see shipping profit." right={<Row gap={8} wrap>{canManage && <Btn v="outline" onClick={()=>setPage("showimport")}>Import Sales</Btn>}{canManage && <Btn v="soft" onClick={v297ExportShippingQa}>Export QA</Btn>}<Btn onClick={()=>setTab("pack")}>Pack Orders</Btn></Row>} />
         <Card className="ld-v237-ship-hero" style={{ marginBottom:14, background:"#000", color:"#fff", border:"2px solid #68d8ff", borderRadius:24 }}>
           <Row between center wrap gap={12}>
             <div><div style={{ fontFamily:F.display, fontSize:26, fontWeight:950, color:"#68d8ff" }}>Pack → label → tracking → docs → completed</div><div style={{ color:"rgba(255,255,255,.72)", fontSize:13, marginTop:4 }}>No more guessing what is packed and what is shipped. Start at Pack, then finish tracking and paperwork.</div></div>
-            <Row gap={8} wrap><Tag text={`${readyToPack.length} to pack`} color={readyToPack.length ? C.amber : C.g600}/><Tag text={`${trackingNeeded.length} tracking needed`} color={trackingNeeded.length ? C.amber : C.g600}/><Tag text={`${pendingLabelCost.length} label cost pending`} color={pendingLabelCost.length ? C.amber : C.g600}/><Tag text={`${completed.length} completed`} color={C.g600}/></Row>
+            <Row gap={8} wrap><Tag text={`${readyToPack.length} to pack`} color={readyToPack.length ? C.amber : C.g600}/><Tag text={`${trackingNeeded.length} tracking needed`} color={trackingNeeded.length ? C.amber : C.g600}/><Tag text={`${pendingLabelCost.length} label cost pending`} color={pendingLabelCost.length ? C.amber : C.g600}/>{needsCompletionReview.length > 0 && <Tag text={`${needsCompletionReview.length} review before complete`} color={C.red}/>}<Tag text={`${completed.length} completed`} color={C.g600}/></Row>
           </Row>
         </Card>
         <div className="ld-v237-ship-kpis">
@@ -26536,7 +26687,7 @@ Cancel keeps this local/free.`);
             </div>
           </div>
         </div>}
-        {tab === "completed" && <div>{completed.length ? completed.map((o,i)=><MiniOrder key={o.orderId || i} order={o} done />) : <Card style={{ textAlign:"center", padding:42 }}><div style={{ fontSize:42 }}>✅</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No completed shipments yet</h2><p style={{ color:C.tx3 }}>Add tracking or shipped status and completed orders will show here.</p><Btn onClick={()=>setTab("tracking")}>Add Tracking</Btn></Card>}</div>}
+        {tab === "completed" && <div>{completed.length ? completed.map((o,i)=><MiniOrder key={o.orderId || i} order={o} done />) : <Card style={{ textAlign:"center", padding:42 }}><div style={{ fontSize:42 }}>✅</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No completed shipments yet</h2><p style={{ color:C.tx3 }}>Add tracking, finish label-cost review, and archive any required state docs before shipments move here.</p><Btn onClick={()=>setTab("tracking")}>Add Tracking</Btn></Card>}</div>}
         {tab === "paperwork" && (canOwner ? <CasdCertificates casdCerts={casdCerts} setCasdCerts={setCasdCerts} plants={plants} user={user} addAudit={addAudit} /> : <Card><div style={{ fontFamily:F.display, fontSize:21, fontWeight:900, color:C.g900 }}>State paperwork is owner-only</div><p style={{ color:C.tx3 }}>Employees can see paperwork reminders while packing, but only the owner can create or manage archived state documents.</p></Card>)}
         {tab === "profit" && <Card><div style={{ fontFamily:F.display, fontSize:22, fontWeight:900, color:C.g900, marginBottom:12 }}>Shipping Profit</div><div className="ld-v237-ship-kpis" style={{ marginBottom:12 }}><KPI label="Charged" value={$(shippingCharged)} color={C.blue}/><KPI label="Label Cost" value={$(labelCost)} color={C.red}/><KPI label="Supplies" value={$(suppliesCost)} color={C.gold}/><KPI label="Profit" value={$(shippingProfit)} color={shippingProfit >= 0 ? C.g600 : C.red}/></div><div className="ld-table-scroll"><table className="ld-chart-table"><thead><tr><th>Order</th><th>State</th><th>Plants</th><th>Charged</th><th>Label</th><th>Supplies</th><th>Profit</th></tr></thead><tbody>{orders.map((o,i)=>{ const charged=orderCharged(o), label=orderLabel(o), sup=orderSupplies(o), prof=charged-label-sup; return <tr key={o.orderId || i}><td>{o.customerName || o.customerUsername || o.orderId || "Order"}</td><td>{stateOf(o)}</td><td>{orderPlants(o).length}</td><td>{$(charged)}</td><td>{$(label)}</td><td>{$(sup)}</td><td style={{ fontWeight:900, color:prof>=0?C.g600:C.red }}>{$(prof)}</td></tr>; })}</tbody></table></div></Card>}
         {tab === "problems" && <div>{problems.length ? problems.map((p,i)=><Card key={i} style={{ borderLeft:`5px solid ${p.action==="paperwork"?C.purple:p.action==="profit"?C.gold:p.action==="tracking"?C.blue:C.amber}`, marginBottom:10 }}><Row between center gap={10}><div><div style={{ fontFamily:F.display, fontSize:18, fontWeight:900, color:C.g900 }}>{p.icon} {p.title}</div><div style={{ fontSize:12, color:C.tx3 }}>{p.sub}</div></div><Btn sz="sm" onClick={()=>setTab(p.action)}>Fix</Btn></Row></Card>) : <Card style={{ textAlign:"center", padding:42 }}><div style={{ fontSize:42 }}>✅</div><h2 style={{ fontFamily:F.display, color:C.g900 }}>No active shipping problems</h2><p style={{ color:C.tx3 }}>Tracking, paperwork, label cost, and weather reminders look clean.</p></Card>}{canManage && <Card style={{ marginTop:12 }}><div style={{ fontFamily:F.display, fontSize:20, fontWeight:900, color:C.g900, marginBottom:8 }}>Refund / DOA manager</div><RefundManager refunds={refunds} setRefunds={setRefunds} plants={plants} setPlants={setPlants} user={user} addAudit={addAudit} /></Card>}</div>}
@@ -26554,10 +26705,10 @@ Cancel keeps this local/free.`);
       const orders = groupSalesIntoOrders(plants).sort((a,b)=>String(b.soldDate || "").localeCompare(String(a.soldDate || "")));
       const recentOrders = orders.filter(o => dateInLast(o.soldDate, 14));
       const activeOrders = recentOrders.length ? recentOrders : orders.slice(0, 50);
-      const statesNeedDocs = ["CA","AZ","TX","LA","HI"];
-      const coldStates = ["AK","CO","CT","IA","ID","IL","IN","KS","MA","ME","MI","MN","MO","MT","ND","NE","NH","NJ","NY","OH","PA","RI","SD","UT","VT","WA","WI","WV","WY"];
-      const docOrders = activeOrders.filter(o => statesNeedDocs.includes(String(o.state || "").toUpperCase()));
-      const coldOrders = activeOrders.filter(o => coldStates.includes(String(o.state || "").toUpperCase()));
+      const statesNeedDocs = LD_STATE_DOC_STATES;
+      const coldStates = LD_COLD_SHIP_STATES;
+      const docOrders = activeOrders.filter(o => ldOrderNeedsStateDoc(o));
+      const coldOrders = activeOrders.filter(o => ldOrderNeedsColdCheck(o));
       const packedOrders = activeOrders.filter(o => o.plants && o.plants.length && o.plants.every(p => p.packedAt || p.platformReadyAt || p.fulfillmentStatus === "Packed" || p.fulfillmentStatus === "Platform Ready"));
       const notPacked = activeOrders.filter(o => !packedOrders.includes(o));
       const storageKey = `leafDiaryOrderPackingDone-${today()}-${role}`;
@@ -26655,6 +26806,8 @@ Cancel keeps this local/free.`);
         return safeArray(casdCerts).filter(c => shipments.some(ship => hasCasdCertForShipment(ship, [c])));
       };
       const hasStateDocArchive = order => v253CertsForOrder(order).length > 0;
+      const v297ShipStatus = order => ldOrderShippingStatus(order, casdCerts);
+      const v297CompletionBlocks = order => ldOrderCompletionBlocks(order, casdCerts);
       const v253DownloadCert = async cert => {
         const bytes = await getCasdPdfBytes(cert);
         const url = URL.createObjectURL(new Blob([bytes], { type:"application/pdf" }));
@@ -26682,21 +26835,24 @@ Cancel keeps this local/free.`);
         } finally { setDocBusyOrderId(""); }
       };
       const exportPackingCsv = () => {
-        const rows = [["Order", "Buyer", "Username", "State", "Sold Date", "Plant ID", "Plant Name", "Pot Size", "Sale Price", "Paperwork", "Heat/Cold Check", "Packed Local", "Platform Ready"]];
+        const rows = [["Order", "Buyer", "Username", "State", "Sold Date", "Plant ID", "Plant Name", "Pot Size", "Sale Price", "Paperwork", "Heat/Cold Check", "Packed Local", "Platform Ready", "Tracking", "Shipping Status", "Completion Blocks"]];
         activeOrders.forEach((o, oi) => safeArray(o.plants).forEach(p => rows.push([
           oi + 1,
           o.customerName || "",
           o.customerUsername || "",
-          o.state || "",
+          ldOrderStateOf(o),
           o.soldDate || "",
           p.plantId || "",
           p.name || "",
           p.potSize || "",
           p.salePrice || "",
-          statesNeedDocs.includes(String(o.state || "").toUpperCase()) ? "Check state paperwork" : "Not flagged",
-          coldStates.includes(String(o.state || "").toUpperCase()) ? "Cold-state packing check" : "Normal packing",
+          ldOrderNeedsStateDoc(o) ? "Check state paperwork" : "Not flagged",
+          ldOrderNeedsColdCheck(o) ? "Cold-state packing check" : "Normal packing",
           orderDone(o, "packed") ? "Yes" : "No",
-          orderDone(o, "ready") ? "Yes" : "No"
+          orderDone(o, "ready") ? "Yes" : "No",
+          ldOrderTrackingOf(o),
+          v297ShipStatus(o).label,
+          v297CompletionBlocks(o).join(" | ")
         ])));
         downloadCsv(`leaf-diary-packing-board-${today()}.csv`, rows);
       };
@@ -26708,16 +26864,19 @@ Cancel keeps this local/free.`);
         </button>;
       };
       const OrderCard = ({ order, i }) => {
-        const state = String(order.state || "").toUpperCase();
-        const needsDoc = statesNeedDocs.includes(state);
-        const coldCheck = coldStates.includes(state);
+        const state = ldOrderStateOf(order);
+        const needsDoc = ldOrderNeedsStateDoc(order);
+        const coldCheck = ldOrderNeedsColdCheck(order);
         const buyer = order.customerUsername || order.customerName || "Buyer";
         const packedLocal = orderDone(order, "packed");
         const readyLocal = orderDone(order, "ready");
-        return <Card style={{ padding:14, borderTop:`4px solid ${readyLocal ? C.g600 : needsDoc ? C.purple : coldCheck ? C.blue : C.amber}`, marginBottom:10 }}>
+        const shipStatus = v297ShipStatus(order);
+        const tracking = ldOrderTrackingOf(order);
+        const labelPending = ldOrderNeedsLabelCostTotal(order);
+        return <Card style={{ padding:14, borderTop:`4px solid ${shipStatus.id === "completed" ? C.g600 : readyLocal ? C.g600 : needsDoc ? C.purple : coldCheck ? C.blue : C.amber}`, marginBottom:10 }}>
           <Row between center wrap gap={10} style={{ marginBottom:10 }}>
             <div style={{ minWidth:0 }}><div style={{ fontFamily:F.display, fontSize:19, fontWeight:900, color:C.g900 }}>#{i + 1} {buyer}</div><div style={{ fontSize:12, color:C.tx3 }}>{order.soldDate || "No date"} · {safeArray(order.plants).length} plant(s) · {$(order.totalValue || 0)}</div></div>
-            <Row gap={6} wrap>{state && <Tag text={state} color={needsDoc ? C.purple : C.blue} sm />}{needsDoc && <Tag text="Paperwork Check" color={C.purple} sm />}{coldCheck && <Tag text="Cold Pack Check" color={C.blue} sm />}{packedLocal && <Tag text="Packed Local" color={C.g600} sm />}{ldIsWhatnot(order) && <Tag text="Whatnot track only" color={C.blue} sm />}{order.shippingCostPending && <Tag text="Label Cost Pending" color={C.amber} sm />}</Row>
+            <Row gap={6} wrap>{state && <Tag text={state} color={needsDoc ? C.purple : C.blue} sm />}<Tag text={shipStatus.label} color={shipStatus.id === "completed" ? C.g600 : shipStatus.id === "needs_review" ? C.red : C.amber} sm />{needsDoc && <Tag text={hasStateDocArchive(order) ? "Docs Ready" : "Paperwork Check"} color={hasStateDocArchive(order) ? C.g600 : C.purple} sm />}{tracking && <Tag text="Tracking Saved" color={C.blue} sm />}{labelPending && <Tag text="Label Cost Pending" color={C.amber} sm />}{coldCheck && <Tag text="Cold Pack Check" color={C.blue} sm />}{packedLocal && <Tag text="Packed Local" color={C.g600} sm />}{ldIsWhatnot(order) && <Tag text="Whatnot track only" color={C.blue} sm />}</Row>
           </Row>
           <div style={{ background:C.cardAlt, border:`1px solid ${C.bdS}`, borderRadius:12, padding:10, marginBottom:10 }}>
             <div style={{ fontFamily:F.display, fontSize:15, fontWeight:900, color:C.g900, marginBottom:6 }}>🚚 Shipping money for this shipment</div>
@@ -28303,16 +28462,17 @@ Cancel keeps this page local/free.`);
       const getOrderPlants = (order) => plants.filter(p => order.plants.some(x => x.id === p.id));
       const orderFulfillment = (order) => {
         const ps = getOrderPlants(order);
-        const statuses = ps.map(p => p.fulfillmentStatus || "");
-        const allShipped = ps.length && statuses.every(s => s === "Shipped" || s === "Done");
-        const allReady = ps.length && statuses.every(s => ["Ready for Platform", "Shipped", "Done"].includes(s));
-        const allPacked = ps.length && statuses.every(s => ["Packed", "Ready for Platform", "Shipped", "Done"].includes(s));
+        const statuses = ps.map(p => p.fulfillmentStatus || p.shipmentStatus || "");
+        const hasTracking = ldOrderHasTracking(order);
+        const allShipped = ps.length && (hasTracking || statuses.every(s => /shipped|done|complete/i.test(String(s))));
+        const allReady = ps.length && statuses.every(s => ["Ready for Platform", "Shipped", "Done"].includes(s) || /ready|label|ship|done|complete/i.test(String(s)));
+        const allPacked = ps.length && statuses.every(s => ["Packed", "Ready for Platform", "Shipped", "Done"].includes(s) || /pack|ready|label|ship|done|complete/i.test(String(s)));
         if (allShipped) return "Shipped";
         if (allReady) return "Ready for Platform";
         if (allPacked) return "Packed";
         return "Needs Packing";
       };
-      const needsStateDoc = (order) => ["CA", "AZ", "TX", "LA"].includes(String(order.state || "").toUpperCase());
+      const needsStateDoc = (order) => ldOrderNeedsStateDoc(order);
       const visibleOrders = orders.filter(o => {
         const status = orderFulfillment(o);
         if (view === "open") return status !== "Shipped";
@@ -35477,9 +35637,15 @@ ${local.summary || "Fallback completed."}`;
         if (!nextPage) return;
         const requestedPage = nextPage;
         nextPage = ldV151NormalizePageId(nextPage, user?.role || "employee");
-        if (!leafDiaryKnownPage(nextPage)) nextPage = leafDiaryRoleHome(user?.role || "employee");
+        const role = user?.role || "employee";
+        if (!leafDiaryKnownPage(nextPage)) nextPage = leafDiaryRoleHome(role);
+        if (!leafDiaryCanRenderPage(nextPage, role)) {
+          const blockedPage = nextPage;
+          nextPage = ldV296FallbackForBlockedPage(blockedPage, role);
+          try { ldAddChangeLog("role_blocked_route", `Blocked ${role} from ${blockedPage}; opened ${nextPage}`, { requestedPage, blockedPage, repairedPage: nextPage, role }); } catch(e) {}
+        }
         if (requestedPage !== nextPage) {
-          try { ldAddChangeLog("route_repair", `Repaired button route: ${requestedPage} → ${nextPage}`, { requestedPage, repairedPage: nextPage, role: user?.role || "unknown" }); } catch(e) {}
+          try { ldAddChangeLog("route_repair", `Repaired button route: ${requestedPage} → ${nextPage}`, { requestedPage, repairedPage: nextPage, role }); } catch(e) {}
         }
         if (opts.nextStep) { const builtStep = ldBuildNextStep(opts.nextStep, opts.nextStepExtra || {}); if (builtStep) setNextStep(builtStep); }
         setPageRaw(prev => {
@@ -35496,6 +35662,31 @@ ${local.summary || "Fallback completed."}`;
           return nextPage;
         });
       }, [user]);
+
+      useEffect(() => {
+        if (!user) return;
+        const role = user?.role || "employee";
+        if (!leafDiaryCanRenderPage(page, role)) {
+          const safePage = ldV296FallbackForBlockedPage(page, role);
+          try { ldAddChangeLog("role_safe_redirect", `Blocked saved page ${page} for ${role}; opened ${safePage}`, { blockedPage:page, repairedPage:safePage, role }); } catch(e) {}
+          navigate(safePage, { replace:true, direction:"back" });
+        }
+      }, [page, user, navigate]);
+
+      useEffect(() => {
+        if (!user) return;
+        try {
+          window.__LEAF_DIARY_V296_ROLE_PERMISSION_LOCKDOWN = {
+            version:"V296",
+            status:"installed",
+            currentRole:user?.role || "employee",
+            currentPage:page,
+            canRenderCurrent:leafDiaryCanRenderPage(page, user?.role || "employee"),
+            audit:ldV296BuildRoleAudit,
+            downloadAudit:ldV296DownloadRoleAudit
+          };
+        } catch(e) {}
+      }, [user, page]);
 
       /* Phase 2 Step 9: global keyboard shortcuts. Disabled while typing in fields. */
       useEffect(() => {
