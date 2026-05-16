@@ -39,6 +39,7 @@
   <!-- V283 — Money workspace tabs redesigned as large responsive owner cards for mobile and desktop. -->
   <!-- V281 — Owner-only Admin Pages menu adds every hidden/legacy page not already in the normal menu. Employees and managers never see it. -->
   <!-- V278 — Inventory Crash Guard: normalizes malformed plant rows before Inventory renders and hardens plant name helpers so bad saved rows cannot white-screen the app. -->
+  <!-- V299 — Business Settings Admin Edit User Save Fix: hardens edit-user save, supports profile-only users, prevents last owner lockout, and catches cloud/local save failures without page crash. -->
   <!-- V259 FEATURE PORT — Shipping Pull/Packing step safety: safe packing-step toggles so Pull Plants does not crash Shipping. -->
   <!-- V265 FEATURE PORT — Show History Route Fix: Reports/Visual Reports Show History opens actual show sales history. -->
   <!-- V266 FEATURE PORT — Shipping Docs Busy State Fix: adds missing docBusyOrderId state inside OrderPackingBoard. -->
@@ -25945,12 +25946,53 @@ Cancel keeps this local/free.`);
       };
 
       const saveEdit = async () => {
-        const profile = buildProfile();
-        if (!profile.name || !profile.email) { setAuthErr("Name and email are required."); return; }
-        if (userExists(profile.email)) { setAuthErr("That email already exists in your app users."); return; }
-        setUsers(prev => prev.map(u => u.id === editId ? { ...u, ...profile } : u));
-        addAudit({ action: `Admin updated user ${profile.email}`, user: user.name, page: "Admin" });
-        closeForm();
+        setAuthErr(""); setAuthMsg("");
+        if (busyUser) return;
+        setBusyUser(true);
+        try {
+          const original = safeArray(users).find(u => u.id === editId);
+          if (!original) throw new Error("Could not find the user record you are editing. Close the form and open Edit again.");
+          let profile = buildProfile();
+          if (!profile.name) throw new Error("Name is required.");
+
+          /* V299: Create User allows commission/profile-only users. Edit User must allow the same.
+             If email is blank, keep the old email or create a safe local-only placeholder instead of crashing. */
+          if (!profile.email) {
+            const safeName = String(profile.name || "employee").trim().toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "") || "employee";
+            profile = { ...profile, email: original.email || `${safeName}.${original.id || Date.now()}@leafdiary.local`, loginDisabled: true };
+          }
+          if (userExists(profile.email)) throw new Error("That email already exists in your app users.");
+
+          const otherActiveOwners = safeArray(users).filter(u => u.id !== editId && u.role === "owner" && u.active !== false).length;
+          if (original.role === "owner" && (profile.role !== "owner" || profile.active === false) && otherActiveOwners < 1) {
+            throw new Error("You must keep at least one active owner account.");
+          }
+
+          const finalProfile = {
+            ...original,
+            ...profile,
+            id: original.id || profile.id || editId || uid(),
+            authUserId: profile.authUserId || original.authUserId || "",
+            authStatus: original.authStatus || (profile.authUserId || original.authUserId ? "auth-created" : "profile-only"),
+            permissions: { ...DEFAULT_PERMS, ...(profile.permissions || {}) },
+            updatedAt: new Date().toISOString(),
+            updatedBy: user?.name || user?.email || "Owner"
+          };
+
+          let updatedUsers = safeArray(users).map(u => u.id === editId ? finalProfile : u);
+          if (!updatedUsers.some(u => u.id === finalProfile.id)) updatedUsers = [...updatedUsers, finalProfile];
+          setUsers(updatedUsers);
+          try { await cloudUpsertState("users", updatedUsers); } catch (cloudErr) { console.warn("Explicit edited user cloud save failed", cloudErr); }
+          addAudit && addAudit({ action: `Admin updated user ${finalProfile.email || finalProfile.name}`, user: user?.name || "Owner", page: "Admin" });
+          closeForm();
+          setAuthMsg("✅ User profile saved. If cloud sync is offline, the app kept the change locally and will retry sync.");
+        } catch (err) {
+          console.error("Admin edit user save failed", err);
+          try { phase1LogError("admin_edit_user_save_failed", err, { editId, email: form?.email || "" }); } catch (_) {}
+          setAuthErr("User save failed: " + (err?.message || String(err)));
+        } finally {
+          setBusyUser(false);
+        }
       };
 
       const resetPassword = async (u) => {
