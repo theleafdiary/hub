@@ -78,6 +78,7 @@
   <!-- V295 — Readability + Timecard Button Polish: fixes dark green text on black premium cards and redesigns Timecard action buttons/cards so owner payroll/timecard tools are readable on desktop and mobile. -->
   <!-- V296 — Role Permission Lockdown: no layout changes. Adds central direct-route guards, safe role fallback redirects, owner/manager/employee access audit export, and blocks hidden/admin/financial pages from manager/employee direct access. -->
   <!-- V297 — Shipping End-to-End Cleanup: accurate shipment completion rules, HI state-doc checks, tracking-aware shipped status, shipping QA export, and cleaner packed/tracking/docs/label-cost status logic without layout redesign. -->
+  <!-- V298 — Manager Finance + Shipping Platform Rules: manager can see/edit daily finance and money workflows while dangerous technical/admin repair tools stay owner-only; home shipping wording uses plant count vs shipment count; Whatnot remains tracking/docs-only unless seller-paid adjustment exists. -->
   <link rel="apple-touch-icon"
     href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200" />
   <style>
@@ -7990,14 +7991,14 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     };
     const CAN = {
       seeCost: r => r === "owner" || r === "manager",
-      seeProfit: r => r === "owner",
-      seeExpenses: r => r === "owner",
-      seePayroll: r => r === "owner",
-      seeTax: r => r === "owner",
+      seeProfit: r => r === "owner" || r === "manager",
+      seeExpenses: r => r === "owner" || r === "manager",
+      seePayroll: r => r === "owner" || r === "manager",
+      seeTax: r => r === "owner" || r === "manager",
       seeReports: r => r === "owner" || r === "manager",
       deleteRec: r => r === "owner",
       editSettings: r => r === "owner",
-      seeAudit: r => r === "owner" || r === "manager",
+      seeAudit: r => r === "owner",
     };
 
 
@@ -8055,6 +8056,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
     };
     const ldShippingSuppliesCost = p => moneyNum(p?.shippingSuppliesCost ?? p?.packingSuppliesCost ?? 0);
     const ldSellerNeedsLabelCost = x => !ldIsWhatnot(x) && (moneyNum(x?.shippingCharged || x?.shippingRevenue || x?.shippingCollected) > 0 || ldShippingCharged(x) > 0 || !!x?.shippingCostPending);
+    /* V298 Whatnot rule: Whatnot shipping is tracking/docs-only for Leaf Diary by default.
+       Do not count buyer/platform shipping as Leaf Diary revenue and do not require a label cost.
+       Only seller-paid/free/discount/adjustment costs count when explicitly entered. */
+    const LD_V298_WHATNOT_SHIPPING_RULE = {
+      platform:"Whatnot", defaultRevenue:0, requireLabelCost:false,
+      exception:"seller-paid/free/discount/adjustment cost only when manually recorded"
+    };
 
     /* V297 — shared shipping completion helpers. These are data rules only; they do not redesign any page. */
     const LD_STATE_DOC_STATES = ["CA", "AZ", "TX", "LA", "HI"];
@@ -9656,8 +9664,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"execai", icon:"🧠", l:"Owner AI Brief", group:"Settings", roles:["owner"] },
       { id:"aihub", icon:"🤖", l:"Leaf Diary AI", group:"Settings", roles:["owner","manager","employee"] },
       { id:"dataai", icon:"💬", l:"Ask Business AI", group:"Settings", roles:["owner","manager","employee"] },
-      { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Money", roles:["owner"] },
-      { id:"slotprofit", icon:"📦", l:"What Makes Money", group:"What Should I Buy?", roles:["owner"] },
+      { id:"cashflow", icon:"💵", l:"Cash Flow", group:"Money", roles:["owner","manager"] },
+      { id:"slotprofit", icon:"📦", l:"What Makes Money", group:"What Should I Buy?", roles:["owner","manager"] },
       { id:"overnight", icon:"🌅", l:"Today’s Plan", group:"Settings", roles:["owner"] },
       { id:"emp_dash", icon:"🏠", l:"My Dashboard", group:"Settings", roles:["employee"] },
       { id:"plantcapture", icon:"🌿", l:"Plant Capture", group:"Plants", roles:["owner","manager","employee"] },
@@ -9675,7 +9683,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"scanlabel", icon:"📷", l:"Scan Label + Add Photo", group:"Plants", roles:["owner","manager","employee"] },
       { id:"photosprint", icon:"⚡", l:"Take Plant Photos Fast", group:"Plants", roles:["owner","manager","employee"] },
       { id:"care", icon:"🩺", l:"Plant Care", group:"Plants", roles:["owner","manager"] },
-      { id:"locations", icon:"📍", l:"Locations", group:"Plants", roles:["owner"] },
+      { id:"locations", icon:"📍", l:"Locations", group:"Plants", roles:["owner","manager"] },
       { id:"sellthru", icon:"📊", l:"Sell-Through", group:"Plants", roles:["owner","manager"] },
       { id:"runshow", icon:"🎪", l:"Run a Show", group:"Shows", roles:["owner","manager","employee"] },
       { id:"showcommand", icon:"🧭", l:"Advanced Show Center", group:"Shows", roles:["owner","manager"] },
@@ -9688,7 +9696,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"liveshow", icon:"🎥", l:"Live Show", group:"Shows", roles:["owner","manager","employee"] },
       { id:"showimport", icon:"📥", l:"Import Show Sales", group:"Orders", roles:["owner","manager"] },
       { id:"bundles", icon:"🧺", l:"Bundles", group:"Shows", roles:["owner","manager"] },
-      { id:"discounts", icon:"🏷️", l:"Discounts", group:"Shows", roles:["owner"] },
+      { id:"discounts", icon:"🏷️", l:"Discounts", group:"Shows", roles:["owner","manager"] },
       { id:"social", icon:"📣", l:"Social Center", group:"Marketing", roles:["owner","manager","employee"] },
       { id:"content", icon:"✨", l:"AI Content", group:"Marketing", roles:["owner","manager"] },
       { id:"ship", icon:"✅", l:"Sold Review", group:"Orders", roles:["owner","manager"] },
@@ -9696,14 +9704,14 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       { id:"retention", icon:"💚", l:"Repeat Buyers", group:"Orders", roles:["owner","manager"] },
       { id:"refunds", icon:"↩️", l:"Refunds", group:"Orders", roles:["owner","manager"] },
       { id:"casd", icon:"📜", l:"Shipping State Docs", group:"Orders", roles:["owner","manager"] },
-      { id:"expense", icon:"💳", l:"Expenses", group:"Money", roles:["owner"] },
+      { id:"expense", icon:"💳", l:"Expenses", group:"Money", roles:["owner","manager"] },
       { id:"receipts", icon:"🧾", l:"Add Receipt", group:"Money", roles:["owner","manager","employee"] },
-      { id:"bills", icon:"📅", l:"Bills", group:"Money", roles:["owner"] },
+      { id:"bills", icon:"📅", l:"Bills", group:"Money", roles:["owner","manager"] },
       { id:"timecard", icon:"⏱️", l:"Timecard", group:"Money", roles:["owner","manager","employee"] },
-      { id:"payroll", icon:"👥", l:"Payroll", group:"Money", roles:["owner"] },
-      { id:"commissions", icon:"🤝", l:"Commissions", group:"Money", roles:["owner"] },
-      { id:"tax", icon:"🧾", l:"Tax Center", group:"Money", roles:["owner"] },
-      { id:"goals", icon:"🎯", l:"Goals", group:"Money", roles:["owner"] },
+      { id:"payroll", icon:"👥", l:"Payroll", group:"Money", roles:["owner","manager"] },
+      { id:"commissions", icon:"🤝", l:"Commissions", group:"Money", roles:["owner","manager"] },
+      { id:"tax", icon:"🧾", l:"Tax Center", group:"Money", roles:["owner","manager"] },
+      { id:"goals", icon:"🎯", l:"Goals", group:"Money", roles:["owner","manager"] },
       { id:"nursery", icon:"🏪", l:"Nursery Scores", group:"What Should I Buy?", roles:["owner","manager"] },
       { id:"pos", icon:"📋", l:"Buying Lists", group:"What Should I Buy?", roles:["owner","manager"] },
       { id:"intel", icon:"💡", l:"What Should I Buy?", group:"What Should I Buy?", roles:["owner","manager"] },
@@ -9766,7 +9774,30 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       "inlineedit", "bulkactions", "swipegestures", "barcodeqa", "showcommand", "showdragdrop"
     ]);
     const ldV158IsAdvancedLockedId = id => LD_V158_OWNER_ONLY_ADVANCED_IDS.has(String(id || ""));
-    const ldV158CanOpenAdvancedId = (id, role = "employee") => !ldV158IsAdvancedLockedId(id) || role === "owner";
+
+    /* V298 — Manager finance access with owner-only technical safety.
+       Manager needs full daily control of Money/Finance/Operations, but should not see or use tools
+       that connect/debug Supabase, Gateway, schema, security, release, raw backup, or repair code. */
+    const LD_V298_MANAGER_FINANCE_IDS = new Set([
+      "money_ws", "cashflow", "receipts", "expense", "bills", "timecard", "payroll", "commissions", "slotprofit", "reports", "datacharts", "buy_ws", "intel", "nursery", "pos", "tax", "goals"
+    ]);
+    const LD_V298_MANAGER_OPERATIONS_IDS = new Set([
+      "plants_ws", "labels_ws", "shows_ws", "orders_ws", "inv", "manual", "upload", "labels", "labelife", "barcodeqa", "scanlabel", "photosprint", "care", "locations", "sellthru", "runshow", "showcommand", "showhistory", "showbuilder", "showprep", "showdragdrop", "liveshow", "showimport", "bundles", "discounts", "ship", "customers", "retention", "refunds", "casd", "content", "social", "history"
+    ]);
+    const LD_V298_MANAGER_DANGEROUS_ADMIN_IDS = new Set([
+      "admin_ws", "admin", "teamsync", "cleanup", "devtools", "appcheck", "workflowqa", "releasecenter", "phase2qa", "ollama", "ollamadoctor", "aigateway", "airouter", "invoicetrainer", "audit", "command", "ownerboard", "execai"
+    ]);
+    const ldV298ManagerCanUseId = id => {
+      const normalized = String(id || "");
+      if (LD_V298_MANAGER_DANGEROUS_ADMIN_IDS.has(normalized)) return false;
+      return LD_V298_MANAGER_FINANCE_IDS.has(normalized) || LD_V298_MANAGER_OPERATIONS_IDS.has(normalized) || !ldV158IsAdvancedLockedId(normalized);
+    };
+    const ldV158CanOpenAdvancedId = (id, role = "employee") => {
+      const r = String(role || "employee").toLowerCase();
+      if (r === "owner" || r === "admin") return true;
+      if (r === "manager") return ldV298ManagerCanUseId(id);
+      return !ldV158IsAdvancedLockedId(id);
+    };
     const ldV158SafeAdvancedFallback = (id, role = "employee") => {
       if (role === "owner") return id;
       if (role === "manager") return "managerboard";
@@ -9832,21 +9863,13 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
        No layout changes. This hardens direct route access, old saved-page access,
        search/shortcut routing, and hidden/admin/financial tools by role. */
     const LD_V296_MANAGER_BLOCKED_IDS = new Set([
-      ...LD_V158_OWNER_ONLY_ADVANCED_IDS,
-      "admin_ws", "admin", "teamsync", "cleanup", "devtools", "appcheck", "workflowqa", "releasecenter",
-      "ollama", "ollamadoctor", "aigateway", "airouter", "phase2qa", "invoicetrainer",
-      "ownerboard", "execai", "command", "dataai", "aihub",
-      "cashflow", "slotprofit", "payroll", "commissions", "tax", "goals", "reports", "datacharts",
-      "expense", "bills", "discounts", "nursery", "pos", "intel", "locations", "bulkactions", "inlineedit"
+      ...LD_V298_MANAGER_DANGEROUS_ADMIN_IDS
     ]);
     const LD_V296_EMPLOYEE_ALLOWED_IDS = new Set([
       "today", "employeeboard", "labels_ws", "orders_ws",
       "labels", "scanlabel", "photosprint", "packorders", "shiplabels", "timecard", "receipts"
     ]);
-    const LD_V296_OWNER_FINANCIAL_IDS = new Set([
-      "cashflow", "slotprofit", "payroll", "commissions", "tax", "goals", "reports", "datacharts",
-      "expense", "bills", "buy_ws", "intel", "nursery", "pos"
-    ]);
+    const LD_V296_OWNER_FINANCIAL_IDS = new Set([]); // V298: manager/wife can access finance; employees are still blocked separately.
     function ldV296NormalizeRole(role = "employee") {
       const r = String(role || "employee").toLowerCase();
       return r === "owner" || r === "admin" ? "owner" : r === "manager" ? "manager" : "employee";
@@ -9861,7 +9884,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       if (r === "manager") {
         if (LD_V296_MANAGER_BLOCKED_IDS.has(id)) return false;
         if (LD_V296_OWNER_FINANCIAL_IDS.has(id)) return false;
-        return true;
+        return ldV298ManagerCanUseId(id);
       }
       return false;
     }
@@ -9909,6 +9932,32 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       return report;
     }
     try { window.__LEAF_DIARY_V296_ROLE_PERMISSION_LOCKDOWN = { version:"V296", status:"installed", audit:ldV296BuildRoleAudit, downloadAudit:ldV296DownloadRoleAudit }; } catch(e) {}
+
+    function ldV298BuildManagerFinanceAudit() {
+      const managerIds = Array.from(new Set([...ROOT_PAGES, ...WORKSPACES.map(w => w.id), ...TOOL_CATALOG.map(t => t.id)])).sort();
+      const rows = managerIds.map(id => ({ id, label:getPageLabel(id), managerCanOpen:leafDiaryCanRenderPage(id, "manager"), ownerOnlyTechnical:LD_V298_MANAGER_DANGEROUS_ADMIN_IDS.has(id), finance:LD_V298_MANAGER_FINANCE_IDS.has(id), operations:LD_V298_MANAGER_OPERATIONS_IDS.has(id) }));
+      return {
+        version:"V298",
+        ranAt:new Date().toISOString(),
+        rule:"Manager can use finance/operations pages. Technical Supabase/Gateway/repair/security/release/admin pages stay owner-only.",
+        whatnotShipping:LD_V298_WHATNOT_SHIPPING_RULE,
+        counts:{ managerOpen:rows.filter(r=>r.managerCanOpen).length, ownerOnlyTechnical:rows.filter(r=>r.ownerOnlyTechnical).length, financeOpen:rows.filter(r=>r.finance && r.managerCanOpen).length },
+        rows
+      };
+    }
+    function ldV298DownloadManagerFinanceAudit() {
+      const report = ldV298BuildManagerFinanceAudit();
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type:"application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `leaf-diary-v298-manager-finance-audit-${today()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{ try { URL.revokeObjectURL(url); a.remove(); } catch(e) {} }, 1200);
+      return report;
+    }
+    try { window.__LEAF_DIARY_V298_MANAGER_FINANCE = { version:"V298", status:"installed", audit:ldV298BuildManagerFinanceAudit, downloadAudit:ldV298DownloadManagerFinanceAudit, whatnotShipping:LD_V298_WHATNOT_SHIPPING_RULE }; } catch(e) {}
 
     function leafDiaryCanRenderPage(id, role = "employee") {
       const normalized = ldV151NormalizePageId(id, role);
@@ -11347,7 +11396,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <PulseCard icon="💵" label={isOwner ? "Cash Available" : "Sales 30 Days"} value={isOwner ? $(settings.currentBankBalance || 0) : $(sales30)} sub={isOwner ? `safe buy ${$(buyPlan.safeSpend || 0)}` : `${sold30.length} plants sold`} color={isOwner ? C.gold : C.g600} page={isOwner ? "cashflow" : "reports"} />
           <PulseCard icon="📈" label="Profit This Week" value={isOwner ? $(profit7) : `${sold7.length} sold`} sub={isOwner ? `${sold7.length} plants sold` : "weekly sales activity"} color={profit7 >= 0 ? C.g600 : C.red} page={isOwner ? "reports" : "ship"} />
-          <PulseCard icon="📦" label="Orders To Review" value={readyOrders.length} sub="after-show sold groups" color={readyOrders.length ? C.amber : C.g600} page="ship" />
+          <PulseCard icon="📦" label="Shipments To Review" value={readyOrders.length} sub="customer shipment groups" color={readyOrders.length ? C.amber : C.g600} page="ship" />
           <PulseCard icon="⚡" label="Plant Actions" value={actionCount} sub="photos, labels, prices, aging" color={actionCount ? C.amber : C.g600} page="plants_ws" />
         </div>
 
@@ -11410,6 +11459,8 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       // V194 FIX: SimpleTodayDashboard owner cards use readyOrders.
       // Keep it as a safe alias of soldOrders so CRM reset/empty data cannot crash startup.
       const readyOrders = safeArray(soldOrders);
+      const soldOrderPlantCount = readyOrders.reduce((sum, order) => sum + Math.max(1, safeArray(order?.plants).length), 0);
+      const soldShipmentCount = readyOrders.length;
       const month = monthKey();
       const soldMonth = sold.filter(p => monthKey(plantSaleDate(p)) === month);
       const monthSales = soldMonth.reduce((s,p)=>s+(+p.salePrice || +p.suggestedPrice || +p.price || 0),0);
@@ -11436,7 +11487,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
       const needs = [
         { icon:"📸", title:"Plants need photos", count:noPhoto.length, body:"Photo queue blocks show-ready plants.", page:"photosprint", color:"#fb6392" },
         { icon:"🏷️", title:"Labels need printing", count:needsLabel.length, body:"Print labels before staging or selling.", page:"labels", color:C.g600 },
-        { icon:"📦", title:"Orders need review", count:soldOrders.length, body:"Sold groups waiting for packing/tracking.", page:"orders_ws", color:"#68d8ff" },
+        { icon:"📦", title:"Plants need packing/review", count:soldOrderPlantCount, body:`${soldShipmentCount} shipment/customer group(s) waiting for packing or tracking.`, page:"orders_ws", color:"#68d8ff" },
         { icon:"🧾", title:"Receipts need review", count:receiptsNeedReview.length, body:"Categorize or confirm receipt details.", page:"receipts", color:C.gold },
         { icon:"⏳", title:"Aging inventory", count:aging45.length, body:"45+ day plants may need discount or show push.", page:"discounts", color:C.amber },
         { icon:"💲", title:"Plants missing price", count:noPrice.length, body:"Set prices before building shows.", page:"inv", color:C.red }
@@ -11470,7 +11521,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const topBlocker = topNeeds[0] || { icon:"✅", title:"No urgent blockers", count:0, body:"Start with the job you want to complete next.", page:"today", color:C.g600 };
         const ownerCards = [
           { icon:topBlocker.icon, title:"Top blocker", value:topBlocker.count, body:topBlocker.title, page:topBlocker.page, color:topBlocker.color },
-          { icon:"📦", title:"Ship now", value:readyOrders.length, body:"orders / sold groups need packing or tracking", page:"orders_ws", color:"#68d8ff" },
+          { icon:"📦", title:"Ship now", value:soldOrderPlantCount, body:`plants across ${soldShipmentCount} shipment/customer group(s)`, page:"orders_ws", color:"#68d8ff" },
           { icon:"🧾", title:"Review receipts", value:receiptsNeedReview.length, body:"uncategorized or needs review", page:"money_ws", color:C.gold },
           { icon:"💵", title:"Month profit check", value:$(monthProfit), body:`sales ${$(monthSales)} · expenses ${$(monthExpenses)} · cash ${$(cashWarning)}`, page:"money_ws", color: cashWarning >= 0 ? C.g600 : C.red }
         ];
@@ -11538,7 +11589,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const readyToSell = inStock.filter(p => (p.photoUrl || p.photoBase64) && (p.labelPrinted || p.labelPrintedAt || p.barcodePrintedAt) && (+p.suggestedPrice || +p.listPrice || +p.price));
         const blockers = [
           noPhoto.length ? { icon:"📸", label:"Photo Blocker", value:noPhoto.length, page:"labels_ws", color:"#fb6392", next:"Run Take Plant Photos before building the next show." } : null,
-          readyOrders.length ? { icon:"📦", label:"Ship Blocker", value:readyOrders.length, page:"orders_ws", color:"#68d8ff", next:"Pack orders and capture tracking before buying more inventory." } : null,
+          readyOrders.length ? { icon:"📦", label:"Shipping Blocker", value:soldOrderPlantCount, page:"orders_ws", color:"#68d8ff", next:`Pack ${soldOrderPlantCount} plants across ${soldShipmentCount} shipment/customer group(s) and capture tracking before buying more inventory.` } : null,
           receiptsNeedReview.length ? { icon:"🧾", label:"Money Blocker", value:receiptsNeedReview.length, page:"money_ws", color:C.gold, next:"Review receipts so profit and cash flow stay accurate." } : null,
           noPrice.length ? { icon:"💲", label:"Price Blocker", value:noPrice.length, page:"plants_ws", color:C.red, next:"Check plant prices before adding these to a show." } : null,
           aging45.length ? { icon:"⏳", label:"Aging Blocker", value:aging45.length, page:"plants_ws", color:C.amber, next:"Discount, bundle, or push older plants into a show." } : null,
@@ -11594,7 +11645,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
           <KPI label="In Stock" value={inStock.length} sub="plants" color={C.g600} />
           <KPI label="Need Photos" value={noPhoto.length} sub="fix before show" color="#fb6392" />
-          <KPI label="Orders To Pack" value={soldOrders.length} sub="sold groups" color="#68d8ff" />
+          <KPI label="Plants To Pack" value={soldOrderPlantCount} sub={`${soldShipmentCount} shipment/customer group(s)`} color="#68d8ff" />
           <KPI label="Month Sales" value={$(monthSales)} sub={`${soldMonth.length} sold`} color={C.gold} />
         </div>
 
@@ -14766,7 +14817,7 @@ If you cannot find enough exact-size data, return the exact/close sources you fo
         const next = role === "employee" ? (initialTab === "timecard" ? "timecard" : "receipts") : (initialTab || "overview");
         setTab(next);
       }, [initialTab, role]);
-      const canOwner = role === "owner";
+      const canOwner = role === "owner" || role === "manager"; // V298: manager/wife gets full Money/Finance control.
       const canManager = role === "owner" || role === "manager";
       const todayKey = today();
       const month = monthKey();
