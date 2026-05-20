@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 
 <html lang="en">
@@ -101,7 +102,6 @@
 <!-- V318 — Mobile Production Precompiled Boot:
 Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to Today, skips parsing oversized localStorage backups on mobile without deleting them, and keeps Customers footer link. No Supabase schema changes. No data deletion. -->
 <!-- V323 — Final Mobile/Desktop Boot Fix: wraps app scripts during dynamic boot so Supabase UMD globals cannot collide with app const names; prevents runInertScripts from executing twice; keeps mobile shell and data safe. -->
-<!-- V324 — Exact Sales Import Lock: show sales upload auto-matches only exact Leaf Diary plant numbers / SKU / barcode codes. No fuzzy title/name auto-selling. Uncertain rows stay review-required. -->
   <!-- V319 — Mobile Boot Repair:
 Stops the V293 startup repair screen from taking over iPhone, removes heavy PDF/Excel/barcode libraries from startup, adds a Supabase offline/local fallback if the CDN fails, shows a lightweight loading shell immediately, and reports the real boot error instead of looping restart buttons. No data deletion. No Supabase schema changes. -->
 <link href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&amp;width=200" rel="apple-touch-icon"/>
@@ -35967,7 +35967,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
     const [skipped, setSkipped] = useState([]);
     const [step, setStep] = useState("paste");
     const [platform, setPlatform] = useState("Palmstreet");
-    const [importMode, setImportMode] = useState("exact");
+    const [importMode, setImportMode] = useState("historical");
     const [fileName, setFileName] = useState("");
     const [importMsg, setImportMsg] = useState("");
     const [duplicateInfo, setDuplicateInfo] = useState(null);
@@ -36285,38 +36285,26 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         const ship = cleanText(sale.shipmentId || sale.shipment_id || sale.shipmentManifest || sale.shipment_manifest || "");
         return ship ? `SHIPMENT-${ship}` : (sale.orderNo || sale.orderNum || "");
     };
-    const saleExactCodes = sale => {
-        const found = [];
-        const add = v => {
-            const c = extractPlantCode(v);
-            if (c && !found.some(x => plantCodeMatches(x, c)))
-                found.push(c);
-        };
-        [sale.extractedPlantCode, sale.sku, sale.productVariant, sale.title, sale.productDescription, sale.rawProductVariant].forEach(add);
-        try {
-            Object.keys(sale.raw || {}).forEach(k => /sku|barcode|plant|product|variant|title|item|listing/i.test(k) && add(sale.raw[k]));
-        }
-        catch (e) { }
-        return found;
-    };
-    const exactInventoryMatchesSaleCode = (p, code) => !!(p && code) && (plantCodeMatches(p.plantId, code) ||
-        plantCodeMatches(p.plantCode, code) ||
-        plantCodeMatches(p.barcodeValue, code) ||
-        plantCodeMatches(p.sku, code) ||
-        safeLower(p.plantId) === safeLower(code) ||
-        safeLower(p.plantCode) === safeLower(code) ||
-        safeLower(p.barcodeValue) === safeLower(code) ||
-        safeLower(p.sku) === safeLower(code));
     const findInventoryMatch = sale => {
-        const codes = saleExactCodes(sale);
-        if (!codes.length)
-            return null;
-        for (const code of codes) {
-            const byCurrentCode = plants.find(p => isCurrentInventoryRecord(p) && exactInventoryMatchesSaleCode(p, code));
+        const code = sale.extractedPlantCode;
+        if (code) {
+            const byCurrentCode = plants.find(p => isCurrentInventoryRecord(p) && (plantCodeMatches(p.plantId, code) ||
+                plantCodeMatches(p.plantCode, code) ||
+                plantCodeMatches(p.barcodeValue, code) ||
+                safeLower(p.plantId) === safeLower(code) ||
+                safeLower(p.plantCode) === safeLower(code) ||
+                safeLower(p.barcodeValue) === safeLower(code)));
             if (byCurrentCode)
                 return byCurrentCode;
+            return null; // old sold/dead/history records with the same plant number must NOT steal this sale
         }
-        return null; // Exact sales import: never auto-sell by product title/name similarity.
+        const title = safeLower(sale.productVariant);
+        if (!title || importMode === "historical")
+            return null;
+        return plants.find(p => isCurrentInventoryRecord(p) && (title.includes(safeLower(p.plantId)) ||
+            title.includes(safeLower(p.plantCode)) ||
+            title.includes(safeLower(p.barcodeValue)) ||
+            (p.name && (safeLower(p.name).includes(title.slice(0, 8)) || title.includes(safeLower(p.name).slice(0, 8)))))) || null;
     };
     // V223: bundle-aware sales import. One show row can represent 2+ plants, so the importer must
     // remove 2+ inventory records instead of marking only the first matching plant sold.
@@ -36370,16 +36358,31 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         return nameWords.length >= 2 && hits >= Math.min(nameWords.length, 3);
     };
     const bundleMatchesFromManualPlant = (sale, plant) => {
-        if (!plant || !isCurrentInventoryRecord(plant))
+        if (!plant)
             return [];
-        // Exact safety: choosing one plant manually should not auto-sell other similar-name plants.
-        // Bundle rows with quantity > 1 stay partial/review-required until every unit is matched intentionally.
-        return [plant];
+        const qty = saleQuantityForImport(sale);
+        const out = [];
+        const seen = new Set();
+        const add = p => { if (p && isCurrentInventoryRecord(p) && !seen.has(p.id)) {
+            seen.add(p.id);
+            out.push(p);
+        } };
+        add(plant);
+        const selectedName = bundleNameKey(plant.name || "");
+        plants.forEach(p => {
+            if (out.length >= qty)
+                return;
+            if (p.id === plant.id)
+                return;
+            if (bundleNameKey(p.name || "") === selectedName)
+                add(p);
+        });
+        return out.slice(0, qty);
     };
     const findInventoryBundleMatches = sale => {
         const qty = saleQuantityForImport(sale);
-        const codes = saleExactCodes(sale);
-        if (!codes.length)
+        const first = findInventoryMatch(sale);
+        if (!first)
             return [];
         const out = [];
         const seen = new Set();
@@ -36387,11 +36390,12 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             seen.add(p.id);
             out.push(p);
         } };
-        codes.forEach(code => {
+        add(first);
+        plants.forEach(p => {
             if (out.length >= qty)
                 return;
-            const exact = plants.find(p => isCurrentInventoryRecord(p) && exactInventoryMatchesSaleCode(p, code) && !seen.has(p.id));
-            add(exact);
+            if (bundleCandidateMatch(sale, p))
+                add(p);
         });
         return out.slice(0, qty);
     };
@@ -36648,7 +36652,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             try {
                 if (!isXlsx && String(e.target.result || "").toLowerCase().includes("buyer_username") && String(e.target.result || "").toLowerCase().includes("product_name")) {
                     setPlatform("Whatnot");
-                    setImportMode("exact");
+                    setImportMode("historical");
                 }
                 if (isXlsx) {
                     if (!window.XLSX)
@@ -37250,7 +37254,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
     const watchImportAlerts = matched.filter(r => r.apply && !r.duplicate && r.watchCustomerReviewRequired);
     const reviewImportAlerts = [...blockedImportAlerts, ...watchImportAlerts];
     return React.createElement("div", { style: { padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" } },
-        React.createElement(SHdr, { icon: "\uD83D\uDCE6", title: "Import Show Sales", sub: "Upload Palmstreet/Whatnot sales. Auto-sell now requires an exact Leaf Diary plant number, SKU, or barcode match." }),
+        React.createElement(SHdr, { icon: "\uD83D\uDCE6", title: "Import Show Sales", sub: "Upload Palmstreet/Whatnot sales. Old files can import as sold sale records even without inventory matches." }),
         step === "paste" && React.createElement("div", null,
             React.createElement(Card, { style: { marginBottom: 14 } },
                 React.createElement("div", { style: { fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 } }, "Platform"),
@@ -37259,8 +37263,8 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                 React.createElement(Row, { gap: 8, style: { marginBottom: 16 } }, [{ v: "historical", l: "Historical Import - Save Unmatched" }, { v: "exact", l: "Exact Inventory Match Only" }].map(o => React.createElement("button", { key: o.v, onClick: () => setImportMode(o.v), style: { padding: "10px 14px", borderRadius: 9, cursor: "pointer", fontFamily: F.body, fontSize: 13, fontWeight: 600, background: importMode === o.v ? C.g700 : C.cardAlt, color: importMode === o.v ? "#fff" : C.tx1, border: `1.5px solid ${importMode === o.v ? C.g700 : C.bd}` } }, o.l))),
                 React.createElement("div", { style: { background: C.goldBg, border: `1px solid ${C.gold}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.tx2, marginBottom: 14, lineHeight: 1.6 } },
                     "Use ",
-                    React.createElement("b", null, "Exact Inventory Match Only"),
-                    " for normal live-show uploads. Rows without a clear Leaf Diary plant number/SKU/barcode will stay unmatched instead of selling the wrong plant."),
+                    React.createElement("b", null, "Historical Import"),
+                    " for old Palmstreet analytics files that do not have Leaf Diary plant codes. It will still save the sales for analytics, pricing, customers, and revenue history."),
                 importMsg && React.createElement("div", { style: { background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.red, marginBottom: 12 } }, importMsg),
                 duplicateInfo && React.createElement("div", { style: { background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.amber, marginBottom: 12 } },
                     React.createElement("b", null,
