@@ -16266,7 +16266,373 @@ function VisualReportsCenter({ plants = [], expenses = [], bills = [], timecards
         <div class="page page-break"><div class="section"><h2>Period Comparison</h2><div class="section-note">Current period compared with the matching previous period.</div><table class="table"><thead><tr><th>Metric</th><th>Now</th><th>Previous</th><th>Change</th></tr></thead><tbody>${compareRows.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.money ? $(r.current) : numberFmt(r.current, r.suffix || ""))}</td><td>${esc(r.money ? $(r.previous) : numberFmt(r.previous, r.suffix || ""))}</td><td>${r.change >= 0 ? "+" : ""}${Math.round(r.change || 0)}%</td></tr>`).join("")}</tbody></table></div>
         <div class="section two"><div class="card"><h2>Top Shows</h2>${showRows.slice(0, 8).map(r => `<div class="action"><div class="action-num">${esc(r.plants || r.count || 0)}</div><div><b>${esc(shortLabel(r.show, 34))}</b><div class="alert-sub">${esc(r.platform)} · ${esc(r.date)} · avg ${esc($(r.avg || 0))}</div></div><div class="action-impact">${esc($(r.value))}</div></div>`).join("") || `<div class="muted">No show data for this period.</div>`}</div><div class="card"><h2>Top Plant Profit</h2>${plantProfitRows.slice(0, 8).map((r, i) => `<div class="action"><div class="action-num">${i + 1}</div><div><b>${esc(shortLabel(r.name, 34))}</b><div class="alert-sub">${esc(r.platform)} · sale ${esc($(r.sale))} · cost ${esc($(r.cost))}</div></div><div class="action-impact">${esc($(r.value))}</div></div>`).join("") || `<div class="muted">No plant profit rows yet.</div>`}</div></div>
         <div class="section two"><div class="card"><h2>Low Margin Review</h2>${lowMarginRows.slice(0, 7).map((r, i) => `<div class="action"><div class="action-num">${i + 1}</div><div><b>${esc(shortLabel(r.name, 34))}</b><div class="alert-sub">${esc(r.id || "")}${r.id ? " · " : ""}${esc($(r.cost))} cost → ${esc($(r.price))} price</div></div><div class="action-impact">${esc(safePct(r.margin))}</div></div>`).join("") || `<div class="muted">No low margin plants in this view.</div>`}</div><div class="card"><h2>Owner Notes</h2><div class="print-note">Use this PDF for a quick review with your wife, bookkeeper, or team. The report is generated from saved Leaf Diary app data. Missing plant cost, label cost, tracking, and state paperwork will make profit numbers less accurate until cleaned up.</div><div class="print-note no-print">Browser note: the app creates a real PDF when PDFLib is available. If your browser blocks it, the fallback opens a print-ready report that can be saved as PDF.</div></div></div>
-        <div class="footer"><span>Leaf Diary Business Hub</span><span>End of report</span></div></div></body></html>`;
+        <div class="footer"><span>Leaf Diary Business Hub</span><span>End of report</span></div></div>
+
+
+<!-- LD-V329-STATE-DOCS-START -->
+<script id="ld-v329-state-docs-fix">
+(function(){
+  "use strict";
+  if (window.__LEAF_DIARY_V329_STATE_DOCS_FIX__) return;
+  window.__LEAF_DIARY_V329_STATE_DOCS_FIX__ = true;
+
+  var VERSION = "V329";
+  var DATA_KEY = "leafdiary_v6";
+  var TARGET_STATES = ["CA","TX","AZ","LA","HI"];
+  var APP_DOC_KEYS = ["casdCerts","stateDocs","shippingDocs","complianceDocs","paperworkDocs","statePaperworkDocs"];
+  var LS_DOC_KEYS = ["leafDiaryStateDocsV329","leafDiaryShippingDocsV329","leafDiaryComplianceDocsV329","leafDiaryCasdCertsV329"];
+
+  function clean(v){ return String(v == null ? "" : v).trim(); }
+  function upper(v){ return clean(v).toUpperCase(); }
+  function now(){ return new Date().toISOString(); }
+  function today(){ return now().slice(0,10); }
+  function targetState(v){ v = upper(v).replace(/[^A-Z]/g,""); return TARGET_STATES.indexOf(v) >= 0 ? v : ""; }
+  function uid(){ return "ld-doc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,8); }
+  function esc(s){ return clean(s).replace(/[&<>"']/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c];}); }
+
+  function loadJson(key, fallback){
+    try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
+    catch(e){ return fallback; }
+  }
+  function saveJson(key, val){
+    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+    catch(e){ console.error("Leaf Diary " + VERSION + " save failed", key, e); return false; }
+  }
+  function backup(key){
+    try {
+      var raw = localStorage.getItem(key);
+      if (raw) localStorage.setItem("leafdiary_v329_backup_" + key + "_" + Date.now(), raw);
+    } catch(e){}
+  }
+
+  function pick(o, keys){
+    if (!o || typeof o !== "object") return "";
+    for (var i=0;i<keys.length;i++){
+      if (o[keys[i]] != null && clean(o[keys[i]]) !== "") return clean(o[keys[i]]);
+    }
+    return "";
+  }
+  function stateFromObj(o){
+    var st = pick(o, [
+      "customerState","shipToState","shippingState","buyerState","recipientState","destinationState",
+      "complianceState","state","ship_state","shipping_address_state","shipState","deliveryState",
+      "stateCode","province","region","Ship To State","Shipping State","State","Buyer State","Ship State"
+    ]);
+    st = targetState(st);
+    if (st) return st;
+
+    var txt = pick(o, ["shippingAddress","shipToAddress","address","fullShippingAddress","customerAddress","rawAddress","Shipping Address"]);
+    var m = txt.match(/\b(CA|TX|AZ|LA|HI)\b/i);
+    return m ? targetState(m[1]) : "";
+  }
+  function extractCode(s){
+    var rx = /\b([A-Z]{1,8})\s*-?\s*0*(\d{1,6})\b/g, m, last = null;
+    s = String(s || "");
+    while ((m = rx.exec(s))) last = m;
+    return last ? last[1].toUpperCase() + "-" + String(parseInt(last[2],10)).padStart(3,"0") : "";
+  }
+  function titleOf(o){ return pick(o, ["plantName","name","title","itemTitle","productName","listingTitle","rawTitle","Item Title","Product Name"]) || "Plant shipment"; }
+  function codeOf(o){ return pick(o, ["plantId","plantCode","barcodeValue","sku","SKU","code","extractedPlantCode","sellerSku","Custom SKU","Seller SKU"]) || extractCode(titleOf(o)); }
+  function orderOf(o){ return pick(o, ["orderId","order","orderNumber","orderNo","whatnotOrderId","platformOrderId","customerOrderId","Order","Order ID"]); }
+  function shipmentOf(o){ return pick(o, ["shipmentId","shipment","shipmentNumber","whatnotShipmentId","platformShipmentId","Shipment","Shipment ID","packageId"]); }
+  function buyerOf(o){ return pick(o, ["customerName","buyerName","username","buyer","customer","recipientName","shipToName","Buyer","Customer","Username"]); }
+  function platformOf(o){
+    var p = pick(o, ["platform","salePlatform","sourcePlatform","source","marketplace","channel","Platform"]);
+    if (/whatnot/i.test(p)) return "Whatnot";
+    if (/palm/i.test(p)) return "Palmstreet";
+    if (/shopify|website|web/i.test(p)) return "Website";
+    return p || "Unknown";
+  }
+  function dateOf(o){ return pick(o, ["soldDate","saleDate","orderDate","shipDate","date","createdAt","soldAt","Date"]) || today(); }
+  function docLabel(st){
+    st = targetState(st);
+    if (st === "CA") return "California plant shipment paperwork";
+    if (st === "TX") return "Texas plant shipment paperwork";
+    if (st === "AZ") return "Arizona plant shipment paperwork";
+    if (st === "LA") return "Louisiana plant shipment paperwork";
+    if (st === "HI") return "Hawaii plant shipment checklist";
+    return "State plant shipment paperwork";
+  }
+  function looksLikeOrder(o){
+    var blob = [orderOf(o), shipmentOf(o), buyerOf(o), titleOf(o), codeOf(o), platformOf(o), pick(o,["status","shipmentStatus","fulfillmentStatus","paperworkStatus"])].join(" ");
+    return /(order|shipment|ship|tracking|customer|buyer|whatnot|palmstreet|plant|sold|pack|paperwork|fulfill)/i.test(blob);
+  }
+  function rowFromObj(o, path, storageKey){
+    if (!o || typeof o !== "object" || Array.isArray(o)) return null;
+    var st = stateFromObj(o);
+    if (!st || !looksLikeOrder(o)) return null;
+    return {
+      state: st,
+      title: titleOf(o),
+      plantCode: codeOf(o),
+      orderId: orderOf(o),
+      shipmentId: shipmentOf(o),
+      buyerName: buyerOf(o),
+      platform: platformOf(o),
+      date: dateOf(o),
+      sourcePath: path || "",
+      storageKey: storageKey || "",
+      raw: o
+    };
+  }
+  function walk(obj, path, storageKey, out, seen){
+    if (!obj || typeof obj !== "object") return;
+    if (seen.indexOf(obj) >= 0) return;
+    seen.push(obj);
+    if (Array.isArray(obj)) {
+      obj.forEach(function(x,i){ walk(x, path + "[" + i + "]", storageKey, out, seen); });
+      return;
+    }
+    var row = rowFromObj(obj, path, storageKey);
+    if (row) out.push(row);
+    Object.keys(obj).forEach(function(k){ if (obj[k] && typeof obj[k] === "object") walk(obj[k], path ? path + "." + k : k, storageKey, out, seen); });
+  }
+  function scanLocalStorage(){
+    var out = [];
+    for (var i=0;i<localStorage.length;i++){
+      var key = localStorage.key(i);
+      if (!key || !/leaf|diary|hub|plant|order|ship|sale|customer/i.test(key)) continue;
+      var val = loadJson(key, null);
+      if (val && typeof val === "object") walk(val, key, key, out, []);
+    }
+    return dedupeRows(out);
+  }
+  function docKey(r){
+    var basis = r.shipmentId || r.orderId || (r.buyerName + "-" + r.date + "-" + (r.plantCode || r.title));
+    return ("LD-" + r.state + "-" + basis).replace(/[^A-Z0-9-]/gi,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").toUpperCase();
+  }
+  function dedupeRows(rows){
+    var map = {};
+    (rows || []).forEach(function(r){
+      var k = docKey(r) + "|" + (r.plantCode || r.title || "");
+      map[k] = Object.assign(map[k] || {}, r);
+    });
+    return Object.keys(map).map(function(k){ return map[k]; });
+  }
+  function parsePasted(text){
+    var lines = String(text || "").replace(/\r/g,"\n").split(/\n+/).map(clean).filter(Boolean);
+    var out = [], pending = null, lastTitle = "";
+    function finish(){ if (pending && targetState(pending.state)) out.push(pending); pending = null; }
+    lines.forEach(function(line){
+      if (/^import$/i.test(line)) { finish(); lastTitle = ""; return; }
+      if (!/^order\b/i.test(line) && !/^code found:/i.test(line) && /[a-z]/i.test(line) && (extractCode(line) || /plant|philodendron|alocasia|monstera|hoya|begonia|pothos|scindapsus|anthurium|calathea|aglaonema|epipremnum|ficus/i.test(line))) lastTitle = line;
+      var m = line.match(/Order\s+([^·]+)\s*·\s*Shipment\s+([^·]+)\s*·\s*(CA|TX|AZ|LA|HI)\s*·\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i);
+      if (m) { finish(); pending = { state:targetState(m[3]), orderId:clean(m[1]), shipmentId:clean(m[2]), date:clean(m[4]), title:lastTitle || "Plant shipment", plantCode:extractCode(lastTitle), buyerName:"", platform:"import text", sourcePath:"pasted text" }; return; }
+      var c = line.match(/^Code found:\s*([A-Z0-9-]+)/i);
+      if (c && pending) pending.plantCode = clean(c[1]).toUpperCase();
+      var h = line.match(/^#\d+\s+(.+)/);
+      if (h) { finish(); pending = { state:"", buyerName:clean(h[1]), title:"Plant shipment", orderId:"", shipmentId:"", date:today(), plantCode:"", platform:"shipping text", sourcePath:"pasted text" }; return; }
+      if (/^(CA|TX|AZ|LA|HI)$/i.test(line) && pending) pending.state = targetState(line);
+      var d = line.match(/([0-9]{4}-[0-9]{2}-[0-9]{2})/);
+      if (d && pending) pending.date = d[1];
+    });
+    finish();
+    return dedupeRows(out);
+  }
+  function mergeDocs(data){
+    var map = {};
+    function add(arr){
+      (Array.isArray(arr) ? arr : []).forEach(function(d){
+        if (!d) return;
+        var key = d.docKey || d.id || d.certId || d.certNo || d.certificateNumber || "";
+        if (!key && targetState(d.state || d.customerState)) key = docKey({state:targetState(d.state || d.customerState), shipmentId:d.shipmentId, orderId:d.orderId, buyerName:d.customerName || d.buyerName || "", date:d.date || d.createdAt || today(), plantCode:d.plantCode || d.plantId || "", title:d.plantName || d.plantTitle || "Plant shipment"});
+        if (key) map[String(key)] = Object.assign({}, map[String(key)] || {}, d, {id:d.id || String(key), docKey:String(key)});
+      });
+    }
+    APP_DOC_KEYS.forEach(function(k){ add(data && data[k]); });
+    LS_DOC_KEYS.forEach(function(k){ add(loadJson(k, [])); });
+    return map;
+  }
+  function makeDoc(r, group){
+    var key = docKey(r);
+    var plants = (group || [r]).map(function(x){
+      return { plantCode:x.plantCode || "", plantId:x.plantCode || "", plantName:x.title || "Plant shipment", title:x.title || "Plant shipment", orderId:x.orderId || "", shipmentId:x.shipmentId || "", customerName:x.buyerName || "" };
+    });
+    return {
+      id:key, docKey:key, certId:key, certNo:key, certificateNumber:key,
+      type:"STATE_PLANT_SHIPPING_DOC",
+      docType:docLabel(r.state),
+      stateDocType:docLabel(r.state),
+      paperworkType:docLabel(r.state),
+      title:docLabel(r.state),
+      label:docLabel(r.state),
+      state:r.state, customerState:r.state, destinationState:r.state, complianceState:r.state,
+      status:"Needed", paperworkStatus:"Needs Paperwork",
+      stateDocRequired:true, needsStateDoc:true, complianceAlert:true,
+      platform:r.platform || "Unknown",
+      shipmentId:r.shipmentId || "", orderId:r.orderId || "", orderNumber:r.orderId || "",
+      customerName:r.buyerName || "", buyerName:r.buyerName || "", recipientName:r.buyerName || "",
+      plantCode:r.plantCode || "", plantId:r.plantCode || "", plantTitle:r.title || "Plant shipment", plantName:r.title || "Plant shipment",
+      plants:plants, plantIds:plants.map(function(p){return p.plantCode;}).filter(Boolean),
+      itemCount:plants.length, plantCount:plants.length,
+      date:r.date || today(), issuedDate:today(), createdAt:now(), updatedAt:now(),
+      keepUntil:(function(){ var d = new Date(); d.setFullYear(d.getFullYear()+3); return d.toISOString(); })(),
+      retainYears:3, printed:false, completed:false, archived:false,
+      notes:"Auto-created by Leaf Diary " + VERSION + " because shipment/order state is " + r.state + ". Keep paperwork/audit copy for 3 years.",
+      source:"Leaf Diary " + VERSION + " state docs fix",
+      sourcePath:r.sourcePath || ""
+    };
+  }
+  function markRecord(o, docsByKey){
+    var r = rowFromObj(o, "", "");
+    if (!r) return false;
+    var key = docKey(r);
+    o.stateDocRequired = true;
+    o.needsStateDoc = true;
+    o.stateDocType = docLabel(r.state);
+    o.paperworkStatus = o.paperworkAdded || o.completed ? "Paperwork Added" : "Needs Paperwork";
+    o.complianceAlert = true;
+    o.complianceState = r.state;
+    o.customerState = o.customerState || r.state;
+    o.state = o.state || r.state;
+    o.stateDocId = docsByKey[key] ? (docsByKey[key].id || key) : key;
+    o.updatedAt = o.updatedAt || now();
+    return true;
+  }
+  function markAll(obj, docsByKey, seen){
+    if (!obj || typeof obj !== "object") return 0;
+    if (seen.indexOf(obj) >= 0) return 0;
+    seen.push(obj);
+    var n = 0;
+    if (Array.isArray(obj)) { obj.forEach(function(x){ n += markAll(x, docsByKey, seen); }); return n; }
+    if (markRecord(obj, docsByKey)) n++;
+    Object.keys(obj).forEach(function(k){ n += markAll(obj[k], docsByKey, seen); });
+    return n;
+  }
+  function createDocs(rows, opts){
+    opts = opts || {};
+    rows = dedupeRows(rows || []);
+    var data = loadJson(DATA_KEY, {});
+    if (!data || typeof data !== "object" || Array.isArray(data)) data = {};
+    var docsByKey = mergeDocs(data);
+    var grouped = {};
+    rows.forEach(function(r){
+      if (!targetState(r.state)) return;
+      var k = docKey(r);
+      if (!grouped[k]) grouped[k] = [];
+      grouped[k].push(r);
+    });
+    var created = 0, updated = 0;
+    Object.keys(grouped).forEach(function(k){
+      if (docsByKey[k]) {
+        docsByKey[k].stateDocRequired = true;
+        docsByKey[k].needsStateDoc = true;
+        docsByKey[k].status = docsByKey[k].completed ? "Completed" : (docsByKey[k].status || "Needed");
+        docsByKey[k].paperworkStatus = docsByKey[k].completed || docsByKey[k].paperworkAdded ? "Completed" : (docsByKey[k].paperworkStatus || "Needs Paperwork");
+        docsByKey[k].updatedAt = now();
+        updated++;
+      } else {
+        docsByKey[k] = makeDoc(grouped[k][0], grouped[k]);
+        created++;
+      }
+    });
+    var docs = Object.keys(docsByKey).map(function(k){ return docsByKey[k]; }).sort(function(a,b){ return String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")); });
+    APP_DOC_KEYS.forEach(function(k){ data[k] = docs; });
+    var marked = markAll(data, docsByKey, []);
+    backup(DATA_KEY);
+    saveJson(DATA_KEY, data);
+    LS_DOC_KEYS.forEach(function(k){ saveJson(k, docs); });
+
+    for (var i=0;i<localStorage.length;i++){
+      var key = localStorage.key(i);
+      if (!key || key === DATA_KEY || !/leaf|diary|hub|plant|order|ship|sale|customer/i.test(key)) continue;
+      var val = loadJson(key, null);
+      if (val && typeof val === "object") {
+        var c = markAll(val, docsByKey, []);
+        if (c) { backup(key); saveJson(key, val); }
+      }
+    }
+
+    var audit = loadJson("leafDiaryV329Audit", []);
+    audit.push({at:now(), action:"create_missing_state_docs", candidates:rows.length, created:created, updated:updated, marked:marked});
+    saveJson("leafDiaryV329Audit", audit.slice(-500));
+    if (!opts.silent) showStatus("Found " + rows.length + " doc candidates. Created " + created + " new docs, updated " + updated + ", marked " + marked + " records. Refresh the app, then check Shipping / Paperwork.");
+    return {rows:rows.length, created:created, updated:updated, marked:marked, docs:docs};
+  }
+  function runScan(){ return createDocs(scanLocalStorage()); }
+  function downloadAudit(){
+    var data = loadJson(DATA_KEY, {});
+    var payload = {exportedAt:now(), version:VERSION, docs:data.casdCerts || data.stateDocs || loadJson("leafDiaryStateDocsV329", []), audit:loadJson("leafDiaryV329Audit", [])};
+    var blob = new Blob([JSON.stringify(payload,null,2)], {type:"application/json"});
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "leaf-diary-state-docs-audit-v329.json";
+    a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+  }
+  function printChecklist(){
+    var data = loadJson(DATA_KEY, {});
+    var docs = data.casdCerts || data.stateDocs || loadJson("leafDiaryStateDocsV329", []);
+    docs = Array.isArray(docs) ? docs : [];
+    var rows = docs.filter(function(d){ return targetState(d.state || d.customerState || d.complianceState); }).map(function(d){
+      var plants = Array.isArray(d.plants) ? d.plants.map(function(p){return p.plantCode || p.plantId || p.plantName || p.title || "";}).filter(Boolean).join(", ") : (d.plantCode || d.plantName || "");
+      return "<tr><td>"+esc(d.state || d.customerState || "")+"</td><td>"+esc(d.docType || d.stateDocType || d.label || "")+"</td><td>"+esc(d.shipmentId || d.orderId || "")+"</td><td>"+esc(d.customerName || d.buyerName || "")+"</td><td>"+esc(plants)+"</td><td>"+esc(d.paperworkStatus || d.status || "Needed")+"</td></tr>";
+    }).join("");
+    var w = window.open("", "_blank");
+    if (!w) { alert("Popup blocked. Allow popups to print the state docs checklist."); return; }
+    w.document.write("<!doctype html><html><head><title>Leaf Diary State Docs</title><style>body{font-family:Arial,sans-serif;padding:24px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #bbb;padding:7px;text-align:left;vertical-align:top}th{background:#eee}</style></head><body><h1>Leaf Diary State Plant Shipping Docs Checklist</h1><p>Generated "+esc(new Date().toLocaleString())+". Keep audit copies for 3 years.</p><table><thead><tr><th>State</th><th>Doc Type</th><th>Shipment / Order</th><th>Customer</th><th>Plants</th><th>Status</th></tr></thead><tbody>"+rows+"</tbody></table></body></html>");
+    w.document.close();
+    setTimeout(function(){ w.focus(); w.print(); }, 500);
+  }
+  function showStatus(msg){
+    var el = document.getElementById("ld-v329-status");
+    if (el) el.textContent = msg;
+    try { console.log("Leaf Diary V329:", msg); } catch(e){}
+  }
+  function openPanel(){ var p = document.getElementById("ld-v329-panel"); if (p) p.style.display = "block"; }
+  function makePanel(){
+    if (document.getElementById("ld-v329-fix-btn")) return;
+    var style = document.createElement("style");
+    style.textContent = "#ld-v329-fix-btn{position:fixed;right:12px;bottom:142px;z-index:2147483646;background:#000;color:#97d33e;border:1px solid #97d33e;border-radius:999px;padding:10px 13px;font:900 12px system-ui;box-shadow:0 8px 28px rgba(0,0,0,.28)}#ld-v329-panel{display:none;position:fixed;inset:10px;z-index:2147483647;background:#fff;color:#0d2b1a;border:3px solid #000;border-radius:18px;box-shadow:0 12px 50px rgba(0,0,0,.35);overflow:auto;padding:14px;font-family:system-ui,-apple-system,Segoe UI,sans-serif}#ld-v329-panel button{border:0;border-radius:999px;padding:11px 14px;font-weight:900;cursor:pointer;margin:5px 5px 5px 0}#ld-v329-panel textarea{width:100%;min-height:150px;border:1px solid #ccd8cf;border-radius:12px;padding:10px;font:12px ui-monospace,monospace;box-sizing:border-box}#ld-v329-status{margin-top:10px;font-weight:900;background:#071108;color:#d9ffe0;border:1px solid #2d5a34;border-radius:12px;padding:10px;white-space:pre-wrap}@media(max-width:640px){#ld-v329-panel{inset:6px;padding:10px}#ld-v329-fix-btn{bottom:118px;right:8px;font-size:11px}}";
+    document.head.appendChild(style);
+    var b = document.createElement("button");
+    b.id = "ld-v329-fix-btn";
+    b.textContent = "Fix Docs";
+    document.body.appendChild(b);
+    var p = document.createElement("div");
+    p.id = "ld-v329-panel";
+    p.innerHTML = '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><div style="font-size:22px;font-weight:1000">Leaf Diary State Docs Fix V329</div><div style="font-size:13px;color:#52665a">Creates missing paperwork docs for CA, TX, AZ, LA, and HI shipments.</div></div><button id="ld-v329-close" style="background:#000;color:#fff">Close</button></div><div style="margin:12px 0;display:flex;gap:8px;flex-wrap:wrap"><button id="ld-v329-scan" style="background:#97d33e;color:#000">Create Missing Docs Now</button><button id="ld-v329-audit" style="background:#fb6392;color:#000">Download Audit</button><button id="ld-v329-print" style="background:#000;color:#97d33e;border:1px solid #97d33e">Print Checklist</button></div><div style="font-size:13px;color:#52665a;margin:8px 0">Optional: paste shipment/import text here if the app did not save the rows yet.</div><textarea id="ld-v329-text" placeholder="Paste Whatnot/Palmstreet/shipping rows here..."></textarea><div><button id="ld-v329-from-text" style="background:#174d2f;color:#fff">Create Docs From Pasted Text</button></div><div id="ld-v329-status">Ready. Click Create Missing Docs Now.</div>';
+    document.body.appendChild(p);
+    b.onclick = openPanel;
+    p.querySelector("#ld-v329-close").onclick = function(){ p.style.display = "none"; };
+    p.querySelector("#ld-v329-scan").onclick = runScan;
+    p.querySelector("#ld-v329-audit").onclick = downloadAudit;
+    p.querySelector("#ld-v329-print").onclick = printChecklist;
+    p.querySelector("#ld-v329-from-text").onclick = function(){ createDocs(parsePasted(p.querySelector("#ld-v329-text").value)); };
+  }
+  document.addEventListener("click", function(e){
+    var btn = e.target && e.target.closest ? e.target.closest("button,a,[role='button']") : null;
+    if (!btn) return;
+    var label = clean(btn.innerText || btn.textContent || btn.value || "");
+    if (/create\s+missing\s+docs|missing\s+docs|create\s+docs|paperwork\s+check|add\s+paperwork|generate\s+docs|state\s+docs/i.test(label)) {
+      try {
+        var rows = scanLocalStorage();
+        if (rows.length) createDocs(rows, {silent:true});
+        setTimeout(function(){ openPanel(); showStatus("V329 repaired the docs button. Found " + rows.length + " paperwork candidates. Refresh after this if the list does not update."); }, 50);
+      } catch(err){ console.error("Leaf Diary V329 docs button repair failed", err); }
+    }
+  }, true);
+
+  window.LeafDiaryV329StateDocsFix = {
+    version: VERSION,
+    scanLocalStorage: scanLocalStorage,
+    parsePasted: parsePasted,
+    createDocs: createDocs,
+    runScan: runScan,
+    downloadAudit: downloadAudit,
+    printChecklist: printChecklist,
+    openPanel: openPanel
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", makePanel);
+  else makePanel();
+
+  setTimeout(function(){ try { var rows = scanLocalStorage(); if (rows.length) createDocs(rows, {silent:true}); } catch(e){ console.error("Leaf Diary V329 auto scan failed", e); } }, 2800);
+})();
+</script>
+<!-- LD-V329-STATE-DOCS-END -->
+
+</body></html>`;
         const downloadHtmlFallback = () => {
             const html = htmlReport();
             const w = window.open("", "_blank", "noopener,noreferrer,width=980,height=1100");
