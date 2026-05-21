@@ -10,7 +10,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V336 Simple Plants UI</title>
+<title>LEAF DIARY - BUSINESS HUB · V330 Shipping Docs Fixed</title>
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
 <!-- V239 — Phase 8 Settings Security QA: consolidates Settings, Security, AI, Cloud, Developer Tools, QA, release readiness, and SaaS production checklist into one owner command center. -->
 <!-- V238 — Phase 7 Money Command Center: consolidates receipts, expenses, bills, payroll, commissions, cash flow, show profit, reports, tax, goals, Buy Smart, and charts into one mobile Money workflow. -->
@@ -102,8 +102,6 @@
 <!-- V318 — Mobile Production Precompiled Boot:
 Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to Today, skips parsing oversized localStorage backups on mobile without deleting them, and keeps Customers footer link. No Supabase schema changes. No data deletion. -->
 <!-- V330 — Shipping State Docs Repair: lazy-loads PDFLib for manual/missing document generation, scans saved sold/shipment records for CA/AZ/TX/LA/HI docs, fixes Generate Missing Docs doing nothing, and uses safer download anchors. -->
-<!-- V336 — Simple Plants UI: removes duplicate/confusing Plants buttons, keeps only Add/Import, Labels, Photos, and More Tools on the main Plants header, replaces duplicate section tabs with a small clean row, and simplifies the Plants workflow card without deleting advanced features. -->
-<!-- V335 — Business AI Direct Inventory Cost Fix: Ask Business AI now answers owner inventory-cost/value questions directly from current in-stock plants instead of falling through to aging-inventory fallback/Ollama errors. Adds clear total cost, retail value, potential gross profit, average cost, nursery/source breakdown, and missing-cost warnings. -->
 <!-- V323 — Final Mobile/Desktop Boot Fix: wraps app scripts during dynamic boot so Supabase UMD globals cannot collide with app const names; prevents runInertScripts from executing twice; keeps mobile shell and data safe. -->
   <!-- V319 — Mobile Boot Repair:
 Stops the V293 startup repair screen from taking over iPhone, removes heavy PDF/Excel/barcode libraries from startup, adds a Supabase offline/local fallback if the CDN fails, shows a lightweight loading shell immediately, and reports the real boot error instead of looping restart buttons. No data deletion. No Supabase schema changes. -->
@@ -6350,48 +6348,6 @@ Stops the V293 startup repair screen from taking over iPhone, removes heavy PDF/
     @media(max-width:760px){
       .ld-v231-mainnav-btn{padding-left:2px!important;padding-right:2px!important;}
       .ld-v231-mainnav-label{font-size:9px!important;letter-spacing:-.35px!important;}
-    }
-
-
-    /* V336 Simple Plants UI */
-    .ld-v336-simple-actions button {
-      min-width: 138px;
-    }
-    .ld-v336-simple-tabs {
-      display: flex;
-      align-items: center;
-    }
-    .ld-v336-simple-tabs button {
-      min-height: 46px;
-      border-radius: 999px !important;
-      font-weight: 950 !important;
-    }
-    .ld-v336-flow-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    }
-    .ld-v336-flow-grid .ld-v234-flow-step {
-      border: 1px solid rgba(151,211,62,.28);
-    }
-    @media (max-width: 760px) {
-      .ld-v336-simple-actions {
-        grid-template-columns: repeat(2, minmax(0,1fr)) !important;
-      }
-      .ld-v336-simple-actions button {
-        width: 100% !important;
-        min-width: 0 !important;
-      }
-      .ld-v336-simple-tabs {
-        display: grid !important;
-        grid-template-columns: repeat(2, minmax(0,1fr)) !important;
-        gap: 8px !important;
-      }
-      .ld-v336-simple-tabs button {
-        width: 100% !important;
-        min-height: 48px !important;
-      }
-      .ld-v336-flow-grid {
-        grid-template-columns: 1fr !important;
-      }
     }
 
 </style>
@@ -20398,31 +20354,42 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
         addAudit && addAudit({ action: `Exported Master Inventory CSV — ${list.length} plants`, user: user.name, page: 'Inventory' });
     };
     return React.createElement("div", { className: "ld-v234-plant-shell", style: { padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" } },
-        React.createElement(SHdr, { icon: "\uD83C\uDF3F", title: "Plants", sub: `${inStockPlants.length} in stock · ${needPhotos.length} need photos · ${soldPlants.length} sold records`, right: React.createElement(Row, { className: "ld-mobile-action-grid ld-v336-simple-actions", gap: 8, wrap: true },
-                React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setPage("upload") }, "+ Add / Import"),
-                React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setPage("labels") }, "\uD83C\uDFF7\uFE0F Labels"),
-                React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setPage("photosprint") }, "\uD83D\uDCF8 Photos"),
-                React.createElement(Btn, { v: "outline", sz: "sm", onClick: () => setPage("bulkactions") }, "More Tools")) }),
-        React.createElement("div", { className: "ld-mobile-help-text" }, "Simple mode: Add / Import, Labels, and Photos are the daily buttons. More Tools has select, bulk, swipe, edit, and export."),
-        React.createElement(Row, { className: "ld-v336-simple-tabs", gap: 8, wrap: true, style: { margin: "12px 0 18px" } },
-            React.createElement(Btn, { sz: "sm", v: actionView === "All Plants" ? "dark" : "soft", onClick: () => openInventoryActionView("All Plants") }, "\uD83C\uDF3F Inventory " + inStockPlants.length),
-            React.createElement(Btn, { sz: "sm", v: actionView === "Need Photos" ? "dark" : "soft", onClick: () => openInventoryActionView("Need Photos") }, "\uD83D\uDCF8 Need Photos " + needPhotos.length),
-            React.createElement(Btn, { sz: "sm", v: actionView === "Ready For Show" ? "dark" : "soft", onClick: () => openInventoryActionView("Ready For Show") }, "\uD83C\uDFAA Show Ready " + readyForShowPlants.length),
-            React.createElement(Btn, { sz: "sm", v: actionView === "Sold / Archive" ? "dark" : "soft", onClick: () => openInventoryActionView("Sold / Archive") }, "\u2705 Sold " + soldPlants.length)),
+        React.createElement(SHdr, { icon: "\uD83C\uDF3F", title: "Plants", sub: `${displayList.length} showing · inventory, labels, photos, barcode scan, sold/archive`, right: React.createElement(Row, { className: "ld-mobile-action-grid", gap: 8, wrap: true },
+                React.createElement(Btn, { v: bulkMode ? "danger" : "soft", sz: "sm", onClick: () => bulkMode ? exitBulkMode() : setBulkMode(true) }, bulkMode ? "Exit Bulk" : "☑️ Select"),
+                React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setPage("manual") }, "+ Add Plant"),
+                React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setPage("photosprint") }, "\u26A1 Take Plant Photos"),
+                canInlineEditInventory && React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setPage("inlineedit") }, "\u270F\uFE0F Edit"),
+                canInlineEditInventory && React.createElement(React.Fragment, null,
+                    React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setPage("bulkactions") }, "\u2611\uFE0F Bulk"),
+                    React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setPage("swipegestures") }, "\uD83D\uDC46 Swipe")),
+                React.createElement(Btn, { v: "outline", sz: "sm", onClick: exportMasterInventory }, "\uD83D\uDCE5 Export")) }),
+        React.createElement("div", { className: "ld-mobile-help-text" }, "Mobile tip: the action buttons are grouped here so they stay readable. Use Take Plant Photos for barcode-label photos, then plant photos."),
+        React.createElement(PlantsSectionNav, { setPage: setPage, active: "inventory", onInventoryView: openInventoryActionView, counts: { inventory: inStockPlants.length, labels: needLabels.length, photos: needPhotos.length, sold: soldPlants.length, bulk: selectedCount } }),
         React.createElement("div", { className: "ld-v234-flow-card" },
-            React.createElement("div", { style: { minWidth: 0, marginBottom: 14 } },
-                React.createElement("div", { style: { fontFamily: F.display, fontSize: 22, fontWeight: 950, color: "#97d33e" } }, "Plants daily workflow"),
-                React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,.72)", lineHeight: 1.4, marginTop: 3 } }, "Three simple steps: add plants, photo/label them, then sell show-ready plants.")),
-            React.createElement("div", { className: "ld-v234-flow-grid ld-v336-flow-grid" },
-                React.createElement("button", { type: "button", className: "ld-v234-flow-step", onClick: () => setPage("upload"), style: { textAlign: "left", cursor: "pointer" } },
-                    React.createElement("b", null, "1. Add / Import"),
-                    React.createElement("span", null, "Upload invoices, add single plants, or import current inventory.")),
-                React.createElement("button", { type: "button", className: "ld-v234-flow-step", onClick: () => setPage("photosprint"), style: { textAlign: "left", cursor: "pointer" } },
-                    React.createElement("b", null, "2. Labels + Photos"),
-                    React.createElement("span", null, "Print labels, scan the barcode, and take plant photos.")),
-                React.createElement("button", { type: "button", className: "ld-v234-flow-step", onClick: () => setPage("showbuilder"), style: { textAlign: "left", cursor: "pointer" } },
-                    React.createElement("b", null, "3. Sell"),
-                    React.createElement("span", null, "Build a Whatnot or Palmstreet show from ready plants.")))),
+            React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
+                React.createElement("div", { style: { minWidth: 0 } },
+                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 22, fontWeight: 950, color: "#97d33e" } }, "Plants workflow"),
+                    React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,.72)", lineHeight: 1.4, marginTop: 3 } }, "Work left to right: add/import plants, print labels, take photos, fix prices, then send ready plants to a show.")),
+                React.createElement(Row, { gap: 7, wrap: true },
+                    React.createElement(Btn, { sz: "sm", onClick: () => setPage("upload") }, "Add / Import"),
+                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setPage("labels") }, "Labels"),
+                    React.createElement(Btn, { sz: "sm", v: "outline", onClick: () => setPage("photosprint") }, "Photos"))),
+            React.createElement("div", { className: "ld-v234-flow-grid" },
+                React.createElement("div", { className: "ld-v234-flow-step" },
+                    React.createElement("b", null, "1. Add"),
+                    React.createElement("span", null, "Invoice, manual entry, or current inventory import.")),
+                React.createElement("div", { className: "ld-v234-flow-step" },
+                    React.createElement("b", null, "2. Label"),
+                    React.createElement("span", null, "Print Labelife / barcode labels for each plant.")),
+                React.createElement("div", { className: "ld-v234-flow-step" },
+                    React.createElement("b", null, "3. Photo"),
+                    React.createElement("span", null, "Scan label, take photo, attach to the right plant.")),
+                React.createElement("div", { className: "ld-v234-flow-step" },
+                    React.createElement("b", null, "4. Price"),
+                    React.createElement("span", null, "Fix missing prices and low-margin plants.")),
+                React.createElement("div", { className: "ld-v234-flow-step" },
+                    React.createElement("b", null, "5. Sell"),
+                    React.createElement("span", null, "Add show-ready plants to Whatnot / Palmstreet.")))),
         React.createElement("div", { className: "ld-v234-plant-focus-grid" },
             React.createElement("button", { className: "ld-v234-focus-card", type: "button", onClick: () => openInventoryActionView("Need Photos"), style: { borderLeftColor: needPhotos.length ? C.amber : C.g600 } },
                 React.createElement("div", null, "\uD83D\uDCF8"),
@@ -32481,8 +32448,6 @@ function BusinessDataAI({ plants = [], expenses = [], bills = [], timecards = []
         ["30-Day Sales", canMoney ? $(revenue30) : sold30.length, "💵", "reports"]
     ];
     const quickPrompts = [
-        "How much is my cost for all inventory I have in stock?",
-        "What is my total retail value and potential gross profit?",
         "What should I do today?",
         "Build me a Whatnot show plan.",
         "Build me a Palmstreet show from current inventory.",
@@ -32520,83 +32485,6 @@ function BusinessDataAI({ plants = [], expenses = [], bills = [], timecards = []
         });
         return lines.join("\n");
     };
-    const numMoney = v => {
-        const n = Number(String(v ?? "").replace(/[^0-9.-]+/g, ""));
-        return Number.isFinite(n) ? n : 0;
-    };
-    const plantCostValue = p => numMoney(p?.cost ?? p?.originalCost ?? p?.originalCostBeforeDiscount ?? p?.costPerPlant ?? p?.unitCost ?? p?.wholesaleCost ?? 0);
-    const plantRetailValue = p => numMoney(p?.suggestedPrice ?? p?.listPrice ?? p?.price ?? p?.salePrice ?? 0);
-    const plantSourceName = p => String(p?.nursery || p?.source || p?.vendor || p?.supplier || p?.purchasedFrom || p?.store || "No nursery/source").trim() || "No nursery/source";
-    const isInventoryMoneyQuestion = text => {
-        const s = String(text || "").toLowerCase();
-        const asksCost = /(how much|what is|what's|total|sum|value|worth|cost|cogs|inventory cost|retail value|gross profit|profit potential)/i.test(s);
-        const aboutInventory = /(inventory|in stock|stock|plants|all plants|current inventory|retail value|gross profit|cost for all)/i.test(s);
-        return asksCost && aboutInventory;
-    };
-    const buildDirectInventoryMoneyAnswer = use => {
-        if (!isInventoryMoneyQuestion(use))
-            return null;
-        const line = "────────────────────────";
-        if (!canMoney) {
-            return {
-                title: "💵 Inventory Cost",
-                body: "This question needs owner/manager money access. Switch to an owner/manager account to see total inventory cost and profit numbers.",
-                route: "finance",
-                model: "local calculator",
-                status: "fallback",
-                actions: actionsForRoute("inventory"),
-                generatedAt: new Date().toISOString()
-            };
-        }
-        const rows = safeArray(plants).filter(p => String(p?.status || "").toLowerCase() === "in stock");
-        const totalCost = rows.reduce((s, p) => s + plantCostValue(p), 0);
-        const retailValue = rows.reduce((s, p) => s + plantRetailValue(p), 0);
-        const grossPotential = retailValue - totalCost;
-        const avgCost = rows.length ? totalCost / rows.length : 0;
-        const noCost = rows.filter(p => plantCostValue(p) <= 0);
-        const noRetail = rows.filter(p => plantRetailValue(p) <= 0);
-        const bySource = {};
-        rows.forEach(p => {
-            const src = plantSourceName(p);
-            if (!bySource[src]) bySource[src] = { count: 0, cost: 0, retail: 0 };
-            bySource[src].count += 1;
-            bySource[src].cost += plantCostValue(p);
-            bySource[src].retail += plantRetailValue(p);
-        });
-        const sourceLines = Object.entries(bySource)
-            .sort((a, b) => b[1].cost - a[1].cost)
-            .slice(0, 10)
-            .map(([src, v]) => `- ${src}: ${v.count} plant(s) · cost ${$(v.cost)} · retail ${$(v.retail)} · gross ${$(v.retail - v.cost)}`);
-        const noCostLines = noCost.slice(0, 12).map(p => `- ${p?.plantId || p?.plantCode || p?.sku || "NO-ID"} ${p?.name || p?.plantName || "Plant"}`);
-        const answerLines = [
-            `Direct answer: your current in-stock inventory cost is ${$(totalCost)}.`,
-            "",
-            line,
-            `In-stock plants counted: ${rows.length}`,
-            `Total inventory cost: ${$(totalCost)}`,
-            `Average cost per in-stock plant: ${$(avgCost)}`,
-            `Current listed/retail value: ${$(retailValue)}`,
-            `Potential gross profit before platform fees/shipping/labor: ${$(grossPotential)}`,
-            `Plants with $0 or missing cost: ${noCost.length}`,
-            `Plants with $0 or missing retail price: ${noRetail.length}`,
-            "",
-            "Nursery/source breakdown:",
-            sourceLines.length ? sourceLines.join("\n") : "- No source breakdown found.",
-            "",
-            noCost.length ? `Fix these missing-cost plants first:\n${noCostLines.join("\n")}${noCost.length > 12 ? `\n- plus ${noCost.length - 12} more` : ""}` : "No missing-cost plants found.",
-            "",
-            "This answer was calculated locally from the plants currently marked In Stock, so it does not need Ollama."
-        ];
-        return {
-            title: "💵 Inventory Cost Answer",
-            body: answerLines.join("\n"),
-            route: "finance",
-            model: "local inventory calculator",
-            status: "fallback",
-            actions: [{ label: "Open Inventory", page: "inv" }, { label: "Open Money", page: "money_ws" }, { label: "Open Reports", page: "reports" }],
-            generatedAt: new Date().toISOString()
-        };
-    };
     const ask = async (prompt) => {
         const use = String(prompt || q || "").trim();
         if (!use || busy)
@@ -32605,16 +32493,6 @@ function BusinessDataAI({ plants = [], expenses = [], bills = [], timecards = []
         setBusy(true);
         const routeBefore = forcedRoute || phase4DetectRoute(use);
         const routeDef = routeDefs[routeBefore] || routeDefs.fallback || PHASE4_DEFAULT_ROUTES.routes.fallback;
-        const directAnswer = buildDirectInventoryMoneyAnswer(use);
-        if (directAnswer) {
-            setAnswer(directAnswer);
-            try {
-                addAudit && addAudit("Ask Business AI direct inventory money answer", { question: use, inStock: inStock.length, inventoryCost: invCost, inventoryValue: invValue });
-            }
-            catch (e) { }
-            setBusy(false);
-            return;
-        }
         setAnswer({ title: `${routeDef.icon || "🧭"} ${routeDef.label || "AI Task Routing"}`, body: "Thinking through your Leaf Diary data...", route: routeBefore, model: phase4ModelForRoute(routeBefore, phase3Cfg, phase4Cfg), status: "running", actions: actionsForRoute(routeBefore) });
         try {
             const res = await phase4RouteAI({ question: use, forcedRoute, appData, user, phase3Cfg, phase4Cfg });
