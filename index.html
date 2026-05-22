@@ -4,7 +4,7 @@
 <html lang="en">
 <head>
 
-&lt;!-- V336 — Simple Customers cleanup: simplifies Customer Hub into a clear customer command center with four main actions and More Customer Tools. Keeps customer profiles, open/ready/past orders, blocked alerts, website import, exports, Supabase, and shipping links untouched. --&gt;
+<!-- V336 — Simple Customers cleanup: simplifies Customer Hub into a clear customer command center with four main actions and More Customer Tools. Keeps customer profiles, open/ready/past orders, blocked alerts, website import, exports, Supabase, and shipping links untouched. -->
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
 <meta content="yes" name="apple-mobile-web-app-capable"/>
@@ -104,7 +104,11 @@
 <!-- V317 — Mobile Emergency Customer Footer Rollback: starts from the last stable mobile-safe file, adds Customers as a direct footer tab, keeps Reports in the menu, and intentionally removes the platform-logo badge patch until iPhone loading is confirmed. No Supabase schema changes. No data deletion. -->
 <!-- V318 — Mobile Production Precompiled Boot:
 Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to Today, skips parsing oversized localStorage backups on mobile without deleting them, and keeps Customers footer link. No Supabase schema changes. No data deletion. -->
+<!-- V344 — CFF Pot Size + Undo + Show Names: Central Florida Ferns invoice prefixes 04/06/08 now auto-fill pot size and clean plant names, invoice/show imports get one-click undo for the current session, and show sales imports require/store a custom show title so two shows per day are easy to identify. -->
+<!-- V343 — Label Export + Number Ledger: adds always-visible desktop latest-invoice Labelife export buttons, removes visible escaped changelog text on iPhone, hardens every nursery code to keep continuing after the highest used number, and blocks reused historical numbers in current inventory uploads. -->
+<!-- V342 — Hard Plant Number Lock: Central Florida Ferns uses CFF, selected nursery source wins, plant numbers continue after the highest current/history/ledger number, and every save updates a never-reuse number ledger. -->
 <!-- V330 — Shipping State Docs Repair: lazy-loads PDFLib for manual/missing document generation, scans saved sold/shipment records for CA/AZ/TX/LA/HI docs, fixes Generate Missing Docs doing nothing, and uses safer download anchors. -->
+<!-- V340 — Show Import Missing Cost Fix: show sales import now supports mostly-matched imports with missing inventory rows, requires easy cost entry for missing plants before saving, preserves plant number formatting, and uses stricter exact-code matching so PC-35 cannot be matched to PC-035. -->
 <!-- V338 — Simple More / Settings Cleanup: reduces owner Settings to Start, Team, Backup, Checkup, and More Tools; moves AI/security/docs/repair behind More Owner Tools; keeps Supabase, imports, shipping docs, and saved data logic unchanged. -->
 <!-- V339 — Final Mobile/Desktop QA: updates the Workflow Test Checklist for the simplified Home, Plants, Shows, Shipping, Customers, Money, and More flow; adds no new backend writes and keeps Supabase/import/state-doc logic unchanged. -->
 <!-- V331 — Show Command Center Cleanup: reduces duplicate Show buttons into one clean 5-action workflow, moves rare tools into More Show Tools, and keeps all existing show logic/routes intact for mobile + desktop. -->
@@ -7646,16 +7650,124 @@ const gOf = name => { const n = String(name || "").toLowerCase(); for (const g o
         return g; return "Other"; };
 const sprice = (cost, m = 0.62) => cost > 0 ? Math.ceil(cost / (1 - m) / 5) * 5 : 0;
 const marg = (cost, price) => price > 0 ? Math.round(((price - cost) / price) * 100) : 0;
-const pid = (code, n) => `${code}-${String(n).padStart(3, "0")}`;
+const LD_NUMBER_LEDGER_KEY = "leaf_diary_plant_number_ledger_v1";
+const ldNormText = v => String(v || "").trim();
+const ldCompactText = v => ldNormText(v).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const ldCompactCode = v => String(v || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/001$/, "");
+const ldCanonicalNurseryCode = (code = "", name = "") => {
+    const rawCode = ldCompactCode(code);
+    const hay = ` ${ldCompactText(`${code} ${name}`)} `;
+    if (rawCode === "CFF" || hay.includes(" central florida ferns ") || hay.includes(" central florida fern ")) return "CFF";
+    if (rawCode === "PC" || hay.includes(" perfect choice ") || hay.includes(" perfectchoicenursery ") || hay.includes(" perfect choice nursery ")) return "PC";
+    if (rawCode === "PP" || hay.includes(" plant proper ")) return "PP";
+    if (rawCode === "LP" || hay.includes(" lp premium ") || hay.includes(" lp premium plants ")) return "LP";
+    if (rawCode === "SK" || hay.includes(" silver krome ")) return "SK";
+    return rawCode || "LD";
+};
+const pid = (code, n) => `${ldCanonicalNurseryCode(code)}-${String(n).padStart(3, "0")}`;
+const ldPlantNumberKey = v => {
+    const s = String(v || "").trim().toUpperCase().replace(/\s+/g, "");
+    const m = s.match(/^([A-Z]{1,10})[-_]?0*(\d{1,8})$/);
+    return m ? `${m[1]}-${parseInt(m[2], 10)}` : s;
+};
+const ldPlantCodeFromId = v => {
+    const m = ldPlantNumberKey(v).match(/^([A-Z]{1,10})-(\d{1,8})$/);
+    return m ? ldCanonicalNurseryCode(m[1]) : "";
+};
+const ldPlantSeqFromId = v => {
+    const m = String(v || "").trim().toUpperCase().match(/[-_]?0*(\d{1,8})$/);
+    return m ? parseInt(m[1], 10) || 0 : 0;
+};
+const ldPlantNumbersForRow = p => [p?.plantId, p?.plantCode, p?.barcodeValue, p?.sku, p?.inventoryNumber, p?.plantNumber].map(v => String(v || "").trim()).filter(Boolean);
+const ldPlantNumberExists = (plants = [], plantId = "") => {
+    const target = ldPlantNumberKey(plantId);
+    return safeArray(plants).some(p => ldPlantNumbersForRow(p).some(v => ldPlantNumberKey(v) === target));
+};
+const ldReadNumberLedger = () => { try { return JSON.parse(localStorage.getItem(LD_NUMBER_LEDGER_KEY) || "{}") || {}; } catch (e) { return {}; } };
+const ldWriteNumberLedger = ledger => { try { localStorage.setItem(LD_NUMBER_LEDGER_KEY, JSON.stringify(ledger || {})); } catch (e) { } };
+const ldLedgerMaxForCode = (settings = {}, code = "") => {
+    const c = ldCanonicalNurseryCode(code);
+    const cloudLedger = (settings && settings.plantNumberLedger) || {};
+    const localLedger = ldReadNumberLedger();
+    return Math.max(parseInt(cloudLedger[c], 10) || 0, parseInt(localLedger[c], 10) || 0, 0);
+};
 const getNextId = (plants, code) => {
-    const nums = (plants || [])
-        .filter(p => String(p.nurseryCode || "").toUpperCase() === String(code || "").toUpperCase())
-        .map(p => {
-        const m = String(p.plantId || p.plantCode || "").match(/-(\d+)$/);
-        return m ? parseInt(m[1], 10) : 0;
-    })
-        .filter(n => Number.isFinite(n));
+    const wantedCode = ldCanonicalNurseryCode(code);
+    const nums = [];
+    safeArray(plants).forEach(p => {
+        const rowCode = ldCanonicalNurseryCode(p?.nurseryCode || "", p?.nurseryName || p?.nursery || p?.supplier || p?.vendorName || "");
+        ldPlantNumbersForRow(p).forEach(id => {
+            const m = ldPlantNumberKey(id).match(/^([A-Z]{1,10})-(\d{1,8})$/);
+            if (!m) return;
+            const idCode = ldCanonicalNurseryCode(m[1]);
+            if (idCode === wantedCode || rowCode === wantedCode) nums.push(parseInt(m[2], 10) || 0);
+        });
+    });
     return nums.length ? Math.max(...nums) : 0;
+};
+const ldBuildNumberLedgerFromPlants = (plants = []) => {
+    const ledger = {};
+    safeArray(plants).forEach(p => {
+        ldPlantNumbersForRow(p).forEach(id => {
+            const m = ldPlantNumberKey(id).match(/^([A-Z]{1,10})-(\d{1,8})$/);
+            if (!m) return;
+            const c = ldCanonicalNurseryCode(m[1]);
+            const seq = parseInt(m[2], 10) || 0;
+            if (c && seq > 0) ledger[c] = Math.max(parseInt(ledger[c], 10) || 0, seq);
+        });
+    });
+    return ledger;
+};
+const ldMergeNumberLedgers = (...ledgers) => ledgers.reduce((out, ledger) => {
+    Object.entries(ledger || {}).forEach(([code, val]) => {
+        const c = ldCanonicalNurseryCode(code);
+        out[c] = Math.max(parseInt(out[c], 10) || 0, parseInt(val, 10) || 0);
+    });
+    return out;
+}, {});
+const ldSeedNumberLedgerFromPlantsLocal = (plants = [], settings = {}) => {
+    const merged = ldMergeNumberLedgers(ldReadNumberLedger(), (settings && settings.plantNumberLedger) || {}, ldBuildNumberLedgerFromPlants(plants));
+    ldWriteNumberLedger(merged);
+    return merged;
+};
+const ldGetNextIdBase = (plants = [], code = "LD", settings = {}) => {
+    const c = ldCanonicalNurseryCode(code);
+    const plantLedger = ldBuildNumberLedgerFromPlants(plants);
+    return Math.max(getNextId(plants, c), ldLedgerMaxForCode(settings, c), parseInt(plantLedger[c], 10) || 0);
+};
+const ldNextUnusedPlantId = (plants = [], code = "LD", startAt = 1, reserved = new Set(), settings = {}) => {
+    const sourceCode = ldCanonicalNurseryCode(code);
+    let seq = Math.max(ldLedgerMaxForCode(settings, sourceCode) + 1, 1, parseInt(startAt, 10) || 1);
+    let candidate = pid(sourceCode, seq);
+    let guard = 0;
+    while ((ldPlantNumberExists(plants, candidate) || reserved.has(ldPlantNumberKey(candidate))) && guard < 100000) {
+        seq += 1;
+        candidate = pid(sourceCode, seq);
+        guard += 1;
+    }
+    reserved.add(ldPlantNumberKey(candidate));
+    return candidate;
+};
+const ldMaxSeqFromPlantIds = ids => safeArray(ids).reduce((max, id) => Math.max(max, ldPlantSeqFromId(id)), 0);
+const ldUpdateNumberLedgerObject = (ledger = {}, code = "", plantIds = []) => {
+    const c = ldCanonicalNurseryCode(code);
+    const maxSeq = ldMaxSeqFromPlantIds(plantIds);
+    return { ...(ledger || {}), [c]: Math.max(parseInt((ledger || {})[c], 10) || 0, maxSeq) };
+};
+const ldUpdateNumberLedgerLocal = (code = "", plantIds = []) => ldWriteNumberLedger(ldUpdateNumberLedgerObject(ldReadNumberLedger(), code, plantIds));
+const ldUpdateNumberLedgerSettings = (settings = {}, code = "", plantIds = []) => ({ ...(settings || {}), plantNumberLedger: ldUpdateNumberLedgerObject((settings && settings.plantNumberLedger) || {}, code, plantIds), plantNumberLedgerUpdatedAt: new Date().toISOString() });
+const ldLedgerWouldReuse = (settings = {}, code = "", ids = []) => {
+    const c = ldCanonicalNurseryCode(code);
+    const last = ldLedgerMaxForCode(settings, c);
+    return safeArray(ids).filter(id => ldPlantCodeFromId(id) === c && ldPlantSeqFromId(id) > 0 && ldPlantSeqFromId(id) <= last);
+};
+const ldResolvePurchaseNurseryCode = (nursery = {}, invoiceResult = {}, rawText = "") => ldCanonicalNurseryCode(nursery?.code || "", nursery?.name || "");
+const ldResolvePurchaseNurseryName = (nursery = {}, invoiceResult = {}, code = "") => {
+    const c = ldCanonicalNurseryCode(code || nursery?.code || "", nursery?.name || "");
+    if (c === "CFF") return "Central Florida Ferns";
+    if (c === "PC") return "Perfect Choice Nursery";
+    if (c === "PP") return /plant\s*proper/i.test(String(nursery?.name || "")) ? nursery.name : (nursery?.name || "Plant Proper");
+    return nursery?.name || invoiceResult?.nurseryName || c;
 };
 const dHeld = d => d ? Math.floor((Date.now() - new Date(d)) / (864e5)) : null;
 const fDays = d => d === null ? "—" : d === 0 ? "Today" : d === 1 ? "1 day" : `${d}d`;
@@ -9293,8 +9405,38 @@ function phase101RowText(p = {}) {
         p.name, p.botanicalName, p.sku, p.item, p.productCode
     ].filter(Boolean).join(" ");
 }
+function ldIsCffNurseryCode(code = "") {
+    return String(code || "").trim().toUpperCase() === "CFF";
+}
+function ldCffInvoicePrefixInfo(p = {}, nurseryCode = "") {
+    if (!ldIsCffNurseryCode(nurseryCode)) return null;
+    const fields = [p.lineText, p.rawText, p.description, p.pasteLine, p.item, p.productCode, p.sku, p.name].filter(Boolean).map(v => String(v || ""));
+    for (const raw of fields) {
+        const text = raw.replace(/ /g, " ").trim();
+        const m = text.match(/^\s*(0[468]|04|06|08)[\s\-:/]*(.+)?$/i);
+        if (m) {
+            const code = m[1].padStart(2, "0");
+            const potMap = { "04": '4"', "06": '6"', "08": '8"' };
+            const cleaned = String(m[2] || "").replace(/^[-:/\s]+/, "").trim();
+            return { code, potSize: potMap[code] || "", sourceText: code, cleanedName: cleaned };
+        }
+    }
+    return null;
+}
+function ldCleanCffInvoicePlantName(name = "", p = {}, nurseryCode = "") {
+    if (!ldIsCffNurseryCode(nurseryCode)) return String(name || "");
+    const direct = String(name || "").replace(/ /g, " ").trim();
+    const directMatch = direct.match(/^\s*(0[468]|04|06|08)[\s\-:/]*(.+)$/i);
+    if (directMatch && directMatch[2]) return directMatch[2].trim();
+    const info = ldCffInvoicePrefixInfo({ ...p, name }, nurseryCode);
+    return (info && info.cleanedName) ? info.cleanedName : direct;
+}
 function phase101InferPotSize(p = {}, nurseryCode = "*", settings = {}) {
     const training = phase101GetTraining(settings);
+    const cffInfo = ldCffInvoicePrefixInfo(p, nurseryCode);
+    if (cffInfo && cffInfo.potSize) {
+        return { potSize: cffInfo.potSize, confidence: "rule", source: cffInfo.sourceText, ruleId: "cff-leading-pot-code", note: `Central Florida Ferns invoice code ${cffInfo.sourceText} → ${cffInfo.potSize} pot.` };
+    }
     const text = phase101RowText(p);
     const norm = phase101Norm(text);
     const compact = phase101Compact(text);
@@ -18526,6 +18668,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
     const [pasteSummary, setPasteSummary] = useState(null);
     const [paymentMethodOverride, setPaymentMethodOverride] = useState("");
     const [cardLast4Override, setCardLast4Override] = useState("");
+    const [lastSavedImport, setLastSavedImport] = useState(null);
     const fRef = useRef(), cRef = useRef(), pdfRef = useRef();
     const purchaseTraining = phase101GetTraining(settings);
     useEffect(() => { if (nurseries.length && !selN)
@@ -18918,7 +19061,10 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         };
     };
     const buildRowsFromInvoicePlants = result => {
-        let ctr = getNextId(plants, selN.code);
+        const sourceCode = ldResolvePurchaseNurseryCode(selN, result, pasteText);
+        const sourceName = ldResolvePurchaseNurseryName(selN, result, sourceCode);
+        let ctr = ldGetNextIdBase(plants, sourceCode, settings);
+        const reservedIds = new Set();
         return (result.plants || []).flatMap((p, li) => Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
             ctr++;
             const cost = +(Array.isArray(p.unitCosts) ? p.unitCosts[qi] : p.costPerPlant) || 0, sp = sprice(cost);
@@ -18927,13 +19073,15 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
             const receiptDiscountPerPlant = +p.discountPerPlant || 0;
             const receiptLineTotalBeforeDiscount = +p.originalLineTotal || (originalCostBeforeDiscount * Math.max(1, +p.quantity || 1));
             const receiptLineTotalAfterDiscount = +p.discountedLineTotal || (cost * Math.max(1, +p.quantity || 1));
-            const potGuess = phase101InferPotSize(p, selN.code, settings);
-            const intakeNotesBase = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
+            const potGuess = phase101InferPotSize(p, sourceCode, settings);
+            const cleanPlantName = ldCleanCffInvoicePlantName(p.name || p.description || p.lineText || "", p, sourceCode);
+            const intakeNotesBase = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.ruleId === "cff-leading-pot-code" ? `Central Florida Ferns invoice prefix ${potGuess.source} set pot size to ${potGuess.potSize}.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
             const pageNote = p._pdfPage ? `PDF page ${p._pdfPage}.` : "";
             const pasteNote = p.pasteRow ? `Pasted row ${p.pasteRow}.` : "";
             const intakeNotes = [pageNote, pasteNote, intakeNotesBase].filter(Boolean).join(" ");
-            const plantId = pid(selN.code, ctr);
-            return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: toTC(p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, originalCostBeforeDiscount, receiptDiscountRate, receiptDiscountPerPlant, receiptItemDiscount: +p.itemDiscount || 0, receiptUnitCostAllocated: cost, receiptLineTotalBeforeDiscount, receiptLineTotalAfterDiscount, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", invoicePaymentMethod: result.paymentMethod || "", invoiceCardLast4: result.cardLast4 || "", paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "", receiptProfileId: result.receiptProfileId || "", receiptProfileLabel: result.receiptProfileLabel || "", receiptProfileNurseryOnly: result.receiptProfileNurseryOnly || "", receiptDiscountLabel: result.discountLabel || "", receiptHasOrderWideDiscount: !!result.hasOrderWideDiscount };
+            const plantId = ldNextUnusedPlantId(plants, sourceCode, ctr, reservedIds, settings);
+            ctr = Math.max(ctr, ldPlantSeqFromId(plantId));
+            return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: sourceCode, nurseryName: sourceName, name: toTC(cleanPlantName || p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, originalCostBeforeDiscount, receiptDiscountRate, receiptDiscountPerPlant, receiptItemDiscount: +p.itemDiscount || 0, receiptUnitCostAllocated: cost, receiptLineTotalBeforeDiscount, receiptLineTotalAfterDiscount, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", invoicePaymentMethod: result.paymentMethod || "", invoiceCardLast4: result.cardLast4 || "", paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "", receiptProfileId: result.receiptProfileId || "", receiptProfileLabel: result.receiptProfileLabel || "", receiptProfileNurseryOnly: result.receiptProfileNurseryOnly || "", receiptDiscountLabel: result.discountLabel || "", receiptHasOrderWideDiscount: !!result.hasOrderWideDiscount };
         }));
     };
     const parsePasteNow = () => {
@@ -18968,14 +19116,18 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         }
     };
     const nextRowPlantId = () => {
-        const base = getNextId(plants, selN.code);
+        const sourceCode = ldResolvePurchaseNurseryCode(selN, parsed || {}, pasteText);
+        const base = ldGetNextIdBase(plants, sourceCode, settings);
         const nums = rows.map(r => String(r.plantId || "").match(/(\d+)$/)).filter(Boolean).map(m => +m[1] || 0);
-        return pid(selN.code, Math.max(base, ...nums) + 1);
+        const reservedIds = new Set(rows.map(r => ldPlantNumberKey(r.plantId || r.plantCode || "")).filter(Boolean));
+        return ldNextUnusedPlantId(plants, sourceCode, Math.max(base, ...nums) + 1, reservedIds, settings);
     };
     const addManualLine = () => {
         const plantId = nextRowPlantId();
         const cost = 0, sp = sprice(cost);
-        setRows(pr => [...pr, { _k: `manual-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: selN.code, nurseryName: selN.name, name: "", botanicalName: "", potSize: purchaseTraining.defaultPotSize || '4"', potSizeConfidence: "manual", potSizeSourceText: "manual", potSizeRuleId: "", potSizeNote: "Manual line added during receipt review.", needsPotSizeReview: false, cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceNumber) || "", invoiceDate: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceDate) || today(), invoiceSubtotal: (parsed === null || parsed === void 0 ? void 0 : parsed.subtotal) || "", invoiceDiscount: (parsed === null || parsed === void 0 ? void 0 : parsed.discount) || "", invoiceTax: (parsed === null || parsed === void 0 ? void 0 : parsed.tax) || "", invoiceTotal: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: "Manual line added after receipt check.", labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, receiptProfileId: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileId) || "", receiptProfileLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) || "", invoicePaymentMethod: paymentMethodOverride || (parsed === null || parsed === void 0 ? void 0 : parsed.paymentMethod) || "", invoiceCardLast4: cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "", paymentMethod: paymentMethodOverride || (parsed === null || parsed === void 0 ? void 0 : parsed.paymentMethod) || "", cardLast4: cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "" }]);
+        const sourceCode = ldResolvePurchaseNurseryCode(selN, parsed || {}, pasteText);
+        const sourceName = ldResolvePurchaseNurseryName(selN, parsed || {}, sourceCode);
+        setRows(pr => [...pr, { _k: `manual-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: sourceCode, nurseryName: sourceName, name: "", botanicalName: "", potSize: purchaseTraining.defaultPotSize || '4"', potSizeConfidence: "manual", potSizeSourceText: "manual", potSizeRuleId: "", potSizeNote: "Manual line added during receipt review.", needsPotSizeReview: false, cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceNumber) || "", invoiceDate: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceDate) || today(), invoiceSubtotal: (parsed === null || parsed === void 0 ? void 0 : parsed.subtotal) || "", invoiceDiscount: (parsed === null || parsed === void 0 ? void 0 : parsed.discount) || "", invoiceTax: (parsed === null || parsed === void 0 ? void 0 : parsed.tax) || "", invoiceTotal: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: "Manual line added after receipt check.", labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, receiptProfileId: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileId) || "", receiptProfileLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) || "", invoicePaymentMethod: paymentMethodOverride || (parsed === null || parsed === void 0 ? void 0 : parsed.paymentMethod) || "", invoiceCardLast4: cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "", paymentMethod: paymentMethodOverride || (parsed === null || parsed === void 0 ? void 0 : parsed.paymentMethod) || "", cardLast4: cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "" }]);
     };
     const scan = async () => {
         var _a, _b, _c;
@@ -19087,21 +19239,48 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         const finalCardLast4 = cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "";
         if (finalPaymentMethod && !/cash/i.test(finalPaymentMethod) && !/^\d{4}$/.test(String(finalCardLast4 || "")) && !confirm(`Payment method is ${finalPaymentMethod}, but card last 4 is missing. Save anyway?`))
             return;
-        const importBatchId = `import-${((selN === null || selN === void 0 ? void 0 : selN.code) || "NA")}-${Date.now()}`;
-        const importBatchLabel = `${(selN === null || selN === void 0 ? void 0 : selN.name) || "Plant Invoice"} · ${actualN} plants · ${today()}`;
+        const saveSourceCode = rows[0]?.nurseryCode || ldResolvePurchaseNurseryCode(selN, parsed || {}, pasteText);
+        const saveSourceName = rows[0]?.nurseryName || ldResolvePurchaseNurseryName(selN, parsed || {}, saveSourceCode);
+        ldSeedNumberLedgerFromPlantsLocal(plants, settings);
+        const incomingIds = rows.map(r => r.plantId || r.plantCode || "").filter(Boolean);
+        const duplicateIncoming = rows.filter((r, idx) => rows.findIndex(x => ldPlantNumberKey(x.plantId || x.plantCode || "") === ldPlantNumberKey(r.plantId || r.plantCode || "")) !== idx);
+        const alreadyUsedIncoming = rows.filter(r => ldPlantNumberExists(plants, r.plantId || r.plantCode || ""));
+        const ledgerReuseIncoming = ldLedgerWouldReuse(settings, saveSourceCode, incomingIds);
+        if (ledgerReuseIncoming.length || duplicateIncoming.length || alreadyUsedIncoming.length) {
+            const lastUsed = ldLedgerMaxForCode(settings, saveSourceCode);
+            alert("Save stopped: plant number safety caught a problem. Nothing was saved.\n\n" +
+                `${saveSourceCode} ledger last used: ${saveSourceCode}-${String(lastUsed).padStart(3, "0")}\n\n` +
+                [...ledgerReuseIncoming, ...duplicateIncoming.map(r => r.plantId || r.plantCode || ""), ...alreadyUsedIncoming.map(r => r.plantId || r.plantCode || "")].filter(Boolean).slice(0, 25).join("\n"));
+            return;
+        }
+        if (!confirm(`Final check before saving inventory:
+
+Source: ${saveSourceName}
+Code that will print on labels: ${saveSourceCode}
+Last used number before this save: ${saveSourceCode}-${String(ldGetNextIdBase(plants, saveSourceCode, settings)).padStart(3, "0")}
+New first/last number: ${incomingIds[0] || ""} → ${incomingIds[incomingIds.length - 1] || ""}
+Plants: ${actualN}
+
+If the source/code or number range is wrong, press Cancel.`))
+            return;
+        const importBatchId = `import-${saveSourceCode || "NA"}-${Date.now()}`;
+        const importBatchLabel = `${saveSourceName || "Plant Invoice"} · ${actualN} plants · ${today()}`;
         const newPlantRows = rows.map(({ _k, ...r }) => {
             const newId = uid();
-            return { ...r, id: newId, purchaseBatchId: importBatchId, receiptBatchId: importBatchId, labelBatchId: importBatchId, importBatchId, importBatchName: importBatchLabel, importedAt: new Date().toISOString(), labelPrinted: false, receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || "", receiptLineCostTotal: lineTotal, receiptSubtotalParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.subtotal) || "", receiptDiscountParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.discount) || "", receiptDiscountRate: (parsed === null || parsed === void 0 ? void 0 : parsed.discountRate) || r.receiptDiscountRate || 0, receiptDiscountApplied: !!((parsed === null || parsed === void 0 ? void 0 : parsed.discountRate) || r.receiptDiscountRate), receiptDiscountLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.discountLabel) || r.receiptDiscountLabel || "", receiptHasOrderWideDiscount: !!((parsed === null || parsed === void 0 ? void 0 : parsed.hasOrderWideDiscount) || r.receiptHasOrderWideDiscount), receiptProfileId: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileId) || r.receiptProfileId || "", receiptProfileLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) || r.receiptProfileLabel || "", receiptProfileNurseryOnly: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileNurseryOnly) || r.receiptProfileNurseryOnly || "", originalCostBeforeDiscount: r.originalCostBeforeDiscount || r.cost, invoicePaymentMethod: finalPaymentMethod || r.invoicePaymentMethod || "", invoiceCardLast4: finalCardLast4 || r.invoiceCardLast4 || "", paymentMethod: finalPaymentMethod || r.paymentMethod || "", cardLast4: finalCardLast4 || r.cardLast4 || "" };
+            return { ...r, nurseryCode: ldCanonicalNurseryCode(r.nurseryCode || saveSourceCode, r.nurseryName || saveSourceName), nurseryName: r.nurseryName || saveSourceName, id: newId, purchaseBatchId: importBatchId, receiptBatchId: importBatchId, labelBatchId: importBatchId, importBatchId, importBatchName: importBatchLabel, importedAt: new Date().toISOString(), labelPrinted: false, receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || "", receiptLineCostTotal: lineTotal, receiptSubtotalParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.subtotal) || "", receiptDiscountParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.discount) || "", receiptDiscountRate: (parsed === null || parsed === void 0 ? void 0 : parsed.discountRate) || r.receiptDiscountRate || 0, receiptDiscountApplied: !!((parsed === null || parsed === void 0 ? void 0 : parsed.discountRate) || r.receiptDiscountRate), receiptDiscountLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.discountLabel) || r.receiptDiscountLabel || "", receiptHasOrderWideDiscount: !!((parsed === null || parsed === void 0 ? void 0 : parsed.hasOrderWideDiscount) || r.receiptHasOrderWideDiscount), receiptProfileId: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileId) || r.receiptProfileId || "", receiptProfileLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) || r.receiptProfileLabel || "", receiptProfileNurseryOnly: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileNurseryOnly) || r.receiptProfileNurseryOnly || "", originalCostBeforeDiscount: r.originalCostBeforeDiscount || r.cost, invoicePaymentMethod: finalPaymentMethod || r.invoicePaymentMethod || "", invoiceCardLast4: finalCardLast4 || r.invoiceCardLast4 || "", paymentMethod: finalPaymentMethod || r.paymentMethod || "", cardLast4: finalCardLast4 || r.cardLast4 || "" };
         });
         setPlants(p => [...p, ...newPlantRows]);
-        const batchInfo = { id: importBatchId, label: importBatchLabel, nurseryCode: (selN === null || selN === void 0 ? void 0 : selN.code) || "", nurseryName: (selN === null || selN === void 0 ? void 0 : selN.name) || "", count: newPlantRows.length, ids: newPlantRows.map(p => p.id), plantIds: newPlantRows.map(p => safePlantId(p)).filter(Boolean), receiptTotal: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || lineTotal || 0, createdAt: new Date().toISOString() };
+        ldUpdateNumberLedgerLocal(saveSourceCode, newPlantRows.map(p => p.plantId || p.plantCode || ""));
+        if (typeof setSettings === "function")
+            setSettings(prev => ldUpdateNumberLedgerSettings(prev, saveSourceCode, newPlantRows.map(p => p.plantId || p.plantCode || "")));
+        const batchInfo = { id: importBatchId, label: importBatchLabel, nurseryCode: saveSourceCode || "", nurseryName: saveSourceName || "", count: newPlantRows.length, ids: newPlantRows.map(p => p.id), plantIds: newPlantRows.map(p => safePlantId(p)).filter(Boolean), receiptTotal: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || lineTotal || 0, createdAt: new Date().toISOString() };
         ldWriteLastImportLabelBatch(batchInfo);
+        const invoiceExpenseId = `plant-invoice-${(parsed === null || parsed === void 0 ? void 0 : parsed.invoiceNumber) || "paste"}-${Date.now()}`;
         if (typeof setExpenses === "function") {
-            const invoiceExpenseId = `plant-invoice-${(parsed === null || parsed === void 0 ? void 0 : parsed.invoiceNumber) || "paste"}-${Date.now()}`;
             setExpenses(prev => [...(prev || []), {
                     id: invoiceExpenseId,
                     date: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceDate) || today(),
-                    vendor: (selN === null || selN === void 0 ? void 0 : selN.name) || (parsed === null || parsed === void 0 ? void 0 : parsed.nurseryName) || "Plant Supplier",
+                    vendor: saveSourceName || (parsed === null || parsed === void 0 ? void 0 : parsed.nurseryName) || "Plant Supplier",
                     category: "Plant Inventory",
                     main_category: "Inventory / COGS",
                     amount: +((parsed === null || parsed === void 0 ? void 0 : parsed.total) || lineTotal || 0),
@@ -19119,12 +19298,34 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                     plantCount: actualN,
                     receiptCountExpected: expectedPlantCount || "",
                     receiptTotalExpected: expectedReceiptTotal || "",
+                    importBatchId,
+                    purchaseBatchId: importBatchId,
                     notes: `Plant invoice imported from Buy Plants / Upload Invoice. ${actualN} plant label record(s). Costs include order discount spread across plants when applicable.`,
                     addedBy: user.name
                 }]);
         }
-        addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${selN === null || selN === void 0 ? void 0 : selN.name} · label batch ready · receipt total ${$((parsed === null || parsed === void 0 ? void 0 : parsed.total) || lineTotal)}${finalPaymentMethod ? ` · ${finalPaymentMethod}${finalCardLast4 ? " ending " + finalCardLast4 : ""}` : ""}${(parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) ? ` · ${parsed.receiptProfileLabel}` : ""}`, user: user.name, page: "Invoice Upload" });
+        setLastSavedImport({ importBatchId, expenseId: invoiceExpenseId, label: importBatchLabel, nurseryCode: saveSourceCode || "", nurseryName: saveSourceName || "", count: newPlantRows.length, plantIds: newPlantRows.map(p => p.plantId || p.plantCode || "").filter(Boolean), ids: newPlantRows.map(p => p.id) });
+        addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${saveSourceName} · label batch ready · receipt total ${$((parsed === null || parsed === void 0 ? void 0 : parsed.total) || lineTotal)}${finalPaymentMethod ? ` · ${finalPaymentMethod}${finalCardLast4 ? " ending " + finalCardLast4 : ""}` : ""}${(parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) ? ` · ${parsed.receiptProfileLabel}` : ""}`, user: user.name, page: "Invoice Upload" });
         setStep("done");
+    };
+    const undoLastInvoiceImport = () => {
+        if (!lastSavedImport) return alert("No saved invoice batch is available to undo in this screen.");
+        if (!confirm(`Undo this invoice upload?
+
+${lastSavedImport.label || "Latest invoice"}
+${lastSavedImport.count || 0} plant record(s) will be removed from inventory and the matching plant-invoice expense will be removed.
+
+Important: the plant numbers will remain skipped forever so they are never reused.`)) return;
+        const ids = new Set(lastSavedImport.ids || []);
+        const batchId = lastSavedImport.importBatchId;
+        setPlants(prev => safeArray(prev).filter(p => !ids.has(p.id) && p.importBatchId !== batchId && p.purchaseBatchId !== batchId && p.labelBatchId !== batchId));
+        if (typeof setExpenses === "function") setExpenses(prev => safeArray(prev).filter(e => e.id !== lastSavedImport.expenseId && e.importBatchId !== batchId && e.purchaseBatchId !== batchId));
+        try { localStorage.removeItem(LD_LAST_IMPORT_LABEL_BATCH_KEY); localStorage.removeItem(LD_BULK_LABEL_IDS_KEY); } catch (e) {}
+        addAudit && addAudit({ action: `Undo invoice upload — removed ${lastSavedImport.count || 0} plants from ${lastSavedImport.nurseryName || lastSavedImport.nurseryCode || "supplier"}. Numbers skipped forever.`, user: user.name, page: "Invoice Upload" });
+        setRows([]);
+        setLastSavedImport(null);
+        alert("Invoice upload undone. The plants and plant-invoice expense were removed. Those plant numbers are still skipped forever and will not be reused.");
+        reset();
     };
     const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); setPaymentMethodOverride(""); setCardLast4Override(""); };
     if (!nurseries.length)
@@ -19157,7 +19358,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                         React.createElement("div", null, "Choose PDF / File"),
                         React.createElement("div", { style: { fontSize: 12, color: C.tx3, marginTop: 4, fontWeight: 700 } }, "Use this for saved PDF invoices from Files or email."))),
                 React.createElement("div", { style: { marginTop: 12, padding: 12, borderRadius: 14, background: C.cardAlt, border: `1px solid ${C.bd}`, color: C.tx3, fontSize: 12, lineHeight: 1.45 } }, "Standard upload flow: take photo, choose photo, choose PDF/file, or paste receipt text \u2192 preview/review \u2192 verify plant count + receipt total \u2192 create plant numbers \u2192 print labels."),
-                React.createElement("div", { style: { marginTop: 10, background: C.amberBg, border: `1px solid ${C.amber}40`, borderRadius: 12, padding: 10, color: C.amber, fontSize: 12, fontWeight: 900, lineHeight: 1.4 } }, "Before any upload or paste import, Leaf Diary will ask you to confirm the selected nursery. This protects your nursery records, accounting, and labels from being saved under the wrong supplier.")),
+                React.createElement("div", { style: { marginTop: 10, background: C.amberBg, border: `1px solid ${C.amber}40`, borderRadius: 12, padding: 10, color: C.amber, fontSize: 12, fontWeight: 900, lineHeight: 1.4 } }, "Before any upload or paste import, Leaf Diary will ask you to confirm the selected nursery. The selected nursery code is locked in for the batch, and plant numbers must continue after the last used number. Do not print labels if the code or number range looks wrong.")),
             React.createElement(Card, { style: { marginTop: 14, border: `2px solid ${C.g300}`, borderRadius: 18, padding: 16, background: C.g50 } },
                 React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900, marginBottom: 5 } }, "\u270D\uFE0F Paste full receipt data"),
                 React.createElement("div", { style: { fontSize: 13, color: C.tx3, lineHeight: 1.45, marginBottom: 10 } },
@@ -19313,7 +19514,16 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                 rows.length,
                 " plants saved with unique IDs. This invoice batch was automatically sent to Labels so you can print only these plants."),
             React.createElement(Row, { gap: 8, wrap: true, style: { justifyContent: "center" } },
-                React.createElement(Btn, { onClick: () => setPage ? setPage("labels") : reset() }, "\uD83C\uDFF7\uFE0F Print Labels For This Invoice"),
+                React.createElement(Btn, { onClick: () => {
+                        const exportRows = safeArray(rows).filter(r => r && (r.plantId || r.plantCode));
+                        if (!exportRows.length) return alert("No invoice rows are ready for Labelife export yet.");
+                        const issues = getLabelifeBarcodeIssues(exportRows);
+                        if (issues.missingNumber.length) return alert("Fix missing plant numbers before exporting Labelife barcodes. Rows: " + issues.missingNumber.join(", "));
+                        if (issues.duplicateNumbers.length) return alert("Fix duplicate plant numbers before exporting Labelife barcodes:\n\n" + issues.duplicateNumbers.slice(0, 20).join("\n"));
+                        exportLabelifeBarcodeCSV(exportRows, `leaf-diary-labelife-latest-invoice-${today()}.csv`);
+                        alert(`Downloaded ${exportRows.length} Labelife label row(s) for this invoice.`);
+                    } }, "\uD83D\uDCE5 Download Labelife CSV"),
+                React.createElement(Btn, { v: "soft", onClick: () => setPage ? setPage("labels") : reset() }, "\uD83C\uDFF7\uFE0F Open Labels Page"),
                 React.createElement(Btn, { v: "ghost", onClick: reset }, "Upload Another Invoice"))));
 }
 /* ══════════════════════════════════════════════════════════
@@ -19479,7 +19689,7 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
             const histDupCount = mapped.filter(r => r.duplicateHistoricalPlantNumber).length;
             const missingCostCount = mapped.filter(r => !(+r.cost > 0)).length;
             const uploadCostTotal = mapped.reduce((s, r) => s + (+r.cost || 0), 0);
-            setBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. Total cost detected: ${$(uploadCostTotal)}. ${missingCostCount ? missingCostCount + " row(s) have no cost detected — check your cost column/header before saving. " : ""}${histDupCount ? histDupCount + " reused old sold/dead plant numbers and will be added as NEW current inventory. " : ""}${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
+            setBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. Total cost detected: ${$(uploadCostTotal)}. ${missingCostCount ? missingCostCount + " row(s) have no cost detected — check your cost column/header before saving. " : ""}${histDupCount ? histDupCount + " row(s) reuse old sold/dead plant numbers and will be BLOCKED. Plant numbers can never be reused. " : ""}${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
         }
         catch (e) {
             setBulkMsg("Inventory upload failed: " + e.message);
@@ -19488,7 +19698,15 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
     const saveBulkInventory = () => {
         if (!bulkRows.length)
             return;
-        const rows = bulkRows.map(({ _k, existingInApp, ...r }) => r);
+        const blockedHistorical = bulkRows.filter(r => r.duplicateHistoricalPlantNumber && !r.existingInApp);
+        if (blockedHistorical.length) {
+            alert("Import stopped. These plant numbers were already used in old sold/dead/history records and can never be reused:
+
+" + blockedHistorical.slice(0, 30).map(r => r.plantId || r.plantCode).join("
+"));
+            return;
+        }
+        const rows = bulkRows.map(({ _k, existingInApp, duplicateHistoricalPlantNumber, ...r }) => r);
         const incomingIds = new Set(rows.map(r => String(r.plantId || r.plantCode || "").trim().toUpperCase()).filter(Boolean));
         const updateCount = bulkRows.filter(r => r.existingInApp).length;
         const newCount = rows.length - updateCount;
@@ -19511,7 +19729,7 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
         var _a;
         setManualSaveMsg("");
         const cleanName = String(form.name || "").trim();
-        const sourceCode = String(form.nurseryCode || ((_a = nurseries === null || nurseries === void 0 ? void 0 : nurseries[0]) === null || _a === void 0 ? void 0 : _a.code) || "LD").trim().toUpperCase();
+        const sourceCode = ldCanonicalNurseryCode(form.nurseryCode || ((_a = nurseries === null || nurseries === void 0 ? void 0 : nurseries[0]) === null || _a === void 0 ? void 0 : _a.code) || "LD", form.nurseryName || "");
         const cleanQty = Math.max(1, parseInt(qty, 10) || 1);
         if (!cleanName) {
             setManualSaveMsg("❌ Enter the plant name first.");
@@ -19524,15 +19742,23 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
             return;
         }
         try {
-            let ctr = getNextId(plants, sourceCode);
+            ldSeedNumberLedgerFromPlantsLocal(plants, settings);
+            let ctr = ldGetNextIdBase(plants, sourceCode, settings);
+            const usedPlantIds = new Set();
             const sourceForm = { ...form, nurseryCode: sourceCode, name: cleanName, status: form.status || "In Stock", dateAdded: form.dateAdded || today() };
             const newPlants = Array.from({ length: cleanQty }, (_, i) => {
                 ctr++;
-                const idx = ctr, cost = +sourceForm.cost || 0, sp = +sourceForm.suggestedPrice || sprice(cost);
-                const plantNumber = pid(sourceCode, idx);
+                const cost = +sourceForm.cost || 0, sp = +sourceForm.suggestedPrice || sprice(cost);
+                const plantNumber = ldNextUnusedPlantId(plants, sourceCode, ctr, usedPlantIds, settings);
+                ctr = Math.max(ctr, ldPlantSeqFromId(plantNumber));
                 return { id: uid(), plantId: plantNumber, plantCode: plantNumber, barcodeValue: plantNumber, barcodeType: "CODE128", ...sourceForm, name: toTC(sourceForm.name), cost, originalCostBeforeDiscount: cost, receiptDiscountRate: 0, receiptDiscountPerPlant: 0, receiptLineTotalBeforeDiscount: cost, receiptLineTotalAfterDiscount: cost, suggestedPrice: sp, margin: marg(cost, sp), labelPrinted: false, addedBy: user.name, createdAt: new Date().toISOString(), photoBase64: manualPhotoPreview || sourceForm.photoBase64 || "", photoUploadedAt: manualPhotoPreview ? new Date().toISOString() : (sourceForm.photoUploadedAt || "") };
             });
+            const manualReuse = ldLedgerWouldReuse(settings, sourceCode, newPlants.map(p => p.plantId || p.plantCode || ""));
+            if (manualReuse.length) throw new Error(`Number lock stopped this save. ${sourceCode} has already used up to ${sourceCode}-${String(ldLedgerMaxForCode(settings, sourceCode)).padStart(3, "0")}.`);
             setPlants(p => [...safeArray(p), ...newPlants]);
+            ldUpdateNumberLedgerLocal(sourceCode, newPlants.map(p => p.plantId || p.plantCode || ""));
+            if (typeof setSettings === "function")
+                setSettings(prev => ldUpdateNumberLedgerSettings(prev, sourceCode, newPlants.map(p => p.plantId || p.plantCode || "")));
             addAudit({ action: `Manually added ${newPlants.length}× ${cleanName}${manualPhotoFile ? " with photo" : ""}`, user: user.name, page: "Manual Entry" });
             setSaved(p => [...safeArray(p), ...newPlants]);
             try {
@@ -19700,7 +19926,7 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
                         React.createElement("div", { style: { fontSize: 10, color: C.tx3, marginBottom: 6 } }, form.potSize || "Pot size"),
                         React.createElement("div", { style: { fontFamily: F.mono, fontSize: 10, color: C.g500, borderTop: `1px solid ${C.g100}`, paddingTop: 6, marginBottom: 7 } },
                             "\uD83C\uDF3F ",
-                            form.nurseryCode || "?????",
+                            ldCanonicalNurseryCode(form.nurseryCode || "?????"),
                             "-####"),
                         React.createElement(Row, { between: true },
                             React.createElement("span", { style: { fontSize: 10, color: C.tx3 } },
@@ -19731,7 +19957,7 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
 /* ══════════════════════════════════════════════════════════
    PAST INVOICES
 ══════════════════════════════════════════════════════════ */
-function PastInvoices({ plants, setPlants, nurseries, addAudit, user }) {
+function PastInvoices({ plants, setPlants, nurseries, addAudit, user, settings = {}, setSettings }) {
     const [show, setShow] = useState(false);
     const [selN, setSelN] = useState(null);
     const [inv, setInv] = useState({ number: "", date: "", payMethod: "Cash", total: "", notes: "" });
@@ -19744,9 +19970,14 @@ function PastInvoices({ plants, setPlants, nurseries, addAudit, user }) {
     const save = () => {
         if (!selN || !rows.some(r => r.name.trim()))
             return;
-        let ctr = getNextId(plants, selN.code);
-        const newP = rows.filter(r => r.name.trim()).flatMap(r => Array.from({ length: Math.max(1, +r.qty || 1) }, () => { ctr++; const cost = +r.cost || 0, sp = +r.salePrice || sprice(cost); return { id: uid(), plantId: pid(selN.code, ctr), plantCode: pid(selN.code, ctr), barcodeValue: pid(selN.code, ctr), barcodeType: "CODE128", nurseryCode: selN.code, name: toTC(r.name), botanicalName: "", potSize: r.pot, cost, originalCostBeforeDiscount: cost, receiptDiscountRate: 0, receiptDiscountPerPlant: 0, receiptLineTotalBeforeDiscount: cost, receiptLineTotalAfterDiscount: cost, suggestedPrice: sp, salePrice: r.salePrice || "", shippingCost: "", margin: marg(cost, sp), status: r.status, invoiceNumber: inv.number, invoiceDate: inv.date, dateAdded: inv.date || today(), platform: r.platform, rack: "", shelf: "", notes: "", labelPrinted: false, historical: true, addedBy: user.name }; }));
+        const sourceCode = ldCanonicalNurseryCode(selN.code || "LD", selN.name || "");
+        ldSeedNumberLedgerFromPlantsLocal(plants, settings);
+        let ctr = ldGetNextIdBase(plants, sourceCode, settings);
+        const reservedIds = new Set();
+        const newP = rows.filter(r => r.name.trim()).flatMap(r => Array.from({ length: Math.max(1, +r.qty || 1) }, () => { ctr++; const cost = +r.cost || 0, sp = +r.salePrice || sprice(cost); const plantNumber = ldNextUnusedPlantId(plants, sourceCode, ctr, reservedIds, settings); ctr = Math.max(ctr, ldPlantSeqFromId(plantNumber)); return { id: uid(), plantId: plantNumber, plantCode: plantNumber, barcodeValue: plantNumber, barcodeType: "CODE128", nurseryCode: sourceCode, name: toTC(r.name), botanicalName: "", potSize: r.pot, cost, originalCostBeforeDiscount: cost, receiptDiscountRate: 0, receiptDiscountPerPlant: 0, receiptLineTotalBeforeDiscount: cost, receiptLineTotalAfterDiscount: cost, suggestedPrice: sp, salePrice: r.salePrice || "", shippingCost: "", margin: marg(cost, sp), status: r.status, invoiceNumber: inv.number, invoiceDate: inv.date, dateAdded: inv.date || today(), platform: r.platform, rack: "", shelf: "", notes: "", labelPrinted: false, historical: true, addedBy: user.name }; }));
         setPlants(p => [...p, ...newP]);
+        ldUpdateNumberLedgerLocal(sourceCode, newP.map(p => p.plantId || p.plantCode || ""));
+        if (typeof setSettings === "function") setSettings(prev => ldUpdateNumberLedgerSettings(prev, sourceCode, newP.map(p => p.plantId || p.plantCode || "")));
         addAudit({ action: `Logged ${newP.length} historical plants from ${selN.name}`, user: user.name, page: "Past Invoices" });
         setSaved(p => [...p, { ...inv, nursery: selN.name, count: newP.length, id: uid() }]);
         setShow(false);
@@ -20349,6 +20580,7 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
         };
     })
         .filter(p => p.id || p.name || p.plantId || p.plantCode);
+    useEffect(() => { try { ldSeedNumberLedgerFromPlantsLocal(plants, settings); } catch (e) { } }, [plants.length]);
     const [search, setSearch] = useState("");
     const [actionView, setActionView] = useState("All Plants");
     const [fs, setFs] = useState("All");
@@ -20539,7 +20771,7 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
             const missingCostCount = mapped.filter(r => !(+r.cost > 0)).length;
             const uploadCostTotal = mapped.reduce((s, r) => s + (+r.cost || 0), 0);
             const nurseryDetectedCount = mapped.filter(r => String(r.nurseryName || "").trim()).length;
-            setInvBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. Total cost detected: ${$(uploadCostTotal)}. Nursery detected on ${nurseryDetectedCount} row(s). ${missingCostCount ? missingCostCount + " row(s) have no cost detected — check your cost column/header before saving. " : ""}${histDupCount ? histDupCount + " reused old sold/dead plant numbers and will be added as NEW current inventory. " : ""}${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
+            setInvBulkMsg(`Ready to import/update ${mapped.length} plants — ${newCount} new, ${updateCount} current records will be updated. Total cost detected: ${$(uploadCostTotal)}. Nursery detected on ${nurseryDetectedCount} row(s). ${missingCostCount ? missingCostCount + " row(s) have no cost detected — check your cost column/header before saving. " : ""}${histDupCount ? histDupCount + " row(s) reuse old sold/dead plant numbers and will be BLOCKED. Plant numbers can never be reused. " : ""}${skipped.length ? skipped.length + " skipped inside the upload file." : "No skipped rows."}`);
         }
         catch (e) {
             setInvBulkMsg("Inventory upload failed: " + e.message);
@@ -23578,6 +23810,7 @@ function Labels({ plants, setPlants, user, addAudit, setPage, settings }) {
     const [dateTo, setDateTo] = useState(today());
     const [lastImportBatch, setLastImportBatch] = useState(() => ldReadLastImportLabelBatch());
     useEffect(() => { try {
+        ldSeedNumberLedgerFromPlantsLocal(plants, settings);
         const raw = JSON.parse(localStorage.getItem(LD_BULK_LABEL_IDS_KEY) || "[]");
         if (Array.isArray(raw) && raw.length) {
             const rawSet = new Set(raw.map(String));
@@ -23703,6 +23936,38 @@ function Labels({ plants, setPlants, user, addAudit, setPage, settings }) {
         setSel(new Set());
         ldEmitNextStep("labels_printed", { title: "Labelife barcode CSV downloaded", body: `${list.length} label row(s) exported. Upload this CSV into Labelife and map Barcode Value to your barcode object.`, cta: "Photo Priority List", page: "inv" });
     };
+    const getLatestImportPlantsForLabels = (onlyUnprinted = false) => {
+        const b = ldReadLastImportLabelBatch() || lastImportBatch;
+        if (!b) return [];
+        const ids = new Set(safeArray(b.ids).map(String));
+        const plantIds = new Set(safeArray(b.plantIds).map(String));
+        let matched = safeArray(plants).filter(p => ids.has(String(p.id)) || plantIds.has(String(safePlantId(p))) || p.importBatchId === b.id || p.purchaseBatchId === b.id || p.labelBatchId === b.id || p.receiptBatchId === b.id);
+        if (!matched.length && b.receiptTotal)
+            matched = safeArray(plants).filter(p => String(p.dateAdded || "") === today() && String(p.nurseryCode || "") === String(b.nurseryCode || "") && Math.abs((+p.receiptTotalParsed || 0) - (+b.receiptTotal || 0)) <= .02);
+        if (onlyUnprinted)
+            matched = matched.filter(p => !p.labelPrinted);
+        return matched;
+    };
+    const exportLatestImportLabelife = (onlyUnprinted = false) => {
+        const b = ldReadLastImportLabelBatch() || lastImportBatch;
+        const list = getLatestImportPlantsForLabels(onlyUnprinted);
+        if (!list.length) {
+            alert(onlyUnprinted ? "No unprinted plants found for the latest import batch." : "I could not find the latest import batch in inventory. Load/sync first, or use Select Latest Import and try again.");
+            return;
+        }
+        const issues = getLabelifeBarcodeIssues(list);
+        if (issues.missingNumber.length) return alert("Fix missing plant numbers before exporting Labelife barcodes. Rows: " + issues.missingNumber.join(", "));
+        if (issues.duplicateNumbers.length) return alert("Fix duplicate plant numbers before exporting Labelife barcodes:\n\n" + issues.duplicateNumbers.slice(0, 20).join("\n"));
+        const safeCode = String((b && b.nurseryCode) || "latest").replace(/[^a-z0-9_-]+/gi, "-").toLowerCase();
+        exportLabelifeBarcodeCSV(list, `leaf-diary-labelife-${safeCode}-${today()}.csv`);
+        const exportIds = new Set(list.map(p => String(p.id)));
+        const now = new Date().toISOString();
+        setPlants(prev => safeArray(prev).map(p => exportIds.has(String(p.id)) ? { ...p, barcodeValue: labelifePlantNumber(p), barcodeType: LABELIFE_BARCODE_TYPE, labelPrinted: true, labelifeCsvExportedAt: now } : p));
+        setSel(new Set(list.map(p => p.id)));
+        addAudit && addAudit({ action: `Exported latest import Labelife barcode CSV (${list.length} rows)`, user: user.name, page: 'Labels' });
+        alert(`Downloaded ${list.length} Labelife label row(s) from the latest import batch.`);
+    };
+
     const startJob = async () => {
         const toProc = avail.filter(p => sel.has(p.id));
         if (!toProc.length)
@@ -23800,8 +24065,11 @@ function Labels({ plants, setPlants, user, addAudit, setPage, settings }) {
                         lastImportBatch.count || safeArray(lastImportBatch.ids).length,
                         " plants. Use this so you print labels only for the plants you just bought, not your whole inventory.")),
                 React.createElement(Row, { gap: 8, wrap: true },
-                    React.createElement(Btn, { sz: "sm", onClick: selectLastImportBatch }, "Select Latest Import"),
-                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: selectUnprintedFromLastImport }, "Select Unprinted Only")))),
+                    React.createElement(Btn, { sz: "sm", onClick: () => exportLatestImportLabelife(false) }, "Download Latest CSV"),
+                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => exportLatestImportLabelife(true) }, "Download Unprinted CSV"),
+                    React.createElement(Btn, { sz: "sm", v: "outline", onClick: selectLastImportBatch }, "Select Latest Import"),
+                    React.createElement(Btn, { sz: "sm", v: "ghost", onClick: selectUnprintedFromLastImport }, "Select Unprinted Only"))))
+,
         React.createElement(Card, { style: { marginBottom: 16, background: C.card, borderLeft: `5px solid ${C.blue}` } },
             React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
                 React.createElement("div", { style: { minWidth: 0, flex: 1 } },
@@ -36485,7 +36753,11 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
     const [showEmployeeId, setShowEmployeeId] = useState("none");
     const [showCommissionPercent, setShowCommissionPercent] = useState(defaultShowCommissionPercent);
     const [showCommissionNote, setShowCommissionNote] = useState("");
+    const [missingCostDrafts, setMissingCostDrafts] = useState({});
+    const [customShowName, setCustomShowName] = useState("");
+    const [lastShowUndo, setLastShowUndo] = useState(null);
     const selectedShowEmployee = commissionEmployees.find(u => u.id === showEmployeeId);
+    const showImportTitle = () => String(customShowName || "").trim() || String(fileName || "").replace(/\.(csv|xlsx|xls)$/i, "").trim() || `${platform || "Show"} ${today()} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     const money = v => {
         if (v === null || v === undefined || v === "")
             return 0;
@@ -36495,6 +36767,17 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         const n = parseFloat(cleaned);
         return Number.isFinite(n) ? n : 0;
     };
+    const missingCostKey = sale => String((sale && (sale._id || sale.saleImportKey || sale.sourceFingerprint || `${sale.orderNo || sale.orderNum || "NO_ORDER"}|${sale.productVariant || sale.title || "NO_PRODUCT"}|${sale.sourceRowNumber || ""}`)) || "");
+    const missingUnitCountForSale = sale => Math.max(0, sale && sale.bundleMissingCount != null ? sale.bundleMissingCount : (sale && !sale.matched ? 1 : 0));
+    const manualMissingCostForSale = sale => {
+        const key = missingCostKey(sale);
+        const draft = key ? missingCostDrafts[key] : undefined;
+        if (draft !== undefined && draft !== "")
+            return money(draft);
+        return money(sale && sale.costPerItem);
+    };
+    const missingCostCompleteForSale = sale => missingUnitCountForSale(sale) <= 0 || manualMissingCostForSale(sale) > 0;
+    const setMissingCostForRow = (sale, value) => setMissingCostDrafts(prev => ({ ...prev, [missingCostKey(sale)]: value }));
     const cleanText = v => String(v !== null && v !== void 0 ? v : "").replace(/\s+/g, " ").trim();
     const normKey = k => String(k || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     const rowVal = (row, names) => {
@@ -36560,6 +36843,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             ["SUMMARY"],
             ["Platform", audit.platform],
             ["File", audit.fileName],
+            ["Show Name", audit.showName || audit.showTitle || ""],
             ["Raw Rows", audit.rawRows],
             ["Valid Plant Sales", audit.validSales],
             ["Matched Inventory", audit.matchedInventory],
@@ -36625,14 +36909,16 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         if (!text)
             return null;
         const cleaned = String(text).toUpperCase().replace(/[_#]/g, " ");
-        const match = cleaned.match(/\b([A-Z]{1,4})\s*-?\s*(\d{1,4})\b/);
+        const match = cleaned.match(/([A-Z]{1,4})\s*-?\s*(\d{1,4})/);
         if (!match)
             return null;
-        return `${match[1]}-${String(parseInt(match[2], 10)).padStart(3, "0")}`;
+        // V340: preserve the exact number printed on the plant/sale title.
+        // PC-35 must stay PC-35 and must not silently become PC-035.
+        return `${match[1]}-${String(match[2])}`;
     };
     const normalizePlantCode = v => {
-        const m = String(v || "").toUpperCase().replace(/[_#]/g, " ").match(/\b([A-Z]{1,4})\s*-?\s*(\d{1,4})\b/);
-        return m ? `${m[1]}-${parseInt(m[2], 10)}` : "";
+        const m = String(v || "").toUpperCase().replace(/[_#]/g, " ").match(/([A-Z]{1,4})\s*-?\s*(\d{1,4})/);
+        return m ? `${m[1]}-${String(m[2])}` : "";
     };
     const plantCodeMatches = (a, b) => {
         const na = normalizePlantCode(a), nb = normalizePlantCode(b);
@@ -37151,6 +37437,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         setImportMsg("");
         setDuplicateInfo(null);
         setLastImportResult(null);
+        setMissingCostDrafts({});
         const isXlsx = /\.xlsx?$/i.test(f.name || "");
         const r = new FileReader();
         r.onload = e => {
@@ -37200,6 +37487,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             return;
         setDuplicateInfo(null);
         setLastImportResult(null);
+        setMissingCostDrafts({});
         const csvRows = parseCSVRows(raw);
         const detected = detectShowPlatform(csvRows, platform);
         setPlatform(detected);
@@ -37325,6 +37613,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                 React.createElement(Btn, { sz: "sm", v: "ghost", onClick: () => chooseManualMatch(r._id, "") }, "Leave unmatched")));
     };
     const makeHistoricalSalePlant = (sale, idx) => {
+        const reviewedCost = money(sale.manualMissingCost || sale.costPerItem || 0);
         const fallbackId = `HIST-${String(idx + 1).padStart(4, "0")}`;
         const bundleSuffix = sale.bundleQuantity > 1 ? `-B${sale.bundleUnitIndex || idx + 1}` : "";
         const code = sale.extractedPlantCode ? `${sale.extractedPlantCode}${bundleSuffix}` : `${fallbackId}-${uid().toUpperCase()}`;
@@ -37338,9 +37627,9 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             name: toTC(sale.productVariant || sale.title || "Historical Palmstreet Sale"),
             botanicalName: "",
             potSize: "",
-            cost: sale.costPerItem || 0,
-            costSource: sale.costPerItem ? "whatnot import" : "unknown historical import",
-            verifiedCost: false,
+            cost: reviewedCost,
+            costSource: reviewedCost ? "entered during show import" : "unknown historical import",
+            verifiedCost: reviewedCost > 0,
             suggestedPrice: sale.price,
             salePrice: sale.price,
             shippingChargedToCustomer: sale.shippingChargedToCustomer || sale.shippingFee || sale.shipping || 0,
@@ -37405,6 +37694,10 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             saleImportKey: sale.saleImportKey || saleImportKey(sale),
             saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
             sourceFileName: fileName || "",
+            showName: showImportTitle(),
+            showTitle: showImportTitle(),
+            liveShowName: showImportTitle(),
+            showImportName: showImportTitle(),
             importedAt: new Date().toISOString(),
             paymentFee: sale.paymentFee || 0,
             palmstreetFee: sale.palmstreetFee || 0,
@@ -37434,7 +37727,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             notes: sale.blockedCustomerReviewRequired ? `BLOCKED CUSTOMER REVIEW REQUIRED: ${sale.customerRiskMatch || "saved blocked profile"}. ${sale.customerNotes || ""}` : sale.watchCustomerReviewRequired ? `WATCH CUSTOMER REVIEW: ${sale.customerRiskMatch || "saved watch profile"}. ${sale.customerNotes || ""}` : "Imported from historical Palmstreet/Whatnot sales file. No inventory match found.",
             labelPrinted: true,
             addedBy: user.name,
-            margin: 0
+            margin: marg(reviewedCost, sale.price)
         };
     };
     const customerFieldsFromSale = sale => customerAddressFieldsFromSale(sale);
@@ -37482,7 +37775,12 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             return;
         }
         if (unselectedRowsBeforeSubmit.length > 0) {
-            setImportMsg(`Import stopped for safety: ${unselectedRowsBeforeSubmit.length} valid sale row(s) are not selected, so the CRM would save a partial show. Switch to Historical Import - Save Unmatched, or manually match/select every row before submit. Expected ${expectedSubmitCount} rows and ${$(expectedSubmitGross)} gross.`);
+            setImportMsg(`Import stopped for safety: ${unselectedRowsBeforeSubmit.length} valid sale row(s) are not selected, so the CRM would save a partial show. Use Import Matched + Add Missing Costs, or manually match/select every row before submit. Expected ${expectedSubmitCount} rows and ${$(expectedSubmitGross)} gross.`);
+            return;
+        }
+        const missingCostRowsBeforeSubmit = importMode !== "exact" ? validRowsBeforeSubmit.filter(r => r.apply && !r.duplicate && missingUnitCountForSale(r) > 0 && !missingCostCompleteForSale(r)) : [];
+        if (missingCostRowsBeforeSubmit.length > 0) {
+            setImportMsg(`Import stopped: enter your plant cost for ${missingCostRowsBeforeSubmit.length} missing plant row(s) first. The app will remove matched inventory and create sold records for the missing plants only after cost is entered.`);
             return;
         }
         const allSelected = validRowsBeforeSubmit;
@@ -37500,7 +37798,8 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             }
             newKeys.add(compactKey(k1));
             newKeys.add(compactKey(k2));
-            selected.push({ ...sale, saleImportKey: k1, saleLegacyKey: k2 });
+            const reviewedMissingCost = manualMissingCostForSale(sale);
+            selected.push({ ...sale, saleImportKey: k1, saleLegacyKey: k2, manualMissingCost: reviewedMissingCost, costPerItem: reviewedMissingCost || sale.costPerItem || 0, verifiedCost: reviewedMissingCost > 0 });
         });
         if (duplicates.length > 0) {
             setImportMsg(`Import stopped for safety: ${duplicates.length} sale row(s) became duplicate during submit. Nothing was saved. This protects inventory and commissions from partial/double import. Reset Customers + Sales, then re-upload the original show file once.`);
@@ -37519,7 +37818,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         const unmatchedSales = [].concat.apply([], selected.map(expandSaleToMissingUnits));
         const activeImportPlatform = (selected[0] && selected[0].platform) || (matched[0] && matched[0].platform) || platform;
         if (importMode === "exact" && unmatchedSales.length) {
-            setImportMsg(`Import stopped: Exact Inventory Match Only is on, but ${unmatchedSales.length} inventory unit(s) from bundle/show rows are not matched to current inventory. Match them manually or switch to Historical Import - Save Unmatched.`);
+            setImportMsg(`Import stopped: Exact Inventory Match Only is on, but ${unmatchedSales.length} sold plant(s) are not matched to current inventory. Switch to Import Matched + Add Missing Costs so matched plants are removed and missing plants get a cost box before saving.`);
             return;
         }
         let soldInventory = plants.map(p => {
@@ -37629,6 +37928,8 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             netAfterFees: selected.reduce((sum, sale) => sum + showNetAfterFees(sale), 0),
             platform: activeImportPlatform,
             fileName: fileName || "pasted sales import",
+            showName: activeShowTitle,
+            showTitle: activeShowTitle,
             blockedReviewCount: [...matchedSales, ...unmatchedSales].filter(s => s.blockedCustomerReviewRequired).length,
             watchReviewCount: [...matchedSales, ...unmatchedSales].filter(s => s.watchCustomerReviewRequired).length
         };
@@ -37649,6 +37950,8 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                         employeeName: (selectedShowEmployee === null || selectedShowEmployee === void 0 ? void 0 : selectedShowEmployee.name) || "Employee",
                         platform: activeImportPlatform,
                         sourceFileName: fileName || "pasted sales import",
+                        showName: activeShowTitle,
+                        showTitle: activeShowTitle,
                         importedAt: new Date().toISOString(),
                         saleDate: commissionableSales.map(s => s.saleDate || s.orderDate || "").filter(Boolean).sort()[0] || today(),
                         salesCount: commissionableSales.length,
@@ -37668,6 +37971,8 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             id: uid(),
             platform: activeImportPlatform,
             fileName: fileName || "pasted sales import",
+            showName: activeShowTitle,
+            showTitle: activeShowTitle,
             importedAt: new Date().toISOString(),
             importedBy: user.name,
             rawRows: importAudit && importAudit.rawRows != null ? importAudit.rawRows : parsed.length,
@@ -37689,7 +37994,8 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             setSettings(prev => ({ ...prev, showImportAudits: [finalAudit, ...(prev.showImportAudits || [])].slice(0, 50) }));
         }
         setPlants([...soldInventory, ...historicalRows]);
-        setLastImportResult({ ...result, commissionAmount, commissionEmployee: (selectedShowEmployee === null || selectedShowEmployee === void 0 ? void 0 : selectedShowEmployee.name) || "", audit: finalAudit });
+        setLastShowUndo({ auditId: finalAudit.id, commissionId: showEmployeeId !== "none" ? showCommissionId : "", showName: activeShowTitle, restoredPlants: matchedSales.map(s => s.matched).filter(Boolean).map(p => ({ ...p })), historicalIds: historicalRows.map(p => p.id), importedCount: matchedSales.length + historicalRows.length });
+        setLastImportResult({ ...result, showName: activeShowTitle, commissionAmount, commissionEmployee: (selectedShowEmployee === null || selectedShowEmployee === void 0 ? void 0 : selectedShowEmployee.name) || "", audit: finalAudit });
         setImportAudit(finalAudit);
         setDuplicateInfo(result.duplicateSkipped ? result : null);
         addAudit({ action: `Sales import: ${result.matchedAdded} matched inventory + ${result.historicalAdded} created sold / needs review + ${result.duplicateSkipped} duplicates skipped from ${activeImportPlatform}${showEmployeeId !== "none" ? ` · commission ${$(commissionAmount)} to ${(selectedShowEmployee === null || selectedShowEmployee === void 0 ? void 0 : selectedShowEmployee.name) || "employee"}` : ""}`, user: user.name, page: "Show Import" });
@@ -37741,9 +38047,29 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             }
         })();
     };
+    const undoLastShowImport = () => {
+        if (!lastShowUndo) return alert("No show import is available to undo in this screen.");
+        if (!confirm(`Undo this show import?
+
+${lastShowUndo.showName || "Latest show"}
+${lastShowUndo.importedCount || 0} sale record(s) will be reversed in this local app state.
+
+Matched inventory plants will be put back to their exact previous records and missing sold records from this import will be removed.`)) return;
+        const restoreMap = new Map(safeArray(lastShowUndo.restoredPlants).map(p => [p.id, p]));
+        const histIds = new Set(lastShowUndo.historicalIds || []);
+        setPlants(prev => safeArray(prev).filter(p => !histIds.has(p.id)).map(p => restoreMap.has(p.id) ? restoreMap.get(p.id) : p));
+        if (setSettings) setSettings(prev => ({ ...prev, showImportAudits: safeArray(prev.showImportAudits).filter(a => a.id !== lastShowUndo.auditId), showCommissions: safeArray(prev.showCommissions).filter(c => c.id !== lastShowUndo.commissionId) }));
+        addAudit && addAudit({ action: `Undo show import — ${lastShowUndo.showName || "latest show"}. Restored ${restoreMap.size} inventory plant(s) and removed ${histIds.size} missing sold record(s).`, user: user.name, page: "Show Import" });
+        setLastShowUndo(null);
+        setLastImportResult(null);
+        setImportMsg("Show import undone in this browser session. Click Save/Sync after reviewing if you want the cloud to reflect the undo.");
+        setStep("paste");
+    };
     const totalRev = matched.filter(r => r.apply && !r.duplicate).reduce((s, r) => s + (+r.price || 0), 0);
     const matched_count = matched.filter(r => r.apply && !r.duplicate).reduce((sum, r) => sum + (r.bundleMatchCount || (r.matched ? 1 : 0)), 0);
     const unmatched_count = matched.filter(r => r.apply && !r.duplicate).reduce((sum, r) => sum + (r.bundleMissingCount != null ? r.bundleMissingCount : (!r.matched ? 1 : 0)), 0);
+    const missing_cost_rows = matched.filter(r => r.apply && !r.duplicate && missingUnitCountForSale(r) > 0);
+    const missing_cost_incomplete_count = missing_cost_rows.filter(r => !missingCostCompleteForSale(r)).length;
     const duplicate_count = matched.filter(r => r.duplicate).length;
     const applied_count = matched.filter(r => r.apply && !r.duplicate).length;
     const stateDocPreviewRows = matched.filter(r => r.apply && !r.duplicate);
@@ -37765,11 +38091,16 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                 React.createElement("div", { style: { fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 } }, "Platform"),
                 React.createElement(Row, { gap: 8, style: { marginBottom: 16 } }, ["Palmstreet", "Whatnot"].map(p => React.createElement("button", { key: p, onClick: () => setPlatform(p), style: { padding: "10px 20px", borderRadius: 9, cursor: "pointer", fontFamily: F.body, fontSize: 14, fontWeight: 600, background: platform === p ? C.g700 : C.cardAlt, color: platform === p ? "#fff" : C.tx1, border: `1.5px solid ${platform === p ? C.g700 : C.bd}` } }, p))),
                 React.createElement("div", { style: { fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 8 } }, "Import Mode"),
-                React.createElement(Row, { gap: 8, style: { marginBottom: 16 } }, [{ v: "historical", l: "Historical Import - Save Unmatched" }, { v: "exact", l: "Exact Inventory Match Only" }].map(o => React.createElement("button", { key: o.v, onClick: () => setImportMode(o.v), style: { padding: "10px 14px", borderRadius: 9, cursor: "pointer", fontFamily: F.body, fontSize: 13, fontWeight: 600, background: importMode === o.v ? C.g700 : C.cardAlt, color: importMode === o.v ? "#fff" : C.tx1, border: `1.5px solid ${importMode === o.v ? C.g700 : C.bd}` } }, o.l))),
+                React.createElement(Row, { gap: 8, style: { marginBottom: 16 } }, [{ v: "historical", l: "Import Matched + Add Missing Costs" }, { v: "exact", l: "Exact Inventory Match Only" }].map(o => React.createElement("button", { key: o.v, onClick: () => setImportMode(o.v), style: { padding: "10px 14px", borderRadius: 9, cursor: "pointer", fontFamily: F.body, fontSize: 13, fontWeight: 600, background: importMode === o.v ? C.g700 : C.cardAlt, color: importMode === o.v ? "#fff" : C.tx1, border: `1.5px solid ${importMode === o.v ? C.g700 : C.bd}` } }, o.l))),
                 React.createElement("div", { style: { background: C.goldBg, border: `1px solid ${C.gold}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.tx2, marginBottom: 14, lineHeight: 1.6 } },
                     "Use ",
-                    React.createElement("b", null, "Historical Import"),
-                    " for old Palmstreet analytics files that do not have Leaf Diary plant codes. It will still save the sales for analytics, pricing, customers, and revenue history."),
+                    React.createElement("b", null, "Import Matched + Add Missing Costs"),
+                    " for normal shows. It removes matched inventory, shows a cost box for missing plants, then saves those missing plants as sold needs-review records. Use Exact Inventory Match Only only when every sold plant is already in inventory."),
+                React.createElement(Card, { style: { marginBottom: 14, border: `1.5px solid ${customShowName.trim() ? C.g300 : C.gold}` } },
+                    React.createElement("div", { style: { fontFamily: F.display, fontWeight: 900, color: C.g900, fontSize: 17, marginBottom: 6 } }, "Show Title / Import Name"),
+                    React.createElement("div", { style: { fontSize: 12, color: C.tx3, marginBottom: 10, lineHeight: 1.45 } }, "Type the same title you used on Whatnot or Palmstreet. This keeps two shows from the same day separated in Customers, Shipping, Profit, and audit reports."),
+                    React.createElement("input", { value: customShowName, onChange: e => setCustomShowName(e.target.value), placeholder: "Example: Whatnot 5/22 Morning Rare Plant Show", style: { width: "100%", padding: "12px 13px", border: `1.5px solid ${C.bd}`, borderRadius: 12, fontSize: 16, fontFamily: F.body, fontWeight: 850, boxSizing: "border-box" } }),
+                    React.createElement("div", { style: { marginTop: 7, fontSize: 11, color: customShowName.trim() ? C.g600 : C.amber, fontWeight: 900 } }, customShowName.trim() ? `This import will save as: ${customShowName.trim()}` : "Recommended: enter a custom show title before uploading.")),
                 importMsg && React.createElement("div", { style: { background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.red, marginBottom: 12 } }, importMsg),
                 duplicateInfo && React.createElement("div", { style: { background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: C.amber, marginBottom: 12 } },
                     React.createElement("b", null,
@@ -37801,6 +38132,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         step === "review" && React.createElement("div", null,
             React.createElement("div", { style: { background: C.g800, borderRadius: 14, padding: "16px", marginBottom: 14, color: "#fff" } },
                 React.createElement("div", { style: { fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", opacity: .7, marginBottom: 4 } }, "Import Summary"),
+                React.createElement("div", { style: { fontSize: 14, fontWeight: 900, opacity: .95, marginBottom: 4 } }, "Show: ", showImportTitle()),
                 React.createElement("div", { style: { fontSize: 28, fontWeight: 700, fontFamily: F.display } }, $(totalRev)),
                 showEmployeeId !== "none" && React.createElement("div", { style: { fontSize: 13, opacity: .95, marginTop: 4, color: "#fff" } },
                     "\uD83D\uDC77 ",
@@ -37836,7 +38168,8 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                     "\u26D4 Safety lock: ",
                     duplicate_count,
                     " duplicate row(s) detected. Submit will stop so the show cannot save partially or double-count commissions."),
-                importMode === "exact" && unmatched_count > 0 && React.createElement("div", { style: { fontSize: 12, opacity: .98, marginTop: 6, color: "#FFD580" } }, "\u26A0\uFE0F Exact mode is on: unmatched rows are NOT selected. Match them manually or switch to Historical Import to save them as needs-review sale records."),
+                importMode === "exact" && unmatched_count > 0 && React.createElement("div", { style: { fontSize: 12, opacity: .98, marginTop: 6, color: "#FFD580" } }, "\u26A0\uFE0F Exact mode is on: unmatched rows cannot import. Switch to Import Matched + Add Missing Costs so sold matched plants come out of inventory and missing plants get a cost box."),
+                importMode !== "exact" && unmatched_count > 0 && React.createElement("div", { style: { fontSize: 12, opacity: .98, marginTop: 6, color: missing_cost_incomplete_count ? "#FFD580" : "#B8FF8A", fontWeight: 850 } }, missing_cost_incomplete_count ? `\u26A0\uFE0F Enter cost for ${missing_cost_incomplete_count} missing plant row(s) before import.` : `\u2705 Missing plant costs entered. Matched inventory will be removed and missing sold records will be created.`),
                 blockedImportAlerts.length > 0 && React.createElement("div", { style: { fontSize: 13, opacity: 1, marginTop: 8, color: "#FFB4B4", fontWeight: 900 } },
                     "\uD83D\uDEAB Blocked Customer Alert: ",
                     blockedImportAlerts.length,
@@ -37930,7 +38263,13 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                             !r.duplicate && r.matched && React.createElement("div", { style: { fontSize: 11, color: C.g600, marginTop: 2 } },
                                 "\u2705 Matched \u2192 ",
                                 (r.bundleMatches || [r.matched]).map(p => `${p.name} (${p.plantId})`).join(", ")),
-                            !r.duplicate && !r.matched && React.createElement("div", { style: { fontSize: 11, color: C.amber, marginTop: 2 } }, "\u26A0\uFE0F No CURRENT in-stock inventory match \u2014 will create a sold record and flag for review. Old sold/dead records with the same number will not be overwritten.")),
+                            !r.duplicate && !r.matched && React.createElement("div", { style: { fontSize: 11, color: C.amber, marginTop: 2 } }, "\u26A0\uFE0F No CURRENT in-stock inventory match \u2014 enter cost below, then import. It will create a sold record and flag for review. Old sold/dead records with the same number will not be overwritten."),
+                            !r.duplicate && missingUnitCountForSale(r) > 0 && importMode !== "exact" && React.createElement("div", { style: { marginTop: 8, background: missingCostCompleteForSale(r) ? C.g50 : C.goldBg, border: `1.5px solid ${missingCostCompleteForSale(r) ? C.g300 : C.gold}`, borderRadius: 12, padding: 10 } },
+                                React.createElement("div", { style: { fontSize: 12, fontWeight: 950, color: C.g900, marginBottom: 6 } }, "Missing plant cost required"),
+                                React.createElement(Row, { gap: 8, center: true, wrap: true },
+                                    React.createElement("input", { type: "number", inputMode: "decimal", min: "0", step: "0.01", value: missingCostDrafts[missingCostKey(r)] !== undefined ? missingCostDrafts[missingCostKey(r)] : (r.costPerItem ? String(r.costPerItem) : ""), onChange: e => setMissingCostForRow(r, e.target.value), placeholder: "Enter your cost", style: { width: 160, maxWidth: "100%", padding: "10px 12px", border: `1.5px solid ${missingCostCompleteForSale(r) ? C.g300 : C.gold}`, borderRadius: 10, fontSize: 16, fontFamily: F.body, fontWeight: 850, background: C.card, color: C.tx } }),
+                                    React.createElement("div", { style: { fontSize: 12, color: C.tx3, fontWeight: 800 } }, missingUnitCountForSale(r), " missing plant(s) ", manualMissingCostForSale(r) > 0 ? `\u00B7 est. profit ${$(money(r.price) - manualMissingCostForSale(r))}` : "\u00B7 enter cost before saving"))),
+                            !r.duplicate && missingUnitCountForSale(r) > 0 && importMode === "exact" && React.createElement("div", { style: { marginTop: 8, background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 12, padding: 10, fontSize: 12, color: C.amber, fontWeight: 850 } }, "Switch to Import Matched + Add Missing Costs to save this row without adding it to inventory first.")),
                         React.createElement(Row, { gap: 8, center: true },
                             React.createElement("span", { style: { fontWeight: 700, color: C.g700, fontSize: 16 } },
                                 $(r.price),
@@ -37947,12 +38286,14 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                 React.createElement(Btn, { onClick: applyImport, disabled: applied_count === 0 },
                     "\u2705 Import ",
                     applied_count,
-                    " Sales"),
+                    " Sales",
+                    importMode !== "exact" && missing_cost_incomplete_count > 0 ? ` · ${missing_cost_incomplete_count} cost(s) needed` : ""),
                 React.createElement(Btn, { v: "outline", onClick: () => downloadCSVFile(`leaf-diary-show-import-audit-${today()}.csv`, buildShowImportAuditCsv(matched, importAudit)) }, "\uD83D\uDCE5 Export Full Audit"),
                 React.createElement(Btn, { v: "ghost", onClick: () => setStep("paste") }, "Back"))),
         step === "done" && React.createElement("div", { style: { textAlign: "center", padding: "60px 20px" } },
             React.createElement("div", { style: { fontSize: 56, marginBottom: 16 } }, "\uD83C\uDF89"),
             React.createElement("h2", { style: { fontFamily: F.display, color: C.g900, marginBottom: 8 } }, "Sales Imported!"),
+            React.createElement("p", { style: { color: C.g700, marginBottom: 6, fontWeight: 950 } }, "Show: ", (lastImportResult === null || lastImportResult === void 0 ? void 0 : lastImportResult.showName) || showImportTitle()),
             React.createElement("p", { style: { color: C.tx3, marginBottom: 6 } }, lastImportResult ? `${lastImportResult.matchedAdded} inventory plants marked sold · ${lastImportResult.historicalAdded} sold sale records saved` : `${matched_count} inventory plants marked sold · ${unmatched_count} sold sale records saved`),
             (lastImportResult === null || lastImportResult === void 0 ? void 0 : lastImportResult.duplicateSkipped) > 0 && React.createElement("p", { style: { color: C.red, marginBottom: 6, fontWeight: 700 } },
                 lastImportResult.duplicateSkipped,
@@ -37978,7 +38319,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                 " in sales imported / reviewed"),
             React.createElement(Row, { gap: 10, style: { justifyContent: "center" } },
                 React.createElement(Btn, { v: "outline", onClick: () => downloadCSVFile(`leaf-diary-show-import-audit-${today()}.csv`, buildShowImportAuditCsv(matched, importAudit)) }, "\uD83D\uDCE5 Download Import Audit"),
-                React.createElement(Btn, { onClick: () => { setRaw(""); setMatched([]); setSkipped([]); setImportAudit(null); setStep("paste"); } }, "Import Another File"))));
+                React.createElement(Btn, { onClick: () => { setRaw(""); setMatched([]); setSkipped([]); setImportAudit(null); setMissingCostDrafts({}); setStep("paste"); } }, "Import Another File"))));
 }
 /* ══════════════════════════════════════════════════════════
    CUSTOMERS — from Palmstreet sales data
@@ -40327,17 +40668,23 @@ const repairLocalBootData = () => {
     }
 };
 /* Normalise legacy string nurseries → objects. Safe to call multiple times. */
-const migrateNurseries = (arr) => (arr || []).map(n => {
-    if (!n)
-        return null;
-    if (typeof n === "string")
-        return { id: "mig-" + n, code: n.replace(/001$/, "").replace(/-$/, ""), name: n + " Nursery", phone: "", email: "", address: "", website: "", contact: "", paymentMethods: "", hasAccount: false, accountNotes: "", notes: "" };
-    if (!n.id)
-        return null;
-    const code = (n.code || "").replace(/001$/, "").replace(/-$/, "");
-    return code !== n.code ? { ...n, code } : n;
-}).filter(Boolean);
+const migrateNurseries = (arr) => {
+    const cleaned = (arr || []).map(n => {
+        if (!n) return null;
+        if (typeof n === "string") {
+            const code = ldCanonicalNurseryCode(n, n);
+            return { id: "mig-" + code, code, name: code === "CFF" ? "Central Florida Ferns" : n + " Nursery", phone: "", email: "", address: "", website: "", contact: "", paymentMethods: "", hasAccount: false, accountNotes: "", notes: "" };
+        }
+        if (!n.id) return null;
+        const code = ldCanonicalNurseryCode(n.code || "", n.name || "");
+        const name = code === "CFF" ? "Central Florida Ferns" : (n.name || code);
+        return { ...n, code, name };
+    }).filter(Boolean);
+    if (!cleaned.some(n => ldCanonicalNurseryCode(n.code, n.name) === "CFF")) cleaned.unshift({ id: "n-cff", code: "CFF", name: "Central Florida Ferns", phone: "", email: "", address: "", website: "", contact: "", paymentMethods: "", hasAccount: false, accountNotes: "", notes: "Required source code: CFF. Never reuse old CFF numbers." });
+    return cleaned;
+};
 const DEFAULT_NURSERIES = [
+    { id: "n-cff", code: "CFF", name: "Central Florida Ferns", phone: "", email: "", address: "", website: "", contact: "", paymentMethods: "", hasAccount: false, accountNotes: "", notes: "Required source code: CFF. Never reuse old CFF numbers." },
     { id: "n1", code: "PC", name: "Perfect Choice Nursery", phone: "(305) 555-0100", email: "info@perfectchoicenursery.com", address: "12345 SW 216th St, Miami, FL 33170", website: "https://perfectchoicenursery.com", contact: "Maria Santos", paymentMethods: "Cash, Credit Card", hasAccount: true, accountNotes: "Account #PC-4421, net-30 terms", notes: "Great Aroids. Tuesdays best for fresh stock." },
     { id: "n2", code: "SK", name: "Silver Krome Gardens", phone: "(786) 555-0200", email: "", address: "21045 SW 177th Ave, Miami, FL 33187", website: "", contact: "", paymentMethods: "Cash, Check", hasAccount: false, accountNotes: "", notes: "Best Philodendrons in South FL." },
     { id: "n3", code: "LP", name: "LP Premium Plants", phone: "(954) 555-0300", email: "sales@lppremiumplants.com", address: "5500 Griffin Rd, Davie, FL 33314", website: "", contact: "Luis Perez", paymentMethods: "Credit Card, PayPal", hasAccount: true, accountNotes: "Account #LP-7890", notes: "Tissue culture specialist. Call ahead." },
