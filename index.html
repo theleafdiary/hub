@@ -3,6 +3,8 @@
 
 <html lang="en">
 <head>
+
+&lt;!-- V336 — Simple Customers cleanup: simplifies Customer Hub into a clear customer command center with four main actions and More Customer Tools. Keeps customer profiles, open/ready/past orders, blocked alerts, website import, exports, Supabase, and shipping links untouched. --&gt;
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
 <meta content="yes" name="apple-mobile-web-app-capable"/>
@@ -10,7 +12,8 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V330 Shipping Docs Fixed</title>
+<title>LEAF DIARY - BUSINESS HUB · V339 Final QA</title>
+<!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
 <!-- V239 — Phase 8 Settings Security QA: consolidates Settings, Security, AI, Cloud, Developer Tools, QA, release readiness, and SaaS production checklist into one owner command center. -->
 <!-- V238 — Phase 7 Money Command Center: consolidates receipts, expenses, bills, payroll, commissions, cash flow, show profit, reports, tax, goals, Buy Smart, and charts into one mobile Money workflow. -->
@@ -102,8 +105,14 @@
 <!-- V318 — Mobile Production Precompiled Boot:
 Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to Today, skips parsing oversized localStorage backups on mobile without deleting them, and keeps Customers footer link. No Supabase schema changes. No data deletion. -->
 <!-- V330 — Shipping State Docs Repair: lazy-loads PDFLib for manual/missing document generation, scans saved sold/shipment records for CA/AZ/TX/LA/HI docs, fixes Generate Missing Docs doing nothing, and uses safer download anchors. -->
+<!-- V338 — Simple More / Settings Cleanup: reduces owner Settings to Start, Team, Backup, Checkup, and More Tools; moves AI/security/docs/repair behind More Owner Tools; keeps Supabase, imports, shipping docs, and saved data logic unchanged. -->
+<!-- V339 — Final Mobile/Desktop QA: updates the Workflow Test Checklist for the simplified Home, Plants, Shows, Shipping, Customers, Money, and More flow; adds no new backend writes and keeps Supabase/import/state-doc logic unchanged. -->
+<!-- V331 — Show Command Center Cleanup: reduces duplicate Show buttons into one clean 5-action workflow, moves rare tools into More Show Tools, and keeps all existing show logic/routes intact for mobile + desktop. -->
+<!-- V332 — No Live Mode: removes Live Mode from the visible app flow, keeps Shows focused on Dashboard, Build Show, Pull List, and Import Sales, and safely redirects old Live Show routes to Pull List. -->
+<!-- V333 — Simple Home Dashboard: cleans Today/Home into one next-best-move card, four role-aware job cards, simple numbers, and a short attention list. No Supabase, import, shipping-doc, or save/load logic changed. -->
+<!-- V334 — Simple Plants Dashboard: routes Plants away from the legacy inventory wall into a clean role-aware plant command center with four main actions, clear label/photo/price queues, and More Plant Tools. No Supabase, import, label, photo, pricing, or save/load logic changed. -->
 <!-- V323 — Final Mobile/Desktop Boot Fix: wraps app scripts during dynamic boot so Supabase UMD globals cannot collide with app const names; prevents runInertScripts from executing twice; keeps mobile shell and data safe. -->
-  <!-- V319 — Mobile Boot Repair:
+<!-- V319 — Mobile Boot Repair:
 Stops the V293 startup repair screen from taking over iPhone, removes heavy PDF/Excel/barcode libraries from startup, adds a Supabase offline/local fallback if the CDN fails, shows a lightweight loading shell immediately, and reports the real boot error instead of looping restart buttons. No data deletion. No Supabase schema changes. -->
 <link href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&amp;width=200" rel="apple-touch-icon"/>
 <link href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&amp;width=64" rel="icon" sizes="32x32" type="image/png"/>
@@ -6350,6 +6359,218 @@ Stops the V293 startup repair screen from taking over iPhone, removes heavy PDF/
       .ld-v231-mainnav-label{font-size:9px!important;letter-spacing:-.35px!important;}
     }
 
+
+
+    /* V332 — Clean Show Command Center navigation
+       Live Mode removed. Primary flow is Dashboard, Build Show, Pull List, Import Sales.
+       UI-only: does not change Supabase, import logic, show builder, or existing routes. */
+    .ld-show-clean-panel {
+      background: #000000;
+      border: 2px solid rgba(251,99,146,.76);
+      border-radius: 26px;
+      padding: 14px;
+      margin: 0 0 16px;
+      box-shadow: 0 14px 42px rgba(0,0,0,.18);
+    }
+    .ld-show-clean-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 2px 12px;
+      color: #ffffff;
+    }
+    .ld-show-clean-title {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 22px;
+      line-height: 1.1;
+      font-weight: 950;
+      color: #fb6392;
+      margin: 0;
+    }
+    .ld-show-clean-sub {
+      color: rgba(255,255,255,.70);
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1.35;
+      margin-top: 4px;
+    }
+    .ld-show-clean-current {
+      flex-shrink: 0;
+      border: 1px solid rgba(151,211,62,.38);
+      background: rgba(151,211,62,.12);
+      color: #97d33e;
+      border-radius: 999px;
+      padding: 8px 11px;
+      font-size: 11px;
+      font-weight: 950;
+      white-space: nowrap;
+    }
+    .ld-show-clean-nav {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .ld-show-clean-card {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      width: 100%;
+      min-height: 82px;
+      padding: 13px;
+      border-radius: 20px;
+      border: 1.5px solid rgba(151,211,62,.28);
+      background: #181818;
+      color: #ffffff;
+      text-align: left;
+      cursor: pointer;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.055), 0 8px 22px rgba(0,0,0,.20);
+      transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+      touch-action: manipulation;
+    }
+    .ld-show-clean-card:hover,
+    .ld-show-clean-card:focus-visible {
+      transform: translateY(-2px);
+      border-color: #97d33e;
+      background: #202020;
+      box-shadow: 0 14px 34px rgba(151,211,62,.12), inset 0 1px 0 rgba(255,255,255,.075);
+    }
+    .ld-show-clean-card.is-active {
+      border-color: #fb6392;
+      background: linear-gradient(180deg, rgba(251,99,146,.16), #111111);
+      box-shadow: 0 0 0 2px rgba(251,99,146,.12), 0 16px 38px rgba(251,99,146,.14);
+    }
+    .ld-show-clean-icon {
+      width: 42px;
+      height: 42px;
+      min-width: 42px;
+      border-radius: 15px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #97d33e;
+      color: #000000;
+      font-size: 20px;
+      font-weight: 950;
+      line-height: 1;
+      box-shadow: 0 0 20px rgba(151,211,62,.20);
+    }
+    .ld-show-clean-card.is-active .ld-show-clean-icon {
+      background: #fb6392;
+      color: #ffffff;
+      box-shadow: 0 0 22px rgba(251,99,146,.32);
+    }
+    .ld-show-clean-label {
+      display: block;
+      font-size: 16px;
+      font-weight: 950;
+      line-height: 1.12;
+      color: #ffffff;
+      white-space: normal;
+    }
+    .ld-show-clean-desc {
+      display: block;
+      font-size: 11.5px;
+      font-weight: 760;
+      line-height: 1.3;
+      color: rgba(255,255,255,.68);
+      margin-top: 3px;
+      white-space: normal;
+    }
+    .ld-show-more-tools {
+      margin-top: 10px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.055);
+      overflow: hidden;
+    }
+    .ld-show-more-tools summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 13px;
+      color: #ffffff;
+      font-weight: 950;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .ld-show-more-tools summary::-webkit-details-marker { display: none; }
+    .ld-show-more-count {
+      color: rgba(255,255,255,.62);
+      font-size: 11px;
+      font-weight: 850;
+    }
+    .ld-show-more-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 0 10px 10px;
+    }
+    .ld-show-more-btn {
+      width: 100%;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 14px;
+      background: rgba(255,255,255,.075);
+      color: #ffffff;
+      padding: 10px 11px;
+      min-height: 46px;
+      text-align: left;
+      font-weight: 900;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      cursor: pointer;
+    }
+    .ld-show-more-btn.is-active {
+      border-color: #97d33e;
+      color: #97d33e;
+      background: rgba(151,211,62,.12);
+    }
+    @media (max-width: 980px) {
+      .ld-show-clean-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .ld-show-more-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      .ld-show-clean-panel {
+        padding: 12px;
+        border-radius: 24px;
+      }
+      .ld-show-clean-head {
+        align-items: flex-start;
+        flex-direction: column;
+        padding-bottom: 10px;
+      }
+      .ld-show-clean-current {
+        width: 100%;
+        text-align: center;
+      }
+      .ld-show-clean-nav {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 9px;
+      }
+      .ld-show-clean-card {
+        min-height: 92px;
+        padding: 12px;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .ld-show-clean-label { font-size: 15px; }
+      .ld-show-clean-desc { font-size: 11px; }
+      .ld-show-more-grid {
+        grid-template-columns: 1fr !important;
+      }
+    }
+    @media (max-width: 390px) {
+      .ld-show-clean-nav { grid-template-columns: 1fr !important; }
+      .ld-show-clean-card {
+        min-height: 76px;
+        flex-direction: row;
+        align-items: center;
+      }
+    }
+
 </style>
 <script>
   (function(){
@@ -6375,12 +6596,115 @@ Stops the V293 startup repair screen from taking over iPhone, removes heavy PDF/
     } catch(e) {}
   })();
   </script>
-
-
 <!-- V318: Babel standalone removed. App code is precompiled for mobile production. -->
-
-
-<!-- V322 — Mobile/Desktop Boot Loader Fixed: removes blocking CDN startup from the head, loads React/ReactDOM/Supabase with visible progress after the shell paints, clears stuck cloud-safe mode, then runs the app scripts in order. No data deletion. No Supabase schema changes. --></head>
+<!-- V322 — Mobile/Desktop Boot Loader Fixed: removes blocking CDN startup from the head, loads React/ReactDOM/Supabase with visible progress after the shell paints, clears stuck cloud-safe mode, then runs the app scripts in order. No data deletion. No Supabase schema changes. --><style>
+/* V335 — Simple Orders / Shipping Cleanup */
+.ld-v335-shipping-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0 12px;
+}
+.ld-v335-ship-action {
+  appearance: none;
+  border: 1px solid #CDE0D5;
+  background: #FFFFFF;
+  border-radius: 20px;
+  padding: 15px 14px;
+  min-height: 118px;
+  text-align: left;
+  cursor: pointer;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(13,43,26,.055);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ld-v335-ship-action.is-active,
+.ld-v335-ship-action:hover {
+  border-color: #68d8ff;
+  box-shadow: 0 12px 30px rgba(104,216,255,.16);
+  transform: translateY(-1px);
+}
+.ld-v335-ship-action.is-primary {
+  background: #000;
+  color: #fff;
+  border-color: #68d8ff;
+}
+.ld-v335-ship-action-icon { font-size: 26px; line-height: 1; }
+.ld-v335-ship-action strong { font-size: 16px; font-weight: 950; color: inherit; }
+.ld-v335-ship-action small { font-size: 12px; line-height: 1.35; color: inherit; opacity: .74; font-weight: 750; }
+.ld-v335-more-tools {
+  background: #FFFFFF;
+  border: 1px solid #CDE0D5;
+  border-radius: 18px;
+  padding: 10px;
+  margin: 0 0 14px;
+  box-shadow: 0 8px 24px rgba(13,43,26,.045);
+}
+.ld-v335-more-tools summary {
+  cursor: pointer;
+  font-weight: 950;
+  color: #174D2F;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.ld-v335-more-tools summary::-webkit-details-marker { display: none; }
+.ld-v335-more-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.ld-v335-more-btn {
+  appearance: none;
+  border: 1px solid #E5F0E9;
+  background: #F6FAF7;
+  color: #174D2F;
+  border-radius: 14px;
+  padding: 11px 10px;
+  min-height: 48px;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-weight: 950;
+  cursor: pointer;
+}
+.ld-v335-more-btn.is-active { background: #E3F7EB; border-color: #2E8A55; }
+.ld-v335-next-card {
+  background: #000;
+  color: #fff;
+  border: 2px solid #68d8ff;
+  border-radius: 24px;
+  padding: 18px;
+  margin-bottom: 12px;
+  box-shadow: 0 14px 40px rgba(0,0,0,.16);
+}
+.ld-v335-queue-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.ld-v335-queue-card {
+  border: 1px solid #CDE0D5;
+  background: #fff;
+  border-radius: 18px;
+  padding: 14px;
+  cursor: pointer;
+  text-align: left;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+.ld-v335-queue-card strong { display: block; font-size: 24px; color: #0D2B1A; }
+.ld-v335-queue-card span { display: block; font-size: 12px; color: #4A7060; font-weight: 850; margin-top: 3px; }
+@media (max-width: 900px) {
+  .ld-v335-shipping-actions, .ld-v335-more-grid, .ld-v335-queue-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .ld-v335-shipping-actions, .ld-v335-more-grid, .ld-v335-queue-grid { grid-template-columns: 1fr; }
+  .ld-v335-ship-action { min-height: 92px; }
+}
+</style></head>
 <body>
 <div id="root">
 <div id="ld-v319-boot-shell" style="min-height:100vh;background:#EFF4F1;color:#0D2B1A;font-family:system-ui,-apple-system,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;">
@@ -10423,7 +10747,7 @@ const WORKSPACES = [
     { id: "shows_ws", icon: "🎪", l: "Shows", sub: "Build, run, import, profit", color: "#ff8a3d", roles: ["owner", "manager"] },
     { id: "orders_ws", icon: "📦", l: "Shipping", sub: "Pack, labels, tracking", color: "#68d8ff", roles: ["owner", "manager", "employee"] },
     { id: "money_ws", icon: "💵", l: "Money", sub: "Profit, receipts, payroll", color: "#f5c542", roles: ["owner", "manager"] },
-    { id: "admin_ws", icon: "⚙️", l: "Settings", sub: "AI, cloud, users", color: "#b695ff", roles: ["owner"] },
+    { id: "admin_ws", icon: "⚙️", l: "More", sub: "Settings, backup, help", color: "#b695ff", roles: ["owner"] },
 ];
 const TOOL_CATALOG = [
     { id: "dash", icon: "📊", l: "Dashboard", group: "Today", roles: ["owner", "manager"] },
@@ -10472,7 +10796,6 @@ const TOOL_CATALOG = [
     { id: "showdragdrop", icon: "🎯", l: "Drag-and-Drop Show Builder", group: "Shows", roles: ["owner", "manager"] },
     { id: "packorders", icon: "📦", l: "Pack Orders", group: "Orders", roles: ["owner", "manager", "employee"] },
     { id: "shiplabels", icon: "📷", l: "Scan Tracking", group: "Orders", roles: ["owner", "manager", "employee"] },
-    { id: "liveshow", icon: "🎥", l: "Live Show", group: "Shows", roles: ["owner", "manager", "employee"] },
     { id: "showimport", icon: "📥", l: "Import Show Sales", group: "Orders", roles: ["owner", "manager"] },
     { id: "bundles", icon: "🧺", l: "Bundles", group: "Shows", roles: ["owner", "manager"] },
     { id: "discounts", icon: "🏷️", l: "Discounts", group: "Shows", roles: ["owner", "manager"] },
@@ -10518,9 +10841,9 @@ const LD_V121_SIMPLE_GROUPS = [
     { group: "Shows", ids: ["runshow", "showprep"] },
     { group: "Orders", ids: ["showimport", "ship", "packorders", "shiplabels", "casd", "refunds", "customers", "retention"] },
     { group: "Money", ids: ["receipts", "timecard", "bills", "cashflow", "expense", "payroll", "commissions", "tax", "goals"] },
-    { group: "Settings", ids: ["teamsync", "admin", "ollamadoctor", "quickstart", "appcheck", "releasecenter", "cleanup"] },
+    { group: "More / Settings", ids: ["quickstart", "teamsync", "admin", "appcheck"] },
 ];
-const LD_V121_ADVANCED_IDS = new Set(["keyboardshortcuts", "datacharts", "accessibility", "phase2qa", "nextsteps", "onboarding", "command", "execai", "aihub", "dataai", "slotprofit", "overnight", "inlineedit", "bulkactions", "swipegestures", "invoicetrainer", "labelife", "locations", "sellthru", "showcommand", "showbuilder", "liveshow", "showimport", "discounts", "bundles", "showdragdrop", "social", "content", "nursery", "pos", "intel", "reports", "history", "audit", "devtools", "workflowqa", "ollama", "aigateway", "airouter"]);
+const LD_V121_ADVANCED_IDS = new Set(["keyboardshortcuts", "datacharts", "accessibility", "phase2qa", "nextsteps", "onboarding", "command", "execai", "aihub", "dataai", "slotprofit", "overnight", "inlineedit", "bulkactions", "swipegestures", "invoicetrainer", "labelife", "locations", "sellthru", "showcommand", "showbuilder", "showimport", "discounts", "bundles", "showdragdrop", "social", "content", "nursery", "pos", "intel", "reports", "history", "audit", "devtools", "workflowqa", "ollama", "aigateway", "airouter"]);
 const LD_V121_SIMPLE_IDS = new Set(LD_V121_SIMPLE_GROUPS.flatMap(g => g.ids));
 const ldV121ReadSimpleMode = () => { try {
     return localStorage.getItem(LD_SIMPLE_MODE_KEY) !== "off";
@@ -10539,7 +10862,7 @@ catch (e) { } };
 const LD_V148_LEGACY_SCREEN_IDS = new Set([
     "dash", "rolelauncher", "keyboardshortcuts", "datacharts", "accessibility", "darkmode", "teamsync", "changelog", "phase2qa", "onboarding", "nextsteps", "command", "ownerboard", "managerboard", "execai", "aihub", "dataai", "cashflow", "slotprofit", "overnight", "emp_dash",
     "plantcapture", "inv", "savedfilters", "inlineedit", "bulkactions", "swipegestures", "manual", "upload", "invoicetrainer", "labels", "labelife", "barcodeqa", "scanlabel", "photosprint", "care", "locations", "sellthru",
-    "runshow", "showcommand", "showbuilder", "showprep", "showdragdrop", "packorders", "shiplabels", "liveshow", "showimport", "bundles", "discounts", "social", "content",
+    "runshow", "showcommand", "showbuilder", "showprep", "showdragdrop", "packorders", "shiplabels", "showimport", "bundles", "discounts", "social", "content",
     "ship", "customers", "retention", "refunds", "casd",
     "expense", "receipts", "bills", "timecard", "payroll", "commissions", "tax", "goals",
     "nursery", "pos", "intel", "reports", "history",
@@ -10566,7 +10889,7 @@ const LD_V298_MANAGER_FINANCE_IDS = new Set([
     "money_ws", "cashflow", "receipts", "expense", "bills", "timecard", "payroll", "commissions", "slotprofit", "reports", "datacharts", "buy_ws", "intel", "nursery", "pos", "tax", "goals"
 ]);
 const LD_V298_MANAGER_OPERATIONS_IDS = new Set([
-    "plants_ws", "labels_ws", "shows_ws", "orders_ws", "inv", "manual", "upload", "labels", "labelife", "barcodeqa", "scanlabel", "photosprint", "care", "locations", "sellthru", "runshow", "showcommand", "showhistory", "showbuilder", "showprep", "showdragdrop", "liveshow", "showimport", "bundles", "discounts", "ship", "customers", "retention", "refunds", "casd", "content", "social", "history"
+    "plants_ws", "labels_ws", "shows_ws", "orders_ws", "inv", "manual", "upload", "labels", "labelife", "barcodeqa", "scanlabel", "photosprint", "care", "locations", "sellthru", "runshow", "showcommand", "showhistory", "showbuilder", "showprep", "showdragdrop", "showimport", "bundles", "discounts", "ship", "customers", "retention", "refunds", "casd", "content", "social", "history"
 ]);
 const LD_V298_MANAGER_DANGEROUS_ADMIN_IDS = new Set([
     "admin_ws", "admin", "teamsync", "cleanup", "devtools", "appcheck", "workflowqa", "releasecenter", "phase2qa", "ollama", "ollamadoctor", "aigateway", "airouter", "invoicetrainer", "audit", "command", "ownerboard", "execai"
@@ -10611,7 +10934,7 @@ const PAGE_TO_WORKSPACE = {
     plants_ws: "plants_ws", inv: "plants_ws", savedfilters: "plants_ws", inlineedit: "plants_ws", bulkactions: "plants_ws", swipegestures: "plants_ws", care: "plants_ws", locations: "plants_ws", sellthru: "plants_ws",
     labels_ws: "plants_ws", labels: "plants_ws", labelife: "plants_ws", barcodeqa: "plants_ws", scanlabel: "plants_ws", photosprint: "plants_ws",
     intake_ws: "plants_ws", manual: "plants_ws", upload: "plants_ws", invoicetrainer: "plants_ws", history: "plants_ws",
-    shows_ws: "shows_ws", runshow: "shows_ws", showcommand: "shows_ws", showhistory: "shows_ws", showprep: "shows_ws", showdragdrop: "shows_ws", showbuilder: "shows_ws", liveshow: "shows_ws", bundles: "shows_ws", discounts: "shows_ws", social: "shows_ws", content: "shows_ws",
+    shows_ws: "shows_ws", runshow: "shows_ws", showcommand: "shows_ws", showhistory: "shows_ws", showprep: "shows_ws", showdragdrop: "shows_ws", showbuilder: "shows_ws", bundles: "shows_ws", discounts: "shows_ws", social: "shows_ws", content: "shows_ws",
     orders_ws: "orders_ws", packorders: "orders_ws", shiplabels: "orders_ws", showimport: "orders_ws", ship: "orders_ws", customers: "orders_ws", retention: "orders_ws", refunds: "orders_ws", casd: "orders_ws",
     money_ws: "money_ws", expense: "money_ws", receipts: "money_ws", bills: "money_ws", timecard: "money_ws", payroll: "money_ws", commissions: "money_ws", tax: "money_ws", goals: "money_ws",
     buy_ws: "money_ws", slotprofit: "money_ws", nursery: "money_ws", pos: "money_ws", intel: "money_ws", reports: "money_ws",
@@ -10894,8 +11217,7 @@ function ldV151NormalizePageId(id, role = "owner") {
             showimport: "employeeboard",
             runshow: "employeeboard",
             showprep: "employeeboard",
-            liveshow: "employeeboard",
-            dataai: "employeeboard",
+                        dataai: "employeeboard",
             aihub: "employeeboard",
             expense: "receipts",
             bills: "employeeboard",
@@ -11134,7 +11456,7 @@ const LD_HELP_QUICK_STEPS = {
         icon: "🎪", title: "Run a Show", role: "Owner / Manager / Employee pull-list support",
         purpose: "One simple show workflow page: build, fix, pull, export, live mode, import results, and auction mode.",
         steps: ["Step 1: Build the show or auto-build from show-ready plants.", "Step 2: Fix blockers before export.", "Step 3: Pull and stage the plants.", "Step 4: Export the show CSV to Whatnot/Palmstreet.", "Step 5: Go live.", "Step 6: Import show sales and review orders."],
-        tips: ["Use this page instead of separate Build Show, Pull List, Live Mode, and Import pages.", "Employees can start with Pull List from this workflow without seeing advanced owner tools."],
+        tips: ["Use this page instead of separate Build Show, Pull List, and Import pages.", "Employees can start with Pull List from this workflow without seeing advanced owner tools."],
         go: [{ label: "Open Run a Show", page: "runshow" }, { label: "Show Prep", page: "showprep" }, { label: "Import Results", page: "showimport" }]
     },
     showcommand: {
@@ -11210,7 +11532,7 @@ const LD_HELP_QUICK_STEPS = {
 };
 const LD_HELP_ALIASES = {
     inv: "plants_ws", manual: "plantcapture", upload: "plantcapture", labels: "plantcapture", scanlabel: "plantcapture", photosprint: "plantcapture", barcodeqa: "plantcapture", care: "plants_ws", savedfilters: "plants_ws",
-    labels_ws: "labels_ws", showbuilder: "runshow", showprep: "runshow", liveshow: "runshow", showimport: "runshow", runshow: "runshow", showcommand: "showcommand", bundles: "runshow", discounts: "runshow",
+    labels_ws: "labels_ws", showbuilder: "runshow", showprep: "runshow", showimport: "runshow", runshow: "runshow", showcommand: "showcommand", bundles: "runshow", discounts: "runshow",
     ship: "orders_ws", packorders: "orders_ws", customers: "orders_ws", retention: "orders_ws", refunds: "orders_ws",
     receipts: "money_ws", expense: "money_ws", bills: "money_ws", timecard: "money_ws", payroll: "money_ws", commissions: "money_ws", tax: "money_ws", goals: "money_ws", cashflow: "money_ws",
     admin: "admin_ws", appcheck: "admin_ws", releasecenter: "admin_ws", ollamadoctor: "admin_ws", aihub: "today", dataai: "today", rolelauncher: "today", employeeboard: "today", ownerboard: "today", managerboard: "today"
@@ -11448,11 +11770,11 @@ function Nav({ page, setPage, user, onLogout, plantCount, shippingCount = 0, bil
             money_ws: { icon: "💵", l: "Money", sub: "Profit and bills" },
             reports: { icon: "📊", l: "Reports", sub: "Visual reports" },
             timecard: { icon: "⏱️", l: "Time", sub: "Clock in/out" },
-            admin_ws: { icon: "⚙️", l: "Settings", sub: "Owner tools" }
+            admin_ws: { icon: "⚙️", l: "More", sub: "Owner tools" }
         };
         return { ...base, ...(v242[id] || {}) };
     };
-    const bottomTabTarget = id => id === "plants_ws" || id === "labels_ws" ? "inv" : id === "shows_ws" ? "showcommand" : id === "orders_ws" ? "orders_ws" : id === "customers" ? "customers" : id === "reports" ? "reports" : id;
+    const bottomTabTarget = id => id === "plants_ws" ? "plants_ws" : id === "labels_ws" ? "labels_ws" : id === "shows_ws" ? "showcommand" : id === "orders_ws" ? "orders_ws" : id === "customers" ? "customers" : id === "reports" ? "reports" : id;
     const addContextLabel = (() => {
         const ws = getWorkspaceForPage(page);
         if (ws === "plants_ws")
@@ -12142,11 +12464,11 @@ function Nav({ page, setPage, user, onLogout, plantCount, shippingCount = 0, bil
                             React.createElement("span", { style: { fontWeight: 800, fontSize: 12 } }, t.l)))))),
                     isOwner && ownerAdminPages.length > 0 && React.createElement("details", { open: !!menuSearch, style: { background: "linear-gradient(180deg,#10140b,#050505)", border: "1px solid rgba(151,211,62,.45)", borderRadius: 16, marginTop: 10, marginBottom: 8, overflow: "hidden", boxShadow: "0 10px 30px rgba(151,211,62,.10)" } },
                         React.createElement("summary", { style: { cursor: "pointer", padding: "14px 14px", fontWeight: 950, color: "#97d33e", listStyle: "none", fontFamily: F.body } },
-                            "\uD83D\uDC51 Admin Pages ",
+                            "\uD83D\uDC51 More Owner Tools ",
                             React.createElement("span", { style: { float: "right", color: "rgba(255,255,255,.72)", fontSize: 12 } },
                                 ownerAdminPages.length,
-                                " hidden pages"),
-                            React.createElement("div", { style: { color: "rgba(255,255,255,.55)", fontSize: 10, fontWeight: 800, marginTop: 3 } }, "Owner-only. Managers and employees cannot see this section.")),
+                                " advanced tools"),
+                            React.createElement("div", { style: { color: "rgba(255,255,255,.55)", fontSize: 10, fontWeight: 800, marginTop: 3 } }, "Owner-only. Rare tools are hidden here so daily screens stay clean.")),
                         React.createElement("div", { className: "ld-v285-admin-grid" }, ownerAdminPages.map(t => React.createElement("button", { key: t.id, className: `ld-v285-admin-card ${page === t.id ? "is-active" : ""}`, onClick: () => openPage(t.id), title: `${t.l} · ${t.id}`, style: { background: page === t.id ? "rgba(151,211,62,.18)" : "rgba(255,255,255,.055)", border: `1px solid ${page === t.id ? "#97d33e" : "rgba(255,255,255,.1)"}`, color: "#fff", borderRadius: 12, padding: "10px 9px", textAlign: "left", fontFamily: F.body, cursor: "pointer" } },
                             React.createElement("span", { style: { marginRight: 7 } }, t.icon),
                             React.createElement("span", { style: { fontWeight: 900, fontSize: 12 } }, t.l),
@@ -12760,59 +13082,111 @@ function SimpleTodayDashboard({ user, plants = [], expenses = [], bills = [], ti
                 React.createElement("b", null, "100/100 owner rule:"),
                 " The app should tell you the next profitable action before you spend more money or build another show."));
     };
-    return React.createElement("div", { className: "ld-page ld-simple-today", style: { padding: "16px 14px 112px", maxWidth: 1120, margin: "0 auto", fontFamily: F.body } },
-        React.createElement("div", { style: { background: "#000", color: "#fff", borderRadius: 28, padding: "22px 18px", border: "2px solid #97d33e", boxShadow: "0 14px 44px rgba(0,0,0,.2)", marginBottom: 14 } },
-            React.createElement(Row, { between: true, center: true, wrap: true, gap: 12 },
+    const roleLabel = isOwner ? "Owner" : role === "manager" ? "Manager" : "Employee";
+    const primaryNeed = topNeeds[0] || null;
+    const nextMove = primaryNeed ? {
+        icon: primaryNeed.icon,
+        title: primaryNeed.title,
+        body: primaryNeed.body,
+        page: primaryNeed.page,
+        cta: "Fix This First",
+        color: primaryNeed.color
+    } : soldOrderPlantCount > 0 ? {
+        icon: "📦",
+        title: "Pack open orders",
+        body: `${soldOrderPlantCount} plant(s) need packing or tracking before the next show push.`,
+        page: "orders_ws",
+        cta: "Open Orders",
+        color: "#68d8ff"
+    } : {
+        icon: "✅",
+        title: "Nothing urgent is blocking today",
+        body: "Start with plants, orders, a show, or receipts depending on what you are doing right now.",
+        page: role === "employee" ? "employeeboard" : "plants_ws",
+        cta: role === "employee" ? "Open My Tasks" : "Open Plants",
+        color: "#97d33e"
+    };
+    const mainJobs = role === "employee" ? [
+        { icon: "✅", title: "My Tasks", body: "Start here for today’s assigned work.", page: "employeeboard", color: "#97d33e" },
+        { icon: "📸", title: "Photos", body: "Take plant photos fast by scanning labels.", page: "photosprint", color: "#fb6392" },
+        { icon: "📦", title: "Pack Orders", body: "Pull plants, check orders, and prep shipments.", page: "packorders", color: "#68d8ff" },
+        { icon: "⏱️", title: "Time Clock", body: "Clock in, clock out, and review your shift.", page: "timecard", color: C.gold }
+    ] : [
+        { icon: "🌿", title: "Plants", body: "Add inventory, labels, photos, pricing, and plant search.", page: "plants_ws", color: "#97d33e" },
+        { icon: "🎪", title: "Shows", body: "Build the show, pull plants, and import sales.", page: "shows_ws", color: "#fb6392" },
+        { icon: "📦", title: "Orders", body: "Pack orders, tracking, state docs, and problems.", page: "orders_ws", color: "#68d8ff" },
+        { icon: "💵", title: "Money", body: "Receipts, payroll, expenses, profit, and reports.", page: "money_ws", color: C.gold }
+    ];
+    const metricCards = [
+        { label: "In Stock", value: inStock.length, sub: "plants ready or in progress", color: "#97d33e" },
+        { label: "Need Photos", value: noPhoto.length, sub: "before show-ready", color: "#fb6392" },
+        { label: "To Pack", value: soldOrderPlantCount, sub: `${soldShipmentCount} shipment/customer group(s)`, color: "#68d8ff" },
+        { label: "Month Sales", value: $(monthSales), sub: `${soldMonth.length} sold this month`, color: C.gold }
+    ];
+    const visibleNeeds = topNeeds.slice(0, 4);
+    const SimpleJobCard = ({ job }) => React.createElement("button", { onClick: () => setPage(job.page), className: "ld-v333-home-job", style: { borderColor: job.color } },
+        React.createElement("div", { className: "ld-v333-home-job-icon", style: { background: job.color + "22" } }, job.icon),
+        React.createElement("div", { className: "ld-v333-home-job-title" }, job.title),
+        React.createElement("div", { className: "ld-v333-home-job-body" }, job.body));
+    const SimpleMetric = ({ m }) => React.createElement("button", { onClick: () => {
+            if (m.label === "Need Photos") setPage("photosprint");
+            else if (m.label === "To Pack") setPage("orders_ws");
+            else if (m.label === "Month Sales") setPage("money_ws");
+            else setPage("plants_ws");
+        }, className: "ld-v333-home-metric", style: { borderTopColor: m.color } },
+        React.createElement("div", { className: "ld-v333-home-metric-label" }, m.label),
+        React.createElement("div", { className: "ld-v333-home-metric-value", style: { color: m.color } }, m.value),
+        React.createElement("div", { className: "ld-v333-home-metric-sub" }, m.sub));
+    return React.createElement("div", { className: "ld-page ld-simple-today ld-v333-home", style: { padding: "16px 14px 112px", maxWidth: 1120, margin: "0 auto", fontFamily: F.body } },
+        React.createElement("div", { className: "ld-v333-home-hero" },
+            React.createElement("div", { className: "ld-v333-home-hero-copy" },
+                React.createElement("div", { className: "ld-v333-home-kicker" }, `🏠 ${roleLabel} Home`),
+                React.createElement("div", { className: "ld-v333-home-title" }, "What needs to happen today?"),
+                React.createElement("div", { className: "ld-v333-home-sub" }, "Use this as the simple daily start screen. Pick one job, finish it, then come back here.")),
+            React.createElement("button", { onClick: () => setPage(nextMove.page), className: "ld-v333-home-next", style: { borderColor: nextMove.color } },
+                React.createElement("div", { className: "ld-v333-home-next-icon", style: { background: nextMove.color } }, nextMove.icon),
                 React.createElement("div", { style: { minWidth: 0 } },
-                    React.createElement("div", { style: { fontSize: 38, lineHeight: 1 } }, "\u2705"),
-                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 30, color: "#97d33e", fontWeight: 950, marginTop: 4 } }, "Today"),
-                    React.createElement("div", { style: { fontSize: 13, color: "rgba(255,255,255,.76)", marginTop: 4, maxWidth: 700 } }, "Start here. Pick the job you are doing right now. The app will send you to the right workflow.")),
-                React.createElement(Row, { gap: 8, wrap: true },
-                    React.createElement("button", { onClick: () => setPage("receipts"), style: { background: "#f5c542", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\uD83E\uDDFE Add Receipt"),
-                    React.createElement("button", { onClick: () => setPage("upload"), style: { background: "#97d33e", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\uD83C\uDF3F Buy Plants"),
-                    React.createElement("button", { onClick: () => setPage("photosprint"), style: { background: "#fb6392", color: "#fff", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\uD83D\uDCF8 Photos")))),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 } },
-            React.createElement(KPI, { label: "In Stock", value: inStock.length, sub: "plants", color: C.g600 }),
-            React.createElement(KPI, { label: "Need Photos", value: noPhoto.length, sub: "fix before show", color: "#fb6392" }),
-            React.createElement(KPI, { label: "Plants To Pack", value: soldOrderPlantCount, sub: `${soldShipmentCount} shipment/customer group(s)`, color: "#68d8ff" }),
-            React.createElement(KPI, { label: "Month Sales", value: $(monthSales), sub: `${soldMonth.length} sold`, color: C.gold })),
-        React.createElement(OwnerCommandCard, null),
-        React.createElement(BusinessDecisionCard, null),
-        React.createElement(OwnerIntelligence100Card, null),
-        React.createElement(Card, { style: { padding: 16, marginBottom: 14 } },
-            React.createElement(Row, { between: true, center: true, wrap: true, gap: 10, style: { marginBottom: 12 } },
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 22, fontWeight: 950, color: C.g900 } }, "What are you doing?"),
-                    React.createElement("div", { style: { fontSize: 12, color: C.tx3 } }, "Tap the exact job you are doing. Advanced tools are no longer mixed into Today.")),
-                React.createElement(Tag, { text: "Daily jobs only", color: "#97d33e" })),
-            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 } }, quickActions.map((a, i) => React.createElement(ActionCard, { key: a.title + i, a: a })))),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,.9fr)", gap: 14 } },
-            React.createElement(Card, { style: { padding: 16 } },
-                React.createElement("div", { style: { fontFamily: F.display, fontSize: 21, fontWeight: 950, color: C.g900, marginBottom: 10 } }, "Leaf Diary workflow"),
-                React.createElement("div", { style: { display: "grid", gap: 10 } },
-                    React.createElement(WorkflowCard, { n: "1", icon: "\uD83C\uDF3F", title: "Buy plants / upload invoice", body: "Add the purchase, create plant numbers, then move to labels.", page: "upload", color: C.g600 }),
-                    React.createElement(WorkflowCard, { n: "2", icon: "\uD83C\uDFF7\uFE0F", title: "Print labels", body: "Print labels for new plants or anything missing a barcode.", page: "labels", color: C.g700 }),
-                    React.createElement(WorkflowCard, { n: "3", icon: "\uD83D\uDCF8", title: "Scan label + take photo", body: "Scan the barcode, take the plant photo, save, repeat.", page: "photosprint", color: "#fb6392" }),
-                    React.createElement(WorkflowCard, { n: "4", icon: "\uD83C\uDFAA", title: "Build show / upload sales", body: "Build the live show, sell, then upload Whatnot or Palmstreet sales.", page: "shows_ws", color: "#ff8a3d" }),
-                    React.createElement(WorkflowCard, { n: "5", icon: "\uD83D\uDCE6", title: "Pack + scan tracking", body: "Pack orders, scan or photograph labels, match customer tracking, done.", page: "orders_ws", color: "#68d8ff" }),
-                    React.createElement(WorkflowCard, { n: "6", icon: "\uD83D\uDCB0", title: "Add receipts and track money", body: "Gas, supplies, bills, payroll, profit, and cash flow live in Money.", page: "money_ws", color: C.gold }))),
-            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
-                React.createElement(Card, { style: { padding: 16, background: C.g50, border: `1px solid ${C.g200}` } },
-                    React.createElement(Row, { between: true, center: true, style: { marginBottom: 10 } },
-                        React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, color: C.g900, fontWeight: 950 } }, "Needs attention"),
-                        React.createElement(Tag, { text: topNeeds.length ? `${topNeeds.length} active` : "clean", color: topNeeds.length ? C.amber : C.g600 })),
-                    topNeeds.length ? React.createElement("div", { style: { display: "grid", gap: 9 } }, topNeeds.map(n => React.createElement(NeedRow, { key: n.title, n: n }))) : React.createElement("div", { style: { color: C.tx3, fontSize: 13, lineHeight: 1.45 } }, "No major blockers right now. Good next move: add photos, build a show, or upload receipts before they pile up.")),
-                React.createElement(Card, { style: { padding: 16 } },
-                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, color: C.g900, fontWeight: 950, marginBottom: 6 } }, "Need something else?"),
-                    React.createElement("div", { style: { color: C.tx3, fontSize: 12, lineHeight: 1.45, marginBottom: 10 } }, "Today stays clean. Reports, AI, setup, and rescue tools live behind the right work area or Advanced."),
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } }, (isOwner ? [["⚙️ Advanced", "admin_ws"], ["📈 Reports", "reports"]] : [["✅ Team Tasks", "managerboard"], ["📦 Shipping", "orders_ws"]]).map(([label, page]) => React.createElement("button", { key: label, onClick: () => setPage(page), style: { background: "#000", color: "#fff", border: "1px solid rgba(151,211,62,.35)", borderRadius: 14, padding: "12px 9px", fontWeight: 950, fontFamily: F.body, cursor: "pointer", fontSize: 12 } }, label)))),
-                activeClockIns.length ? React.createElement(Card, { style: { padding: 14, borderLeft: `5px solid ${C.blue}` } },
-                    React.createElement("b", null, "\u23F1\uFE0F Team clocked in:"),
-                    " ",
-                    activeClockIns.length,
-                    " active timecard(s). ",
-                    React.createElement("button", { onClick: () => setPage("timecard"), style: { marginLeft: 8, border: 0, background: C.blue, color: "#fff", borderRadius: 999, padding: "7px 10px", fontWeight: 900 } }, "Open")) : null)),
-        React.createElement("style", null, `@media(max-width:760px){.ld-owner-intel-grid,.ld-owner-intel-small-grid{grid-template-columns:1fr!important}.ld-simple-today div[style*="grid-template-columns:repeat(4,1fr)"],.ld-simple-today div[style*="grid-template-columns:minmax(0,1fr) minmax(0,.9fr)"]{grid-template-columns:1fr!important}.ld-simple-today div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:repeat(2,1fr)!important}.ld-simple-today button{min-height:48px}}@media(max-width:390px){.ld-simple-today div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}}`));
+                    React.createElement("div", { className: "ld-v333-home-next-label" }, "Next best move"),
+                    React.createElement("div", { className: "ld-v333-home-next-title" }, nextMove.title),
+                    React.createElement("div", { className: "ld-v333-home-next-body" }, nextMove.body),
+                    React.createElement("div", { className: "ld-v333-home-next-cta" }, nextMove.cta, " →")))) ,
+        React.createElement("div", { className: "ld-v333-home-metrics" }, metricCards.map((m) => React.createElement(SimpleMetric, { key: m.label, m: m }))),
+        React.createElement("div", { className: "ld-v333-home-grid" },
+            React.createElement("section", { className: "ld-v333-home-panel" },
+                React.createElement("div", { className: "ld-v333-panel-head" },
+                    React.createElement("div", null,
+                        React.createElement("div", { className: "ld-v333-panel-title" }, "Main jobs"),
+                        React.createElement("div", { className: "ld-v333-panel-sub" }, "Four buttons only. No extra tools mixed into Home.")),
+                    React.createElement("span", { className: "ld-v333-chip" }, roleLabel)),
+                React.createElement("div", { className: "ld-v333-home-jobs" }, mainJobs.map((job) => React.createElement(SimpleJobCard, { key: job.title, job: job })))),
+            React.createElement("aside", { className: "ld-v333-home-panel" },
+                React.createElement("div", { className: "ld-v333-panel-head" },
+                    React.createElement("div", null,
+                        React.createElement("div", { className: "ld-v333-panel-title" }, "Needs attention"),
+                        React.createElement("div", { className: "ld-v333-panel-sub" }, visibleNeeds.length ? "Fix these before adding more work." : "No major blockers right now.")),
+                    React.createElement("span", { className: "ld-v333-chip", style: { background: visibleNeeds.length ? "#fff5db" : "#edf8ef", color: visibleNeeds.length ? "#8a5a00" : "#174D2F" } }, visibleNeeds.length ? `${visibleNeeds.length} active` : "clean")),
+                visibleNeeds.length ? React.createElement("div", { className: "ld-v333-needs-list" }, visibleNeeds.map(n => React.createElement(NeedRow, { key: n.title, n: n }))) : React.createElement("div", { className: "ld-v333-empty" }, "Good next move: add photos, build a show, or upload receipts before they pile up."),
+                React.createElement("div", { className: "ld-v333-home-small-actions" },
+                    React.createElement("button", { onClick: () => setPage("receipts") }, "🧾 Add Receipt"),
+                    React.createElement("button", { onClick: () => setPage(isOwner ? "reports" : "orders_ws") }, isOwner ? "📈 Reports" : "📦 Orders"),
+                    React.createElement("button", { onClick: () => setPage(isOwner ? "admin_ws" : "help") }, isOwner ? "⚙️ More" : "❓ Help")))),
+        isOwner && React.createElement("div", { className: "ld-v333-owner-strip" },
+            React.createElement("div", null,
+                React.createElement("div", { className: "ld-v333-owner-strip-title" }, "Owner money snapshot"),
+                React.createElement("div", { className: "ld-v333-owner-strip-sub" }, `Month profit ${$(monthProfit)} · expenses ${$(monthExpenses)} · cash check ${$(cashWarning)} · receipts needing review ${receiptsNeedReview.length}`)),
+            React.createElement("button", { onClick: () => setPage("money_ws") }, "Open Money →")),
+        activeClockIns.length ? React.createElement("div", { className: "ld-v333-clock-strip" },
+            React.createElement("b", null, "⏱️ Team clocked in:"),
+            " ",
+            activeClockIns.length,
+            " active timecard(s). ",
+            React.createElement("button", { onClick: () => setPage("timecard") }, "Open Timecard")) : null,
+        React.createElement("style", null, `
+          .ld-v333-home-hero{background:#000;color:#fff;border-radius:28px;padding:18px;border:2px solid #fb6392;box-shadow:0 14px 44px rgba(0,0,0,.2);margin-bottom:14px;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,420px);gap:14px;align-items:stretch}
+          .ld-v333-home-kicker{color:#97d33e;font-size:13px;font-weight:950;text-transform:uppercase;letter-spacing:.8px}.ld-v333-home-title{font-family:${F.display};font-size:31px;font-weight:950;line-height:1.05;color:#fb6392;margin-top:4px}.ld-v333-home-sub{color:rgba(255,255,255,.76);font-size:13px;line-height:1.45;margin-top:8px;max-width:690px}.ld-v333-home-next{background:#151515;color:#fff;border:2px solid #97d33e;border-radius:22px;padding:14px;text-align:left;display:flex;gap:12px;align-items:center;cursor:pointer;font-family:${F.body};box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}.ld-v333-home-next-icon{width:48px;height:48px;border-radius:16px;color:#000;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}.ld-v333-home-next-label{font-size:11px;color:rgba(255,255,255,.58);font-weight:950;text-transform:uppercase;letter-spacing:.7px}.ld-v333-home-next-title{font-size:18px;font-weight:950;line-height:1.15}.ld-v333-home-next-body{font-size:12px;color:rgba(255,255,255,.72);line-height:1.35;margin-top:3px}.ld-v333-home-next-cta{font-size:12px;color:#97d33e;font-weight:950;margin-top:7px}.ld-v333-home-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}.ld-v333-home-metric{background:#fff;border:1px solid #CDE0D5;border-top:5px solid #97d33e;border-radius:18px;padding:12px;text-align:left;cursor:pointer;font-family:${F.body};box-shadow:0 8px 24px rgba(13,43,26,.055)}.ld-v333-home-metric-label{font-size:11px;font-weight:950;color:#6A8C76;text-transform:uppercase;letter-spacing:.5px}.ld-v333-home-metric-value{font-family:${F.display};font-size:24px;font-weight:950;line-height:1.1}.ld-v333-home-metric-sub{font-size:11px;color:#6A8C76;line-height:1.25}.ld-v333-home-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:14px}.ld-v333-home-panel{background:#fff;border:1px solid #CDE0D5;border-radius:22px;padding:16px;box-shadow:0 10px 28px rgba(13,43,26,.065)}.ld-v333-panel-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:12px}.ld-v333-panel-title{font-family:${F.display};font-size:22px;color:#0D2B1A;font-weight:950}.ld-v333-panel-sub{font-size:12px;color:#6A8C76;line-height:1.35}.ld-v333-chip{background:#E3F7EB;color:#174D2F;border-radius:999px;padding:7px 10px;font-size:11px;font-weight:950;white-space:nowrap}.ld-v333-home-jobs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ld-v333-home-job{background:#fff;border:2px solid #CDE0D5;border-radius:20px;padding:14px;text-align:left;cursor:pointer;font-family:${F.body};min-height:150px;box-shadow:0 8px 24px rgba(13,43,26,.055)}.ld-v333-home-job-icon{width:44px;height:44px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:25px;margin-bottom:10px}.ld-v333-home-job-title{font-size:18px;font-weight:950;color:#0D2B1A;line-height:1.1}.ld-v333-home-job-body{font-size:12px;color:#6A8C76;line-height:1.35;margin-top:6px}.ld-v333-needs-list{display:grid;gap:9px}.ld-v333-empty{background:#F0FBF4;border:1px solid #9DDEB4;border-radius:16px;padding:13px;color:#174D2F;font-size:13px;line-height:1.4;font-weight:800}.ld-v333-home-small-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}.ld-v333-home-small-actions button{background:#000;color:#fff;border:1px solid rgba(151,211,62,.4);border-radius:14px;padding:11px 8px;font-weight:950;font-family:${F.body};cursor:pointer;font-size:12px}.ld-v333-owner-strip{margin-top:14px;background:#000;color:#fff;border:2px solid #97d33e;border-radius:22px;padding:14px;display:flex;justify-content:space-between;gap:12px;align-items:center}.ld-v333-owner-strip-title{font-family:${F.display};font-size:20px;font-weight:950;color:#97d33e}.ld-v333-owner-strip-sub{font-size:12px;color:rgba(255,255,255,.74);line-height:1.4}.ld-v333-owner-strip button,.ld-v333-clock-strip button{background:#97d33e;color:#000;border:0;border-radius:999px;padding:11px 13px;font-weight:950;font-family:${F.body};cursor:pointer;white-space:nowrap}.ld-v333-clock-strip{margin-top:12px;background:#EDF3FC;border:1px solid rgba(26,95,154,.22);border-radius:16px;padding:12px;color:#123;font-size:13px}.ld-v333-clock-strip button{margin-left:8px;background:#1A5F9A;color:#fff}
+          @media(max-width:760px){.ld-v333-home{padding:12px 10px 118px!important}.ld-v333-home-hero{grid-template-columns:1fr!important;padding:16px;border-radius:24px}.ld-v333-home-title{font-size:25px}.ld-v333-home-next{min-height:92px}.ld-v333-home-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}.ld-v333-home-grid{grid-template-columns:1fr!important}.ld-v333-home-jobs{grid-template-columns:1fr!important}.ld-v333-home-job{min-height:118px}.ld-v333-owner-strip{align-items:stretch;flex-direction:column}.ld-v333-owner-strip button{width:100%}.ld-v333-home-small-actions{grid-template-columns:1fr!important}.ld-v333-panel-head{align-items:flex-start}.ld-v333-home button{min-height:48px}}
+          @media(max-width:390px){.ld-v333-home-metrics{grid-template-columns:1fr!important}.ld-v333-home-next{align-items:flex-start;flex-direction:column}.ld-v333-home-next-icon{width:42px;height:42px}}
+        `));
 }
 /* V233 PHASE 3 — ROLE-AWARE HOME
    Goal: one clean mobile-first Home screen that changes by role.
@@ -12989,6 +13363,109 @@ function V255SaasPowerPanel({ insights, setPage, compact = false }) {
                         React.createElement("b", null, item.label),
                         React.createElement("br", null),
                         React.createElement("span", { style: { color: item.ok ? "#2E8A55" : "#8A5A00" } }, item.ok ? "Complete" : `${item.count} item(s) need attention`))))))));
+}
+
+function SimplePlantsDashboard({ user, plants = [], settings = {}, setPage }) {
+    const role = String((user === null || user === void 0 ? void 0 : user.role) || "employee").toLowerCase();
+    const canManage = role === "owner" || role === "manager";
+    const allPlants = safeArray(plants);
+    const inStock = allPlants.filter(p => String(p.status || "In Stock") === "In Stock");
+    const hasPhoto = p => !!(p.photoUrl || p.photoBase64 || p.imageUrl || p.image);
+    const hasLabel = p => !!(p.labelPrinted || p.labelPrintedAt || p.barcodePrintedAt || p.barcode || p.plantId || p.plantCode);
+    const hasPrice = p => !!(+p.suggestedPrice || +p.listPrice || +p.price || +p.salePrice);
+    const needsLabel = inStock.filter(p => !hasLabel(p));
+    const needsPhoto = inStock.filter(p => !hasPhoto(p));
+    const needsPrice = inStock.filter(p => !hasPrice(p));
+    const needsCost = inStock.filter(p => !(+p.cost || +p.originalCost || +p.unitCost));
+    const aging45 = inStock.filter(p => (dHeld(p.dateAdded || p.createdAt || p.created_at) || 0) >= 45);
+    const readyForShow = inStock.filter(p => hasLabel(p) && hasPhoto(p) && hasPrice(p));
+    const addedToday = allPlants.filter(p => String(p.dateAdded || p.createdAt || p.created_at || "").slice(0, 10) === today()).slice(-6).reverse();
+    const invCost = canManage ? inStock.reduce((s, p) => s + (+p.cost || +p.originalCost || +p.unitCost || 0), 0) : 0;
+    const invValue = canManage ? inStock.reduce((s, p) => s + (+p.suggestedPrice || +p.listPrice || +p.price || 0), 0) : 0;
+    const topMove = needsLabel.length ? { icon: "🏷️", title: "Print labels first", body: `${needsLabel.length} plant(s) need labels before photos or shows.`, page: "labels", color: C.g600, cta: "Print Labels" }
+        : needsPhoto.length ? { icon: "📸", title: "Take plant photos", body: `${needsPhoto.length} plant(s) need photos before they are show-ready.`, page: "photosprint", color: "#fb6392", cta: "Start Photos" }
+            : (canManage && needsPrice.length) ? { icon: "💲", title: "Set missing prices", body: `${needsPrice.length} plant(s) need a sale price before shows.`, page: "inv", color: C.red, cta: "Fix Prices" }
+                : readyForShow.length ? { icon: "🎪", title: "Plants are ready for a show", body: `${readyForShow.length} plant(s) have label, photo, and price.`, page: "shows_ws", color: "#ff8a3d", cta: "Build Show" }
+                    : { icon: "🌿", title: "Add plants or review inventory", body: "No urgent plant setup blockers found. Start with the next plant job.", page: canManage ? "upload" : "scanlabel", color: C.g600, cta: canManage ? "Add Plants" : "Scan Plant" };
+    const queueCards = [
+        { icon: "🏷️", label: "Need Labels", value: needsLabel.length, sub: "print queue", page: "labels", color: needsLabel.length ? C.g600 : C.g300 },
+        { icon: "📸", label: "Need Photos", value: needsPhoto.length, sub: "photo queue", page: "photosprint", color: needsPhoto.length ? "#fb6392" : C.g300 },
+        { icon: "✅", label: "Show Ready", value: readyForShow.length, sub: "label + photo + price", page: "shows_ws", color: readyForShow.length ? "#ff8a3d" : C.g300 },
+        canManage ? { icon: "💲", label: "Need Prices", value: needsPrice.length, sub: "price blockers", page: "inv", color: needsPrice.length ? C.red : C.g300 } : { icon: "🌿", label: "In Stock", value: inStock.length, sub: "active plants", page: "scanlabel", color: C.g600 }
+    ];
+    const mainActions = canManage ? [
+        { icon: "🌿", title: "Add Plants", body: "Upload invoice or add plants manually.", page: "upload", color: C.g600 },
+        { icon: "🏷️", title: "Print Labels", body: "Print or reprint barcode labels.", page: "labels", color: C.g700 },
+        { icon: "📸", title: "Take Photos", body: "Scan label, take photo, save, next.", page: "photosprint", color: "#fb6392" },
+        { icon: "🔎", title: "Find / Fix Plant", body: "Search inventory, price, cost, status, notes.", page: "inv", color: C.blue }
+    ] : [
+        { icon: "🏷️", title: "Print Labels", body: "Print or reprint plant labels.", page: "labels", color: C.g700 },
+        { icon: "📸", title: "Take Photos", body: "Scan label, take photo, save, next.", page: "photosprint", color: "#fb6392" },
+        { icon: "🔎", title: "Scan One Plant", body: "Look up a plant by barcode.", page: "scanlabel", color: C.blue },
+        { icon: "📦", title: "Pack Orders", body: "Go to the packing queue.", page: "orders_ws", color: "#68d8ff" }
+    ];
+    const moreTools = [
+        { icon: "🔎", title: "Scan One Plant Label", body: "Quick lookup when a label or photo needs checking.", page: "scanlabel", roles: ["owner", "manager", "employee"] },
+        { icon: "✅", title: "Fix / Reprint Barcodes", body: "Repair missing, duplicate, or unreadable labels.", page: "barcodeqa", roles: ["owner", "manager", "employee"] },
+        { icon: "📋", title: "Plant History", body: "Past invoices and intake records.", page: "history", roles: ["owner", "manager"] },
+        { icon: "🏪", title: "Nursery Scores", body: "Supplier history and performance.", page: "nursery", roles: ["owner", "manager"] },
+        { icon: "⏳", title: "Aging / Clearance", body: "Find old plants to discount or push to a show.", page: "discounts", roles: ["owner", "manager"] },
+        { icon: "💡", title: "What Should I Buy?", body: "Buying ideas from sales, aging inventory, and profit.", page: "intel", roles: ["owner", "manager"] },
+        { icon: "🌱", title: "Plant Care", body: "Care notes and internal plant help.", page: "care", roles: ["owner", "manager", "employee"] },
+        { icon: "🧰", title: "Advanced Plant Tools", body: "Bulk actions, saved views, and old detailed tools.", page: "admin_ws", roles: ["owner", "manager"] }
+    ].filter(t => !t.roles || t.roles.includes(role));
+    const QueueCard = ({ q }) => React.createElement("button", { onClick: () => setPage(q.page), className: "ld-v334-queue-card", style: { background: C.card, border: `1px solid ${C.bd}`, borderLeft: `5px solid ${q.color}`, borderRadius: 17, padding: "12px 12px", textAlign: "left", cursor: "pointer", fontFamily: F.body, boxShadow: "0 6px 18px rgba(13,43,26,.05)" } },
+        React.createElement(Row, { center: true, gap: 10 },
+            React.createElement("div", { style: { fontSize: 24, width: 32 } }, q.icon),
+            React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                React.createElement("div", { style: { fontWeight: 950, color: C.g900, fontSize: 13 } }, q.label),
+                React.createElement("div", { style: { color: C.tx3, fontSize: 11, marginTop: 2 } }, q.sub)),
+            React.createElement("div", { style: { background: q.color, color: q.color === C.g300 ? C.g900 : "#fff", borderRadius: 999, padding: "7px 10px", fontWeight: 950, fontSize: 13 } }, q.value)));
+    const ActionCard = ({ a }) => React.createElement("button", { onClick: () => setPage(a.page), className: "ld-v334-action-card", style: { background: C.card, border: `1px solid ${C.bd}`, borderTop: `5px solid ${a.color}`, borderRadius: 20, padding: "15px 13px", textAlign: "left", cursor: "pointer", fontFamily: F.body, minHeight: 122, boxShadow: "0 8px 24px rgba(13,43,26,.06)" } },
+        React.createElement("div", { style: { width: 42, height: 42, borderRadius: 15, background: a.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 25, marginBottom: 10 } }, a.icon),
+        React.createElement("div", { style: { fontWeight: 950, color: C.g900, fontSize: 15, lineHeight: 1.12 } }, a.title),
+        React.createElement("div", { style: { color: C.tx3, fontSize: 12, lineHeight: 1.35, marginTop: 5 } }, a.body));
+    const ToolCard = ({ t }) => React.createElement("button", { onClick: () => setPage(t.page), className: "ld-v334-tool-card", style: { background: C.cardAlt, border: `1px solid ${C.bdS}`, borderRadius: 16, padding: 12, textAlign: "left", cursor: "pointer", fontFamily: F.body } },
+        React.createElement("div", { style: { fontWeight: 950, color: C.g900, fontSize: 13 } }, `${t.icon} ${t.title}`),
+        React.createElement("div", { style: { color: C.tx3, fontSize: 11, lineHeight: 1.35, marginTop: 3 } }, t.body));
+    const hero = React.createElement("div", { style: { background: "#000", color: "#fff", borderRadius: 26, padding: "20px 18px", border: `2px solid ${C.g600}`, boxShadow: "0 14px 44px rgba(0,0,0,.18)", marginBottom: 14 } },
+        React.createElement(Row, { between: true, center: true, wrap: true, gap: 12 },
+            React.createElement("div", { style: { minWidth: 0 } },
+                React.createElement("div", { style: { fontSize: 40, lineHeight: 1 } }, "🌿"),
+                React.createElement("div", { style: { fontFamily: F.display, fontSize: 30, color: "#97d33e", fontWeight: 950, lineHeight: 1.02, marginTop: 4 } }, "Plants"),
+                React.createElement("div", { style: { color: "rgba(255,255,255,.74)", fontSize: 13, lineHeight: 1.4, marginTop: 5, maxWidth: 720 } }, canManage ? "Add plants, print labels, take photos, fix prices, and get inventory show-ready." : "Print labels, scan plants, take photos, and pack what is ready.")),
+            canManage && React.createElement(Row, { gap: 8, wrap: true },
+                React.createElement(Btn, { onClick: () => setPage("upload") }, "+ Add Plants"),
+                React.createElement(Btn, { v: "soft", onClick: () => setPage("inv") }, "Open Inventory"))),
+        React.createElement("button", { onClick: () => setPage(topMove.page), className: "ld-v334-next-move", style: { width: "100%", marginTop: 16, background: "rgba(255,255,255,.08)", color: "#fff", border: `1px solid ${topMove.color}`, borderLeft: `6px solid ${topMove.color}`, borderRadius: 18, padding: "14px 14px", display: "flex", gap: 12, alignItems: "center", textAlign: "left", cursor: "pointer", fontFamily: F.body } },
+            React.createElement("div", { style: { width: 44, height: 44, borderRadius: 15, background: topMove.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 25, flexShrink: 0 } }, topMove.icon),
+            React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                React.createElement("div", { style: { color: topMove.color, fontWeight: 950, fontSize: 12, textTransform: "uppercase", letterSpacing: .7 } }, "Next Plant Move"),
+                React.createElement("div", { style: { fontWeight: 950, fontSize: 18, lineHeight: 1.1 } }, topMove.title),
+                React.createElement("div", { style: { color: "rgba(255,255,255,.7)", fontSize: 12, marginTop: 3 } }, topMove.body)),
+            React.createElement("div", { style: { background: topMove.color, color: "#000", borderRadius: 999, padding: "9px 12px", fontWeight: 950, fontSize: 12, flexShrink: 0 } }, topMove.cta)));
+    const queueGrid = React.createElement("div", { className: "ld-v334-grid ld-v334-queue-grid", style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 } }, queueCards.map(q => React.createElement(QueueCard, { key: q.label, q: q })));
+    const ownerKpis = canManage ? React.createElement("div", { className: "ld-v334-grid", style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 } },
+        React.createElement(KPI, { label: "In Stock", value: inStock.length, sub: "active plants", color: C.g600 }),
+        React.createElement(KPI, { label: "Inventory Cost", value: $(invCost), sub: "owner cost", color: C.g600 }),
+        React.createElement(KPI, { label: "Potential Value", value: $(invValue), sub: "listed/suggested", color: C.blue }),
+        React.createElement(KPI, { label: "45+ Day Plants", value: aging45.length, sub: "review for show/discount", color: aging45.length ? C.amber : C.g600 })) : null;
+    const actionGrid = React.createElement("div", { className: "ld-v334-grid", style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 } }, mainActions.map(a => React.createElement(ActionCard, { key: a.title, a: a })));
+    const newest = React.createElement(Card, { style: { padding: 16, marginBottom: 14 } },
+        React.createElement(Row, { between: true, center: true, wrap: true, gap: 8, style: { marginBottom: 10 } },
+            React.createElement("div", null,
+                React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, fontWeight: 950, color: C.g900 } }, "Newest Plants"),
+                React.createElement("div", { style: { color: C.tx3, fontSize: 12, marginTop: 2 } }, "Quick check after intake.")),
+            canManage && React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setPage("inv") }, "View All")),
+        addedToday.length ? React.createElement("div", { style: { display: "grid", gap: 7 } }, addedToday.map(p => React.createElement("div", { key: p.id || p.plantId || p.plantCode || p.name, style: { background: C.cardAlt, border: `1px solid ${C.bdS}`, borderRadius: 14, padding: 10 } },
+            React.createElement("div", { style: { fontWeight: 950, color: C.g900, fontSize: 13, lineHeight: 1.25 } }, `${plantCodeOf(p) || p.plantId || p.plantCode || "Plant"} · ${p.name || p.plantName || "Unnamed"}`),
+            React.createElement("div", { style: { color: C.tx3, fontSize: 11, marginTop: 2 } }, `${p.potSize || ""} ${p.status || "In Stock"}`)))) : React.createElement("div", { style: { padding: 16, border: `1px dashed ${C.bd}`, borderRadius: 16, color: C.tx3, fontSize: 13 } }, "No plants added today yet."));
+    const more = React.createElement("details", { style: { background: C.card, border: `1px solid ${C.bd}`, borderRadius: 20, padding: "13px 14px", boxShadow: "0 7px 22px rgba(13,43,26,.05)" } },
+        React.createElement("summary", { style: { cursor: "pointer", fontFamily: F.display, fontSize: 20, fontWeight: 950, color: C.g900 } }, "More Plant Tools"),
+        React.createElement("div", { style: { color: C.tx3, fontSize: 12, margin: "6px 0 12px" } }, "Less-used tools stay here so the daily screen stays clean."),
+        React.createElement("div", { className: "ld-v334-grid", style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 } }, moreTools.map(t => React.createElement(ToolCard, { key: t.title, t: t }))));
+    const css = React.createElement("style", null, "@media(max-width:760px){.ld-simple-plants{padding-left:10px!important;padding-right:10px!important}.ld-simple-plants .ld-v334-grid{grid-template-columns:1fr!important}.ld-simple-plants button{min-height:46px}.ld-simple-plants details summary{min-height:46px;display:flex;align-items:center}.ld-simple-plants .ld-v334-next-move{align-items:flex-start!important;flex-direction:column!important}.ld-simple-plants .ld-v334-next-move>div:last-child{width:100%;text-align:center}} ");
+    return React.createElement("div", { className: "ld-page ld-simple-plants ld-v334-plants", style: { padding: "16px 14px 112px", maxWidth: 1120, margin: "0 auto", fontFamily: F.body } }, hero, queueGrid, ownerKpis, actionGrid, newest, more, css);
 }
 function Phase3RoleAwareHome({ user, plants = [], expenses = [], bills = [], timecards = [], receipts = [], casdCerts = [], settings = {}, setPage }) {
     const role = String((user === null || user === void 0 ? void 0 : user.role) || "employee").toLowerCase();
@@ -13228,7 +13705,9 @@ function WorkspaceHome({ type, user, plants = [], expenses = [], bills = [], tim
         catch (e) { }
     }, [type]);
     if ((type || "today") === "today")
-        return React.createElement(Phase3RoleAwareHome, { user: user, plants: plants, expenses: expenses, bills: bills, timecards: timecards, receipts: receipts, casdCerts: casdCerts, settings: settings, setPage: setPage });
+        return React.createElement(SimpleTodayDashboard, { user: user, plants: plants, expenses: expenses, bills: bills, timecards: timecards, receipts: receipts, casdCerts: casdCerts, settings: settings, setPage: setPage });
+    if (["plants_ws", "labels_ws"].includes(type || "today"))
+        return React.createElement(SimplePlantsDashboard, { user: user, plants: plants, settings: settings, setPage: setPage });
     const inStock = plants.filter(p => p.status === "In Stock");
     const sold = plants.filter(p => p.status === "Sold");
     const noPhoto = inStock.filter(p => !p.photoUrl && !p.photoBase64);
@@ -13246,7 +13725,7 @@ function WorkspaceHome({ type, user, plants = [], expenses = [], bills = [], tim
     const pack = {
         today: { icon: "🏠", title: "Today", sub: "Daily command center.", hero: "What are you doing right now?", color: "#97d33e", kpis: [["In Stock", inStock.length, "plants"], ["No Photos", noPhoto.length, "fix before show"], ["Plants To Pack", soldOrderPlantCount, `${soldShipmentCount} shipment/customer group(s)`], ["Month Sales", $(monthSales), "sold this month"]], sections: [
                 { title: "Daily Jobs", items: [["Buy Plants / Upload Invoice", "upload", "🌿", "Add nursery purchases, create plant numbers, then print labels"], ["Print Labels", "labels", "🏷️", "Print barcode labels for new or missing-label plants"], ["Take Plant Photos", "photosprint", "📸", "Scan label, take photo, save, and move to the next plant"], ["Build Show", "shows_ws", "🎪", "Build Whatnot or Palmstreet show from ready inventory"], ["Upload Show Sales", "showimport", "📥", "Import sold CSV after the live show"], ["Pack Orders", "packorders", "📦", "Pack sold plants and prepare shipment"], ["Scan Tracking", "shiplabels", "🔎", "Scan/photo shipping label and match tracking"], ["Add Receipt", "receipts", "🧾", "Gas, supplies, shipping materials, or business expense"]] },
-                { title: "Needs Attention", items: [["Plants Missing Photos", "labels_ws", "📸", "Fix photo blockers before a show"], ["Orders To Ship", "orders_ws", "📦", "Review sold groups and tracking"], ["Receipts To Review", "money_ws", "🧾", "Confirm receipt category and totals"], ["Advanced / Owner Tools", "admin_ws", "⚙️", "AI, sync, backup, settings, and hidden old screens"]] }
+                { title: "Needs Attention", items: [["Plants Missing Photos", "labels_ws", "📸", "Fix photo blockers before a show"], ["Orders To Ship", "orders_ws", "📦", "Review sold groups and tracking"], ["Receipts To Review", "money_ws", "🧾", "Confirm receipt category and totals"], ["More / Owner Tools", "admin_ws", "⚙️", "Backup, settings, app checks, and rare owner tools"]] }
             ] },
         intake_ws: { icon: "➕", title: "Add / Intake", sub: "One clean workflow for invoices, manual adds, existing inventory, and labels.", hero: "Buy plants → add plants → assign numbers → print labels", color: "#97d33e", kpis: [["Invoice Upload", "📸", "photo first"], ["Manual Add", "✏️", "quick entry"], ["Archive", "📋", "past invoices"], ["Labels", "🏷️", "print next"]], sections: [
                 { title: "Add New Plants", items: [["Buy Plants / Upload Invoice", "upload", "📸", "Use camera/photo to add nursery purchases"], ["Add Plants Manually", "manual", "✏️", "Quick entry for small buys"], ["Receipt / Invoice Archive", "history", "📋", "Review past uploads"], ["Teach Receipt Reader", "invoicetrainer", "🧾", "Owner rules for sizes and receipts"]] },
@@ -13280,10 +13759,10 @@ function WorkspaceHome({ type, user, plants = [], expenses = [], bills = [], tim
                 { title: "Buying Decisions", items: [["What Makes Money", "slotprofit", "📦", "Profit-per-slot and weekly capacity"], ["What Should I Buy?", "intel", "💡", "What to buy and stop buying"], ["Nursery Scores", "nursery", "🏪", "Which suppliers make profit"], ["Buying Lists", "pos", "📋", "Plan purchase orders"]] },
                 { title: "Proof + Reports", items: [["Reports", "reports", "📈", "Profit and sales reports"], ["Cash Flow", "cashflow", "💵", "Safe buy budget"], ["Sell-Through", "sellthru", "📊", "What sells fastest"], ["Owner AI Brief", "execai", "🧠", "Plain-English owner decisions"]] }
             ] },
-        admin_ws: { icon: "⚙️", title: "Advanced", sub: "Owner setup, backup, AI, sync, hidden old tools, and rescue utilities.", hero: "Daily users should not live here — this is for setup and rescue", color: "#b695ff", kpis: [["Users", "👥", "roles"], ["Backups", "💾", "safety"], ["AI", "🩺", "doctor"], ["Old Tools", "🧰", "hidden"]], sections: [
+        admin_ws: { icon: "⚙️", title: "More / Settings", sub: "Owner setup, backup, users, help, and rare tools.", hero: "Daily work stays on Home, Plants, Shows, Shipping, Customers, and Money. Use More only for setup or rescue.", color: "#b695ff", kpis: [["Team", "👥", "users"], ["Backup", "💾", "safety"], ["Checkup", "✅", "test"], ["Tools", "🧰", "hidden"]], sections: [
                 { title: "Owner Essentials", items: [["Team Sync + Backup", "teamsync", "☁️", "Save, load, backup, and prevent overwrites"], ["Business Settings", "admin", "⚙️", "Users, roles, footer, fees, and setup"], ["Live Tap-Test + Issue Log", "workflowqa", "🧪", "Tap through the simplified app and record any issues"], ["App Checkup", "appcheck", "✅", "Find broken data before live use"]] },
                 { title: "Technical Tools", items: [["AI Doctor / Gateway", "ollamadoctor", "🩺", "AI setup and gateway diagnostics"], ["What Changed Today", "changelog", "🧾", "Review saves, imports, sync actions, and team notes"], ["Owner Repair Tools", "cleanup", "🧹", "Fix duplicates and storage issues"], ["Developer Testing", "devtools", "🧪", "Diagnostics and test buttons"]] },
-                { title: "Hidden Old Screens", items: [["Old Inventory Tool", "inv", "🌿", "Detailed legacy inventory screen"], ["Old Labels Tool", "labels", "🏷️", "Detailed legacy label screen"], ["Old Show Builder", "showbuilder", "🎪", "Detailed show-builder screen"], ["Old Shipping Scanner", "shiplabels", "📷", "Detailed tracking scanner"], ["Old Receipt Tool", "receipts", "🧾", "Detailed receipt/expense screen"]] }
+                { title: "Hidden Old Tools", items: [["Old Inventory Tool", "inv", "🌿", "Detailed legacy inventory screen"], ["Old Labels Tool", "labels", "🏷️", "Detailed legacy label screen"], ["Old Show Builder", "showbuilder", "🎪", "Detailed show-builder screen"], ["Old Shipping Scanner", "shiplabels", "📷", "Detailed tracking scanner"], ["Old Receipt Tool", "receipts", "🧾", "Detailed receipt/expense screen"]] }
             ] },
     }[type || "today"];
     /* V171 PHASE 33 — Master Page Top Cleanup.
@@ -13394,7 +13873,7 @@ function WorkspaceHome({ type, user, plants = [], expenses = [], bills = [], tim
             ]
         },
         admin_ws: {
-            hero: "Advanced is only for setup, backup, AI, sync, testing, and rescue. Daily users should not work here.",
+            hero: "More / Settings is only for setup, backup, users, app checkups, and rare owner tools. Daily work should not live here.",
             sections: [
                 { title: "Owner Essentials", items: [
                         ["Team Sync + Backup", "teamsync", "☁️", "Save, load, backup, and prevent overwrites"],
@@ -13406,7 +13885,7 @@ function WorkspaceHome({ type, user, plants = [], expenses = [], bills = [], tim
                         ["AI Doctor / Gateway", "ollamadoctor", "🩺", "AI setup and gateway diagnostics"],
                         ["What Changed Today", "changelog", "🧾", "Review saves, imports, sync actions, and notes"],
                         ["Owner Repair Tools", "cleanup", "🧹", "Fix duplicates and storage issues"],
-                        ["Hidden Old Screens", "admin_ws", "🧰", "Use only when you need a detailed legacy tool"]
+                        ["Hidden Old Tools", "admin_ws", "🧰", "Use only when you need a detailed legacy tool"]
                     ] }
             ]
         }
@@ -13636,7 +14115,7 @@ function WorkspaceHome({ type, user, plants = [], expenses = [], bills = [], tim
         orders_ws: ["Pack orders from the Pack Orders section.", "Take a shipping label photo or scan/paste the tracking number.", "Confirm the buyer/customer match before marking shipped.", "Use State Docs when a shipment requires plant paperwork."],
         money_ws: ["Use Add Receipt for gas, supplies, shipping materials, tools, office purchases, and normal business expenses.", "Do not upload plant purchase invoices here unless you only want an expense; plant invoices belong in Inventory because they create plant numbers and labels.", "Every receipt upload should offer Take Photo and Choose From Camera Roll/File, then confirm vendor, date, total, payment method, and category.", "Owners review bills, payroll, cash flow, profit, and taxes from this page."],
         buy_ws: ["Use What Should I Buy? only after inventory, sales, and costs are current.", "Check what sold fastest and what made the most profit per slot.", "Do not buy more low-margin plants just because they are cheap.", "Use Cash Flow before spending big money on inventory."],
-        admin_ws: ["Use Advanced only for setup, backup, AI, sync, troubleshooting, and old tools.", "Employees should not use this page for daily work.", "Export a backup before imports, repairs, or uploading a new HTML version.", "Use Hidden Old Screens only when you need the detailed legacy tool."]
+        admin_ws: ["Use Advanced only for setup, backup, AI, sync, troubleshooting, and old tools.", "Employees should not use this page for daily work.", "Export a backup before imports, repairs, or uploading a new HTML version.", "Use Hidden Old Tools only when you need the detailed legacy tool."]
     };
     const trainingSteps = trainingByType[type || "today"] || trainingByType.today;
     const TrainingCard = () => null;
@@ -14599,7 +15078,7 @@ function RunShowWorkflow({ plants = [], setPlants, user, addAudit, settings = {}
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontSize: 40 } }, "\uD83C\uDFAA"),
                     React.createElement("div", { style: { fontFamily: F.display, fontSize: 28, fontWeight: 950, color: "#fb6392", lineHeight: 1 } }, "Run a Show"),
-                    React.createElement("div", { style: { color: "rgba(255,255,255,.75)", fontSize: 13, marginTop: 5, maxWidth: 720 } }, "One simple workflow for Whatnot/Palmstreet: build, fix, pull, export, go live, then import results.")),
+                    React.createElement("div", { style: { color: "rgba(255,255,255,.75)", fontSize: 13, marginTop: 5, maxWidth: 720 } }, "One simple workflow for Whatnot/Palmstreet: build, fix, pull, export to the platform, then import results.")),
                 React.createElement(Row, { gap: 8, wrap: true },
                     canManage && React.createElement(Btn, { onClick: quickBuild }, "\uD83E\uDDE0 Auto Build"),
                     React.createElement(Btn, { v: "soft", onClick: () => setPage("showprep") }, "\uD83E\uDDFA Pull List"),
@@ -14614,7 +15093,7 @@ function RunShowWorkflow({ plants = [], setPlants, user, addAudit, settings = {}
                 React.createElement(Step, { n: "1", icon: "\uD83C\uDFAA", title: "Build Show", body: "Choose plants manually or auto-build from plants that already have photos and prices.", primary: canManage ? "Build / Edit" : "View Pull List", page: canManage ? "showbuilder" : "showprep", alt: canManage ? "Auto Build" : null, altPage: canManage ? "auto" : null, color: "#fb6392" }),
                 React.createElement(Step, { n: "2", icon: "\uD83D\uDEE1\uFE0F", title: "Fix Export Problems", body: "Fix missing photos, missing labels, and missing prices before exporting to Whatnot or Palmstreet.", primary: "Fix Problems", page: "plantcapture", alt: "Inventory", altPage: "inv", color: C.amber }),
                 React.createElement(Step, { n: "3", icon: "\uD83E\uDDFA", title: "Pull + Stage", body: "Use the pull list to physically pull plants from racks/shelves and stage the live table.", primary: "Open Pull List", page: "showprep", color: C.gold }),
-                React.createElement(Step, { n: "4", icon: "\uD83D\uDCE4", title: "Export + Go Live", body: "Export your show CSV, upload it to the platform, then use live mode or the platform app during the show.", primary: "Export Tool", page: "showbuilder", alt: "Live Mode", altPage: "liveshow", color: C.g600 }),
+                React.createElement(Step, { n: "4", icon: "\uD83D\uDCE4", title: "Export To Platform", body: "Export your show CSV and use Whatnot or Palmstreet itself during the sale. Leaf Diary comes back in after the show for import and profit.", primary: "Export Tool", page: "showbuilder", color: C.g600 }),
                 React.createElement(Step, { n: "5", icon: "\uD83D\uDCE5", title: "Import Results", body: "After the show, import Whatnot/Palmstreet sales so sold plants, customers, tips, and commissions are recorded.", primary: "Import Sales", page: "showimport", alt: "Orders", altPage: "orders_ws", color: C.blue })),
             React.createElement("div", { style: { display: "grid", gap: 12 } },
                 React.createElement(Card, { style: { borderTop: `5px solid ${blockers.some(b => b.value) ? C.amber : C.g600}` } },
@@ -14652,7 +15131,8 @@ function RunShowWorkflow({ plants = [], setPlants, user, addAudit, settings = {}
         React.createElement("style", null, `@media(max-width:760px){.ld-run-show div[style*="grid-template-columns:repeat(4,1fr)"],.ld-run-show div[style*="grid-template-columns:minmax(0,1.05fr)"]{grid-template-columns:1fr!important}.ld-run-show button{min-height:46px}}`));
 }
 function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = {}, setSettings, users = [], phase3Config, phase4Routes, setPage, initialTab = "overview", setCasdCerts = () => { } }) {
-    const [tab, setTab] = useState(initialTab || "overview");
+    const safeInitialShowTab = initialTab === "live" ? "prep" : (initialTab || "overview");
+    const [tab, setTab] = useState(safeInitialShowTab);
     const [selectedShowKey, setSelectedShowKey] = useState("");
     const [showHistorySearch, setShowHistorySearch] = useState("");
     const [platform, setPlatform] = useState((settings === null || settings === void 0 ? void 0 : settings.lastShowPlatform) || "Whatnot");
@@ -14825,7 +15305,6 @@ function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = 
         { id: "history", icon: "📚", label: "History", hidden: !canManage },
         { id: "build", icon: "🧠", label: "Build", hidden: !canManage },
         { id: "prep", icon: "🧺", label: "Pull List" },
-        { id: "live", icon: "🎥", label: "Live" },
         { id: "import", icon: "📥", label: "Import", hidden: !canManage },
         { id: "problems", icon: "⚠️", label: "Problems", hidden: !canManage },
         { id: "profit", icon: "💰", label: "Profit", hidden: !canManage },
@@ -14833,6 +15312,22 @@ function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = 
         { id: "pay", icon: "🤝", label: "Pay", hidden: !canOwner },
         { id: "content", icon: "📣", label: "Social" }
     ].filter(t => !t.hidden);
+    const primaryShowNav = [
+        { id: "overview", icon: "\uD83C\uDFAA", label: "Dashboard", desc: "Status + next step" },
+        canManage ? { id: "build", icon: "\uD83E\DDE0", label: "Build Show", desc: "Pick plants" } : null,
+        { id: "prep", icon: "\uD83E\uDDFA", label: "Pull List", desc: "Stage + label" },
+        canManage ? { id: "import", icon: "\uD83D\uDCE5", label: "Import Sales", desc: "Upload CSV" } : null
+    ].filter(Boolean);
+    const secondaryShowNav = [
+        { id: "history", icon: "\uD83D\uDCDA", label: "History", hidden: !canManage },
+        { id: "problems", icon: "\u26A0\uFE0F", label: "Problems", hidden: !canManage },
+        { id: "profit", icon: "\uD83D\uDCB0", label: "Profit", hidden: !canManage },
+        { id: "auction", icon: "\uD83C\uDFF7\uFE0F", label: "Auctions", hidden: !canManage },
+        { id: "pay", icon: "\uD83E\uDD1D", label: "Pay", hidden: !canOwner },
+        { id: "content", icon: "\uD83D\uDCE3", label: "Social" }
+    ].filter(t => !t.hidden);
+    const currentShowTabLabel = (tabs.find(t => t.id === tab) || primaryShowNav.find(t => t.id === tab) || { label: "Dashboard" }).label;
+    const nextShowAction = showCart.length ? { id: "prep", icon: "\uD83E\uDDFA", label: "Pull List" } : canManage ? { id: "build", icon: "\uD83E\DDE0", label: "Build Show" } : { id: "prep", icon: "\uD83E\uDDFA", label: "Pull List" };
     const setShowField = (key, value) => {
         if (key === "platform")
             setPlatform(value);
@@ -14912,11 +15407,12 @@ function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = 
                 React.createElement("div", { style: { minWidth: 0 } },
                     React.createElement("div", { style: { fontSize: 40, lineHeight: 1 } }, "\uD83C\uDFAA"),
                     React.createElement("div", { style: { fontFamily: F.display, fontSize: 30, color: "#fb6392", fontWeight: 900, marginTop: 4 } }, "Show Command Center"),
-                    React.createElement("div", { style: { fontSize: 13, color: "rgba(255,255,255,.74)", marginTop: 4 } }, "Build the show, run the live, import sales, review tips, and create content from one place.")),
+                    React.createElement("div", { style: { fontSize: 13, color: "rgba(255,255,255,.74)", marginTop: 4 } }, "Build the show, pull plants, import sales, review tips, and create content from one place.")),
                 React.createElement("div", { className: "ld-v285-show-actions" },
-                    canManage && React.createElement("button", { onClick: quickBuild, style: { background: "#fb6392", color: "#fff", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } }, "\uD83E\uDDE0 Auto Build Show"),
-                    React.createElement("button", { onClick: () => setPage("showprep"), style: { background: "#f5c542", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } }, "\uD83E\uDDFA Pull List"),
-                    React.createElement("button", { onClick: () => setTab("live"), style: { background: "#97d33e", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } }, "\uD83C\uDFA5 Live Mode"),
+                    React.createElement("button", { onClick: () => setTab(nextShowAction.id), style: { background: "#97d33e", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } },
+                        nextShowAction.icon,
+                        " Next: ",
+                        nextShowAction.label),
                     canManage && React.createElement("button", { onClick: () => setTab("import"), style: { background: "rgba(255,255,255,.12)", color: "#fff", border: "1px solid rgba(255,255,255,.22)", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } }, "\uD83D\uDCE5 Import Sales"))),
             React.createElement("div", { style: { marginTop: 15, display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 } },
                 React.createElement("div", { style: { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 16, padding: "12px" } },
@@ -14951,22 +15447,27 @@ function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = 
                     React.createElement(Sel, { label: "Platform", value: platform, onChange: v => setShowField("platform", v), options: platforms }),
                     React.createElement(Sel, { label: "Show Type", value: showType, onChange: v => setShowField("showType", v), options: showTypes }),
                     React.createElement(Inp, { label: "Target Plants", type: "number", value: targetCount, onChange: v => setShowField("targetCount", v), style: { maxWidth: 150 } })))),
-        React.createElement("div", { className: "ld-show-tabs", style: { display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8, marginBottom: 14, WebkitOverflowScrolling: "touch" } }, tabs.map(t => React.createElement("button", { key: t.id, className: tab === t.id ? "is-active" : "", onClick: () => setTab(t.id), style: { background: tab === t.id ? "#000" : C.card, color: tab === t.id ? "#97d33e" : C.g900, border: `1.5px solid ${tab === t.id ? "#97d33e" : C.bd}`, borderRadius: 999, padding: "11px 13px", fontWeight: 900, fontFamily: F.body, cursor: "pointer", whiteSpace: "nowrap" } },
-            t.icon,
-            " ",
-            t.label))),
-        React.createElement("div", { className: "ld-v236-show-flow" }, [
-            ["1", "Build", "Pick photo-ready plants", canManage ? "build" : "prep"],
-            ["2", "Pull", "Stage and label plants", "prep"],
-            ["3", "Live", "Run the show", "live"],
-            ["4", "Import", "Upload sales CSV", canManage ? "import" : "live"],
-            ["5", "History", "Open past shows", canManage ? "history" : "prep"],
-            ["6", "Profit", "Review COGS + net", canManage ? "profit" : "prep"]
-        ].map(([n, title, sub, target]) => (React.createElement("button", { key: n + title, className: `ld-v236-show-step ${tab === target ? "is-active" : ""}`, onClick: () => setTab(target), style: { cursor: "pointer", textAlign: "left" } },
-            React.createElement("span", { className: "ld-v236-show-step-num" }, n),
-            React.createElement("span", { style: { display: "block", minWidth: 0 } },
-                React.createElement("span", { className: "ld-v236-show-step-title" }, title),
-                React.createElement("span", { className: "ld-v236-show-step-sub" }, sub)))))),
+        React.createElement("section", { className: "ld-show-clean-panel", "aria-label": "Show workflow" },
+            React.createElement("div", { className: "ld-show-clean-head" },
+                React.createElement("div", null,
+                    React.createElement("div", { className: "ld-show-clean-title" }, "Today's Show Flow"),
+                    React.createElement("div", { className: "ld-show-clean-sub" }, "Use these cards left to right. Extra tools are under More Show Tools so this page stays clean.")),
+                React.createElement("div", { className: "ld-show-clean-current" },
+                    "Current: ",
+                    currentShowTabLabel)),
+            React.createElement("div", { className: "ld-show-clean-nav" }, primaryShowNav.map(t => React.createElement("button", { key: t.id, className: `ld-show-clean-card ${tab === t.id ? "is-active" : ""}`, onClick: () => setTab(t.id) },
+                React.createElement("span", { className: "ld-show-clean-icon" }, t.icon),
+                React.createElement("span", { style: { display: "block", minWidth: 0 } },
+                    React.createElement("span", { className: "ld-show-clean-label" }, t.label),
+                    React.createElement("span", { className: "ld-show-clean-desc" }, t.desc))))),
+            secondaryShowNav.length ? React.createElement("details", { className: "ld-show-more-tools" },
+                React.createElement("summary", null,
+                    React.createElement("span", null, "\u2699\uFE0F More Show Tools"),
+                    React.createElement("span", { className: "ld-show-more-count" }, "History · Problems · Profit · Social")),
+                React.createElement("div", { className: "ld-show-more-grid" }, secondaryShowNav.map(t => React.createElement("button", { key: t.id, className: `ld-show-more-btn ${tab === t.id ? "is-active" : ""}`, onClick: () => setTab(t.id) },
+                    t.icon,
+                    " ",
+                    t.label)))) : null),
         tab === "overview" && React.createElement(React.Fragment, null,
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 } },
                 React.createElement(KPI, { label: "Ready For Show", value: photoReady.length, sub: $(readyValue), color: C.g600 }),
@@ -15091,7 +15592,6 @@ function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = 
                     React.createElement("p", { style: { color: C.tx3 } }, "Import a show or select a show from the left."))))),
         tab === "auction" && canManage && React.createElement(Phase79AuctionManagerPanel, { plants: plants, setPlants: setPlants, settings: settings, setSettings: setSettings, user: user, addAudit: addAudit, setPage: setPage }),
         tab === "build" && canManage && React.createElement(ShowBuilder, { plants: plants, setPlants: setPlants, addAudit: addAudit, user: user, settings: settings, setSettings: setSettings, phase3Config: phase3Config, phase4Routes: phase4Routes }),
-        tab === "live" && React.createElement(LiveShowMode, { plants: plants, setPlants: setPlants, addAudit: addAudit, user: user, setPage: setPage }),
         tab === "import" && canManage && React.createElement(ShowImport, { plants: plants, setPlants: setPlants, addAudit: addAudit, user: user, users: users, settings: settings, setSettings: setSettings, setCasdCerts: setCasdCerts }),
         tab === "prep" && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } },
             React.createElement(Card, { style: { borderTop: "4px solid #fb6392" } },
@@ -15099,7 +15599,7 @@ function ShowCommandCenter({ plants = [], setPlants, user, addAudit, settings = 
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontFamily: F.display, fontSize: 19, fontWeight: 900, color: C.g900 } }, "\uD83C\uDFAA Current Show Pull List"),
                         React.createElement("div", { style: { fontSize: 12, color: C.tx3 } }, showCart.length ? `${showCart.length} plants are marked for a show.` : "No plants are marked for a show yet.")),
-                    React.createElement(Btn, { sz: "sm", onClick: () => setTab(canManage ? "build" : "live") }, canManage ? "Build Show" : "Live Mode")),
+                    React.createElement(Btn, { sz: "sm", onClick: () => setTab(canManage ? "build" : "prep") }, canManage ? "Build Show" : "Pull List")),
                 showCart.length ? showCart.slice(0, 30).map((p, i) => React.createElement(PullPlant, { key: (p.id || p.plantId || p.name) + i, p: p, idx: i })) : React.createElement(PreviewBuckets, null)),
             React.createElement(Card, { style: { borderTop: `4px solid ${C.amber}` } },
                 React.createElement("div", { style: { fontFamily: F.display, fontSize: 19, fontWeight: 900, color: C.g900, marginBottom: 8 } }, "\uD83E\uDDFA Prep Tasks"),
@@ -15404,7 +15904,7 @@ function ShowPrepPullList({ plants = [], setPlants, user, addAudit, setPage }) {
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900 } }, "\u2705 Show Staging Checklist"),
                     React.createElement("div", { style: { fontSize: 12, color: C.tx3 } }, "Use this before going live so nothing gets missed.")),
-                React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setPage("liveshow") }, "Open Live Mode")),
+                React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setPage("showprep") }, "Open Pull List")),
             React.createElement(StageChecklist, null)),
         tab === "export" && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } },
             React.createElement(Card, { style: { borderTop: "4px solid #97d33e" } },
@@ -15415,8 +15915,7 @@ function ShowPrepPullList({ plants = [], setPlants, user, addAudit, setPage }) {
                 React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900, marginBottom: 8 } }, "Next Workflow"),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: 8 } },
                     React.createElement(Btn, { v: "soft", onClick: () => setPage("shows_ws") }, "Build / Edit Show"),
-                    React.createElement(Btn, { v: "soft", onClick: () => setPage("liveshow") }, "Open Live Mode"),
-                    canManage && React.createElement(Btn, { v: "soft", onClick: () => setPage("showimport") }, "Import Sales After Show")))),
+                                        canManage && React.createElement(Btn, { v: "soft", onClick: () => setPage("showimport") }, "Import Sales After Show")))),
         React.createElement("style", null, `@media(max-width:760px){.ld-show-prep div[style*="grid-template-columns:repeat(4,1fr)"],.ld-show-prep div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}}`));
 }
 /* ══════════════════════════════════════════════════════════
@@ -17092,19 +17591,31 @@ function MoneyCommandCenter({ initialTab = "overview", plants = [], setPlants = 
         { show: netMonth < 0 && canOwner, icon: "⚠️", title: "Month is negative", body: `Estimated month net is ${$(netMonth)} after cost, fees, expenses, and payroll.`, button: "Profit", tab: "profit", color: C.red }
     ].filter(t => t.show);
     const tabs = [
-        canManager ? ["overview", "💵", "Cash Flow"] : null,
-        ["receipts", "🧾", "Receipt"],
+        canManager ? ["overview", "💵", "Today"] : null,
+        ["receipts", "🧾", "Receipts"],
         canManager ? ["expenses", "💳", "Expenses"] : null,
         canManager ? ["bills", "📅", "Bills"] : null,
         ["timecard", "⏱️", "Timecard"],
         canOwner ? ["payroll", "👥", "Payroll"] : null,
-        canOwner ? ["profit", "📈", "Profit"] : null,
-        canOwner ? ["reports", "📊", "Visual Reports"] : null,
+        canOwner ? ["profit", "📈", "Profit"] : null
+    ].filter(Boolean);
+    const moreMoneyTools = [
+        canOwner ? ["commissions", "🤝", "Commissions"] : null,
+        canOwner ? ["reports", "📊", "Reports"] : null,
         canOwner ? ["buy", "🛒", "Buy Smart"] : null,
         canOwner ? ["charts", "📉", "Charts"] : null,
         canOwner ? ["taxes", "🧾", "Taxes"] : null,
         canOwner ? ["goals", "🎯", "Goals"] : null
     ].filter(Boolean);
+    const nextMoneyMove = bills7Total > 0
+        ? { icon: "📅", title: "Pay attention to bills first", body: `${$(bills7Total)} is due within 7 days. Check bills before buying more plants.`, tab: "bills", button: "Open Bills", color: C.red }
+        : receiptReview.length > 0
+            ? { icon: "🧾", title: "Clean up receipts", body: `${receiptReview.length} receipt(s) need category review so profit and taxes stay accurate.`, tab: "receipts", button: "Review Receipts", color: C.gold }
+            : (v301PayrollAudit.blockers > 0 && canOwner)
+                ? { icon: "⏱️", title: "Fix timecards/payroll", body: `${v301PayrollAudit.blockers} payroll/timecard issue(s) need review before payouts.`, tab: "timecard", button: "Review Timecards", color: C.purple }
+                : netMonth < 0
+                    ? { icon: "⚠️", title: "Check profit before buying", body: `Estimated month net is ${$(netMonth)} after costs, fees, expenses, and payroll.`, tab: "profit", button: "Open Profit", color: C.red }
+                    : { icon: "💵", title: "Money is clean enough to review profit", body: `Safe buy budget: ${safeSpendText}. Month profit estimate: ${$(netMonth)}.`, tab: "profit", button: "View Profit", color: C.g600 };
     const moneyTabDescriptions = {
         overview: "Safe spend before buying",
         receipts: "Scan and review receipts",
@@ -17170,21 +17681,21 @@ function MoneyCommandCenter({ initialTab = "overview", plants = [], setPlants = 
                     React.createElement("div", { style: { fontSize: 13, color: "rgba(255,255,255,.74)", marginTop: 4 } }, "Receipts, expenses, bills, payroll, profit, and cash flow.")),
                 React.createElement(Row, { gap: 8, wrap: true },
                     React.createElement("button", { onClick: () => setTab("receipts"), style: { background: "#f5c542", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } }, "\uD83E\uDDFE Add Receipt"),
-                    React.createElement("button", { onClick: () => setTab("expenses"), style: { background: "#97d33e", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } }, "\uD83D\uDCB5 Add Expense"),
-                    React.createElement("button", { onClick: () => setTab("bills"), style: { background: "rgba(255,255,255,.12)", color: "#fff", border: "1px solid rgba(255,255,255,.22)", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } }, "\uD83D\uDCC5 Add Bill"),
                     React.createElement("button", { onClick: () => setTab("timecard"), style: { background: "rgba(255,255,255,.12)", color: "#fff", border: "1px solid rgba(255,255,255,.22)", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer" } }, "\u23F1\uFE0F Timecard"))),
             React.createElement("div", { style: { marginTop: 15, background: "rgba(245,197,66,.12)", border: "1px solid rgba(245,197,66,.28)", borderRadius: 16, padding: "13px 14px" } },
                 React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,.62)", fontWeight: 900, textTransform: "uppercase", letterSpacing: .8 } }, "Safe Buy Decision"),
                 React.createElement("div", { style: { fontSize: 18, fontWeight: 900, color: "#f5c542", marginTop: 4 } }, buyDecision))),
-        React.createElement(Card, { style: { marginBottom: 14, borderLeft: `5px solid ${C.gold}`, background: C.goldBg } },
+        React.createElement(Card, { style: { marginBottom: 14, borderLeft: `5px solid ${nextMoneyMove.color}`, background: C.goldBg } },
             React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontFamily: F.display, fontWeight: 900, color: C.g900, fontSize: 21 } }, "What money job are you doing?"),
-                    React.createElement("div", { style: { color: C.tx2, fontSize: 13, lineHeight: 1.45, marginTop: 3 } }, "Use this one page for receipts, expenses, bills, timecards, payroll, profit, cash flow, and taxes. Plant invoices still start in Inventory because they create plant numbers.")),
+                React.createElement(Row, { gap: 11, center: true, style: { minWidth: 0 } },
+                    React.createElement("div", { style: { width: 48, height: 48, borderRadius: 16, background: nextMoneyMove.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 27, flexShrink: 0 } }, nextMoneyMove.icon),
+                    React.createElement("div", { style: { minWidth: 0 } },
+                        React.createElement("div", { style: { fontFamily: F.display, fontWeight: 900, color: C.g900, fontSize: 21 } }, "Next Money Move"),
+                        React.createElement("div", { style: { color: C.g900, fontSize: 15, fontWeight: 900, marginTop: 2 } }, nextMoneyMove.title),
+                        React.createElement("div", { style: { color: C.tx2, fontSize: 13, lineHeight: 1.45, marginTop: 3 } }, nextMoneyMove.body))),
                 React.createElement(Row, { gap: 7, wrap: true },
-                    React.createElement(Tag, { text: "Gas \u2192 Add Receipt", color: C.blue }),
-                    React.createElement(Tag, { text: "Plant invoice \u2192 Inventory", color: C.g600 }),
-                    React.createElement(Tag, { text: "Bills \u2192 Add Bill", color: C.red })))),
+                    React.createElement("button", { onClick: () => setTab(nextMoneyMove.tab), style: { background: "#000", color: "#f5c542", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 900, cursor: "pointer", fontFamily: F.body } }, nextMoneyMove.button),
+                    React.createElement(Tag, { text: "Plant invoices stay in Plants", color: C.g600 })))),
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 } },
             React.createElement(KPI, { label: "Safe Buy Budget", value: safeSpendText, sub: bankBalance ? `${$(bills14Total)} bills · ${$(payroll7)} payroll` : "set bank balance", color: safeSpend > 0 ? C.g600 : C.red }),
             React.createElement(KPI, { label: "Profit This Month", value: $(netMonth), sub: `${$(revenueMonth)} sales`, color: netMonth >= 0 ? C.g600 : C.red }),
@@ -17215,38 +17726,33 @@ function MoneyCommandCenter({ initialTab = "overview", plants = [], setPlants = 
                         " ",
                         t.title),
                     React.createElement("div", { style: { color: C.tx3, fontSize: 11, marginTop: 3, lineHeight: 1.35 } }, t.body)))) : React.createElement("p", { style: { color: C.tx3, fontSize: 13, lineHeight: 1.45 } }, "No urgent money blockers found. Keep scanning receipts and importing sales after each show."))),
-        React.createElement("div", { className: "ld-money-tab-panel", role: "navigation", "aria-label": "Money pages" },
+        React.createElement("div", { className: "ld-money-tab-panel", role: "navigation", "aria-label": "Main Money Actions" },
             React.createElement("div", { className: "ld-money-tab-header" },
                 React.createElement("div", null,
-                    React.createElement("div", { className: "ld-money-tab-title" }, "Money pages"),
-                    React.createElement("div", { className: "ld-money-tab-sub" }, "Big touch cards for the owner money workflow. Tap a card to open that section.")),
+                    React.createElement("div", { className: "ld-money-tab-title" }, "Main Money Actions"),
+                    React.createElement("div", { className: "ld-money-tab-sub" }, "Only the daily money jobs are shown here. Extra reports and owner tools are below.")),
                 React.createElement("div", { className: "ld-money-tab-count" },
                     tabs.length,
-                    " pages")),
+                    " main")),
             React.createElement("div", { className: "ld-money-tab-grid" }, tabs.map(([id, icon, label]) => React.createElement("button", { type: "button", key: id, onClick: () => setTab(id), "aria-current": tab === id ? "page" : undefined, className: `ld-money-tab-card ${tab === id ? "is-active" : ""}`, style: { "--ld-money-accent": moneyTabAccent[id] || "#f5c542" } },
                 React.createElement("span", { className: "ld-money-tab-icon", "aria-hidden": "true" }, icon),
                 React.createElement("span", { className: "ld-money-tab-text" },
                     React.createElement("span", { className: "ld-money-tab-label" }, label),
                     React.createElement("span", { className: "ld-money-tab-desc" }, moneyTabDescriptions[id] || "Open this money section")))))),
-        tab === "overview" && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 } },
-            React.createElement(MoneyTask, { icon: "\uD83E\uDDFE", title: "Add Receipt", body: `${receiptReview.length} receipt(s) need review. Take a photo or choose from Camera Roll for gas, supplies, packaging, and business receipts.`, button: "Add / review receipts", onClick: () => setTab("receipts"), color: C.blue }),
-            React.createElement(MoneyTask, { icon: "\uD83D\uDCC5", title: "Add / Check Bills", body: `${openBills.length} open bill(s). ${$(bills7Total)} due in the next 7 days.`, button: "Bills", onClick: () => setTab("bills"), color: bills7Total ? C.red : C.g600 }),
-            React.createElement(MoneyTask, { icon: "\uD83D\uDC65", title: "Payroll / Commissions", body: `${$(payroll7)} in last 7-day timecard pay and ${$(commissionTotal)} unpaid commissions.`, button: "Payroll", onClick: () => setTab("payroll"), color: C.purple }),
-            React.createElement(MoneyTask, { icon: "\uD83D\uDCC8", title: "View Profit", body: `${$(revenueMonth)} sales this month, ${$(netMonth)} estimated net after COGS, fees, expenses, and payroll.`, button: "Profit", onClick: () => setTab("profit"), color: netMonth >= 0 ? C.g600 : C.red }),
-            React.createElement(MoneyTask, { icon: "\uD83E\uDDFE", title: "Tax Snapshot", body: `${$(taxSales)} estimated FL sales tax and ${$(seTax + incomeTax)} estimated owner tax snapshot for the month.`, button: "Taxes", onClick: () => setTab("taxes"), color: C.gold }),
-            React.createElement(MoneyTask, { icon: "\uD83C\uDFAF", title: "Set monthly targets", body: "Use goals to keep sales, profit, and safe buying targets visible.", button: "Goals", onClick: () => setTab("goals"), color: C.purple }),
-            canOwner && React.createElement(MoneyTask, { icon: "\uD83D\uDD25", title: "Owner Daily Command", body: `Score ${v301OwnerPlan.score}/100 · ${((_g = v301OwnerPlan.actions[0]) === null || _g === void 0 ? void 0 : _g.body) || "Review today's best move."}`, button: ((_h = v301OwnerPlan.actions[0]) === null || _h === void 0 ? void 0 : _h.cta) || "Open", onClick: () => { var _a; const p = (_a = v301OwnerPlan.actions[0]) === null || _a === void 0 ? void 0 : _a.page; if (p === "bills")
-                    setTab("bills");
-                else if (p === "receipts")
-                    setTab("receipts");
-                else if (p === "timecard")
-                    setTab("timecard");
-                else if (p === "packorders" || p === "photosprint" || p === "showbuilder" || p === "pricefix")
-                    setPage(p);
-                else
-                    setTab("overview"); }, color: "#fb6392" }),
-            React.createElement(MoneyTask, { icon: "\uD83E\uDDF9", title: "Receipt / Expense Cleanup", body: `Tax-ready score ${v301ReceiptAudit.score}/100 · ${v301ReceiptAudit.blockers} blocker(s) found.`, button: "Review", onClick: () => setTab("receipts"), color: v301ReceiptAudit.blockers ? C.gold : C.g600 }),
-            canOwner && React.createElement(MoneyTask, { icon: "\u23F1\uFE0F", title: "Payroll / Timecard Cleanup", body: `Payroll score ${v301PayrollAudit.score}/100 · ${v301PayrollAudit.blockers} blocker(s) found.`, button: "Review", onClick: () => setTab("timecard"), color: v301PayrollAudit.blockers ? C.purple : C.g600 })),
+        canOwner && React.createElement(Card, { style: { marginBottom: 16, borderTop: `4px solid ${C.gold}` } },
+            React.createElement(Row, { between: true, center: true, wrap: true, style: { marginBottom: 10 } },
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontFamily: F.display, fontWeight: 900, color: C.g900, fontSize: 19 } }, "More Money Tools"),
+                    React.createElement("div", { style: { color: C.tx3, fontSize: 12 } }, "Less-used reports and owner tools live here so the main Money page stays clean."))),
+            React.createElement("div", { className: "ld-mobile-action-grid", style: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 } }, moreMoneyTools.map(([id, icon, label]) => React.createElement("button", { key: id, type: "button", onClick: () => setTab(id), style: { background: tab === id ? "#000" : C.cardAlt, color: tab === id ? "#f5c542" : C.g900, border: `1px solid ${tab === id ? "#f5c542" : C.bd}`, borderRadius: 16, padding: "12px 11px", textAlign: "left", cursor: "pointer", fontFamily: F.body, fontWeight: 900 } },
+                React.createElement("div", { style: { fontSize: 22, marginBottom: 4 } }, icon),
+                React.createElement("div", { style: { fontSize: 13 } }, label),
+                React.createElement("div", { style: { fontSize: 11, color: tab === id ? "rgba(245,197,66,.72)" : C.tx3, marginTop: 3, fontWeight: 750 } }, moneyTabDescriptions[id] || "Open tool"))))),
+        tab === "overview" && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 } },
+            React.createElement(MoneyTask, { icon: "\uD83E\uDDFE", title: "Receipts", body: `${receiptReview.length} need review. Use this for gas, supplies, shipping materials, tools, and normal business receipts.`, button: "Add / review receipts", onClick: () => setTab("receipts"), color: C.blue }),
+            React.createElement(MoneyTask, { icon: "\uD83D\uDCC5", title: "Bills", body: `${openBills.length} open bill(s). ${$(bills7Total)} due in the next 7 days.`, button: "Open bills", onClick: () => setTab("bills"), color: bills7Total ? C.red : C.g600 }),
+            React.createElement(MoneyTask, { icon: "\u23F1\uFE0F", title: "Timecard / Payroll", body: `${$(payroll7)} in last 7-day timecard pay. ${$(commissionTotal)} unpaid commissions.`, button: "Review time", onClick: () => setTab(canOwner ? "payroll" : "timecard"), color: C.purple }),
+            React.createElement(MoneyTask, { icon: "\uD83D\uDCC8", title: "Profit", body: `${$(revenueMonth)} sales this month and ${$(netMonth)} estimated net after costs, fees, expenses, and payroll.`, button: "View profit", onClick: () => setTab("profit"), color: netMonth >= 0 ? C.g600 : C.red })),
         tab === "receipts" && React.createElement(Card, { style: { borderTop: `4px solid ${C.blue}`, padding: 14 } },
             React.createElement(Row, { between: true, center: true, wrap: true, style: { marginBottom: 10 } },
                 React.createElement("div", null,
@@ -17312,6 +17818,17 @@ function MoneyCommandCenter({ initialTab = "overview", plants = [], setPlants = 
                             " estimated open commission.")),
                     React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => openFull("commissions") }, "Open Details")),
                 React.createElement(CommissionCenter, { plants: plants, timecards: timecards, users: users, settings: settings, setSettings: setSettings }))),
+        tab === "commissions" && canOwner && React.createElement(Card, { style: { borderTop: `4px solid ${C.gold}`, padding: 14 } },
+            React.createElement(Row, { between: true, center: true, wrap: true, style: { marginBottom: 10 } },
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900 } }, "\uD83E\uDD1D Commissions"),
+                    React.createElement("div", { style: { fontSize: 12, color: C.tx3 } },
+                        unpaidCommissions.length,
+                        " unpaid \u00B7 ",
+                        $(commissionTotal),
+                        " estimated open commission.")),
+                React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => openFull("commissions") }, "Open Details")),
+            React.createElement(CommissionCenter, { plants: plants, timecards: timecards, users: users, settings: settings, setSettings: setSettings })),
         tab === "profit" && canOwner && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.1fr .9fr", gap: 12 } },
             React.createElement(Card, { style: { borderTop: `4px solid ${netMonth >= 0 ? C.g600 : C.red}` } },
                 React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, fontWeight: 900, color: C.g900, marginBottom: 10 } }, "\uD83D\uDCC8 Profit Snapshot"),
@@ -27595,20 +28112,17 @@ function SettingsWorkflow({ users = [], settings = {}, plants = [], expenses = [
     const v255Insights = buildV255SaasInsights({ plants, expenses, bills, timecards, receipts, casdCerts, settings });
     const open = id => setPage(id);
     const tabs = [
-        { id: "launch", icon: "🚀", label: "Launch", sub: "Daily owner shortcuts" },
-        { id: "users", icon: "👥", label: "Users", sub: "Team and roles" },
-        { id: "cloud", icon: "☁️", label: "Cloud", sub: "Sync and backup" },
-        { id: "security", icon: "🔒", label: "Security", sub: "RLS and audit" },
-        { id: "ai", icon: "🤖", label: "AI", sub: "Gateway and cost guard" },
-        { id: "paperwork", icon: "📜", label: "Docs", sub: "State paperwork" },
-        { id: "qa", icon: "✅", label: "QA", sub: "Test before upload" },
-        { id: "advanced", icon: "🧰", label: "Advanced", sub: "Repair and old tools" },
+        { id: "launch", icon: "🏁", label: "Start", sub: "Main owner actions" },
+        { id: "users", icon: "👥", label: "Team", sub: "Users and roles" },
+        { id: "cloud", icon: "☁️", label: "Backup", sub: "Save, sync, and cloud" },
+        { id: "qa", icon: "✅", label: "Checkup", sub: "Test before upload" },
+        { id: "advanced", icon: "🧰", label: "More Tools", sub: "Rare owner tools" },
     ];
     const TabButton = ({ t }) => React.createElement("button", { className: `ld-v239-tab ${tab === t.id ? "active" : ""}`, onClick: () => setTab(t.id), title: t.sub },
         t.icon,
         " ",
         t.label);
-    const MiniAction = ({ icon, title, body, page, color = C.g600, danger = false }) => React.createElement("button", { onClick: () => page && open(page), style: { background: danger ? C.redBg : C.card, border: `1px solid ${danger ? "#F2B7B7" : C.bd}`, borderLeft: `5px solid ${danger ? C.red : color}`, borderRadius: 18, padding: "13px 12px", textAlign: "left", cursor: "pointer", fontFamily: F.body, width: "100%" } },
+    const MiniAction = ({ icon, title, body, page, color = C.g600, danger = false, onClick }) => React.createElement("button", { onClick: () => onClick ? onClick() : (page && open(page)), style: { background: danger ? C.redBg : C.card, border: `1px solid ${danger ? "#F2B7B7" : C.bd}`, borderLeft: `5px solid ${danger ? C.red : color}`, borderRadius: 18, padding: "13px 12px", textAlign: "left", cursor: "pointer", fontFamily: F.body, width: "100%" } },
         React.createElement(Row, { gap: 10, center: true },
             React.createElement("div", { style: { width: 38, height: 38, borderRadius: 14, background: color + "1F", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 } }, icon),
             React.createElement("div", { style: { minWidth: 0 } },
@@ -27642,13 +28156,13 @@ function SettingsWorkflow({ users = [], settings = {}, plants = [], expenses = [
             React.createElement(Row, { between: true, center: true, wrap: true, gap: 12 },
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontSize: 42, lineHeight: 1 } }, "\u2699\uFE0F"),
-                    React.createElement("div", { className: "ld-v239-hero-title", style: { fontFamily: F.display, fontSize: 30, color: "#b695ff", fontWeight: 950, marginTop: 5 } }, "Settings Command Center"),
-                    React.createElement("div", { style: { fontSize: 13, color: "rgba(255,255,255,.74)", marginTop: 4 } }, "Security, cloud, AI, paperwork, QA, and developer tools are now grouped in one owner-only SaaS control center.")),
+                    React.createElement("div", { className: "ld-v239-hero-title", style: { fontFamily: F.display, fontSize: 30, color: "#b695ff", fontWeight: 950, marginTop: 5 } }, "More / Settings"),
+                    React.createElement("div", { style: { fontSize: 13, color: "rgba(255,255,255,.74)", marginTop: 4 } }, "Owner-only setup, team access, backup, app checkups, and rare tools are grouped here so the daily app stays clean.")),
                 React.createElement(Row, { gap: 8, wrap: true },
-                    React.createElement("button", { onClick: () => setTab("qa"), style: { background: "#97d33e", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\u2705 QA"),
-                    React.createElement("button", { onClick: () => setTab("security"), style: { background: "#fff", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\uD83D\uDD12 Security"),
-                    React.createElement("button", { onClick: () => open("teamsync"), style: { background: "#68d8ff", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\u2601\uFE0F Sync"))),
-            React.createElement("div", { style: { marginTop: 14, background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 16, padding: "12px 13px", fontWeight: 850, lineHeight: 1.4 } }, "Phase 8 rule: normal work stays in Home, Plants, Shows, Shipping, and Money. Settings is only for setup, security, AI, backup, QA, and repair.")),
+                    React.createElement("button", { onClick: () => setTab("cloud"), style: { background: "#68d8ff", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\u2601\uFE0F Backup"),
+                    React.createElement("button", { onClick: () => setTab("users"), style: { background: "#fff", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\uD83D\uDC65 Team"),
+                    React.createElement("button", { onClick: () => setTab("qa"), style: { background: "#97d33e", color: "#000", border: "none", borderRadius: 999, padding: "12px 15px", fontWeight: 950, cursor: "pointer" } }, "\u2705 Checkup"))),
+            React.createElement("div", { style: { marginTop: 14, background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 16, padding: "12px 13px", fontWeight: 850, lineHeight: 1.4 } }, "Simple rule: daily work stays in Home, Plants, Shows, Shipping, Customers, and Money. More / Settings is only for owner setup, backup, team access, checks, and rare repair tools.")),
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 } },
             React.createElement(KPI, { label: "SaaS Readiness", value: `${appScore}/100`, sub: "single-file internal score", color: readinessColor }),
             React.createElement(KPI, { label: "Cloud", value: cloudWord, sub: cloudMsg ? String(cloudMsg).slice(0, 58) : "sync status", color: cloudStatus === "synced" ? C.g600 : cloudStatus === "offline" ? C.amber : C.blue }),
@@ -27656,18 +28170,24 @@ function SettingsWorkflow({ users = [], settings = {}, plants = [], expenses = [
             React.createElement(KPI, { label: "Data Issues", value: duplicateGroups.length + missingCost.length + missingPrice.length, sub: `${duplicateGroups.length} dup · ${missingCost.length} no cost · ${missingPrice.length} no price`, color: (duplicateGroups.length + missingCost.length + missingPrice.length) ? C.amber : C.g600 })),
         React.createElement("div", { className: "ld-v239-tabbar" }, tabs.map(t => React.createElement(TabButton, { key: t.id, t: t }))),
         tab === "launch" && React.createElement(React.Fragment, null,
-            React.createElement(Section, { title: "Owner Launch Board", sub: "The safest place to start setup, upload checks, backups, and production readiness.", color: "#b695ff", right: React.createElement(Tag, { text: "Phase 8 Complete", color: C.g600 }) },
+            React.createElement(Section, { title: "Main Owner Actions", sub: "Start here when you are setting up, testing, backing up, or checking the app before a show day.", color: "#b695ff", right: React.createElement(Tag, { text: "Simple More", color: C.g600 }) },
                 React.createElement("div", { className: "ld-v239-launch-grid" },
-                    React.createElement(MiniAction, { icon: "\u2601\uFE0F", title: "Cloud + Backup", body: "Save, load, export backup, test Supabase, and safe sync.", page: "teamsync", color: C.blue }),
-                    React.createElement(MiniAction, { icon: "\u2705", title: "App Checkup", body: "Check app data, startup health, duplicate records, and cloud status.", page: "appcheck", color: C.g600 }),
-                    React.createElement(MiniAction, { icon: "\uD83E\uDDEA", title: "Tap-Test Checklist", body: "Run the phone/Mac test before uploading a new live file.", page: "workflowqa", color: C.gold }),
-                    React.createElement(MiniAction, { icon: "\uD83D\uDE80", title: "Release Center", body: "Final release gate, rollback reminders, and go-live checklist.", page: "releasecenter", color: "#fb6392" }))),
-            React.createElement(Section, { title: "Fast Owner Shortcuts", sub: "Everything important is here without dumping employees into advanced tools.", color: C.g600 },
+                    React.createElement(MiniAction, { icon: "\u2601\uFE0F", title: "Backup / Cloud Sync", body: "Save, load, export backup, test Supabase, and prevent team overwrites.", page: "teamsync", color: C.blue }),
+                    React.createElement(MiniAction, { icon: "\uD83D\uDC65", title: "Team Users", body: "Create users, edit roles, block old users, and protect owner access.", page: "admin", color: C.purple }),
+                    React.createElement(MiniAction, { icon: "\u2705", title: "App Checkup", body: "Check startup, broken data, duplicate plant numbers, and cloud status.", page: "appcheck", color: C.g600 }),
+                    React.createElement(MiniAction, { icon: "\uD83E\uDDEA", title: "Phone Tap-Test", body: "Run the mobile/desktop checklist before replacing the live app file.", page: "workflowqa", color: C.gold }))),
+            React.createElement(Section, { title: "Useful, Not Daily", sub: "These stay one level deeper so the team does not see confusing repair/setup buttons during normal work.", color: C.g600 },
                 React.createElement("div", { className: "ld-v239-card-grid" },
-                    React.createElement(MiniAction, { icon: "\uD83D\uDC65", title: "Users + Roles", body: "Create team users, block old users, and check owner/manager/employee access.", page: "admin", color: C.purple }),
-                    React.createElement(MiniAction, { icon: "\uD83D\uDD0D", title: "Security / Audit Log", body: "Review important changes, imports, backups, and owner actions.", page: "audit", color: C.amber }),
-                    React.createElement(MiniAction, { icon: "\uD83E\uDD16", title: "AI Doctor", body: "Test local Ollama, gateway, AI cost guard, and model routing.", page: "ollamadoctor", color: "#97d33e" }),
-                    React.createElement(MiniAction, { icon: "\uD83E\uDDF9", title: "Repair Tools", body: "Owner-only cleanup tools. Use after exporting a backup.", page: "cleanup", color: C.red, danger: true })))),
+                    React.createElement(MiniAction, { icon: "\uD83E\uDDED", title: "Quick Start Guide", body: "Simple guide for owner, manager, and employee workflows.", page: "quickstart", color: C.blue }),
+                    React.createElement(MiniAction, { icon: "\uD83E\uDDFE", title: "What Changed Today", body: "Review saves, imports, notes, sync actions, and team activity.", page: "changelog", color: C.amber }),
+                    React.createElement(MiniAction, { icon: "\uD83D\uDCDC", title: "State Docs", body: "Open shipping state paperwork from the daily Shipping workflow.", page: "casd", color: C.gold }),
+                    React.createElement(MiniAction, { icon: "\uD83D\uDE80", title: "Release Center", body: "Final release gate, rollback reminders, and go-live checklist.", page: "releasecenter", color: "#fb6392" }))),
+            React.createElement(Section, { title: "More Owner Tools", sub: "AI, security, paperwork setup, and repair tools are still here, but hidden from the main daily flow.", color: "#b695ff" },
+                React.createElement("div", { className: "ld-v239-card-grid" },
+                    React.createElement(MiniAction, { icon: "\uD83D\uDD12", title: "Security + Audit", body: "RLS reminders, role protection, and audit review.", onClick: () => setTab("security"), color: C.amber }),
+                    React.createElement(MiniAction, { icon: "\uD83E\uDD16", title: "AI Setup", body: "Gateway, AI Doctor, local AI, and cost guard settings.", onClick: () => setTab("ai"), color: "#97d33e" }),
+                    React.createElement(MiniAction, { icon: "\uD83D\uDCDC", title: "Paperwork Rules", body: "State paperwork reminders and archives.", onClick: () => setTab("paperwork"), color: C.gold }),
+                    React.createElement(MiniAction, { icon: "\uD83E\uDDF0", title: "Repair / Developer", body: "Old screens, cleanup, developer tests, and advanced troubleshooting.", onClick: () => setTab("advanced"), color: C.red, danger: true })))),
         tab === "users" && React.createElement(React.Fragment, null,
             React.createElement(Section, { title: "Users + Role Protection", sub: "Owner, Manager, and Employee should each see only what they need.", color: C.purple, right: React.createElement(Tag, { text: `${activeUsers.length} active`, color: C.purple }) },
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 } },
@@ -27789,14 +28309,16 @@ function SettingsWorkflow({ users = [], settings = {}, plants = [], expenses = [
                                     React.createElement("br", null),
                                     "No pending CASD queue and no RLS save warning."))))))),
         tab === "advanced" && React.createElement(React.Fragment, null,
-            React.createElement(Section, { title: "Advanced / Developer Tools", sub: "Powerful tools stay here so the daily app stays simple. Backup first.", color: "#b695ff", right: React.createElement(Tag, { text: "Owner only", color: C.purple }) },
+            React.createElement(Section, { title: "More Tools / Rare Owner Tools", sub: "Powerful tools stay here so the daily app stays simple. Export a backup before cleanup, developer tests, or major changes.", color: "#b695ff", right: React.createElement(Tag, { text: "Owner only", color: C.purple }) },
                 React.createElement("div", { className: "ld-v239-card-grid" },
+                    React.createElement(MiniAction, { icon: "\uD83E\uDE7A", title: "AI Doctor", body: "Gateway, Ollama, and AI fallback diagnostics.", page: "ollamadoctor", color: "#97d33e" }),
                     React.createElement(MiniAction, { icon: "\uD83E\uDDEA", title: "Developer Console", body: "Smoke tests, diagnostics, and advanced issue checks.", page: "devtools", color: C.purple }),
                     React.createElement(MiniAction, { icon: "\uD83E\uDDF9", title: "Data Cleanup", body: "Repair tools for duplicate/bad data. Export backup first.", page: "cleanup", color: C.red, danger: true }),
                     React.createElement(MiniAction, { icon: "\uD83E\uDDFE", title: "Change Log", body: "Review what changed today before closing or replacing the file.", page: "changelog", color: C.amber }),
                     React.createElement(MiniAction, { icon: "\u267F", title: "Accessibility", body: "Check contrast, touch targets, and readable interface rules.", page: "accessibility", color: C.blue }),
                     React.createElement(MiniAction, { icon: "\uD83C\uDF19", title: "Theme Mode", body: "Toggle and test dark/light mode consistency.", page: "darkmode", color: C.purple }),
-                    React.createElement(MiniAction, { icon: "\u2328\uFE0F", title: "Keyboard Shortcuts", body: "Desktop power-user shortcuts and command palette help.", page: "keyboardshortcuts", color: C.g600 }))),
+                    React.createElement(MiniAction, { icon: "\u2328\uFE0F", title: "Keyboard Shortcuts", body: "Desktop power-user shortcuts and command palette help.", page: "keyboardshortcuts", color: C.g600 }),
+                    React.createElement(MiniAction, { icon: "\uD83C\uDF10", title: "Gateway Settings", body: "Owner-only AI gateway and cost controls.", page: "aigateway", color: C.blue }))),
             React.createElement(Section, { title: "Production Build Reminder", sub: "The single HTML file is good for internal use, but true SaaS should move to React/Vite with minification.", color: C.red },
                 React.createElement(StatusRow, { title: "Current file is still readable HTML/JS", detail: "Anyone with app access can inspect frontend code. Login and RLS protect data, but frontend code cannot be fully hidden.", status: "Known limit", color: C.amber }),
                 React.createElement(StatusRow, { title: "Future SaaS build", detail: "Move to Vite/React build, minify, remove source maps, add Cloudflare headers, keep secrets backend-only, and keep RLS verified.", status: "Next roadmap", color: C.blue }))),
@@ -27832,7 +28354,7 @@ function QuickStartGuide({ plants = [], bills = [], receipts = [], timecards = [
         { id: "orders_ws", icon: "📦", title: "Orders", body: `After a show, import sales and review sold plants. ${orders.length} sold order group(s) are currently saved.`, action: "Open Orders", show: isOwner || isManager },
         { id: "money_ws", icon: "💵", title: "Money", body: isOwner ? `Cash, receipts, bills, payroll, taxes, and safe buy budget. Safe spend estimate: ${$(safeSpend)}.` : "Employees use Money only for timecard and receipt scanning.", action: "Open Money", show: true },
         { id: "buy_ws", icon: "🧠", title: "What Should I Buy?", body: "Owner/manager tool for what to buy, what not to buy, nursery scores, price guide, and risk.", action: "Open What Should I Buy?", show: isOwner || isManager },
-        { id: "admin_ws", icon: "⚙️", title: "Settings", body: "Owner-only setup, data, paperwork, AI, security, and app checkups.", action: "Open Settings", show: isOwner },
+        { id: "admin_ws", icon: "⚙️", title: "More / Settings", body: "Owner-only setup, team users, backup, app checkups, and rare tools.", action: "Open Settings", show: isOwner },
     ].filter(x => x.show);
     const dailySteps = isOwner ? [
         ["1", "Open Today", "Review the top task cards before buying or selling."],
@@ -27845,7 +28367,7 @@ function QuickStartGuide({ plants = [], bills = [], receipts = [], timecards = [
         ["1", "Clock in", "Use Money → Timecard before starting work."],
         ["2", "Photos", `Take photos for plants in the Need Photos queue. Current count: ${noPhoto.length}.`],
         ["3", "Labels", `Print labels for plants in the label queue. Current count: ${noLabel.length}.`],
-        ["4", "Show prep", "Use Shows for Live Mode or pull-list tasks assigned by the owner."],
+        ["4", "Show prep", "Use Shows for pull-list tasks assigned by the owner."],
         ["5", "Receipts", "Scan receipts only if the owner asked you to."],
         ["6", "Clock out", "Use Timecard again when finished."],
     ];
@@ -27923,7 +28445,7 @@ function QuickStartGuide({ plants = [], bills = [], receipts = [], timecards = [
             React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, color: C.g900, fontWeight: 900, marginBottom: 10 } }, "Name Translation"),
             React.createElement(GlossaryRow, { old: "Dashboard / Command Center / Morning Briefing", now: "Today", why: "The one place to see what matters right now." }),
             React.createElement(GlossaryRow, { old: "Buy Plants / Upload Invoice / Manual Add / Bulk Import", now: "Add / Intake", why: "All ways of adding inventory are grouped together." }),
-            React.createElement(GlossaryRow, { old: "Show Builder / Live Mode / Bundles / Discounts", now: "Shows", why: "Everything needed to prepare and run a live sale." }),
+            React.createElement(GlossaryRow, { old: "Show Builder / Pull List / Bundles / Discounts", now: "Shows", why: "Everything needed to prepare and finish a show." }),
             React.createElement(GlossaryRow, { old: "Post-Show Import / Sold Plant Review / Buyers", now: "Orders", why: "Everything after the show: imports, buyers, sold review, and paperwork." }),
             React.createElement(GlossaryRow, { old: "Profit-Per-Slot / Buy Intel / Nursery Reports", now: "What Should I Buy?", why: "The buying brain that helps stop low-profit purchases." }),
             React.createElement(GlossaryRow, { old: "AI Gateway / Router / Ollama / Test Console", now: "Settings", why: "Technical setup is hidden from normal users." })),
@@ -29611,7 +30133,7 @@ function V160LiveTapTestChecklist({ plants = [], receipts = [], bills = [], user
         React.createElement("style", null, `@media(max-width:760px){.ld-v162-test-grid{grid-template-columns:1fr!important;}div[style*="grid-template-columns:repeat(4,1fr)"],div[style*="grid-template-columns: repeat(4,1fr)"]{grid-template-columns:1fr!important;}.ld-page button{min-height:42px;}}`));
 }
 function WorkflowTestChecklist({ plants = [], expenses = [], bills = [], timecards = [], receipts = [], users = [], settings = {}, casdCerts = [], auditLog = [], cloudStatus = "", cloudMsg = "", pendingSyncCount = 0, phase2Report = {}, phase1Health = {}, user, setPage }) {
-    const STORAGE_KEY = "leafDiaryWorkflowQaChecksV11";
+    const STORAGE_KEY = "leafDiaryWorkflowQaChecksV12";
     const [checks, setChecks] = useState(() => {
         try {
             return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -29635,67 +30157,61 @@ function WorkflowTestChecklist({ plants = [], expenses = [], bills = [], timecar
     const owners = safeArray(users).filter(u => u.role === "owner" && u.active !== false);
     const employees = safeArray(users).filter(u => u.role === "employee" && u.active !== false);
     const qaGroups = [
-        { id: "today", icon: "🏠", title: "Today", page: "today", auto: true, status: "Ready", items: [
-                { id: "today-load", title: "Today opens without white screen", why: "Home must load first on mobile and desktop." },
-                { id: "today-pulse", title: "Business Pulse numbers show", why: "Cash, profit, order, and plant action cards should be visible." },
-                { id: "today-tasks", title: "Do This First cards work", why: "Each task should open the correct workflow." },
-                { id: "today-owner", title: "Owner Decisions section makes sense", why: "Owner should know if buying, selling, or cleanup is the next move." }
+        { id: "home", icon: "🏠", title: "Home", page: "today", auto: true, status: "Start here", items: [
+                { id: "home-load", title: "Home opens without a white screen", why: "Test refresh on iPhone and desktop. The app should land on the simple Home dashboard." },
+                { id: "home-next", title: "Next Best Move card is clear", why: "The first card should tell the team what to do now without extra instructions." },
+                { id: "home-four", title: "Only the main daily job buttons show", why: "Home should point to Plants, Shows, Shipping, and Money without duplicate buttons." },
+                { id: "home-attention", title: "Needs Attention list is short", why: "Alerts should be quick to understand and should open the correct page." }
             ] },
-        { id: "inventory", icon: "🌿", title: "Inventory", page: "plants_ws", auto: inStock.length > 0, status: `${inStock.length} in stock`, items: [
-                { id: "inventory-load", title: "Inventory opens to action center", why: "It should not feel like a giant confusing table." },
-                { id: "inventory-photo", title: "Need Photos queue works", why: `${missingPhoto.length} plant(s) currently need photos.` },
-                { id: "inventory-price", title: "Need Price queue works", why: `${missingPrice.length} plant(s) currently need prices.` },
-                { id: "inventory-card", title: "Plant cards show one main warning", why: "Cards should show photo/name/ID/size/price/status and one action." }
-            ] },
-        { id: "intake", icon: "➕", title: "Add / Intake", page: "intake_ws", auto: true, status: "Safe wrapper", items: [
-                { id: "intake-start", title: "Intake screen opens with 3 clear choices", why: "Upload invoice, add manually, or bulk upload existing inventory." },
-                { id: "intake-upload", title: "Buy Plants / Upload Invoice button opens old working uploader", why: "The working invoice logic should still be underneath." },
-                { id: "intake-manual", title: "Manual Add opens old working manual tool", why: "Manual entry should not be broken by the wrapper." },
-                { id: "intake-labels", title: "Finish step links to Labels and Inventory", why: "After adding plants, the next steps should be obvious." }
+        { id: "plants", icon: "🌿", title: "Plants", page: "plants_ws", auto: inStock.length > 0, status: `${inStock.length} in stock`, items: [
+                { id: "plants-open", title: "Plants opens to the simple dashboard", why: "It should not open straight into the old giant inventory wall." },
+                { id: "plants-main", title: "Four plant actions are easy to understand", why: "Add Plants, Print Labels, Take Photos, and Find / Fix Plant should be obvious." },
+                { id: "plants-queues", title: "Plant queues are correct", why: `${missingLabel.length} need labels · ${missingPhoto.length} need photos · ${missingPrice.length} need prices.` },
+                { id: "plants-tools", title: "More Plant Tools keeps rare tools out of the way", why: "Old plant tools should still open, but they should not crowd the main screen." }
             ] },
         { id: "shows", icon: "🎪", title: "Shows", page: "shows_ws", auto: readyForShow.length > 0, status: `${readyForShow.length} ready`, items: [
-                { id: "shows-open", title: "Show Command Center opens", why: "Build, live mode, import, prep, employee pay, and content are grouped." },
-                { id: "shows-platform", title: "Platform selector works", why: "Whatnot and Palmstreet should be easy to choose." },
-                { id: "shows-buckets", title: "Show buckets populate", why: "Opening hooks, main show, clearance, and closers should make sense." },
-                { id: "shows-old", title: "Old Show Builder still opens", why: "The smart wrapper should not break the original builder." }
+                { id: "shows-open", title: "Shows opens to the cleaned Show Command Center", why: "The screen should focus on Build Show, Pull List, Import Sales, and More Show Tools." },
+                { id: "shows-no-live", title: "Live Mode is removed", why: "There should not be a Live Mode card/button in the main show flow." },
+                { id: "shows-build", title: "Build Show still opens the working builder", why: "The cleanup must not break the original show-building logic." },
+                { id: "shows-import", title: "Import Sales still opens", why: "Whatnot/Palmstreet CSV upload must remain intact after the cleanup." }
             ] },
-        { id: "orders", icon: "📦", title: "Orders", page: "orders_ws", auto: orders.length > 0 || sold.length > 0, status: `${orders.length} groups`, items: [
-                { id: "orders-open", title: "Orders workflow opens", why: "Import, sold review, pack orders, buyers, pay, refunds, and paperwork are grouped." },
-                { id: "orders-import", title: "Import Show Sales opens", why: "Post-show CSV import should remain intact." },
-                { id: "orders-pay", title: "Employee Pay tab is clear", why: "Commission and tips need to be easy to review after a show." },
-                { id: "orders-paperwork", title: "Paperwork tab points to state docs", why: "CA/TX/HI paperwork reminders should be findable." }
+        { id: "shipping", icon: "📦", title: "Shipping", page: "orders_ws", auto: orders.length > 0 || sold.length > 0, status: `${orders.length} groups`, items: [
+                { id: "shipping-open", title: "Shipping opens to four main actions", why: "Pack Orders, Add Tracking, State Docs, and Label Costs should be the first choices." },
+                { id: "shipping-pack", title: "Pack Orders opens the packing board", why: "Pulling plants and uploading proof should still work." },
+                { id: "shipping-docs", title: "State Docs are still reachable", why: "CA/AZ/TX/LA/HI paperwork must not be hidden too deep." },
+                { id: "shipping-more", title: "More Shipping Tools holds the extras", why: "Completed, Problems, Profit, Bundles, POs, Refunds, Import Sales, and QA should be under More." }
+            ] },
+        { id: "customers", icon: "👥", title: "Customers", page: "customers", auto: orders.length > 0 || sold.length > 0, status: `${orders.length} order groups`, items: [
+                { id: "customers-open", title: "Customer Hub opens cleanly", why: "It should show All Customers, Open Orders, Ready To Ship, and Problems first." },
+                { id: "customers-search", title: "Customer search still works", why: "Typing a buyer/customer name should open or find the correct customer." },
+                { id: "customers-alerts", title: "Blocked/VIP/problem customers are visible", why: "Order problems should be easy to catch before packing." },
+                { id: "customers-more", title: "More Customer Tools keeps insights and exports deeper", why: "VIP, Past Orders, Insights, State Revenue, Website Import, and Exports should not crowd the main page." }
             ] },
         { id: "money", icon: "💵", title: "Money", page: "money_ws", auto: true, status: `${openBills.length} open bills`, items: [
-                { id: "money-open", title: "Money opens to Cash Flow", why: "The screen should answer whether the business can spend money." },
-                { id: "money-receipts", title: "Receipts tab works", why: `${reviewReceipts.length} receipt(s) may need review.` },
-                { id: "money-payroll", title: "Payroll and commissions are owner-only", why: "Employees should not see owner financial details." },
-                { id: "money-tax", title: "Tax tab is owner-only", why: "Tax data should stay protected." }
+                { id: "money-open", title: "Money opens to daily actions only", why: "Today, Receipts, Expenses, Bills, Timecard, Payroll, and Profit should be easy to see." },
+                { id: "money-next", title: "Next Money Move is useful", why: "The first card should tell the owner or manager what money task comes next." },
+                { id: "money-receipts", title: "Receipts and expenses still open", why: `${reviewReceipts.length} receipt(s) may need review.` },
+                { id: "money-more", title: "More Money Tools holds deeper reports", why: "Commissions, Reports, Buy Smart, Charts, Taxes, and Goals should stay one level deeper." }
             ] },
-        { id: "buy", icon: "🧠", title: "What Should I Buy?", page: "buy_ws", auto: inStock.length > 0 || sold.length > 0, status: "Profit brain", items: [
-                { id: "buy-open", title: "What Should I Buy? opens for owner/manager", why: "This is where the app tells you what to buy and stop buying." },
-                { id: "buy-stop", title: "What Not To Buy tab shows risk", why: "Slow movers and low-profit plants should be easy to spot." },
-                { id: "buy-nursery", title: "Nursery Scores tab works", why: "Suppliers should be ranked by return, sell-through, and loss risk." },
-                { id: "buy-budget", title: "Buying Budget tab makes sense", why: "Safe spend should consider bills, payroll, and reserve." }
+        { id: "more", icon: "⚙️", title: "More / Settings", page: "admin_ws", auto: owners.length > 0, status: `${owners.length} owner`, items: [
+                { id: "more-open", title: "More / Settings is not cluttered", why: "Start, Team, Backup, Checkup, and More Tools should be the main settings tabs." },
+                { id: "more-team", title: "Team Users opens", why: "Owner should still be able to manage users and roles." },
+                { id: "more-backup", title: "Backup / Cloud Sync is easy to find", why: "The safest save/load tools should be visible without exposing every repair tool." },
+                { id: "more-hidden", title: "Rare repair/developer tools stay hidden deeper", why: "AI, security, developer, paperwork rules, old screens, and repair tools should not confuse employees." }
             ] },
-        { id: "settings", icon: "⚙️", title: "Settings", page: "admin_ws", auto: owners.length > 0, status: `${owners.length} owner`, items: [
-                { id: "settings-open", title: "Settings opens without exposing tech clutter", why: "Owner tools should be organized by Account, Team, Data, Paperwork, AI, Security, Developer." },
-                { id: "settings-checkup", title: "App Checkup opens", why: "Owner should have a safe place to check app health." },
-                { id: "settings-qa", title: "Workflow Test Checklist saves checkmarks", why: "This page should remember what you tested on this device." },
-                { id: "settings-advanced", title: "Advanced AI tools are hidden in Settings", why: "Employees should not see Ollama, gateway, router, or developer tools." }
+        { id: "roles", icon: "🔐", title: "Role Safety", page: "today", auto: owners.length > 0, status: `${owners.length} owner · ${employees.length} employee`, items: [
+                { id: "roles-owner", title: "Owner can access all cleanup screens", why: "Owner should be able to reach Home, Plants, Shows, Shipping, Customers, Money, and More." },
+                { id: "roles-manager", title: "Manager sees daily work but not dangerous tools", why: "Managers can run operations, but owner-only repair/developer tools should stay protected." },
+                { id: "roles-employee", title: "Employee mode stays simple", why: "Employee should see daily tasks, plants/photos/labels, shipping work, receipts, and timecard only." },
+                { id: "roles-money", title: "Owner financial details stay protected", why: "Payroll, taxes, profit, and deep money reports should not leak to employees." }
             ] },
-        { id: "employee", icon: "👤", title: "Employee Mode", page: "today", auto: employees.length > 0, status: `${employees.length} employee`, items: [
-                { id: "employee-home", title: "Employee home is simple", why: "Employee should see tasks, photos, labels, timecard, receipts, live mode, and packing only." },
-                { id: "employee-money", title: "Employee cannot see owner money", why: "Bills, tax, payroll reports, profit, and cost must stay hidden." },
-                { id: "employee-settings", title: "Employee cannot open Settings", why: "Settings should show a locked message if reached." },
-                { id: "employee-cost", title: "Employee inventory hides cost/profit", why: "Plant cost and margin should remain protected unless permission allows it." }
-            ] },
-        { id: "mobile", icon: "📱", title: "Mobile Safety", page: "today", auto: true, status: "Must test", items: [
-                { id: "mobile-scroll", title: "No horizontal scrolling on phone", why: "The app is used mostly on mobile, so side-scroll means fail." },
-                { id: "mobile-buttons", title: "Buttons are easy to tap", why: "Primary buttons should be large enough for one-thumb use." },
-                { id: "mobile-bottom", title: "Bottom nav stays visible", why: "Today, Inventory, Shows, Orders, and Money should be easy to reach." },
-                { id: "mobile-white", title: "Refresh does not white-screen", why: "Refresh, back button, and old routes should fall back safely." }
+        { id: "mobile", icon: "📱", title: "Mobile + Desktop", page: "today", auto: true, status: "Must test", items: [
+                { id: "mobile-iphone", title: "iPhone loads and scrolls", why: "Open the file on a real phone, refresh it, and scroll every main page." },
+                { id: "mobile-android", title: "Android or second phone layout works", why: "Cards should stack cleanly with no horizontal scrolling." },
+                { id: "mobile-desktop", title: "Desktop layout still works", why: "The cleanup should not make desktop feel broken or too narrow." },
+                { id: "mobile-save", title: "Save, Load, Sync, and Backup do not crash", why: "The final QA must include local save, cloud load, backup download, and refresh." }
             ] }
-    ];
+    ]
     const toggle = id => setChecks(prev => { const next = { ...prev, [id]: !prev[id] }; try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     }
@@ -29714,15 +30230,16 @@ function WorkflowTestChecklist({ plants = [], expenses = [], bills = [], timecar
     const done = qaGroups.reduce((s, g) => s + g.items.filter(item => checks[item.id]).length, 0);
     const pct = total ? Math.round((done / total) * 100) : 0;
     const productionFlow = [
-        ["Start", "Open app on phone and desktop"],
-        ["Inventory", "Add or review plants"],
-        ["Labels", "Print labels and take photos"],
-        ["Shows", "Build/export/import show sales"],
-        ["Shipping", "Pack orders and save tracking"],
-        ["Money", "Review profit, receipts, and payroll"],
-        ["Backup", "Save/sync and confirm no issues"]
-    ];
-    const releaseReady = pct >= 90 && duplicateGroups.length === 0 && String(cloudStatus || "").toLowerCase() !== "offline";
+        ["Home", "Open app on phone and desktop"],
+        ["Plants", "Add plants, labels, photos, and price fixes"],
+        ["Shows", "Build show, pull list, and import sales"],
+        ["Shipping", "Pack orders, tracking, docs, and label costs"],
+        ["Customers", "Open orders, ready to ship, and problems"],
+        ["Money", "Receipts, expenses, payroll, and profit"],
+        ["More", "Backup, team users, app checkup, and hidden tools"],
+        ["Refresh", "Reload the file and confirm no white screen"]
+    ]
+    const releaseReady = pct >= 90 && duplicateGroups.length === 0;
     const active = qaGroups.find(g => g.id === activeGroup) || qaGroups[0];
     const groupDone = active.items.filter(item => checks[item.id]).length;
     const QaCard = ({ item }) => React.createElement("button", { onClick: () => toggle(item.id), style: { width: "100%", background: checks[item.id] ? C.g50 : C.card, border: `1px solid ${checks[item.id] ? C.g300 : C.bd}`, borderLeft: `5px solid ${checks[item.id] ? C.g600 : C.tx4}`, borderRadius: 16, padding: "13px 12px", textAlign: "left", cursor: "pointer", fontFamily: F.body } },
@@ -30303,13 +30820,13 @@ function AdminPanel({ users, setUsers, settings, setSettings, plants, setPlants,
                 const ownerChoices = [
                     ["dash", "🏠 Dashboard"], ["command", "🚀 Today Command Center"], ["aihub", "🤖 AI Center"], ["social", "📣 Social Center"], ["cashflow", "💵 Cash Flow"], ["ship", "📦 Order Fulfillment"],
                     ["inv", "🌿 Inventory"], ["upload", "📸 Buy Plants / Upload Invoice"], ["manual", "✏️ Add Plants"], ["receipts", "🧾 Add Receipt"],
-                    ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["liveshow", "🎥 Live Show"],
+                    ["reports", "📈 Reports"], ["content", "✨ AI Content"], ["bills", "📅 Bills"], ["showbuilder", "🎪 Show Builder"], ["showprep", "🧺 Pull List"],
                     ["showimport", "📦 Post-Show"], ["customers", "👥 Customers"], ["nursery", "🏪 Nurseries"], ["expense", "💳 Expenses"],
                     ["timecard", "⏱️ Timecard"], ["payroll", "👥 Payroll"], ["intel", "💡 What Should I Buy?"], ["tax", "🧾 Tax Center"],
                     ["audit", "🔍 Audit Log"], ["admin", "⚙️ Admin"], ["cleanup", "🧹 Owner Repair Tools"], ["casd", "📜 State Docs"]
                 ];
                 const employeeChoices = [
-                    ["emp_dash", "🏠 My Dashboard"], ["aihub", "🤖 AI Help"], ["social", "📣 Social Drafts"], ["liveshow", "🎥 Live Show"], ["receipts", "🧾 Receipts"], ["inv", "🌿 Inventory"],
+                    ["emp_dash", "🏠 My Dashboard"], ["aihub", "🤖 AI Help"], ["social", "📣 Social Drafts"], ["showprep", "🧺 Pull List"], ["receipts", "🧾 Receipts"], ["inv", "🌿 Inventory"],
                     ["upload", "📸 Buy Plants / Upload Invoice"], ["manual", "✏️ Add Plants"], ["labels", "🏷️ Labels"], ["timecard", "⏱️ My Timecard"]
                 ];
                 const choices = key === "employeeFooterTabs" ? employeeChoices : ownerChoices;
@@ -30636,11 +31153,21 @@ function ShippingCommandCenter({ initialTab = "overview", plants = [], setPlants
         ...pendingLabelCost.map(o => ({ icon: "💸", title: `Palmstreet label cost pending: ${o.customerName || o.customerUsername || o.orderId || "Shipment"}`, sub: "Enter one actual label cost for the customer shipment/box so shipping profit is correct.", action: "labelcost" })),
         ...coldOrders.map(o => ({ icon: "🌡️", title: `Cold-weather check: ${o.customerName || o.customerUsername || o.orderId || "Order"}`, sub: `${stateOf(o)} destination — check weather before shipping sensitive plants.`, action: "pack" }))
     ];
-    const tabs = [
-        ["overview", "📦", "Overview"], ["pack", "📋", "Pack"], ["tracking", "🔎", "Tracking"], ["labelcost", "🏷️", "Label Costs"], ["completed", "✅", "Completed"],
-        ["paperwork", "📜", "Docs"], ["profit", "💰", "Profit"], ["problems", "⚠️", "Problems"],
-        ["bundles", "🧩", "Bundles"], ["purchase", "🧾", "POs"], ["refunds", "↩️", "Refunds"]
-    ];
+    const primaryShippingTabs = [
+        ["pack", "📦", "Pack Orders", "Pull plants and prep the box."],
+        ["tracking", "🔎", "Add Tracking", "Scan, photo, or paste tracking."],
+        canOwner ? ["paperwork", "📜", "State Docs", "CA/AZ/TX/LA/HI paperwork."] : null,
+        canManage ? ["labelcost", "🏷️", "Label Costs", "Enter actual shipping label costs."] : ["completed", "✅", "Completed", "Review finished shipments."]
+    ].filter(Boolean);
+    const moreShippingTabs = [
+        ["completed", "✅", "Completed", "Review shipped orders."],
+        ["problems", "⚠️", "Problems", "Fix blockers."],
+        canManage ? ["profit", "💰", "Profit", "Shipping money."] : null,
+        canManage ? ["bundles", "🧩", "Bundles", "Grouped plant orders."] : null,
+        canManage ? ["purchase", "🧾", "POs", "Purchase orders."] : null,
+        canManage ? ["refunds", "↩️", "Refunds", "DOA/refund manager."] : null
+    ].filter(Boolean);
+    const tabs = [["overview", "🏠", "Overview"], ...primaryShippingTabs.map(([id, icon, label]) => [id, icon, label]), ...moreShippingTabs.map(([id, icon, label]) => [id, icon, label])];
     const MiniOrder = ({ order, done = false }) => {
         const st = stateOf(order);
         const tracking = orderTracking(order);
@@ -30882,15 +31409,13 @@ function ShippingCommandCenter({ initialTab = "overview", plants = [], setPlants
         catch (e) { }
     }, [orders.length, readyToPack.length, packedNeedsTracking.length, trackingNeeded.length, needsCompletionReview.length, missingDocs.length, pendingLabelCost.length, completed.length, shippingProfit]);
     return React.createElement("div", { className: "ld-page ld-v237-shipping-center", style: { padding: "14px 14px 120px", background: C.bg, minHeight: "100vh", fontFamily: F.body } },
-        React.createElement(SHdr, { icon: "\uD83D\uDCE6", title: "Shipping Command Center", sub: "One place to pack orders, capture labels/tracking, complete shipments, save state docs, and see shipping profit.", right: React.createElement(Row, { gap: 8, wrap: true },
-                canManage && React.createElement(Btn, { v: "outline", onClick: () => setPage("showimport") }, "Import Sales"),
-                canManage && React.createElement(Btn, { v: "soft", onClick: v297ExportShippingQa }, "Export QA"),
-                React.createElement(Btn, { onClick: () => setTab("pack") }, "Pack Orders")) }),
+        React.createElement(SHdr, { icon: "\uD83D\uDCE6", title: "Orders / Shipping", sub: "Simple flow: pack orders, add tracking, handle paperwork, then review label costs.", right: React.createElement(Row, { gap: 8, wrap: true },
+                React.createElement(Btn, { onClick: () => setTab("pack") }, "Start Packing")) }),
         React.createElement(Card, { className: "ld-v237-ship-hero", style: { marginBottom: 14, background: "#000", color: "#fff", border: "2px solid #68d8ff", borderRadius: 24 } },
             React.createElement(Row, { between: true, center: true, wrap: true, gap: 12 },
                 React.createElement("div", null,
-                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 26, fontWeight: 950, color: "#68d8ff" } }, "Pack \u2192 label \u2192 tracking \u2192 docs \u2192 completed"),
-                    React.createElement("div", { style: { color: "rgba(255,255,255,.72)", fontSize: 13, marginTop: 4 } }, "No more guessing what is packed and what is shipped. Start at Pack, then finish tracking and paperwork.")),
+                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 26, fontWeight: 950, color: "#68d8ff" } }, "Pack \u2192 tracking \u2192 docs \u2192 done"),
+                    React.createElement("div", { style: { color: "rgba(255,255,255,.72)", fontSize: 13, marginTop: 4 } }, "Use the four main cards below. Extra tools are hidden under More Shipping Tools so the page stays easy on mobile.")),
                 React.createElement(Row, { gap: 8, wrap: true },
                     React.createElement(Tag, { text: `${readyToPack.length} to pack`, color: readyToPack.length ? C.amber : C.g600 }),
                     React.createElement(Tag, { text: `${trackingNeeded.length} tracking needed`, color: trackingNeeded.length ? C.amber : C.g600 }),
@@ -30903,48 +31428,34 @@ function ShippingCommandCenter({ initialTab = "overview", plants = [], setPlants
             React.createElement(KPI, { label: "Label Costs Pending", value: pendingLabelCost.length, sub: "enter/import after buying labels", color: pendingLabelCost.length ? C.amber : C.g600 }),
             React.createElement(KPI, { label: "State Docs", value: docOrders.length, sub: "CA/AZ/TX/LA/HI", color: docOrders.length ? C.purple : C.g600 }),
             React.createElement(KPI, { label: "Shipping Profit", value: $(shippingProfit), sub: "Palmstreet only \u00B7 Whatnot $0 unless adjustment", color: shippingProfit >= 0 ? C.g600 : C.red })),
-        React.createElement("div", { className: "ld-v237-ship-tabs", role: "tablist", "aria-label": "Shipping workflow tabs" }, tabs.map(([id, icon, label]) => React.createElement("button", { key: id, type: "button", onClick: () => setTab(id), className: tab === id ? "is-active" : "" },
-            icon,
-            " ",
-            React.createElement("span", null, label)))),
-        tab === "overview" && React.createElement("div", { className: "ld-v237-ship-grid-2" },
-            React.createElement("div", { className: "ld-v237-flow-card" },
-                React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
+        React.createElement("div", { className: "ld-v335-shipping-actions", role: "navigation", "aria-label": "Main shipping actions" }, primaryShippingTabs.map(([id, icon, label, sub], index) => React.createElement("button", { key: id, type: "button", onClick: () => setTab(id), className: `ld-v335-ship-action ${tab === id ? "is-active" : ""} ${index === 0 ? "is-primary" : ""}` },
+            React.createElement("span", { className: "ld-v335-ship-action-icon" }, icon),
+            React.createElement("strong", null, label),
+            React.createElement("small", null, sub)))),
+        React.createElement("details", { className: "ld-v335-more-tools" },
+            React.createElement("summary", null,
+                React.createElement("span", null, "More Shipping Tools"),
+                React.createElement("span", { style: { fontSize: 12, color: C.tx3 } }, "Completed · Problems · Profit · Admin")),
+            React.createElement("div", { className: "ld-v335-more-grid" },
+                React.createElement("button", { type: "button", onClick: () => setTab("overview"), className: `ld-v335-more-btn ${tab === "overview" ? "is-active" : ""}` }, "🏠 Overview"),
+                moreShippingTabs.map(([id, icon, label]) => React.createElement("button", { key: id, type: "button", onClick: () => setTab(id), className: `ld-v335-more-btn ${tab === id ? "is-active" : ""}` }, `${icon} ${label}`)),
+                canManage && React.createElement("button", { type: "button", onClick: () => setPage("showimport"), className: "ld-v335-more-btn" }, "📥 Import Sales"),
+                canManage && React.createElement("button", { type: "button", onClick: v297ExportShippingQa, className: "ld-v335-more-btn" }, "⬇️ Export QA"))),
+        tab === "overview" && React.createElement("div", null,
+            React.createElement("div", { className: "ld-v335-next-card" },
+                React.createElement(Row, { between: true, center: true, wrap: true, gap: 12 },
                     React.createElement("div", { style: { minWidth: 0 } },
-                        React.createElement("div", { className: "ld-v237-flow-title" }, "Shipping workflow"),
-                        React.createElement("div", { className: "ld-v237-flow-sub" }, "Work left to right: pack orders, capture tracking, complete shipments, then review shipping profit.")),
-                    React.createElement("div", { className: "ld-v237-flow-actions" },
-                        React.createElement("button", { type: "button", className: "ld-v237-flow-tab is-primary", onClick: () => setTab("pack") }, "Pack"),
-                        React.createElement("button", { type: "button", className: "ld-v237-flow-tab is-soft", onClick: () => setTab("tracking") }, "Tracking"),
-                        React.createElement("button", { type: "button", className: "ld-v237-flow-tab", onClick: () => setTab("completed") }, "Completed"),
-                        React.createElement("button", { type: "button", className: "ld-v237-flow-tab is-outline", onClick: () => setTab("profit") }, "Profit"))),
-                React.createElement("div", { className: "ld-v237-flow-grid" }, [["1", "Pack", "Pull the right plant, inspect it, add insulation/paperwork if needed.", "pack"], ["2", "Capture tracking", "Take shipping label photo, scan barcode, or paste tracking.", "tracking"], ["3", "Complete shipment", "Confirm tracking/customer match and mark shipped/completed.", "completed"], ["4", "Review money", "Enter actual label cost so shipping profit is correct.", "profit"]].map(([n, t, b, go]) => React.createElement("button", { key: n, type: "button", onClick: () => setTab(go), className: "ld-v237-flow-step" },
-                    React.createElement("span", { className: "ld-v237-flow-step-number" }, n),
-                    React.createElement("span", { className: "ld-v237-flow-step-copy" },
-                        React.createElement("strong", null, t),
-                        React.createElement("small", null, b)))))),
-            React.createElement("div", { className: "ld-v237-attention-panel" },
-                React.createElement("div", { className: "ld-v237-attention-head" },
-                    React.createElement("div", { style: { minWidth: 0 } },
-                        React.createElement("div", { className: "ld-v237-attention-title" }, "Needs attention"),
-                        React.createElement("div", { className: "ld-v237-attention-sub" }, "Quickly fix the shipments that are blocking completion.")),
-                    React.createElement("span", { className: `ld-v237-attention-badge ${problems.length ? "warn" : ""}` }, problems.length ? `${problems.length} active` : "clean")),
-                problems.length ? React.createElement("div", { className: "ld-v237-attention-grid" }, problems.slice(0, 7).map((p, i) => React.createElement("button", { key: i, type: "button", onClick: () => setTab(p.action), className: "ld-v237-attention-item" },
-                    React.createElement("span", { className: "ld-v237-attention-icon" }, p.icon),
-                    React.createElement("span", { className: "ld-v237-attention-copy" },
-                        React.createElement("strong", null, p.title),
-                        React.createElement("small", null, p.sub))))) : React.createElement("div", { className: "ld-v237-attention-empty" }, "\u2705 No shipping problems found in the active queue."),
-                React.createElement("div", { className: "ld-v237-overview-actions" },
-                    React.createElement("button", { type: "button", className: "ld-v237-action-card is-primary", onClick: () => setTab("pack") },
-                        React.createElement("span", { className: "ld-v237-action-icon" }, "\uD83D\uDCE6"),
-                        React.createElement("span", { className: "ld-v237-action-copy" },
-                            React.createElement("strong", null, "Start Packing"),
-                            React.createElement("small", null, "Open the packing queue and start pulling the orders that need work now."))),
-                    React.createElement("button", { type: "button", className: "ld-v237-action-card is-secondary", onClick: () => setTab("tracking") },
-                        React.createElement("span", { className: "ld-v237-action-icon" }, "\uD83D\uDD0E"),
-                        React.createElement("span", { className: "ld-v237-action-copy" },
-                            React.createElement("strong", null, "Add Tracking"),
-                            React.createElement("small", null, "Scan, paste, or capture tracking so shipments can be completed cleanly.")))))),
+                        React.createElement("div", { style: { fontFamily: F.display, fontSize: 25, fontWeight: 950, color: "#68d8ff" } }, readyToPack.length ? "Start with packing" : trackingNeeded.length ? "Finish tracking" : missingDocs.length ? "Check state docs" : pendingLabelCost.length ? "Enter label costs" : "Shipping looks clean"),
+                        React.createElement("div", { style: { color: "rgba(255,255,255,.72)", fontSize: 13, marginTop: 4 } }, readyToPack.length ? `${readyToPack.length} order group(s) need to be pulled and packed first.` : trackingNeeded.length ? `${trackingNeeded.length} order group(s) need tracking before they are completed.` : missingDocs.length ? `${missingDocs.length} state-paperwork item(s) need review.` : pendingLabelCost.length ? `${pendingLabelCost.length} shipment(s) need real label costs for accurate profit.` : "No active shipping blockers found.")),
+                    React.createElement(Btn, { onClick: () => setTab(readyToPack.length ? "pack" : trackingNeeded.length ? "tracking" : missingDocs.length ? "paperwork" : pendingLabelCost.length ? "labelcost" : "completed") }, readyToPack.length ? "Pack Now" : trackingNeeded.length ? "Add Tracking" : missingDocs.length ? "Open Docs" : pendingLabelCost.length ? "Add Costs" : "View Completed"))),
+            React.createElement("div", { className: "ld-v335-queue-grid" },
+                React.createElement("button", { type: "button", className: "ld-v335-queue-card", onClick: () => setTab("pack") }, React.createElement("strong", null, readyToPack.length), React.createElement("span", null, "Ready to pack")),
+                React.createElement("button", { type: "button", className: "ld-v335-queue-card", onClick: () => setTab("tracking") }, React.createElement("strong", null, trackingNeeded.length), React.createElement("span", null, "Need tracking")),
+                React.createElement("button", { type: "button", className: "ld-v335-queue-card", onClick: () => setTab("paperwork") }, React.createElement("strong", null, missingDocs.length), React.createElement("span", null, "State docs missing")),
+                React.createElement("button", { type: "button", className: "ld-v335-queue-card", onClick: () => setTab("labelcost") }, React.createElement("strong", null, pendingLabelCost.length), React.createElement("span", null, "Label costs pending"))),
+            problems.length ? React.createElement(Card, { style: { marginTop: 12, borderLeft: `6px solid ${C.amber}` } },
+                React.createElement("div", { style: { fontFamily: F.display, fontSize: 20, fontWeight: 950, color: C.g900, marginBottom: 8 } }, "Needs Attention"),
+                React.createElement("div", { style: { display: "grid", gap: 8 } }, problems.slice(0, 4).map((p, i) => React.createElement("button", { key: i, type: "button", onClick: () => setTab(p.action), style: { border: `1px solid ${C.bd}`, background: C.cardAlt, borderRadius: 14, padding: "11px 12px", textAlign: "left", cursor: "pointer", fontFamily: F.body, fontWeight: 850, color: C.g900 } }, `${p.icon} ${p.title}`)))) : null),
         tab === "pack" && React.createElement(OrderPackingBoard, { plants: plants, setPlants: setPlants, user: user, setPage: setPage, casdCerts: casdCerts, setCasdCerts: setCasdCerts, addAudit: addAudit }),
         tab === "tracking" && React.createElement(PackingShippingCenter, { plants: plants, setPlants: setPlants, user: user, addAudit: addAudit, labelScanMode: true }),
         tab === "labelcost" && React.createElement("div", null,
@@ -38558,12 +39069,30 @@ function Customers({ plants, setPlants, addAudit, user, setPage }) {
             item.orderNumber ? `Order ${item.orderNumber}` : "No order #",
             item.state ? ` · ${item.state}` : "",
             item.tracking ? ` · Tracking ${item.tracking}` : ""));
+    const customerNextMove = counts.blockedOrders > 0
+        ? { icon: "🚫", title: "Review blocked customers", sub: `${counts.blockedOrders} blocked order alert(s). Do not pack until reviewed.`, color: C.red, action: () => setTab("blocked") }
+        : counts.watchOrders > 0
+            ? { icon: "⚠️", title: "Review watch customers", sub: `${counts.watchOrders} watch/problem order(s) need a quick check.`, color: C.amber, action: () => setTab("problems") }
+            : counts.ready > 0
+                ? { icon: "🚚", title: "Ship ready orders", sub: `${counts.ready} customer order(s) are ready for tracking/shipping.`, color: C.blue, action: () => setTab("ready") }
+                : counts.open > 0
+                    ? { icon: "📦", title: "Pack open orders", sub: `${counts.open} customer order(s) still need packing.`, color: C.amber, action: () => setTab("open") }
+                    : customers.length > 0
+                        ? { icon: "🔎", title: "Find a customer", sub: "Search by name, username, order, plant number, tracking, state, email, or phone.", color: C.g600, action: () => { try { const el = document.querySelector('[data-ld-customer-search="true"]'); if (el && el.focus) el.focus(); } catch (e) { } } }
+                        : { icon: "👤", title: "Add your first customer", sub: "Create a customer profile or import website/customer orders.", color: C.g600, action: () => setManualCustomerOpen(true) };
+    const CustomerMainCard = ({ icon, title, sub, count, color, onClick }) => React.createElement(Card, { onClick, style: { padding: 15, borderLeft: `6px solid ${color || C.g600}`, cursor: "pointer", background: C.card, minHeight: 132 } },
+        React.createElement(Row, { between: true, center: true, gap: 10, style: { marginBottom: 10 } },
+            React.createElement("div", { style: { width: 44, height: 44, borderRadius: 16, background: `${color || C.g600}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 } }, icon),
+            React.createElement("div", { style: { fontFamily: F.display, fontSize: 24, color: color || C.g700, fontWeight: 950, lineHeight: 1 } }, count)),
+        React.createElement("div", { style: { fontFamily: F.display, color: C.g900, fontWeight: 950, fontSize: 18, lineHeight: 1.1 } }, title),
+        React.createElement("div", { style: { color: C.tx3, fontSize: 12, lineHeight: 1.35, marginTop: 5, fontWeight: 700 } }, sub));
+    const CustomerToolButton = ({ label, icon, onClick }) => React.createElement("button", { onClick, style: { border: `1px solid ${C.bd}`, background: C.cardAlt, borderRadius: 14, padding: "11px 12px", color: C.tx1, fontFamily: F.body, fontWeight: 900, cursor: "pointer", textAlign: "left", minHeight: 48 } },
+        React.createElement("span", { style: { marginRight: 7 } }, icon),
+        label);
     return React.createElement("div", { style: { padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" } },
-        React.createElement(SHdr, { icon: "\uD83D\uDC65", title: "Customer Hub", sub: `Lifetime buyer profiles · open orders · ready to ship · every plant purchased · showing ${customerDateLabel}`, right: React.createElement(Row, { gap: 8, wrap: true },
+        React.createElement(SHdr, { icon: "\uD83D\uDC65", title: "Customers", sub: `Customer profiles · open orders · ready to ship · showing ${customerDateLabel}`, right: React.createElement(Row, { gap: 8, wrap: true },
                 React.createElement(Btn, { sz: "sm", onClick: () => setManualCustomerOpen(true) }, "+ Customer"),
-                React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setManualOrderOpen(true) }, "+ Order"),
-                React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setWebsiteImportOpen(true) }, "Import Website"),
-                React.createElement(Btn, { v: "outline", sz: "sm", onClick: exportCustomers }, "Export Customers")) }),
+                React.createElement(Btn, { v: "soft", sz: "sm", onClick: () => setManualOrderOpen(true) }, "+ Order")) }),
         counts.blockedOrders > 0 && React.createElement(Card, { style: { marginBottom: 14, background: C.redBg, border: `2px solid ${C.red}`, borderLeft: `8px solid ${C.red}` } },
             React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
                 React.createElement("div", null,
@@ -38580,11 +39109,20 @@ function Customers({ plants, setPlants, addAudit, user, setPage }) {
                 React.createElement(Row, { gap: 8, wrap: true },
                     React.createElement(Tag, { text: `${counts.watchOrders} watch order(s)`, color: C.amber }),
                     React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setTab("problems") }, "View Problems")))),
+        React.createElement(Card, { style: { marginBottom: 14, background: C.card, border: `1px solid ${C.bd}`, borderLeft: `7px solid ${customerNextMove.color}` } },
+            React.createElement(Row, { between: true, wrap: true, center: true, gap: 12 },
+                React.createElement(Row, { gap: 12, center: true, style: { minWidth: 0, flex: "1 1 320px" } },
+                    React.createElement("div", { style: { width: 48, height: 48, borderRadius: 18, background: `${customerNextMove.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0 } }, customerNextMove.icon),
+                    React.createElement("div", { style: { minWidth: 0 } },
+                        React.createElement("div", { style: { fontFamily: F.display, fontSize: 19, fontWeight: 950, color: C.g900 } }, "Next Customer Move"),
+                        React.createElement("div", { style: { fontSize: 13, color: C.tx1, fontWeight: 900, marginTop: 2 } }, customerNextMove.title),
+                        React.createElement("div", { style: { fontSize: 12, color: C.tx3, lineHeight: 1.35, marginTop: 2 } }, customerNextMove.sub))),
+                React.createElement(Btn, { sz: "sm", onClick: customerNextMove.action }, "Start"))),
         React.createElement(Card, { style: { marginBottom: 14, background: C.g50, border: `1px solid ${C.g200}` } },
             React.createElement(Row, { between: true, wrap: true, center: true, gap: 10 },
                 React.createElement("div", null,
-                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 17, fontWeight: 700, color: C.g900 } }, "\uD83D\uDCC5 Customer Date Range"),
-                    React.createElement("div", { style: { fontSize: 12, color: C.tx3, marginTop: 2 } }, "Use All Time for lifetime customer profiles, or filter by today/week/month for active work.")),
+                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 17, fontWeight: 700, color: C.g900 } }, "Date Range"),
+                    React.createElement("div", { style: { fontSize: 12, color: C.tx3, marginTop: 2 } }, "All Time shows lifetime profiles. Use shorter ranges for today/week/month work.")),
                 React.createElement(Row, { gap: 8, wrap: true, center: true }, [
                     ["today", "Today"], ["week", "This Week"], ["month", "This Month"], ["quarter", "Quarter"], ["year", "YTD"], ["all", "All Time"], ["custom", "Custom"]
                 ].map(([v, l]) => React.createElement("button", { key: v, onClick: () => setCustomerPreset(v), style: { padding: "8px 11px", borderRadius: 8, border: `1.5px solid ${customerPreset === v ? C.g700 : C.bd}`, background: customerPreset === v ? C.g700 : C.card, color: customerPreset === v ? "#fff" : C.tx2, fontFamily: F.body, fontSize: 12, fontWeight: 700, cursor: "pointer" } }, l)))),
@@ -38597,7 +39135,7 @@ function Customers({ plants, setPlants, addAudit, user, setPage }) {
                     React.createElement("div", { style: { fontFamily: F.display, fontSize: 17, fontWeight: 800, color: C.g900 } }, "\uD83D\uDD0E Find Customer"),
                     React.createElement("div", { style: { fontSize: 12, color: C.tx3, marginTop: 2 } }, "Search by customer, username, plant, order number, tracking, platform, state, email, or phone.")),
                 React.createElement("div", { style: { flex: "1 1 320px", minWidth: 240, display: "flex", gap: 8 } },
-                    React.createElement("input", { value: customerSearchText, onChange: e => setCustomerSearchText(e.target.value), placeholder: "Search customer, order, plant, tracking...", style: { flex: 1, minWidth: 0, border: `1.5px solid ${C.bd}`, borderRadius: 12, padding: "11px 12px", fontFamily: F.body, fontWeight: 800, color: C.tx1, background: C.card } }),
+                    React.createElement("input", { "data-ld-customer-search": "true", value: customerSearchText, onChange: e => setCustomerSearchText(e.target.value), placeholder: "Search customer, order, plant, tracking...", style: { flex: 1, minWidth: 0, border: `1.5px solid ${C.bd}`, borderRadius: 12, padding: "11px 12px", fontFamily: F.body, fontWeight: 800, color: C.tx1, background: C.card } }),
                     customerSearchText && React.createElement("button", { onClick: () => setCustomerSearchText(""), style: { border: `1px solid ${C.bd}`, background: C.cardAlt, color: C.tx2, borderRadius: 12, padding: "0 12px", fontWeight: 900, cursor: "pointer", fontFamily: F.body } }, "Clear"))),
             customerSearchText && React.createElement("div", { style: { marginTop: 10, fontSize: 12, color: C.tx3, fontWeight: 800 } },
                 "Showing ",
@@ -38606,34 +39144,36 @@ function Customers({ plants, setPlants, addAudit, user, setPage }) {
                 baseShownCustomers.length,
                 " customer(s) for: ",
                 React.createElement("span", { style: { color: C.g700 } }, customerSearchText))),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 10, marginBottom: 14 } },
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 14 } },
             React.createElement(KPI, { label: "Customers", value: customers.length, sub: customerDateLabel, color: C.g600 }),
-            React.createElement(KPI, { label: "Open Orders", value: counts.open, sub: "need action", color: counts.open ? C.amber : C.g600 }),
-            React.createElement(KPI, { label: "Ready To Ship", value: counts.ready, sub: "packed/tracking", color: counts.ready ? C.blue : C.g600 }),
-            React.createElement(KPI, { label: "Past Orders", value: counts.past, sub: "completed", color: C.g600 }),
-            React.createElement(KPI, { label: "Problems", value: counts.problems, sub: `${counts.blockedOrders || 0} blocked order alerts`, color: counts.problems ? C.red : C.g600 }),
-            React.createElement(KPI, { label: "VIP / Repeat", value: counts.vip, sub: "3+ orders or $250+", color: C.gold })),
+            React.createElement(KPI, { label: "Open Orders", value: counts.open, sub: "need packing", color: counts.open ? C.amber : C.g600 }),
+            React.createElement(KPI, { label: "Ready To Ship", value: counts.ready, sub: "ship next", color: counts.ready ? C.blue : C.g600 }),
+            React.createElement(KPI, { label: "Problems", value: counts.problems, sub: `${counts.blockedOrders || 0} blocked`, color: counts.problems ? C.red : C.g600 })),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 14 } },
+            React.createElement(CustomerMainCard, { icon: "👥", title: "All Customers", sub: "Open the full customer list and search history.", count: customers.length, color: C.g600, onClick: () => setTab("all") }),
+            React.createElement(CustomerMainCard, { icon: "📦", title: "Open Orders", sub: "Customers with orders that still need packing.", count: counts.open, color: counts.open ? C.amber : C.g600, onClick: () => setTab("open") }),
+            React.createElement(CustomerMainCard, { icon: "🚚", title: "Ready To Ship", sub: "Packed orders that need tracking or final shipping work.", count: counts.ready, color: counts.ready ? C.blue : C.g600, onClick: () => setTab("ready") }),
+            React.createElement(CustomerMainCard, { icon: "⚠️", title: "Problems", sub: "Blocked, watch, refund, or customer issue orders.", count: counts.problems, color: counts.problems ? C.red : C.g600, onClick: () => setTab(counts.blockedOrders ? "blocked" : "problems") })),
         React.createElement(Card, { style: { marginBottom: 14, background: C.card, border: `1px solid ${C.bd}` } },
             React.createElement(Row, { between: true, wrap: true, center: true, gap: 10 },
                 React.createElement("div", { style: { minWidth: 0 } },
-                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 17, fontWeight: 900, color: C.g900 } }, "\u26A1 Customer Work Board"),
-                    React.createElement("div", { style: { fontSize: 12, color: C.tx3 } }, "Jump straight to customer work or export the exact list you need.")),
-                React.createElement(Row, { gap: 7, wrap: true },
-                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setTab("open") }, "Open Orders"),
-                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setTab("ready") }, "Ready To Ship"),
-                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setTab("problems") }, "Problems"),
-                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setTab("blocked") }, "Blocked Alerts"),
-                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setTab("vip") }, "VIP"),
-                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setTab("insights") }, "Insights"),
-                    React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => setWebsiteImportOpen(true) }, "Import Website"))),
-            React.createElement(Row, { gap: 7, wrap: true, style: { marginTop: 10 } },
-                React.createElement(Btn, { sz: "sm", v: "outline", onClick: exportCustomers }, "Export Customers"),
-                React.createElement(Btn, { sz: "sm", v: "outline", onClick: exportCustomerPurchases }, "Export Plants Bought"),
-                React.createElement(Btn, { sz: "sm", v: "outline", onClick: () => exportCustomerOrders("open") }, "Export Open"),
-                React.createElement(Btn, { sz: "sm", v: "outline", onClick: () => exportCustomerOrders("ready") }, "Export Ready"),
-                React.createElement(Btn, { sz: "sm", v: "outline", onClick: () => exportCustomerOrders("past") }, "Export Past"),
-                React.createElement(Btn, { sz: "sm", v: "outline", onClick: () => exportCustomerOrders("problem") }, "Export Problems"))),
-        React.createElement("div", { style: { display: "flex", gap: 0, marginBottom: 16, borderBottom: `1px solid ${C.bd}`, overflowX: "auto" } }, TABS.map(t => React.createElement("button", { key: t.id, onClick: () => setTab(t.id), style: { padding: "8px 16px", fontSize: 13, fontWeight: tab === t.id ? 800 : 600, background: "transparent", border: "none", borderBottom: tab === t.id ? `2.5px solid ${C.g700}` : "2.5px solid transparent", color: tab === t.id ? C.g800 : C.tx3, cursor: "pointer", fontFamily: F.body, whiteSpace: "nowrap" } }, t.l))),
+                    React.createElement("div", { style: { fontFamily: F.display, fontSize: 17, fontWeight: 950, color: C.g900 } }, "More Customer Tools"),
+                    React.createElement("div", { style: { fontSize: 12, color: C.tx3 } }, "Less-used customer tools live here so the main screen stays clean.")),
+                React.createElement(Tag, { text: "Tools", color: C.g600, sm: true })),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 12 } },
+                React.createElement(CustomerToolButton, { icon: "⭐", label: `VIP / Repeat (${counts.vip})`, onClick: () => setTab("vip") }),
+                React.createElement(CustomerToolButton, { icon: "✅", label: `Past Orders (${counts.past})`, onClick: () => setTab("past") }),
+                React.createElement(CustomerToolButton, { icon: "📊", label: "Customer Insights", onClick: () => setTab("insights") }),
+                React.createElement(CustomerToolButton, { icon: "🗺️", label: "Revenue By State", onClick: () => setTab("states") }),
+                React.createElement(CustomerToolButton, { icon: "🌐", label: "Import Website Orders", onClick: () => setWebsiteImportOpen(true) }),
+                React.createElement(CustomerToolButton, { icon: "⬇️", label: "Export Customers", onClick: exportCustomers }),
+                React.createElement(CustomerToolButton, { icon: "🪴", label: "Export Plants Bought", onClick: exportCustomerPurchases }),
+                React.createElement(CustomerToolButton, { icon: "📦", label: "Export Open Orders", onClick: () => exportCustomerOrders("open") }))),
+        React.createElement(Row, { between: true, wrap: true, center: true, gap: 8, style: { marginBottom: 12 } },
+            React.createElement(Row, { gap: 7, wrap: true, center: true },
+                React.createElement(Tag, { text: `Viewing: ${tabTitle}`, color: C.g600, sm: true }),
+                React.createElement(Tag, { text: `${shownCustomers.length} customer(s)`, color: C.blue, sm: true })),
+            tab !== "all" && React.createElement(Btn, { sz: "sm", v: "outline", onClick: () => setTab("all") }, "Back To All Customers")),
         !["states", "insights"].includes(tab) && React.createElement("div", null,
             React.createElement("div", { style: { fontFamily: F.display, fontWeight: 800, color: C.g900, fontSize: 16, marginBottom: 12 } }, tabTitle),
             React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 9 } },
@@ -44987,7 +45527,7 @@ function App() {
                 page === "scanlabel" && React.createElement(ScanLabelFindPlantCenter, { plants: plants, setPlants: setPlants, user: user, addAudit: addAudit, setPage: navigate, settings: settings }),
                 page === "photosprint" && React.createElement(FastPhotoSprintCenter, { plants: plants, setPlants: setPlants, user: user, addAudit: addAudit, setPage: navigate }),
                 page === "sellthru" && CAN.seeReports(user.role) && React.createElement(SellThrough, { plants: plants, nurseries: nurseries, setPage: navigate }),
-                page === "liveshow" && React.createElement(ShowCommandCenter, { key: "show-live", initialTab: "live", plants: plants, setPlants: setPlants, user: user, addAudit: addAudit, settings: settings, setSettings: setSettings, users: users, phase3Config: phase3Config, phase4Routes: phase4Routes, setPage: navigate, setCasdCerts: setCasdCerts }),
+                page === "liveshow" && React.createElement(ShowCommandCenter, { key: "show-pull-list", initialTab: "prep", plants: plants, setPlants: setPlants, user: user, addAudit: addAudit, settings: settings, setSettings: setSettings, users: users, phase3Config: phase3Config, phase4Routes: phase4Routes, setPage: navigate, setCasdCerts: setCasdCerts }),
                 page === "showbuilder" && React.createElement(ShowCommandCenter, { key: "show-build", initialTab: "build", plants: plants, setPlants: setPlants, user: user, addAudit: addAudit, settings: settings, setSettings: setSettings, users: users, phase3Config: phase3Config, phase4Routes: phase4Routes, setPage: navigate, setCasdCerts: setCasdCerts }),
                 page === "showimport" && React.createElement(ShowCommandCenter, { key: "show-import", initialTab: "import", plants: plants, setPlants: setPlants, user: user, addAudit: addAudit, settings: settings, setSettings: setSettings, users: users, phase3Config: phase3Config, phase4Routes: phase4Routes, setPage: navigate, setCasdCerts: setCasdCerts }),
                 page === "customers" && React.createElement(Customers, { plants: plants, setPlants: setPlants, addAudit: addAudit, user: user, setPage: navigate }),
