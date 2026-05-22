@@ -118,6 +118,7 @@ Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to
 <!-- V323 — Final Mobile/Desktop Boot Fix: wraps app scripts during dynamic boot so Supabase UMD globals cannot collide with app const names; prevents runInertScripts from executing twice; keeps mobile shell and data safe. -->
 <!-- V319 — Mobile Boot Repair:
 Stops the V293 startup repair screen from taking over iPhone, removes heavy PDF/Excel/barcode libraries from startup, adds a Supabase offline/local fallback if the CDN fails, shows a lightweight loading shell immediately, and reports the real boot error instead of looping restart buttons. No data deletion. No Supabase schema changes. -->
+<!-- V345 — Startup Token Fix: repairs invalid newline token from V344 alert string so the app mounts on mobile and desktop. Keeps CFF pot-size import, undo tools, show names, label exports, and number ledger intact. -->
 <link href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&amp;width=200" rel="apple-touch-icon"/>
 <link href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&amp;width=64" rel="icon" sizes="32x32" type="image/png"/>
 <link href="https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&amp;width=64" rel="shortcut icon"/>
@@ -19700,10 +19701,7 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
             return;
         const blockedHistorical = bulkRows.filter(r => r.duplicateHistoricalPlantNumber && !r.existingInApp);
         if (blockedHistorical.length) {
-            alert("Import stopped. These plant numbers were already used in old sold/dead/history records and can never be reused:
-
-" + blockedHistorical.slice(0, 30).map(r => r.plantId || r.plantCode).join("
-"));
+            alert("Import stopped. These plant numbers were already used in old sold/dead/history records and can never be reused:\n\n" + blockedHistorical.slice(0, 30).map(r => r.plantId || r.plantCode).join("\n"));
             return;
         }
         const rows = bulkRows.map(({ _k, existingInApp, duplicateHistoricalPlantNumber, ...r }) => r);
