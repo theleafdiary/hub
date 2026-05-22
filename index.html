@@ -107,6 +107,7 @@ Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to
 <!-- V344 — CFF Pot Size + Undo + Show Names: Central Florida Ferns invoice prefixes 04/06/08 now auto-fill pot size and clean plant names, invoice/show imports get one-click undo for the current session, and show sales imports require/store a custom show title so two shows per day are easy to identify. -->
 <!-- V343 — Label Export + Number Ledger: adds always-visible desktop latest-invoice Labelife export buttons, removes visible escaped changelog text on iPhone, hardens every nursery code to keep continuing after the highest used number, and blocks reused historical numbers in current inventory uploads. -->
 <!-- V342 — Hard Plant Number Lock: Central Florida Ferns uses CFF, selected nursery source wins, plant numbers continue after the highest current/history/ledger number, and every save updates a never-reuse number ledger. -->
+<!-- V346 — Central Florida Ferns invoice pot-size fix: reads leading 04/06/08 item-description and item-code prefixes as 4/6/8 inch pots before defaulting to 4 inch. -->
 <!-- V330 — Shipping State Docs Repair: lazy-loads PDFLib for manual/missing document generation, scans saved sold/shipment records for CA/AZ/TX/LA/HI docs, fixes Generate Missing Docs doing nothing, and uses safer download anchors. -->
 <!-- V340 — Show Import Missing Cost Fix: show sales import now supports mostly-matched imports with missing inventory rows, requires easy cost entry for missing plants before saving, preserves plant number formatting, and uses stricter exact-code matching so PC-35 cannot be matched to PC-035. -->
 <!-- V338 — Simple More / Settings Cleanup: reduces owner Settings to Start, Team, Backup, Checkup, and More Tools; moves AI/security/docs/repair behind More Owner Tools; keeps Supabase, imports, shipping docs, and saved data logic unchanged. -->
@@ -9409,28 +9410,77 @@ function phase101RowText(p = {}) {
 function ldIsCffNurseryCode(code = "") {
     return String(code || "").trim().toUpperCase() === "CFF";
 }
+function ldCffReadableText(v = "") {
+    return String(v || "").replace(/\u00a0/g, " ").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
+}
+function ldCffLeadingPotMatch(raw = "") {
+    const text = ldCffReadableText(raw);
+    if (!text)
+        return null;
+    // Central Florida Ferns item descriptions start with the pot code: 04, 06, or 08.
+    // Examples from CFF invoice: "06 ALOCASIA Polly", "04 PHILODENDRON Billietiae", "08 SCINDAPSUS Exotica H/B".
+    // Item codes may also be glued together like "06ALOCPOLLY", so allow the two digits before letters.
+    const m = text.match(/^\s*(04|06|08)(?:\b|(?=[A-Z])|[\s\-:/]+)(.*)$/i);
+    if (!m)
+        return null;
+    const code = String(m[1] || "").padStart(2, "0");
+    const potMap = { "04": '4"', "06": '6"', "08": '8"' };
+    let cleaned = String(m[2] || "").replace(/^[-:/\s]+/, "").trim();
+    // Do not turn glued product codes like ALOCPOLLY into plant names. Use them for pot size only.
+    const looksLikeItemCodeOnly = cleaned && !/\s/.test(cleaned) && /^[A-Z0-9]+$/i.test(cleaned);
+    if (looksLikeItemCodeOnly)
+        cleaned = "";
+    return { code, potSize: potMap[code] || "", sourceText: code, cleanedName: cleaned };
+}
+function ldCffCorrectPlantName(name = "") {
+    let n = ldCffReadableText(name);
+    if (!n)
+        return n;
+    // CFF OCR corrections seen on their invoice format.
+    n = n.replace(/\bMONCORCO\b/ig, "Morocco");
+    n = n.replace(/\bMOROCCO\b/ig, "Morocco");
+    n = n.replace(/\bRYUKIE\b/ig, "Frydek");
+    n = n.replace(/\bFRYDEKVAR\b/ig, "Frydek Variegated");
+    n = n.replace(/\bFRYDEK\s+VAR\b/ig, "Frydek Variegated");
+    if (/^regal shield$/i.test(n))
+        n = "Alocasia Regal Shield";
+    return n.replace(/\s+/g, " ").trim();
+}
 function ldCffInvoicePrefixInfo(p = {}, nurseryCode = "") {
     if (!ldIsCffNurseryCode(nurseryCode)) return null;
-    const fields = [p.lineText, p.rawText, p.description, p.pasteLine, p.item, p.productCode, p.sku, p.name].filter(Boolean).map(v => String(v || ""));
-    for (const raw of fields) {
-        const text = raw.replace(/ /g, " ").trim();
-        const m = text.match(/^\s*(0[468]|04|06|08)[\s\-:/]*(.+)?$/i);
-        if (m) {
-            const code = m[1].padStart(2, "0");
-            const potMap = { "04": '4"', "06": '6"', "08": '8"' };
-            const cleaned = String(m[2] || "").replace(/^[-:/\s]+/, "").trim();
-            return { code, potSize: potMap[code] || "", sourceText: code, cleanedName: cleaned };
-        }
+    // Read pot size from CFF item description first, then item code/SKU as backup.
+    const preferredFields = [
+        p.itemDescription, p.description, p.lineText, p.rawText, p.pasteLine, p.name,
+        p.productName, p.title, p.itemName
+    ].filter(Boolean).map(v => String(v || ""));
+    const backupCodeFields = [
+        p.itemCode, p.productCode, p.sku, p.item, p.code, p.barcode
+    ].filter(Boolean).map(v => String(v || ""));
+    for (const raw of preferredFields) {
+        const info = ldCffLeadingPotMatch(raw);
+        if (info && info.potSize)
+            return info;
+    }
+    for (const raw of backupCodeFields) {
+        const info = ldCffLeadingPotMatch(raw);
+        if (info && info.potSize)
+            return { ...info, cleanedName: "" };
     }
     return null;
 }
 function ldCleanCffInvoicePlantName(name = "", p = {}, nurseryCode = "") {
     if (!ldIsCffNurseryCode(nurseryCode)) return String(name || "");
-    const direct = String(name || "").replace(/ /g, " ").trim();
-    const directMatch = direct.match(/^\s*(0[468]|04|06|08)[\s\-:/]*(.+)$/i);
-    if (directMatch && directMatch[2]) return directMatch[2].trim();
-    const info = ldCffInvoicePrefixInfo({ ...p, name }, nurseryCode);
-    return (info && info.cleanedName) ? info.cleanedName : direct;
+    const direct = ldCffReadableText(name);
+    const directMatch = ldCffLeadingPotMatch(direct);
+    if (directMatch && directMatch.cleanedName)
+        return ldCffCorrectPlantName(directMatch.cleanedName);
+    const fields = [p.itemDescription, p.description, p.lineText, p.rawText, p.pasteLine, p.name, p.productName, p.title, p.itemName].filter(Boolean);
+    for (const raw of fields) {
+        const info = ldCffLeadingPotMatch(raw);
+        if (info && info.cleanedName)
+            return ldCffCorrectPlantName(info.cleanedName);
+    }
+    return ldCffCorrectPlantName(direct);
 }
 function phase101InferPotSize(p = {}, nurseryCode = "*", settings = {}) {
     const training = phase101GetTraining(settings);
@@ -19075,7 +19125,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
             const receiptLineTotalBeforeDiscount = +p.originalLineTotal || (originalCostBeforeDiscount * Math.max(1, +p.quantity || 1));
             const receiptLineTotalAfterDiscount = +p.discountedLineTotal || (cost * Math.max(1, +p.quantity || 1));
             const potGuess = phase101InferPotSize(p, sourceCode, settings);
-            const cleanPlantName = ldCleanCffInvoicePlantName(p.name || p.description || p.lineText || "", p, sourceCode);
+            const cleanPlantName = ldCleanCffInvoicePlantName(p.itemDescription || p.description || p.lineText || p.rawText || p.name || "", p, sourceCode);
             const intakeNotesBase = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.ruleId === "cff-leading-pot-code" ? `Central Florida Ferns invoice prefix ${potGuess.source} set pot size to ${potGuess.potSize}.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
             const pageNote = p._pdfPage ? `PDF page ${p._pdfPage}.` : "";
             const pasteNote = p.pasteRow ? `Pasted row ${p.pasteRow}.` : "";
