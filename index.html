@@ -14,6 +14,7 @@
 <meta content="no-referrer" name="referrer"/>
 <title>LEAF DIARY - BUSINESS HUB · V339 Final QA</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
+<!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
 <!-- V239 — Phase 8 Settings Security QA: consolidates Settings, Security, AI, Cloud, Developer Tools, QA, release readiness, and SaaS production checklist into one owner command center. -->
 <!-- V238 — Phase 7 Money Command Center: consolidates receipts, expenses, bills, payroll, commissions, cash flow, show profit, reports, tax, goals, Buy Smart, and charts into one mobile Money workflow. -->
@@ -18894,6 +18895,134 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
     const [lastSavedImport, setLastSavedImport] = useState(null);
     const fRef = useRef(), cRef = useRef(), pdfRef = useRef();
     const purchaseTraining = phase101GetTraining(settings);
+    const LD_V352_INVOICE_WIP_KEY = "leafDiaryInvoiceUploadWipV352";
+    const invoiceWipRestoredRef = useRef(false);
+    const invoiceWipStateRef = useRef({});
+    const clearInvoiceWip = () => {
+        try { localStorage.removeItem(LD_V352_INVOICE_WIP_KEY); } catch (e) { }
+    };
+    const invoiceWipHasWork = (d) => {
+        const x = d || {};
+        return !!(x.step && x.step !== "upload") || !!x.img || safeArray(x.rows).length || !!x.parsed || !!String(x.pasteText || "").trim();
+    };
+    const shrinkInvoiceImageForWip = (v) => {
+        const str = String(v || "");
+        return str.length && str.length < 750000 ? str : "";
+    };
+    const writeInvoiceWipNow = (reason = "auto") => {
+        try {
+            const d = invoiceWipStateRef.current || {};
+            if (!invoiceWipHasWork(d)) {
+                localStorage.removeItem(LD_V352_INVOICE_WIP_KEY);
+                return;
+            }
+            const lightPages = safeArray(d.invoicePages).map(shrinkInvoiceImageForWip).filter(Boolean).slice(0, 2);
+            const draft = {
+                version: "V352",
+                reason,
+                savedAt: new Date().toISOString(),
+                page: "upload",
+                step: d.step || "upload",
+                img: shrinkInvoiceImageForWip(d.img),
+                invoicePages: lightPages,
+                invoiceRawText: d.invoiceRawText || "",
+                parsed: d.parsed || null,
+                rows: safeArray(d.rows),
+                selN: d.selN || null,
+                pasteText: d.pasteText || "",
+                expectedPlantCount: d.expectedPlantCount || "",
+                expectedReceiptTotal: d.expectedReceiptTotal || "",
+                pasteSummary: d.pasteSummary || null,
+                paymentMethodOverride: d.paymentMethodOverride || "",
+                cardLast4Override: d.cardLast4Override || "",
+                scrollY: window.scrollY || 0
+            };
+            localStorage.setItem(LD_V352_INVOICE_WIP_KEY, JSON.stringify(draft));
+            localStorage.setItem("leafDiaryLastPage", "upload");
+        }
+        catch (e) {
+            try { phase1LogError("v352_invoice_wip_save", e); } catch (_) { }
+        }
+    };
+    useEffect(() => {
+        invoiceWipStateRef.current = { step, img, invoicePages, invoiceRawText, parsed, rows, selN, pasteText, expectedPlantCount, expectedReceiptTotal, pasteSummary, paymentMethodOverride, cardLast4Override };
+        const t = setTimeout(() => writeInvoiceWipNow("state-change"), 350);
+        return () => clearTimeout(t);
+    }, [step, img, invoicePages, invoiceRawText, parsed, rows, selN, pasteText, expectedPlantCount, expectedReceiptTotal, pasteSummary, paymentMethodOverride, cardLast4Override]);
+    useEffect(() => {
+        if (invoiceWipRestoredRef.current || !safeArray(nurseries).length)
+            return;
+        invoiceWipRestoredRef.current = true;
+        try {
+            const raw = localStorage.getItem(LD_V352_INVOICE_WIP_KEY);
+            if (!raw)
+                return;
+            const draft = JSON.parse(raw);
+            const ageMs = Date.now() - new Date(draft.savedAt || 0).getTime();
+            if (!draft || ageMs > 1000 * 60 * 60 * 24) {
+                localStorage.removeItem(LD_V352_INVOICE_WIP_KEY);
+                return;
+            }
+            if (!invoiceWipHasWork(draft))
+                return;
+            const mins = Math.max(1, Math.round(ageMs / 60000));
+            const rowCount = safeArray(draft.rows).length;
+            const label = rowCount ? `${rowCount} plant row(s)` : "unfinished invoice work";
+            const ok = window.confirm(`Restore unfinished plant invoice?\n\nLeaf Diary saved ${label} about ${mins} minute(s) ago before the browser refreshed or switched tabs.\n\nChoose OK to restore it, or Cancel to discard the draft.`);
+            if (!ok) {
+                localStorage.removeItem(LD_V352_INVOICE_WIP_KEY);
+                return;
+            }
+            const savedN = draft.selN || {};
+            const matchN = safeArray(nurseries).find(n => String(n.id || "") === String(savedN.id || "") || String(n.code || "").toUpperCase() === String(savedN.code || "").toUpperCase() || String(n.name || "").toLowerCase() === String(savedN.name || "").toLowerCase());
+            if (matchN)
+                setSelN(matchN);
+            else if (savedN && (savedN.name || savedN.code))
+                setSelN(savedN);
+            setImg(draft.img || (safeArray(draft.invoicePages)[0] || null));
+            setInvoicePages(safeArray(draft.invoicePages));
+            setInvoiceRawText(draft.invoiceRawText || "");
+            setParsed(draft.parsed || null);
+            setRows(safeArray(draft.rows));
+            setPasteText(draft.pasteText || "");
+            setExpectedPlantCount(draft.expectedPlantCount || "");
+            setExpectedReceiptTotal(draft.expectedReceiptTotal || "");
+            setPasteSummary(draft.pasteSummary || null);
+            setPaymentMethodOverride(draft.paymentMethodOverride || "");
+            setCardLast4Override(draft.cardLast4Override || "");
+            setStep(draft.step || (safeArray(draft.rows).length ? "review" : "upload"));
+            setErr("Restored unfinished invoice work from this device. Review everything before saving.");
+            setTimeout(() => { try { window.scrollTo(0, +draft.scrollY || 0); } catch (e) { } }, 600);
+        }
+        catch (e) {
+            try { phase1LogError("v352_invoice_wip_restore", e); } catch (_) { }
+        }
+    }, [nurseries]);
+    useEffect(() => {
+        const saveForHide = () => writeInvoiceWipNow("page-hidden");
+        const onVisibility = () => { if (document.visibilityState === "hidden") saveForHide(); };
+        const onBeforeUnload = (e) => {
+            writeInvoiceWipNow("before-unload");
+            const d = invoiceWipStateRef.current || {};
+            if (invoiceWipHasWork(d) && d.step !== "done") {
+                e.preventDefault();
+                e.returnValue = "";
+                return "";
+            }
+        };
+        document.addEventListener("visibilitychange", onVisibility);
+        window.addEventListener("pagehide", saveForHide);
+        window.addEventListener("freeze", saveForHide);
+        window.addEventListener("beforeunload", onBeforeUnload);
+        const interval = setInterval(() => writeInvoiceWipNow("interval"), 8000);
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibility);
+            window.removeEventListener("pagehide", saveForHide);
+            window.removeEventListener("freeze", saveForHide);
+            window.removeEventListener("beforeunload", onBeforeUnload);
+            clearInterval(interval);
+        };
+    }, []);
     useEffect(() => { if (nurseries.length && !selN)
         setSelN(nurseries[0]); }, [nurseries]);
     const confirmInvoiceNursery = (sourceLabel = "this plant invoice") => {
@@ -19608,6 +19737,7 @@ If the source/code or number range is wrong, press Cancel.`))
         }
         setLastSavedImport({ importBatchId, expenseId: invoiceExpenseId, label: importBatchLabel, nurseryCode: saveSourceCode || "", nurseryName: saveSourceName || "", count: newPlantRows.length, plantIds: newPlantRows.map(p => p.plantId || p.plantCode || "").filter(Boolean), ids: newPlantRows.map(p => p.id) });
         addAudit({ action: `Invoice uploaded — ${rows.length} plants from ${saveSourceName} · label batch ready · receipt total ${$((parsed === null || parsed === void 0 ? void 0 : parsed.total) || lineTotal)}${finalPaymentMethod ? ` · ${finalPaymentMethod}${finalCardLast4 ? " ending " + finalCardLast4 : ""}` : ""}${(parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) ? ` · ${parsed.receiptProfileLabel}` : ""}`, user: user.name, page: "Invoice Upload" });
+        clearInvoiceWip();
         setStep("done");
     };
     const undoLastInvoiceImport = () => {
@@ -19629,7 +19759,7 @@ Important: the plant numbers will remain skipped forever so they are never reuse
         alert("Invoice upload undone. The plants and plant-invoice expense were removed. Those plant numbers are still skipped forever and will not be reused.");
         reset();
     };
-    const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setInvoiceRawText(""); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); setPaymentMethodOverride(""); setCardLast4Override(""); };
+    const reset = () => { clearInvoiceWip(); setStep("upload"); setImg(null); setInvoicePages([]); setInvoiceRawText(""); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); setPaymentMethodOverride(""); setCardLast4Override(""); };
     if (!nurseries.length)
         return React.createElement("div", { style: { padding: "60px", textAlign: "center", background: C.bg, minHeight: "100vh" } },
             React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "\uD83C\uDFEA"),
@@ -45603,6 +45733,31 @@ function App() {
     useEffect(() => {
         saveLS({ plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts });
     }, [plants, expenses, expenseReceipts, purchaseOrders, refunds, bundles, timecards, auditLog, bills, nurseries, users, settings, casdCerts]);
+    /* V352: save current page/data immediately when the browser backgrounds the app.
+       This cannot stop iOS/Chrome from discarding a tab, but it stops data loss by writing a local backup before that happens. */
+    useEffect(() => {
+        const saveBeforeBackground = () => {
+            try {
+                const data = buildCurrentAppData();
+                const nextSettings = { ...safeObject(data.settings), lastPage: page, lastWipSaveAt: new Date().toISOString() };
+                saveLS({ ...data, settings: nextSettings });
+                localStorage.setItem("leafDiaryLastPage", page || "today");
+                localStorage.setItem("leafDiaryLastBackgroundSaveAt", new Date().toISOString());
+            }
+            catch (e) {
+                try { phase1LogError("v352_background_save", e); } catch (_) { }
+            }
+        };
+        const onVisibility = () => { if (document.visibilityState === "hidden") saveBeforeBackground(); };
+        document.addEventListener("visibilitychange", onVisibility);
+        window.addEventListener("pagehide", saveBeforeBackground);
+        window.addEventListener("freeze", saveBeforeBackground);
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibility);
+            window.removeEventListener("pagehide", saveBeforeBackground);
+            window.removeEventListener("freeze", saveBeforeBackground);
+        };
+    }, [buildCurrentAppData, page]);
     /* Load fonts */
     useEffect(() => {
         const l = document.createElement("link");
