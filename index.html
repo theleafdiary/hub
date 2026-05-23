@@ -116,6 +116,7 @@ Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to
 <!-- V350 — Invoice price lock + Plants crash guard: stores the exact price typed on invoice review, exports Labelife CSV from exact labelPrice, adds latest-batch .88 price repair/undo, and defines a global plantCodeOf fallback so footer Plants cannot crash. -->
 <!-- V353 — Photo Help Cleanup: removes the MacBook + iPhone camera reminder cards from the photo/scan pages and moves those instructions into the top info tab. Code128 label workflow kept. -->
 <!-- V330 — Shipping State Docs Repair: lazy-loads PDFLib for manual/missing document generation, scans saved sold/shipment records for CA/AZ/TX/LA/HI docs, fixes Generate Missing Docs doing nothing, and uses safer download anchors. -->
+<!-- V363 — Paste Inventory Parser Fix: supports plain cash-purchase lines like Plant qty 7 cost 3.08 sell 12.88, preserves pot-size sections, exact unit cost, and suggested sell price. -->
 <!-- V340 — Show Import Missing Cost Fix: show sales import now supports mostly-matched imports with missing inventory rows, requires easy cost entry for missing plants before saving, preserves plant number formatting, and uses stricter exact-code matching so PC-35 cannot be matched to PC-035. -->
 <!-- V338 — Simple More / Settings Cleanup: reduces owner Settings to Start, Team, Backup, Checkup, and More Tools; moves AI/security/docs/repair behind More Owner Tools; keeps Supabase, imports, shipping docs, and saved data logic unchanged. -->
 <!-- V339 — Final Mobile/Desktop QA: updates the Workflow Test Checklist for the simplified Home, Plants, Shows, Shipping, Customers, Money, and More flow; adds no new backend writes and keeps Supabase/import/state-doc logic unchanged. -->
@@ -19382,7 +19383,30 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         const direct = [];
         const prices = [];
         const names = [];
+        let currentPastePotSize = "";
         const skipPriceContext = /subtotal|total|tax|off|discount|mastercard|visa|cashier|payment|auth|reference/i;
+        const normalizePastedPotSize = value => {
+            const m = String(value || "").match(/(\d{1,2})/);
+            return m ? `${parseInt(m[1], 10)}"` : "";
+        };
+        const pushManualInventoryLine = (name, qty, unitCost, suggestedPrice, sourceLine) => {
+            const cleanName = cleanPasteLine(String(name || "").replace(/^[-•*]+\s*/, ""));
+            const q = Math.max(1, parseInt(qty, 10) || 1);
+            const costEach = Math.round((+unitCost || 0) * 100) / 100;
+            const sellEach = Math.round((+suggestedPrice || 0) * 100) / 100;
+            if (!cleanName || !(costEach > 0))
+                return;
+            direct.push({
+                name: cleanName,
+                price: Math.round(costEach * q * 100) / 100,
+                quantity: q,
+                costPerPlant: costEach,
+                suggestedPrice: sellEach,
+                potSize: currentPastePotSize || "",
+                itemDiscount: 0,
+                sourceLine
+            });
+        };
         const itemDiscountRe = /^\$?\s*([0-9][0-9,]*(?:\.\d{2})?)\s*Off\s*-?\$?\s*([0-9][0-9,]*(?:\.\d{2})?)\s*$/i;
         const pushDirectLine = (name, price, sourceLine) => {
             if (!name || !(+price > 0))
@@ -19390,6 +19414,30 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
             direct.push({ name: cleanPasteLine(name), price: Math.round((+price || 0) * 100) / 100, itemDiscount: 0, sourceLine });
         };
         for (const line of lines) {
+            const potSection = line.match(/(\d{1,2})\s*(?:inch|in\.?|["”])\s*(?:pots?|pot)?/i);
+            if (potSection && /(?:below|all|pots?|pot|inch|in\.?|["”])/i.test(line) && !/(?:qty|quantity|cost|sell|price)/i.test(line)) {
+                currentPastePotSize = normalizePastedPotSize(potSection[1]);
+                continue;
+            }
+            const manualInventoryLine = line.match(/^(.+?)\s+(?:qty|quantity)\s*[:#-]?\s*(\d+)\s+(?:cost|unit\s*cost|unit)\s*[:$-]?\s*\$?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s+(?:sell|selling|suggested\s*price|sale\s*price|price)\s*[:$-]?\s*\$?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$/i);
+            if (manualInventoryLine) {
+                pushManualInventoryLine(manualInventoryLine[1], manualInventoryLine[2], moneyFromText(manualInventoryLine[3]), moneyFromText(manualInventoryLine[4]), line);
+                continue;
+            }
+            const tabInventoryLine = line.split(/	+/).map(x => cleanPasteLine(x));
+            if (tabInventoryLine.length >= 5 && !/^plant\s*name$/i.test(tabInventoryLine[0] || "")) {
+                const qTab = parseInt(tabInventoryLine[2], 10);
+                const cTab = moneyFromText(tabInventoryLine[3]);
+                const sellTab = moneyFromText(tabInventoryLine[5] || tabInventoryLine[4]);
+                const potTab = normalizePastedPotSize(tabInventoryLine[1]);
+                if ((tabInventoryLine[0] || "") && qTab > 0 && cTab > 0) {
+                    const previousPot = currentPastePotSize;
+                    currentPastePotSize = potTab || currentPastePotSize;
+                    pushManualInventoryLine(tabInventoryLine[0], qTab, cTab, sellTab, line);
+                    currentPastePotSize = previousPot;
+                    continue;
+                }
+            }
             const itemDiscount = line.match(itemDiscountRe);
             if (itemDiscount) {
                 // Perfect Choice Clover receipt: "$5.00 Off-$5.00" belongs to the previous plant line only.
@@ -19427,13 +19475,15 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         const rawPlants = [];
         all.forEach((item, idx) => {
             const q = parsePlantQuantity(item.name);
-            const qty = Math.max(1, q.qty || 1);
-            const lineTotal = Math.round((+item.price || 0) * 100) / 100;
-            const originalLineTotalBeforeItemDiscount = Math.round(((+item.price || 0) + (+item.itemDiscount || 0)) * 100) / 100;
-            const originalCostEach = Math.round((lineTotal / qty) * 100) / 100;
+            const qty = Math.max(1, parseInt(item.quantity, 10) || q.qty || 1);
+            const lineTotal = Math.round((+item.price || ((+item.costPerPlant || 0) * qty)) * 100) / 100;
+            const originalLineTotalBeforeItemDiscount = Math.round((lineTotal + (+item.itemDiscount || 0)) * 100) / 100;
+            const originalCostEach = Math.round(((+item.costPerPlant || (lineTotal / qty)) || 0) * 100) / 100;
             rawPlants.push({
                 name: q.name,
                 quantity: qty,
+                potSize: item.potSize || "",
+                suggestedPrice: +item.suggestedPrice || 0,
                 originalLineTotalBeforeItemDiscount,
                 itemDiscount: +item.itemDiscount || 0,
                 originalLineTotal: lineTotal,
@@ -19513,7 +19563,8 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
             const pForRules = cffLineInfo ? { ...p, itemDescription: cffLineInfo.itemDescription, itemCode: cffLineInfo.itemCode, _cffLineInfo: cffLineInfo, _sourceInvoiceText: cffRawText } : { ...p, _sourceInvoiceText: cffRawText };
             return Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
             ctr++;
-            const cost = +(Array.isArray(p.unitCosts) ? p.unitCosts[qi] : p.costPerPlant) || 0, sp = sprice(cost);
+            const cost = +(Array.isArray(p.unitCosts) ? p.unitCosts[qi] : p.costPerPlant) || 0;
+            const sp = (+p.suggestedPrice > 0 ? Math.round(+p.suggestedPrice * 100) / 100 : sprice(cost));
             const originalCostBeforeDiscount = +p.originalCostPerPlant || cost;
             const receiptDiscountRate = +p.discountRate || 0;
             const receiptDiscountPerPlant = +p.discountPerPlant || 0;
