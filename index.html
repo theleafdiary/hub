@@ -12,7 +12,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V339 Final QA</title>
+<title>LEAF DIARY - BUSINESS HUB · V354 Show Import Status</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
@@ -105,6 +105,7 @@
 <!-- V317 — Mobile Emergency Customer Footer Rollback: starts from the last stable mobile-safe file, adds Customers as a direct footer tab, keeps Reports in the menu, and intentionally removes the platform-logo badge patch until iPhone loading is confirmed. No Supabase schema changes. No data deletion. -->
 <!-- V318 — Mobile Production Precompiled Boot:
 Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to Today, skips parsing oversized localStorage backups on mobile without deleting them, and keeps Customers footer link. No Supabase schema changes. No data deletion. -->
+<!-- V354 — Show Import Status: adds a clear recent show import status card so two-show days can confirm whether a Whatnot/Palmstreet show was already uploaded, with title, platform, imported time, sales count, gross, and file name. -->
 <!-- V344 — CFF Pot Size + Undo + Show Names: Central Florida Ferns invoice prefixes 04/06/08 now auto-fill pot size and clean plant names, invoice/show imports get one-click undo for the current session, and show sales imports require/store a custom show title so two shows per day are easy to identify. -->
 <!-- V343 — Label Export + Number Ledger: adds always-visible desktop latest-invoice Labelife export buttons, removes visible escaped changelog text on iPhone, hardens every nursery code to keep continuing after the highest used number, and blocks reused historical numbers in current inventory uploads. -->
 <!-- V342 — Hard Plant Number Lock: Central Florida Ferns uses CFF, selected nursery source wins, plant numbers continue after the highest current/history/ledger number, and every save updates a never-reuse number ledger. -->
@@ -38542,9 +38543,78 @@ Matched inventory plants will be put back to their exact previous records and mi
     const blockedImportAlerts = matched.filter(r => r.apply && !r.duplicate && r.blockedCustomerReviewRequired);
     const watchImportAlerts = matched.filter(r => r.apply && !r.duplicate && r.watchCustomerReviewRequired);
     const reviewImportAlerts = [...blockedImportAlerts, ...watchImportAlerts];
+    const showImportHistoryRows = (() => {
+        const rows = [];
+        const compactImportKey = v => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+        const safeDateMs = v => { const d = new Date(v || ""); return isNaN(d) ? 0 : d.getTime(); };
+        const addRow = r => {
+            const title = cleanText(r.showName || r.showTitle || r.showImportName || r.importName || r.fileName || r.sourceFileName || "Unnamed Show");
+            const importedAt = r.importedAt || r.savedAt || r.createdAt || r.importedPreviewAt || "";
+            const key = compactImportKey([title, r.platform || "", r.fileName || r.sourceFileName || "", importedAt].join("|"));
+            if (!key || rows.some(x => x.key === key)) return;
+            rows.push({
+                key,
+                title,
+                platform: cleanText(r.platform || "Show"),
+                importedAt,
+                fileName: cleanText(r.fileName || r.sourceFileName || ""),
+                salesCount: +(r.selectedSales || r.salesCount || r.validSales || r.plantCount || r.count || 0),
+                matched: +(r.matchedInventory || r.matchedAdded || 0),
+                missing: +(r.unmatched || r.historicalAdded || 0),
+                duplicates: +(r.duplicateSkipped || r.duplicates || 0),
+                gross: money(r.grossSales || r.revenue || r.totalSales || 0),
+                importedBy: cleanText(r.importedBy || r.createdBy || "")
+            });
+        };
+        safeArray(settings && settings.showImportAudits).forEach(addRow);
+        const grouped = new Map();
+        safeArray(plants).forEach(p => {
+            const status = String((p && p.status) || "").toLowerCase();
+            if (status !== "sold") return;
+            const title = cleanText(p.showName || p.showTitle || p.showImportName || p.liveShowName || "");
+            const importedAt = p.importedAt || p.soldAt || p.saleDateTime || "";
+            const file = cleanText(p.sourceFileName || p.importFileName || "");
+            if (!title && !file && !importedAt) return;
+            const key = compactImportKey([title || file || "Imported Show", p.platform || "", file, String(importedAt || p.soldDate || "").slice(0, 10)].join("|"));
+            if (!key) return;
+            const cur = grouped.get(key) || { showName: title || file || "Imported Show", platform: p.platform || "", sourceFileName: file, importedAt, selectedSales: 0, grossSales: 0, matchedInventory: 0, unmatched: 0, importedBy: p.addedBy || "" };
+            cur.selectedSales += 1;
+            cur.grossSales += money(p.salePrice || p.suggestedPrice || p.price || 0);
+            if (p.historicalImport || p.needsReview) cur.unmatched += 1; else cur.matchedInventory += 1;
+            if (safeDateMs(importedAt) > safeDateMs(cur.importedAt)) cur.importedAt = importedAt;
+            grouped.set(key, cur);
+        });
+        Array.from(grouped.values()).forEach(addRow);
+        return rows.sort((a, b) => safeDateMs(b.importedAt) - safeDateMs(a.importedAt)).slice(0, 12);
+    })();
+    const showImportTimeText = v => {
+        const d = new Date(v || "");
+        if (!v || isNaN(d)) return "Time not saved";
+        return d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    };
     return React.createElement("div", { style: { padding: "14px 14px 90px", background: C.bg, minHeight: "100vh" } },
         React.createElement(SHdr, { icon: "\uD83D\uDCE6", title: "Import Show Sales", sub: "Upload Palmstreet/Whatnot sales. Old files can import as sold sale records even without inventory matches." }),
         step === "paste" && React.createElement("div", null,
+            React.createElement(Card, { style: { marginBottom: 14, border: `2px solid ${showImportHistoryRows.length ? C.g300 : C.gold}`, background: showImportHistoryRows.length ? C.g50 : C.goldBg } },
+                React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
+                    React.createElement("div", null,
+                        React.createElement("div", { style: { fontFamily: F.display, fontWeight: 950, color: C.g900, fontSize: 20 } }, "✅ Show Upload Status"),
+                        React.createElement("div", { style: { color: C.tx2, fontSize: 12, lineHeight: 1.45, marginTop: 3 } }, showImportHistoryRows.length ? "If your show is listed below, it was already uploaded. Use the show title and time to match it to Whatnot/Palmstreet." : "No saved show imports found in this loaded data yet.")),
+                    React.createElement(Tag, { text: `${showImportHistoryRows.length} recent`, color: showImportHistoryRows.length ? C.g600 : C.amber })),
+                showImportHistoryRows.length ? React.createElement("div", { style: { display: "grid", gap: 8, marginTop: 12 } },
+                    showImportHistoryRows.slice(0, 6).map(r => React.createElement("div", { key: r.key, style: { background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "10px 11px" } },
+                        React.createElement(Row, { between: true, center: true, wrap: true, gap: 8 },
+                            React.createElement("div", { style: { minWidth: 0, flex: 1 } },
+                                React.createElement("div", { style: { fontWeight: 950, color: C.g900, fontSize: 14, lineHeight: 1.2 } }, r.title),
+                                React.createElement("div", { style: { fontSize: 11, color: C.tx3, marginTop: 3, lineHeight: 1.35 } },
+                                    r.platform || "Show", " · ", showImportTimeText(r.importedAt), r.fileName ? ` · ${r.fileName}` : "", r.importedBy ? ` · by ${r.importedBy}` : "")),
+                            React.createElement("div", { style: { textAlign: "right", fontSize: 12, fontWeight: 900, color: C.g700, whiteSpace: "nowrap" } },
+                                r.salesCount || 0, " sales", React.createElement("br", null), $(r.gross || 0))),
+                        React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 } },
+                            React.createElement(Tag, { text: `${r.matched || 0} inventory sold`, color: C.g600 }),
+                            React.createElement(Tag, { text: `${r.missing || 0} missing/review`, color: r.missing ? C.amber : C.g600 }),
+                            r.duplicates ? React.createElement(Tag, { text: `${r.duplicates} duplicates skipped`, color: C.red }) : null))))
+                    : React.createElement("div", { style: { marginTop: 10, fontSize: 12, color: C.amber, fontWeight: 850, lineHeight: 1.45 } }, "After you upload and save a show, it will appear here with the exact title, import time, sales count, gross sales, and file name.")),
             React.createElement(Card, { style: { marginBottom: 14 } },
                 React.createElement("div", { style: { fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 } }, "Platform"),
                 React.createElement(Row, { gap: 8, style: { marginBottom: 16 } }, ["Palmstreet", "Whatnot"].map(p => React.createElement("button", { key: p, onClick: () => setPlatform(p), style: { padding: "10px 20px", borderRadius: 9, cursor: "pointer", fontFamily: F.body, fontSize: 14, fontWeight: 600, background: platform === p ? C.g700 : C.cardAlt, color: platform === p ? "#fff" : C.tx1, border: `1.5px solid ${platform === p ? C.g700 : C.bd}` } }, p))),
