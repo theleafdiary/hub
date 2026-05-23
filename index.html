@@ -110,7 +110,7 @@ Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to
 <!-- V346 — Central Florida Ferns invoice pot-size fix: reads leading 04/06/08 item-description and item-code prefixes as 4/6/8 inch pots before defaulting to 4 inch. -->
 <!-- V347 — Central Florida Ferns PDF/text row parser: preserves PDF text rows, scans every invoice field/snake_case key, maps 04/06/08 CFF row codes by plant name/cost before defaulting, and adds one-tap CFF size repair from invoice text. -->
 <!-- V348 — CFF hard source lock + price-safe Labelife export: if invoice text says Central Florida Ferns/CFF, the batch is forced to CFF, any wrong PP rows are renumbered before save, label CSV keeps .88 prices, and save blocks source-code mismatches before labels/accounting can be printed wrong. -->
-<!-- V349 — Invoice price lock + Plants crash guard: stores the exact price typed on invoice review, exports Labelife CSV from exact labelPrice, adds latest-batch .88 price repair/undo, and defines a global plantCodeOf fallback so footer Plants cannot crash. -->
+<!-- V350 — Invoice price lock + Plants crash guard: stores the exact price typed on invoice review, exports Labelife CSV from exact labelPrice, adds latest-batch .88 price repair/undo, and defines a global plantCodeOf fallback so footer Plants cannot crash. -->
 <!-- V330 — Shipping State Docs Repair: lazy-loads PDFLib for manual/missing document generation, scans saved sold/shipment records for CA/AZ/TX/LA/HI docs, fixes Generate Missing Docs doing nothing, and uses safer download anchors. -->
 <!-- V340 — Show Import Missing Cost Fix: show sales import now supports mostly-matched imports with missing inventory rows, requires easy cost entry for missing plants before saving, preserves plant number formatting, and uses stricter exact-code matching so PC-35 cannot be matched to PC-035. -->
 <!-- V338 — Simple More / Settings Cleanup: reduces owner Settings to Start, Team, Backup, Checkup, and More Tools; moves AI/security/docs/repair behind More Owner Tools; keeps Supabase, imports, shipping docs, and saved data logic unchanged. -->
@@ -18940,8 +18940,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                                     if (!lineBuckets[key]) lineBuckets[key] = [];
                                     lineBuckets[key].push({ x, str });
                                 });
-                                const pageText = Object.keys(lineBuckets).sort((a, b) => (+b) - (+a)).map(y => lineBuckets[y].sort((a, b) => a.x - b.x).map(item => item.str).join(" ")).join("
-");
+                                const pageText = Object.keys(lineBuckets).sort((a, b) => (+b) - (+a)).map(y => lineBuckets[y].sort((a, b) => a.x - b.x).map(item => item.str).join(" ")).join("\n");
                                 renderedPageTexts.push(pageText);
                             }
                             catch (_) {
@@ -18974,8 +18973,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                         if (!renderedPages.length)
                             throw new Error("No pages were found in this PDF.");
                         setInvoicePages(renderedPages);
-                        setInvoiceRawText(renderedPageTexts.filter(Boolean).join("
-"));
+                        setInvoiceRawText(renderedPageTexts.filter(Boolean).join("\n"));
                         setImg(renderedPages[0]);
                         if ((pdf.numPages || 1) > MAX_PDF_PAGES) {
                             setErr(`PDF has ${pdf.numPages} pages. First ${MAX_PDF_PAGES} pages loaded. Split the invoice if plants are after page ${MAX_PDF_PAGES}.`);
@@ -19308,8 +19306,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         };
     };
     const buildRowsFromInvoicePlants = result => {
-        const sourceRawText = [result.rawText, result.invoiceRawText, result._rawText, invoiceRawText, pasteText].filter(Boolean).join("
-");
+        const sourceRawText = [result.rawText, result.invoiceRawText, result._rawText, invoiceRawText, pasteText].filter(Boolean).join("\n");
         const sourceCode = ldResolvePurchaseNurseryCode(selN, result, sourceRawText);
         const sourceName = ldResolvePurchaseNurseryName(selN, result, sourceCode);
         const selectedCode = ldCanonicalNurseryCode(selN?.code || "", selN?.name || "");
@@ -19441,8 +19438,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                 scannedPageCount: pageResults.length,
                 pageErrors,
                 invoiceRawText: invoiceRawText || "",
-                rawText: [invoiceRawText, ...pageResults.map(r => r.rawText || r.raw_text || r.ocrText || r.ocr_text || r.fullText || r.full_text || r.invoiceText || r.invoice_text || r.text || "")].filter(Boolean).join("
-")
+                rawText: [invoiceRawText, ...pageResults.map(r => r.rawText || r.raw_text || r.ocrText || r.ocr_text || r.fullText || r.full_text || r.invoiceText || r.invoice_text || r.text || "")].filter(Boolean).join("\n")
             };
             setParsed(result);
             if (pageErrors.length)
@@ -19532,8 +19528,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         const finalCardLast4 = cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "";
         if (finalPaymentMethod && !/cash/i.test(finalPaymentMethod) && !/^\d{4}$/.test(String(finalCardLast4 || "")) && !confirm(`Payment method is ${finalPaymentMethod}, but card last 4 is missing. Save anyway?`))
             return;
-        const saveRawText = [invoiceRawText, parsed?.rawText, parsed?.invoiceRawText, parsed?._rawText, pasteText].filter(Boolean).join("
-");
+        const saveRawText = [invoiceRawText, parsed?.rawText, parsed?.invoiceRawText, parsed?._rawText, pasteText].filter(Boolean).join("\n");
         const saveSourceCode = ldResolvePurchaseNurseryCode(selN, parsed || {}, saveRawText);
         const saveSourceName = ldResolvePurchaseNurseryName(selN, parsed || {}, saveSourceCode);
         const rowSourceMismatch = rows.some(r => ldCanonicalNurseryCode(r.nurseryCode || ldPlantCodeFromId(r.plantId || r.plantCode || "")) !== saveSourceCode || ldPlantCodeFromId(r.plantId || r.plantCode || "") !== saveSourceCode);
