@@ -12,7 +12,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V354 Show Import Status</title>
+<title>LEAF DIARY - BUSINESS HUB · V355 Delete Show Import</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
@@ -106,6 +106,7 @@
 <!-- V318 — Mobile Production Precompiled Boot:
 Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to Today, skips parsing oversized localStorage backups on mobile without deleting them, and keeps Customers footer link. No Supabase schema changes. No data deletion. -->
 <!-- V354 — Show Import Status: adds a clear recent show import status card so two-show days can confirm whether a Whatnot/Palmstreet show was already uploaded, with title, platform, imported time, sales count, gross, and file name. -->
+<!-- V355 — Delete Show Import + Duplicate Lock: Show Upload Status now has owner/manager delete buttons to undo a mistaken duplicate show import, remove matching commission/audit records, reset matched inventory, remove missing historical rows, and block re-uploading the same show file/totals again. -->
 <!-- V344 — CFF Pot Size + Undo + Show Names: Central Florida Ferns invoice prefixes 04/06/08 now auto-fill pot size and clean plant names, invoice/show imports get one-click undo for the current session, and show sales imports require/store a custom show title so two shows per day are easy to identify. -->
 <!-- V343 — Label Export + Number Ledger: adds always-visible desktop latest-invoice Labelife export buttons, removes visible escaped changelog text on iPhone, hardens every nursery code to keep continuing after the highest used number, and blocks reused historical numbers in current inventory uploads. -->
 <!-- V342 — Hard Plant Number Lock: Central Florida Ferns uses CFF, selected nursery source wins, plant numbers continue after the highest current/history/ledger number, and every save updates a never-reuse number ledger. -->
@@ -37217,6 +37218,19 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
     const [lastShowUndo, setLastShowUndo] = useState(null);
     const selectedShowEmployee = commissionEmployees.find(u => u.id === showEmployeeId);
     const showImportTitle = () => String(customShowName || "").trim() || String(fileName || "").replace(/\.(csv|xlsx|xls)$/i, "").trim() || `${platform || "Show"} ${today()} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    const showImportDedupKey = v => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const showImportDateMs = v => { const d = new Date(v || ""); return isNaN(d) ? 0 : d.getTime(); };
+    const showImportSameFile = (aFile, bFile) => {
+        const a = showImportDedupKey(aFile);
+        const b = showImportDedupKey(bFile);
+        return !!a && !!b && a === b;
+    };
+    const showImportSameTitle = (aTitle, bTitle) => {
+        const a = showImportDedupKey(aTitle);
+        const b = showImportDedupKey(bTitle);
+        return !!a && !!b && a === b;
+    };
+    const showImportMoneyClose = (a, b) => Math.abs(money(a) - money(b)) < 0.01;
     const money = v => {
         if (v === null || v === undefined || v === "")
             return 0;
@@ -38273,9 +38287,26 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             setImportMsg(`Import stopped for safety: gross sales mismatch. Expected ${$(expectedSubmitGross)}, but submit calculated ${$(submitGrossCheck)}. Nothing was saved.`);
             return;
         }
+        const activeShowTitle = showImportTitle();
+        const activeImportPlatform = (selected[0] && selected[0].platform) || (matched[0] && matched[0].platform) || platform;
+        const selectedOrderKeys = selected.map(s => compactKey(s.saleImportKey || saleImportKey(s))).filter(Boolean);
+        const selectedOrderKeySet = new Set(selectedOrderKeys);
+        const existingShowDuplicate = safeArray(settings && settings.showImportAudits).find(a => {
+            const sameFile = showImportSameFile(a.fileName || a.sourceFileName, fileName || "pasted sales import");
+            const samePlatform = !a.platform || !activeImportPlatform || showImportDedupKey(a.platform) === showImportDedupKey(activeImportPlatform);
+            const sameCount = +(a.selectedSales || a.salesCount || a.validSales || 0) === selected.length;
+            const sameGross = showImportMoneyClose(a.grossSales || a.revenue || a.totalSales || 0, submitGrossCheck);
+            const sameTitle = showImportSameTitle(a.showName || a.showTitle || a.importName, activeShowTitle);
+            return samePlatform && sameCount && sameGross && (sameFile || sameTitle);
+        });
+        if (existingShowDuplicate) {
+            setImportMsg(`Import stopped: this show already appears in Show Upload Status (${existingShowDuplicate.showName || existingShowDuplicate.fileName || "uploaded show"}, ${existingShowDuplicate.importedBy ? `by ${existingShowDuplicate.importedBy}` : "already uploaded"}). Delete the mistaken duplicate from Show Upload Status first if this is wrong. Nothing was saved.`);
+            return;
+        }
         const matchedSales = [].concat.apply([], selected.map(expandSaleToMatchedUnits));
         const unmatchedSales = [].concat.apply([], selected.map(expandSaleToMissingUnits));
-        const activeImportPlatform = (selected[0] && selected[0].platform) || (matched[0] && matched[0].platform) || platform;
+        const showImportAuditId = uid();
+        const showImportImportedAt = new Date().toISOString();
         if (importMode === "exact" && unmatchedSales.length) {
             setImportMsg(`Import stopped: Exact Inventory Match Only is on, but ${unmatchedSales.length} sold plant(s) are not matched to current inventory. Switch to Import Matched + Add Missing Costs so matched plants are removed and missing plants get a cost box before saving.`);
             return;
@@ -38289,7 +38320,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                     ...p,
                     ...Object.fromEntries(Object.entries(cf).filter(([k, v]) => v && !p[k])),
                     sourceFileName: p.sourceFileName || fileName || "",
-                    importedAt: p.importedAt || new Date().toISOString()
+                    importedAt: p.importedAt || showImportImportedAt
                 };
             }
             if (!sale)
@@ -38344,7 +38375,14 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                 saleImportKey: sale.saleImportKey || saleImportKey(sale),
                 saleLegacyKey: sale.saleLegacyKey || saleLegacyKey(sale),
                 sourceFileName: fileName || "",
-                importedAt: new Date().toISOString(),
+                importedAt: showImportImportedAt,
+                importedBy: user.name,
+                showImportAuditId,
+                showImportUploadId: showImportAuditId,
+                showName: activeShowTitle,
+                showTitle: activeShowTitle,
+                showImportName: activeShowTitle,
+                showImportOriginalStatus: p.status || "In Stock",
                 soldDate: sale.saleDate || sale.orderDate || today(),
                 soldAt: sale.saleDateTime || sale.orderDateTime || sale.orderCreatedAt || "",
                 saleDateTime: sale.saleDateTime || sale.orderDateTime || sale.orderCreatedAt || "",
@@ -38373,7 +38411,7 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                 margin: marg(+p.cost, sale.price)
             };
         });
-        const historicalRows = unmatchedSales.map((sale, idx) => makeHistoricalSalePlant(sale, idx));
+        const historicalRows = unmatchedSales.map((sale, idx) => ({ ...makeHistoricalSalePlant(sale, idx), showImportAuditId, showImportUploadId: showImportAuditId, showName: activeShowTitle, showTitle: activeShowTitle, showImportName: activeShowTitle, sourceFileName: fileName || "", importedAt: showImportImportedAt, importedBy: user.name }));
         const historicalDuplicateNumbers = historicalRows.filter(p => p.duplicateHistoricalPlantNumber).length;
         const result = {
             matchedAdded: matchedSales.length,
@@ -38411,7 +38449,8 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                         sourceFileName: fileName || "pasted sales import",
                         showName: activeShowTitle,
                         showTitle: activeShowTitle,
-                        importedAt: new Date().toISOString(),
+                        importedAt: showImportImportedAt,
+                        showImportAuditId,
                         saleDate: commissionableSales.map(s => s.saleDate || s.orderDate || "").filter(Boolean).sort()[0] || today(),
                         salesCount: commissionableSales.length,
                         grossSales: commissionGrossSales,
@@ -38427,12 +38466,12 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         }
         const finalAudit = {
             ...(importAudit || {}),
-            id: uid(),
+            id: showImportAuditId,
             platform: activeImportPlatform,
             fileName: fileName || "pasted sales import",
             showName: activeShowTitle,
             showTitle: activeShowTitle,
-            importedAt: new Date().toISOString(),
+            importedAt: showImportImportedAt,
             importedBy: user.name,
             rawRows: importAudit && importAudit.rawRows != null ? importAudit.rawRows : parsed.length,
             validSales: matched.length,
@@ -38543,6 +38582,134 @@ Matched inventory plants will be put back to their exact previous records and mi
     const blockedImportAlerts = matched.filter(r => r.apply && !r.duplicate && r.blockedCustomerReviewRequired);
     const watchImportAlerts = matched.filter(r => r.apply && !r.duplicate && r.watchCustomerReviewRequired);
     const reviewImportAlerts = [...blockedImportAlerts, ...watchImportAlerts];
+    const resetShowImportPlantRecord = p => ({
+        ...p,
+        status: p.showImportOriginalStatus || "In Stock",
+        salePrice: "",
+        platform: "",
+        quantitySold: "",
+        shipmentMethod: "",
+        itemCurrency: "",
+        sellerOrderNote: "",
+        buyerOrderNote: "",
+        rawImportJson: "",
+        sourceRowNumber: "",
+        shippingChargedToCustomer: 0,
+        shippingRevenue: 0,
+        shippingCollected: 0,
+        shippingPaidByCustomer: 0,
+        actualLabelCost: 0,
+        actualShippingCost: 0,
+        labelCost: 0,
+        postageCost: 0,
+        shippingCost: 0,
+        shippingSuppliesCost: 0,
+        packingSuppliesCost: 0,
+        shippingProfit: 0,
+        shippingCostSource: "",
+        shippingCostPending: false,
+        trackingNumber: "",
+        shipmentId: "",
+        customerUsername: "",
+        customerName: "",
+        customerState: "",
+        buyerName: "",
+        recipientName: "",
+        orderNumber: "",
+        orderNo: "",
+        whatnotOrderId: "",
+        saleImportKey: "",
+        saleLegacyKey: "",
+        sourceFileName: "",
+        importedAt: "",
+        importedBy: "",
+        soldDate: "",
+        soldAt: "",
+        saleDateTime: "",
+        orderCreatedAt: "",
+        paymentFee: 0,
+        palmstreetFee: 0,
+        taxAmount: 0,
+        sellerIncome: 0,
+        historicalImport: false,
+        matchStatus: "",
+        rawProductVariant: "",
+        showEmployeeId: "",
+        showEmployeeName: "",
+        showCommissionPercent: 0,
+        showCommissionAmount: 0,
+        showCommissionBasis: "",
+        showCommissionPaid: false,
+        showImportAuditId: "",
+        showImportUploadId: "",
+        showName: "",
+        showTitle: "",
+        showImportName: "",
+        fulfillmentStatus: "",
+        shippingProblem: false,
+        importNeedsReview: false,
+        needsReview: false,
+        reviewReason: "",
+        manualOrderStatus: ""
+    });
+    const showImportRowMatchesPlant = (row, p) => {
+        const auditId = row && row.auditId;
+        if (auditId && (p.showImportAuditId === auditId || p.showImportUploadId === auditId)) return true;
+        const rowFile = showImportDedupKey(row && row.fileName);
+        const rowTitle = showImportDedupKey(row && row.title);
+        const rowPlatform = showImportDedupKey(row && row.platform);
+        const plantFile = showImportDedupKey((p && (p.sourceFileName || p.importFileName)) || "");
+        const plantTitle = showImportDedupKey((p && (p.showName || p.showTitle || p.showImportName || p.liveShowName)) || "");
+        const plantPlatform = showImportDedupKey((p && p.platform) || "");
+        const targetAt = showImportDateMs(row && row.importedAt);
+        const plantAt = showImportDateMs((p && (p.importedAt || p.soldAt || p.saleDateTime || p.orderCreatedAt)) || "");
+        const fileOrTitle = (rowFile && plantFile === rowFile) || (rowTitle && plantTitle === rowTitle);
+        const platformOk = !rowPlatform || !plantPlatform || rowPlatform === plantPlatform;
+        const timeOk = !targetAt || !plantAt || Math.abs(targetAt - plantAt) <= (10 * 60 * 1000);
+        return fileOrTitle && platformOk && timeOk;
+    };
+    const deleteShowImportUpload = row => {
+        if (!row) return;
+        const label = row.title || row.fileName || "this show import";
+        if (!confirm(`Delete this show upload?\n\n${label}\n${row.platform || "Show"} · ${showImportTimeText(row.importedAt)} · ${row.salesCount || 0} sale(s) · ${$(row.gross || 0)}\n\nThis removes the show audit/commission. Matching sold inventory from this upload will be reset to In Stock, and missing historical sale rows from this upload will be removed.`)) return;
+        let resetCount = 0;
+        let removeCount = 0;
+        const nextPlants = safeArray(plants).map(p => {
+            if (!showImportRowMatchesPlant(row, p)) return p;
+            const hist = !!p.historicalImport || String(p.nurseryCode || "").toUpperCase() === "HIST" || String(p.plantId || "").toUpperCase().startsWith("HIST-");
+            if (hist) { removeCount += 1; return null; }
+            resetCount += 1;
+            return resetShowImportPlantRecord(p);
+        }).filter(Boolean);
+        if (setPlants) setPlants(nextPlants);
+        if (setSettings) {
+            setSettings(prev => {
+                const audits = safeArray(prev.showImportAudits).filter(a => {
+                    if (row.auditId && a.id === row.auditId) return false;
+                    const sameFile = showImportSameFile(a.fileName || a.sourceFileName, row.fileName);
+                    const sameTitle = showImportSameTitle(a.showName || a.showTitle || a.importName, row.title);
+                    const samePlatform = !a.platform || !row.platform || showImportDedupKey(a.platform) === showImportDedupKey(row.platform);
+                    const sameCount = +(a.selectedSales || a.salesCount || a.validSales || 0) === +(row.salesCount || 0);
+                    const sameGross = showImportMoneyClose(a.grossSales || a.revenue || a.totalSales || 0, row.gross || 0);
+                    const timeOk = !a.importedAt || !row.importedAt || Math.abs(showImportDateMs(a.importedAt) - showImportDateMs(row.importedAt)) <= (10 * 60 * 1000);
+                    return !(samePlatform && sameCount && sameGross && timeOk && (sameFile || sameTitle));
+                });
+                const commissions = safeArray(prev.showCommissions).filter(c => {
+                    if (row.auditId && c.showImportAuditId === row.auditId) return false;
+                    const sameFile = showImportSameFile(c.sourceFileName || c.fileName, row.fileName);
+                    const sameTitle = showImportSameTitle(c.showName || c.showTitle, row.title);
+                    const samePlatform = !c.platform || !row.platform || showImportDedupKey(c.platform) === showImportDedupKey(row.platform);
+                    const sameCount = +(c.salesCount || 0) === +(row.salesCount || 0);
+                    const sameGross = showImportMoneyClose(c.grossSales || c.afterFeesSales || 0, row.gross || c.grossSales || 0) || !c.grossSales;
+                    const timeOk = !c.importedAt || !row.importedAt || Math.abs(showImportDateMs(c.importedAt) - showImportDateMs(row.importedAt)) <= (10 * 60 * 1000);
+                    return !(samePlatform && sameCount && timeOk && (sameFile || sameTitle) && sameGross);
+                });
+                return { ...prev, showImportAudits: audits, showCommissions: commissions };
+            });
+        }
+        addAudit && addAudit({ action: `Deleted show import ${label}. Reset ${resetCount} inventory plant(s), removed ${removeCount} missing sale row(s), and removed matching audit/commission records.`, user: (user && user.name) || "User", page: "Show Import" });
+        setImportMsg(`Deleted show upload: ${label}. Reset ${resetCount} inventory plant(s) and removed ${removeCount} missing sale row(s). Click Save/Sync so the cloud keeps this fix.`);
+    };
     const showImportHistoryRows = (() => {
         const rows = [];
         const compactImportKey = v => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -38554,6 +38721,8 @@ Matched inventory plants will be put back to their exact previous records and mi
             if (!key || rows.some(x => x.key === key)) return;
             rows.push({
                 key,
+                auditId: r.id || r.showImportAuditId || "",
+                commissionId: r.commissionId || "",
                 title,
                 platform: cleanText(r.platform || "Show"),
                 importedAt,
@@ -38563,7 +38732,8 @@ Matched inventory plants will be put back to their exact previous records and mi
                 missing: +(r.unmatched || r.historicalAdded || 0),
                 duplicates: +(r.duplicateSkipped || r.duplicates || 0),
                 gross: money(r.grossSales || r.revenue || r.totalSales || 0),
-                importedBy: cleanText(r.importedBy || r.createdBy || "")
+                importedBy: cleanText(r.importedBy || r.createdBy || ""),
+                source: r.id ? "audit" : "plants"
             });
         };
         safeArray(settings && settings.showImportAudits).forEach(addRow);
@@ -38613,7 +38783,8 @@ Matched inventory plants will be put back to their exact previous records and mi
                         React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 } },
                             React.createElement(Tag, { text: `${r.matched || 0} inventory sold`, color: C.g600 }),
                             React.createElement(Tag, { text: `${r.missing || 0} missing/review`, color: r.missing ? C.amber : C.g600 }),
-                            r.duplicates ? React.createElement(Tag, { text: `${r.duplicates} duplicates skipped`, color: C.red }) : null))))
+                            r.duplicates ? React.createElement(Tag, { text: `${r.duplicates} duplicates skipped`, color: C.red }) : null,
+                            React.createElement("button", { type: "button", onClick: () => deleteShowImportUpload(r), style: { border: `1px solid ${C.red}55`, background: C.redBg, color: C.red, borderRadius: 999, padding: "6px 10px", fontSize: 11, fontWeight: 950, cursor: "pointer" } }, "Delete / Undo Upload"))))
                     : React.createElement("div", { style: { marginTop: 10, fontSize: 12, color: C.amber, fontWeight: 850, lineHeight: 1.45 } }, "After you upload and save a show, it will appear here with the exact title, import time, sales count, gross sales, and file name.")),
             React.createElement(Card, { style: { marginBottom: 14 } },
                 React.createElement("div", { style: { fontFamily: F.display, fontWeight: 700, color: C.g900, fontSize: 15, marginBottom: 10 } }, "Platform"),
