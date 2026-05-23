@@ -108,6 +108,9 @@ Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to
 <!-- V343 — Label Export + Number Ledger: adds always-visible desktop latest-invoice Labelife export buttons, removes visible escaped changelog text on iPhone, hardens every nursery code to keep continuing after the highest used number, and blocks reused historical numbers in current inventory uploads. -->
 <!-- V342 — Hard Plant Number Lock: Central Florida Ferns uses CFF, selected nursery source wins, plant numbers continue after the highest current/history/ledger number, and every save updates a never-reuse number ledger. -->
 <!-- V346 — Central Florida Ferns invoice pot-size fix: reads leading 04/06/08 item-description and item-code prefixes as 4/6/8 inch pots before defaulting to 4 inch. -->
+<!-- V347 — Central Florida Ferns PDF/text row parser: preserves PDF text rows, scans every invoice field/snake_case key, maps 04/06/08 CFF row codes by plant name/cost before defaulting, and adds one-tap CFF size repair from invoice text. -->
+<!-- V348 — CFF hard source lock + price-safe Labelife export: if invoice text says Central Florida Ferns/CFF, the batch is forced to CFF, any wrong PP rows are renumbered before save, label CSV keeps .88 prices, and save blocks source-code mismatches before labels/accounting can be printed wrong. -->
+<!-- V349 — Invoice price lock + Plants crash guard: stores the exact price typed on invoice review, exports Labelife CSV from exact labelPrice, adds latest-batch .88 price repair/undo, and defines a global plantCodeOf fallback so footer Plants cannot crash. -->
 <!-- V330 — Shipping State Docs Repair: lazy-loads PDFLib for manual/missing document generation, scans saved sold/shipment records for CA/AZ/TX/LA/HI docs, fixes Generate Missing Docs doing nothing, and uses safer download anchors. -->
 <!-- V340 — Show Import Missing Cost Fix: show sales import now supports mostly-matched imports with missing inventory rows, requires easy cost entry for missing plants before saving, preserves plant number formatting, and uses stricter exact-code matching so PC-35 cannot be matched to PC-035. -->
 <!-- V338 — Simple More / Settings Cleanup: reduces owner Settings to Start, Team, Backup, Checkup, and More Tools; moves AI/security/docs/repair behind More Owner Tools; keeps Supabase, imports, shipping docs, and saved data logic unchanged. -->
@@ -7763,13 +7766,62 @@ const ldLedgerWouldReuse = (settings = {}, code = "", ids = []) => {
     const last = ldLedgerMaxForCode(settings, c);
     return safeArray(ids).filter(id => ldPlantCodeFromId(id) === c && ldPlantSeqFromId(id) > 0 && ldPlantSeqFromId(id) <= last);
 };
-const ldResolvePurchaseNurseryCode = (nursery = {}, invoiceResult = {}, rawText = "") => ldCanonicalNurseryCode(nursery?.code || "", nursery?.name || "");
+const ldInvoiceSourceHaystack = (nursery = {}, invoiceResult = {}, rawText = "") => {
+    try {
+        return String([
+            rawText,
+            invoiceResult?.rawText,
+            invoiceResult?.invoiceRawText,
+            invoiceResult?._rawText,
+            invoiceResult?.nurseryName,
+            invoiceResult?.vendor,
+            invoiceResult?.supplier,
+            invoiceResult?.source,
+            invoiceResult?.invoiceNumber,
+            invoiceResult?.customerNumber,
+            nursery?.name,
+            nursery?.code
+        ].filter(Boolean).join(" ")).toLowerCase();
+    } catch (e) { return String(`${nursery?.name || ""} ${nursery?.code || ""}`).toLowerCase(); }
+};
+const ldDetectedInvoiceNurseryCode = (nursery = {}, invoiceResult = {}, rawText = "") => {
+    const hay = ldInvoiceSourceHaystack(nursery, invoiceResult, rawText);
+    // Hard-lock the nurseries that have known invoice formats. This prevents CFF uploads from ever becoming PP-001 labels.
+    if (/central\s*florida\s*ferns|centralflorida\s*ferns|cfferns\.com|billing@cfferns\.com|006\d{4,}-in/i.test(hay)) return "CFF";
+    if (/perfect\s*choice|perfectchoicenursery|perfect\s*choice\s*(gdns|gardens|nursery)/i.test(hay)) return "PC";
+    if (/plant\s*proper/i.test(hay)) return "PP";
+    return "";
+};
+const ldResolvePurchaseNurseryCode = (nursery = {}, invoiceResult = {}, rawText = "") => {
+    const detected = ldDetectedInvoiceNurseryCode(nursery, invoiceResult, rawText);
+    if (detected) return detected;
+    return ldCanonicalNurseryCode(nursery?.code || invoiceResult?.nurseryCode || invoiceResult?.vendorCode || "", nursery?.name || invoiceResult?.nurseryName || invoiceResult?.vendor || "");
+};
 const ldResolvePurchaseNurseryName = (nursery = {}, invoiceResult = {}, code = "") => {
-    const c = ldCanonicalNurseryCode(code || nursery?.code || "", nursery?.name || "");
+    const c = ldCanonicalNurseryCode(code || ldResolvePurchaseNurseryCode(nursery, invoiceResult, ""), nursery?.name || invoiceResult?.nurseryName || "");
     if (c === "CFF") return "Central Florida Ferns";
     if (c === "PC") return "Perfect Choice Nursery";
-    if (c === "PP") return /plant\s*proper/i.test(String(nursery?.name || "")) ? nursery.name : (nursery?.name || "Plant Proper");
-    return nursery?.name || invoiceResult?.nurseryName || c;
+    if (c === "PP") return /plant\s*proper/i.test(String(nursery?.name || invoiceResult?.nurseryName || "")) ? (nursery.name || invoiceResult.nurseryName) : "Plant Proper";
+    return invoiceResult?.nurseryName || nursery?.name || c;
+};
+const ldReassignRowsToSourceCode = (rowList = [], existingPlants = [], code = "LD", sourceName = "", settings = {}) => {
+    const sourceCode = ldCanonicalNurseryCode(code);
+    let ctr = ldGetNextIdBase(existingPlants, sourceCode, settings);
+    const reserved = new Set();
+    return safeArray(rowList).map((r) => {
+        ctr += 1;
+        const plantId = ldNextUnusedPlantId(existingPlants, sourceCode, ctr, reserved, settings);
+        ctr = Math.max(ctr, ldPlantSeqFromId(plantId));
+        return {
+            ...r,
+            plantId,
+            plantCode: plantId,
+            barcodeValue: plantId,
+            barcodeType: "CODE128",
+            nurseryCode: sourceCode,
+            nurseryName: sourceName || ldResolvePurchaseNurseryName({}, {}, sourceCode)
+        };
+    });
 };
 const dHeld = d => d ? Math.floor((Date.now() - new Date(d)) / (864e5)) : null;
 const fDays = d => d === null ? "—" : d === 0 ? "Today" : d === 1 ? "1 day" : `${d}d`;
@@ -9446,25 +9498,144 @@ function ldCffCorrectPlantName(name = "") {
         n = "Alocasia Regal Shield";
     return n.replace(/\s+/g, " ").trim();
 }
+function ldCffAllStringValues(obj = {}, depth = 0, out = []) {
+    if (!obj || depth > 2)
+        return out;
+    if (typeof obj === "string" || typeof obj === "number") {
+        const v = String(obj || "").trim();
+        if (v)
+            out.push(v);
+        return out;
+    }
+    if (Array.isArray(obj)) {
+        obj.slice(0, 30).forEach(v => ldCffAllStringValues(v, depth + 1, out));
+        return out;
+    }
+    if (typeof obj === "object") {
+        Object.keys(obj).slice(0, 80).forEach(k => {
+            if (/base64|image|photo|dataurl|url/i.test(k))
+                return;
+            ldCffAllStringValues(obj[k], depth + 1, out);
+        });
+    }
+    return out;
+}
+function ldCffNormalizePlantKey(v = "") {
+    return ldCffCorrectPlantName(String(v || ""))
+        .replace(/^\s*(04|06|08)\s+/i, "")
+        .replace(/\bh\s*\/\s*b\b/ig, "hb")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\b(var|variegated)\b/g, m => m === "var" ? "variegated" : m)
+        .trim();
+}
+function ldCffParseInvoiceLineItems(rawText = "") {
+    const text = String(rawText || "").replace(/\u00a0/g, " ").replace(/\r/g, "\n");
+    if (!text.trim())
+        return [];
+    const lines = text.split(/\n+/).map(line => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const out = [];
+    lines.forEach((line, idx) => {
+        const m = line.match(/^\s*([0-9]{2}[A-Z0-9\/_-]*)\s+((?:04|06|08)\s+[A-Z].*?)\s+(\d+(?:\.\d{1,4})?)\s+(\d+(?:\.\d{1,4})?)\s+(\d+(?:\.\d{1,2})?)\s+(\d+(?:\.\d{1,2})?)\s*$/i)
+            || line.match(/^\s*((?:04|06|08)\s+[A-Z].*?)\s+(\d+(?:\.\d{1,4})?)\s+(\d+(?:\.\d{1,4})?)\s+(\d+(?:\.\d{1,2})?)\s+(\d+(?:\.\d{1,2})?)\s*$/i);
+        if (!m)
+            return;
+        const hasItemCode = !!m[6];
+        const itemCode = hasItemCode ? m[1] : "";
+        const itemDescription = hasItemCode ? m[2] : m[1];
+        const ordered = +(hasItemCode ? m[3] : m[2]) || 0;
+        const shipped = +(hasItemCode ? m[4] : m[3]) || 0;
+        const unitCost = +(hasItemCode ? m[5] : m[4]) || 0;
+        const amount = +(hasItemCode ? m[6] : m[5]) || 0;
+        const info = ldCffLeadingPotMatch(itemDescription) || ldCffLeadingPotMatch(itemCode);
+        if (!info || !info.potSize)
+            return;
+        const cleanName = ldCffCorrectPlantName(info.cleanedName || itemDescription.replace(/^\s*(04|06|08)\s+/i, ""));
+        out.push({ lineIndex: idx, itemCode, itemDescription, rawLine: line, potCode: info.code, potSize: info.potSize, cleanName, nameKey: ldCffNormalizePlantKey(cleanName), quantity: Math.max(1, Math.round(shipped || ordered || (amount && unitCost ? amount / unitCost : 1))), unitCost, amount });
+    });
+    return out;
+}
+function ldCffFindLineForPlant(p = {}, lineItems = []) {
+    const items = safeArray(lineItems).filter(Boolean);
+    if (!items.length)
+        return null;
+    const rawName = p.name || p.itemDescription || p.description || p.productName || p.title || p.itemName || "";
+    const target = ldCffNormalizePlantKey(rawName);
+    const cost = +p.costPerPlant || +p.cost || +p.unitCost || +p.price || 0;
+    const qty = Math.max(1, Math.round(+p.quantity || +p.qty || 1));
+    let best = null;
+    let bestScore = -1;
+    for (const item of items) {
+        const key = item.nameKey || ldCffNormalizePlantKey(item.cleanName || item.itemDescription || "");
+        if (!key || !target)
+            continue;
+        let score = 0;
+        if (key === target)
+            score += 100;
+        else if (key.includes(target) || target.includes(key))
+            score += 70;
+        else {
+            const a = key.split(" ").filter(Boolean);
+            const b = target.split(" ").filter(Boolean);
+            const overlap = a.filter(x => b.includes(x)).length;
+            if (overlap >= Math.min(2, Math.min(a.length, b.length)))
+                score += 35 + overlap;
+        }
+        if (cost && item.unitCost && Math.abs(cost - item.unitCost) <= 0.02)
+            score += 35;
+        if (qty && item.quantity && qty === item.quantity)
+            score += 8;
+        if (score > bestScore) {
+            bestScore = score;
+            best = item;
+        }
+    }
+    return bestScore >= 70 ? best : null;
+}
+function ldCffApplyLineItemsToRows(rows = [], rawText = "") {
+    const lineItems = ldCffParseInvoiceLineItems(rawText);
+    if (!lineItems.length)
+        return { rows: safeArray(rows), changed: 0, foundLines: 0 };
+    const useCounts = new Map();
+    let changed = 0;
+    const nextRows = safeArray(rows).map(row => {
+        const fakePlant = { name: row.name, costPerPlant: +row.cost || 0, quantity: 1 };
+        const match = ldCffFindLineForPlant(fakePlant, lineItems.filter(item => (useCounts.get(item.lineIndex) || 0) < (item.quantity || 1)));
+        if (!match || !match.potSize)
+            return row;
+        useCounts.set(match.lineIndex, (useCounts.get(match.lineIndex) || 0) + 1);
+        if (row.potSize === match.potSize && row.potSizeConfidence === "rule")
+            return row;
+        changed += 1;
+        return { ...row, name: ldCffCorrectPlantName(row.name || match.cleanName), potSize: match.potSize, potSizeConfidence: "rule", potSizeSourceText: match.potCode || "CFF", potSizeRuleId: "cff-invoice-line-text", potSizeNote: `Central Florida Ferns invoice row ${match.potCode} set pot size to ${match.potSize}.`, needsPotSizeReview: false };
+    });
+    return { rows: nextRows, changed, foundLines: lineItems.length };
+}
+
 function ldCffInvoicePrefixInfo(p = {}, nurseryCode = "") {
     if (!ldIsCffNurseryCode(nurseryCode)) return null;
+    if (p && p._cffLineInfo && p._cffLineInfo.potSize) {
+        return { code: p._cffLineInfo.potCode || String(p._cffLineInfo.potSize).replace(/[^0-9]/g, "").padStart(2, "0"), potSize: p._cffLineInfo.potSize, sourceText: p._cffLineInfo.potCode || p._cffLineInfo.itemCode || "CFF", cleanedName: p._cffLineInfo.cleanName || "" };
+    }
+    const rawLineItems = ldCffParseInvoiceLineItems(p._sourceInvoiceText || p.invoiceText || p.rawInvoiceText || "");
+    const lineMatch = ldCffFindLineForPlant(p, rawLineItems);
+    if (lineMatch && lineMatch.potSize) {
+        return { code: lineMatch.potCode, potSize: lineMatch.potSize, sourceText: lineMatch.potCode, cleanedName: lineMatch.cleanName || "" };
+    }
     // Read pot size from CFF item description first, then item code/SKU as backup.
+    // The cloud invoice reader may return snake_case keys or hidden raw fields, so scan every safe string value too.
     const preferredFields = [
-        p.itemDescription, p.description, p.lineText, p.rawText, p.pasteLine, p.name,
-        p.productName, p.title, p.itemName
+        p.itemDescription, p.item_description, p.description, p.lineDescription, p.line_description, p.lineText, p.line_text,
+        p.rawText, p.raw_text, p.pasteLine, p.paste_line, p.name, p.productName, p.product_name, p.title, p.itemName, p.item_name
     ].filter(Boolean).map(v => String(v || ""));
     const backupCodeFields = [
-        p.itemCode, p.productCode, p.sku, p.item, p.code, p.barcode
+        p.itemCode, p.item_code, p.productCode, p.product_code, p.sku, p.SKU, p.item, p.code, p.barcode, p.barcodeValue
     ].filter(Boolean).map(v => String(v || ""));
-    for (const raw of preferredFields) {
+    const allFields = [...preferredFields, ...backupCodeFields, ...ldCffAllStringValues(p)].filter(Boolean);
+    for (const raw of allFields) {
         const info = ldCffLeadingPotMatch(raw);
         if (info && info.potSize)
             return info;
-    }
-    for (const raw of backupCodeFields) {
-        const info = ldCffLeadingPotMatch(raw);
-        if (info && info.potSize)
-            return { ...info, cleanedName: "" };
     }
     return null;
 }
@@ -18708,6 +18879,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
     const [step, setStep] = useState("upload");
     const [img, setImg] = useState(null);
     const [invoicePages, setInvoicePages] = useState([]);
+    const [invoiceRawText, setInvoiceRawText] = useState("");
     const [parsed, setParsed] = useState(null);
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -18751,9 +18923,30 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
                         const pdf = await pdfjsLib.getDocument(typedarray).promise;
                         const renderedPages = [];
+                        const renderedPageTexts = [];
                         const MAX_PDF_PAGES = Math.min(pdf.numPages || 1, 25);
                         for (let pageNum = 1; pageNum <= MAX_PDF_PAGES; pageNum++) {
                             const page = await pdf.getPage(pageNum);
+                            try {
+                                const textContent = await page.getTextContent();
+                                const lineBuckets = {};
+                                safeArray(textContent.items).forEach(item => {
+                                    const str = String(item && item.str || "").trim();
+                                    if (!str) return;
+                                    const t = item.transform || [];
+                                    const y = Math.round(+t[5] || 0);
+                                    const x = +t[4] || 0;
+                                    const key = String(y);
+                                    if (!lineBuckets[key]) lineBuckets[key] = [];
+                                    lineBuckets[key].push({ x, str });
+                                });
+                                const pageText = Object.keys(lineBuckets).sort((a, b) => (+b) - (+a)).map(y => lineBuckets[y].sort((a, b) => a.x - b.x).map(item => item.str).join(" ")).join("
+");
+                                renderedPageTexts.push(pageText);
+                            }
+                            catch (_) {
+                                renderedPageTexts.push("");
+                            }
                             const baseViewport = page.getViewport({ scale: 1 });
                             const targetWidth = 1900;
                             const renderScale = Math.max(1.8, Math.min(2.8, targetWidth / Math.max(1, baseViewport.width)));
@@ -18781,6 +18974,8 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                         if (!renderedPages.length)
                             throw new Error("No pages were found in this PDF.");
                         setInvoicePages(renderedPages);
+                        setInvoiceRawText(renderedPageTexts.filter(Boolean).join("
+"));
                         setImg(renderedPages[0]);
                         if ((pdf.numPages || 1) > MAX_PDF_PAGES) {
                             setErr(`PDF has ${pdf.numPages} pages. First ${MAX_PDF_PAGES} pages loaded. Split the invoice if plants are after page ${MAX_PDF_PAGES}.`);
@@ -18821,6 +19016,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                     const ctx = canvas.getContext("2d");
                     ctx.drawImage(imgObj, 0, 0, w, h);
                     const resizedB64 = canvas.toDataURL("image/jpeg", 0.82);
+                    setInvoiceRawText("");
                     setInvoicePages([resizedB64]);
                     setImg(resizedB64);
                     setStep("preview");
@@ -19112,11 +19308,23 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         };
     };
     const buildRowsFromInvoicePlants = result => {
-        const sourceCode = ldResolvePurchaseNurseryCode(selN, result, pasteText);
+        const sourceRawText = [result.rawText, result.invoiceRawText, result._rawText, invoiceRawText, pasteText].filter(Boolean).join("
+");
+        const sourceCode = ldResolvePurchaseNurseryCode(selN, result, sourceRawText);
         const sourceName = ldResolvePurchaseNurseryName(selN, result, sourceCode);
+        const selectedCode = ldCanonicalNurseryCode(selN?.code || "", selN?.name || "");
+        const detectedCode = ldDetectedInvoiceNurseryCode(selN, result, sourceRawText);
+        if (detectedCode && selectedCode && detectedCode !== selectedCode) {
+            setErr(`Invoice source safety: this invoice looks like ${ldResolvePurchaseNurseryName({}, {}, detectedCode)}, so Leaf Diary is forcing code ${detectedCode} instead of ${selectedCode}.`);
+        }
+        const cffRawText = sourceRawText;
+        const cffLineItems = ldIsCffNurseryCode(sourceCode) ? ldCffParseInvoiceLineItems(cffRawText) : [];
         let ctr = ldGetNextIdBase(plants, sourceCode, settings);
         const reservedIds = new Set();
-        return (result.plants || []).flatMap((p, li) => Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
+        return (result.plants || []).flatMap((p, li) => {
+            const cffLineInfo = ldIsCffNurseryCode(sourceCode) ? ldCffFindLineForPlant(p, cffLineItems) : null;
+            const pForRules = cffLineInfo ? { ...p, itemDescription: cffLineInfo.itemDescription, itemCode: cffLineInfo.itemCode, _cffLineInfo: cffLineInfo, _sourceInvoiceText: cffRawText } : { ...p, _sourceInvoiceText: cffRawText };
+            return Array.from({ length: Math.max(1, +p.quantity || 1) }, (_, qi) => {
             ctr++;
             const cost = +(Array.isArray(p.unitCosts) ? p.unitCosts[qi] : p.costPerPlant) || 0, sp = sprice(cost);
             const originalCostBeforeDiscount = +p.originalCostPerPlant || cost;
@@ -19124,16 +19332,17 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
             const receiptDiscountPerPlant = +p.discountPerPlant || 0;
             const receiptLineTotalBeforeDiscount = +p.originalLineTotal || (originalCostBeforeDiscount * Math.max(1, +p.quantity || 1));
             const receiptLineTotalAfterDiscount = +p.discountedLineTotal || (cost * Math.max(1, +p.quantity || 1));
-            const potGuess = phase101InferPotSize(p, sourceCode, settings);
-            const cleanPlantName = ldCleanCffInvoicePlantName(p.itemDescription || p.description || p.lineText || p.rawText || p.name || "", p, sourceCode);
+            const potGuess = phase101InferPotSize(pForRules, sourceCode, settings);
+            const cleanPlantName = ldCleanCffInvoicePlantName(pForRules.itemDescription || pForRules.description || pForRules.lineText || pForRules.rawText || pForRules.name || "", pForRules, sourceCode);
             const intakeNotesBase = potGuess.confidence === "assumed" ? `Assumed ${potGuess.potSize} pot size — verify before printing labels.` : potGuess.ruleId === "cff-leading-pot-code" ? `Central Florida Ferns invoice prefix ${potGuess.source} set pot size to ${potGuess.potSize}.` : potGuess.confidence === "rule" ? `Pot size matched training rule: ${potGuess.source}.` : "";
             const pageNote = p._pdfPage ? `PDF page ${p._pdfPage}.` : "";
             const pasteNote = p.pasteRow ? `Pasted row ${p.pasteRow}.` : "";
             const intakeNotes = [pageNote, pasteNote, intakeNotesBase].filter(Boolean).join(" ");
             const plantId = ldNextUnusedPlantId(plants, sourceCode, ctr, reservedIds, settings);
             ctr = Math.max(ctr, ldPlantSeqFromId(plantId));
-            return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: sourceCode, nurseryName: sourceName, name: toTC(cleanPlantName || p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, originalCostBeforeDiscount, receiptDiscountRate, receiptDiscountPerPlant, receiptItemDiscount: +p.itemDiscount || 0, receiptUnitCostAllocated: cost, receiptLineTotalBeforeDiscount, receiptLineTotalAfterDiscount, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", invoicePaymentMethod: result.paymentMethod || "", invoiceCardLast4: result.cardLast4 || "", paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "", receiptProfileId: result.receiptProfileId || "", receiptProfileLabel: result.receiptProfileLabel || "", receiptProfileNurseryOnly: result.receiptProfileNurseryOnly || "", receiptDiscountLabel: result.discountLabel || "", receiptHasOrderWideDiscount: !!result.hasOrderWideDiscount };
-        }));
+            return { _k: `${li}-${qi}-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: sourceCode, nurseryName: sourceName, name: toTC(cleanPlantName || p.name || ""), botanicalName: p.botanicalName || "", potSize: potGuess.potSize || "", potSizeConfidence: potGuess.confidence, potSizeSourceText: potGuess.source || "", potSizeRuleId: potGuess.ruleId || "", potSizeNote: potGuess.note || "", needsPotSizeReview: potGuess.confidence === "assumed" || potGuess.confidence === "missing", cost, originalCostBeforeDiscount, receiptDiscountRate, receiptDiscountPerPlant, receiptItemDiscount: +p.itemDiscount || 0, receiptUnitCostAllocated: cost, receiptLineTotalBeforeDiscount, receiptLineTotalAfterDiscount, suggestedPrice: sp, labelPrice: ldPriceText(sp), invoiceReviewPrice: ldPriceText(sp), salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: result.invoiceNumber || "", invoiceDate: result.invoiceDate || "", invoiceSubtotal: result.subtotal || "", invoiceDiscount: result.discount || "", invoiceTax: result.tax || "", invoiceTotal: result.total || "", invoicePaymentMethod: result.paymentMethod || "", invoiceCardLast4: result.cardLast4 || "", paymentMethod: result.paymentMethod || "", cardLast4: result.cardLast4 || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: intakeNotes, labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, invoicePdfPage: p._pdfPage || "", invoicePasteRow: p.pasteRow || "", receiptProfileId: result.receiptProfileId || "", receiptProfileLabel: result.receiptProfileLabel || "", receiptProfileNurseryOnly: result.receiptProfileNurseryOnly || "", receiptDiscountLabel: result.discountLabel || "", receiptHasOrderWideDiscount: !!result.hasOrderWideDiscount };
+            });
+        });
     };
     const parsePasteNow = () => {
         if (!selN) {
@@ -19178,7 +19387,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         const cost = 0, sp = sprice(cost);
         const sourceCode = ldResolvePurchaseNurseryCode(selN, parsed || {}, pasteText);
         const sourceName = ldResolvePurchaseNurseryName(selN, parsed || {}, sourceCode);
-        setRows(pr => [...pr, { _k: `manual-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: sourceCode, nurseryName: sourceName, name: "", botanicalName: "", potSize: purchaseTraining.defaultPotSize || '4"', potSizeConfidence: "manual", potSizeSourceText: "manual", potSizeRuleId: "", potSizeNote: "Manual line added during receipt review.", needsPotSizeReview: false, cost, suggestedPrice: sp, salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceNumber) || "", invoiceDate: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceDate) || today(), invoiceSubtotal: (parsed === null || parsed === void 0 ? void 0 : parsed.subtotal) || "", invoiceDiscount: (parsed === null || parsed === void 0 ? void 0 : parsed.discount) || "", invoiceTax: (parsed === null || parsed === void 0 ? void 0 : parsed.tax) || "", invoiceTotal: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: "Manual line added after receipt check.", labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, receiptProfileId: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileId) || "", receiptProfileLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) || "", invoicePaymentMethod: paymentMethodOverride || (parsed === null || parsed === void 0 ? void 0 : parsed.paymentMethod) || "", invoiceCardLast4: cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "", paymentMethod: paymentMethodOverride || (parsed === null || parsed === void 0 ? void 0 : parsed.paymentMethod) || "", cardLast4: cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "" }]);
+        setRows(pr => [...pr, { _k: `manual-${Date.now()}`, plantId, plantCode: plantId, barcodeValue: plantId, barcodeType: "CODE128", nurseryCode: sourceCode, nurseryName: sourceName, name: "", botanicalName: "", potSize: purchaseTraining.defaultPotSize || '4"', potSizeConfidence: "manual", potSizeSourceText: "manual", potSizeRuleId: "", potSizeNote: "Manual line added during receipt review.", needsPotSizeReview: false, cost, suggestedPrice: sp, labelPrice: ldPriceText(sp), invoiceReviewPrice: ldPriceText(sp), salePrice: "", shippingCost: "", margin: marg(cost, sp), status: "In Stock", invoiceNumber: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceNumber) || "", invoiceDate: (parsed === null || parsed === void 0 ? void 0 : parsed.invoiceDate) || today(), invoiceSubtotal: (parsed === null || parsed === void 0 ? void 0 : parsed.subtotal) || "", invoiceDiscount: (parsed === null || parsed === void 0 ? void 0 : parsed.discount) || "", invoiceTax: (parsed === null || parsed === void 0 ? void 0 : parsed.tax) || "", invoiceTotal: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || "", dateAdded: today(), platform: "", rack: "", shelf: "", notes: "Manual line added after receipt check.", labelPrinted: false, addedBy: user.name, purchaseIntakeTrained: true, receiptProfileId: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileId) || "", receiptProfileLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) || "", invoicePaymentMethod: paymentMethodOverride || (parsed === null || parsed === void 0 ? void 0 : parsed.paymentMethod) || "", invoiceCardLast4: cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "", paymentMethod: paymentMethodOverride || (parsed === null || parsed === void 0 ? void 0 : parsed.paymentMethod) || "", cardLast4: cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "" }]);
     };
     const scan = async () => {
         var _a, _b, _c;
@@ -19230,7 +19439,10 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                 plants: allInvoicePlants,
                 pdfPageCount: pagesToScan.length,
                 scannedPageCount: pageResults.length,
-                pageErrors
+                pageErrors,
+                invoiceRawText: invoiceRawText || "",
+                rawText: [invoiceRawText, ...pageResults.map(r => r.rawText || r.raw_text || r.ocrText || r.ocr_text || r.fullText || r.full_text || r.invoiceText || r.invoice_text || r.text || "")].filter(Boolean).join("
+")
             };
             setParsed(result);
             if (pageErrors.length)
@@ -19254,8 +19466,38 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         u.needsPotSizeReview = false;
         u.potSizeConfidence = r.potSizeCorrected ? "corrected" : (r.potSizeConfidence || "ocr");
         u.potSizeNote = r.potSizeCorrected ? "Owner corrected pot size during invoice review." : (r.potSizeNote || "");
+    } if (f === "suggestedPrice") {
+        const exact = ldPriceText(v);
+        u.suggestedPrice = exact;
+        u.labelPrice = exact;
+        u.invoiceReviewPrice = exact;
+        u.sellPriceText = exact;
+    } if (f === "cost") {
+        u.cost = v;
     } if (f === "cost" || f === "suggestedPrice")
-        u.margin = marg(f === "cost" ? +v : +r.cost, f === "suggestedPrice" ? +v : +r.suggestedPrice); return u; }));
+        u.margin = marg(f === "cost" ? +v : +r.cost, f === "suggestedPrice" ? +v : +(r.suggestedPrice || 0)); return u; }));
+    const applyCffInvoiceTextPotSizes = () => {
+        const repairRawText = [invoiceRawText, (parsed && (parsed.rawText || parsed.invoiceRawText || parsed._rawText)) || "", pasteText].filter(Boolean).join("\n");
+        const sourceCode = ldResolvePurchaseNurseryCode(selN, parsed || {}, repairRawText);
+        if (!ldIsCffNurseryCode(sourceCode)) {
+            alert("This repair is only for Central Florida Ferns invoices.");
+            return;
+        }
+        let raw = [invoiceRawText, (parsed && (parsed.rawText || parsed.invoiceRawText || parsed._rawText)) || "", pasteText].filter(Boolean).join("\n");
+        if (!ldCffParseInvoiceLineItems(raw).length) {
+            const pasted = prompt('Paste the Central Florida Ferns invoice item rows here. Example:\n06ALOCPOLLY 06 ALOCASIA Polly 4.0000 4.0000 5.75 23.00');
+            if (!pasted) return;
+            raw = pasted;
+            setPasteText(prev => [prev, pasted].filter(Boolean).join("\n"));
+        }
+        const fixed = ldCffApplyLineItemsToRows(rows, raw);
+        if (!fixed.foundLines) {
+            alert("I could not find CFF rows with 04 / 06 / 08 in that text. Nothing changed.");
+            return;
+        }
+        setRows(fixed.rows);
+        alert(`CFF size repair found ${fixed.foundLines} invoice row(s) and updated ${fixed.changed} plant label row(s).`);
+    };
     const rememberPotCorrections = () => {
         const correctionRows = rows.filter(r => r.potSizeCorrected && r.potSizeSourceText && r.potSizeSourceText !== "missing" && r.potSize);
         if (!correctionRows.length) {
@@ -19290,12 +19532,26 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
         const finalCardLast4 = cardLast4Override || (parsed === null || parsed === void 0 ? void 0 : parsed.cardLast4) || "";
         if (finalPaymentMethod && !/cash/i.test(finalPaymentMethod) && !/^\d{4}$/.test(String(finalCardLast4 || "")) && !confirm(`Payment method is ${finalPaymentMethod}, but card last 4 is missing. Save anyway?`))
             return;
-        const saveSourceCode = rows[0]?.nurseryCode || ldResolvePurchaseNurseryCode(selN, parsed || {}, pasteText);
-        const saveSourceName = rows[0]?.nurseryName || ldResolvePurchaseNurseryName(selN, parsed || {}, saveSourceCode);
+        const saveRawText = [invoiceRawText, parsed?.rawText, parsed?.invoiceRawText, parsed?._rawText, pasteText].filter(Boolean).join("
+");
+        const saveSourceCode = ldResolvePurchaseNurseryCode(selN, parsed || {}, saveRawText);
+        const saveSourceName = ldResolvePurchaseNurseryName(selN, parsed || {}, saveSourceCode);
+        const rowSourceMismatch = rows.some(r => ldCanonicalNurseryCode(r.nurseryCode || ldPlantCodeFromId(r.plantId || r.plantCode || "")) !== saveSourceCode || ldPlantCodeFromId(r.plantId || r.plantCode || "") !== saveSourceCode);
+        const rowsForSave = (rowSourceMismatch ? ldReassignRowsToSourceCode(rows, plants, saveSourceCode, saveSourceName, settings) : rows.map(r => ({ ...r, suggestedPrice: ldPriceNumber(r.suggestedPrice), labelPrice: ldPriceText(r.labelPrice || r.suggestedPrice), invoiceReviewPrice: ldPriceText(r.invoiceReviewPrice || r.suggestedPrice), sellPriceText: ldPriceText(r.sellPriceText || r.suggestedPrice), nurseryCode: saveSourceCode, nurseryName: r.nurseryName || saveSourceName }))).map(r => ({ ...r, suggestedPrice: ldPriceNumber(r.suggestedPrice), labelPrice: ldPriceText(r.labelPrice || r.suggestedPrice), invoiceReviewPrice: ldPriceText(r.invoiceReviewPrice || r.suggestedPrice), sellPriceText: ldPriceText(r.sellPriceText || r.suggestedPrice) }));
+        if (rowSourceMismatch) {
+            const first = rowsForSave[0]?.plantId || "";
+            const last = rowsForSave[rowsForSave.length - 1]?.plantId || "";
+            alert(`Leaf Diary caught and fixed a wrong nursery-code/number range before saving.
+
+This invoice is being saved as ${saveSourceCode}.
+New label range: ${first} → ${last}.
+
+No PP-001 reset labels were saved.`);
+        }
         ldSeedNumberLedgerFromPlantsLocal(plants, settings);
-        const incomingIds = rows.map(r => r.plantId || r.plantCode || "").filter(Boolean);
-        const duplicateIncoming = rows.filter((r, idx) => rows.findIndex(x => ldPlantNumberKey(x.plantId || x.plantCode || "") === ldPlantNumberKey(r.plantId || r.plantCode || "")) !== idx);
-        const alreadyUsedIncoming = rows.filter(r => ldPlantNumberExists(plants, r.plantId || r.plantCode || ""));
+        const incomingIds = rowsForSave.map(r => r.plantId || r.plantCode || "").filter(Boolean);
+        const duplicateIncoming = rowsForSave.filter((r, idx) => rowsForSave.findIndex(x => ldPlantNumberKey(x.plantId || x.plantCode || "") === ldPlantNumberKey(r.plantId || r.plantCode || "")) !== idx);
+        const alreadyUsedIncoming = rowsForSave.filter(r => ldPlantNumberExists(plants, r.plantId || r.plantCode || ""));
         const ledgerReuseIncoming = ldLedgerWouldReuse(settings, saveSourceCode, incomingIds);
         if (ledgerReuseIncoming.length || duplicateIncoming.length || alreadyUsedIncoming.length) {
             const lastUsed = ldLedgerMaxForCode(settings, saveSourceCode);
@@ -19316,9 +19572,9 @@ If the source/code or number range is wrong, press Cancel.`))
             return;
         const importBatchId = `import-${saveSourceCode || "NA"}-${Date.now()}`;
         const importBatchLabel = `${saveSourceName || "Plant Invoice"} · ${actualN} plants · ${today()}`;
-        const newPlantRows = rows.map(({ _k, ...r }) => {
+        const newPlantRows = rowsForSave.map(({ _k, ...r }) => {
             const newId = uid();
-            return { ...r, nurseryCode: ldCanonicalNurseryCode(r.nurseryCode || saveSourceCode, r.nurseryName || saveSourceName), nurseryName: r.nurseryName || saveSourceName, id: newId, purchaseBatchId: importBatchId, receiptBatchId: importBatchId, labelBatchId: importBatchId, importBatchId, importBatchName: importBatchLabel, importedAt: new Date().toISOString(), labelPrinted: false, receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || "", receiptLineCostTotal: lineTotal, receiptSubtotalParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.subtotal) || "", receiptDiscountParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.discount) || "", receiptDiscountRate: (parsed === null || parsed === void 0 ? void 0 : parsed.discountRate) || r.receiptDiscountRate || 0, receiptDiscountApplied: !!((parsed === null || parsed === void 0 ? void 0 : parsed.discountRate) || r.receiptDiscountRate), receiptDiscountLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.discountLabel) || r.receiptDiscountLabel || "", receiptHasOrderWideDiscount: !!((parsed === null || parsed === void 0 ? void 0 : parsed.hasOrderWideDiscount) || r.receiptHasOrderWideDiscount), receiptProfileId: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileId) || r.receiptProfileId || "", receiptProfileLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) || r.receiptProfileLabel || "", receiptProfileNurseryOnly: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileNurseryOnly) || r.receiptProfileNurseryOnly || "", originalCostBeforeDiscount: r.originalCostBeforeDiscount || r.cost, invoicePaymentMethod: finalPaymentMethod || r.invoicePaymentMethod || "", invoiceCardLast4: finalCardLast4 || r.invoiceCardLast4 || "", paymentMethod: finalPaymentMethod || r.paymentMethod || "", cardLast4: finalCardLast4 || r.cardLast4 || "" };
+            return { ...r, suggestedPrice: ldPriceNumber(r.suggestedPrice), labelPrice: ldPriceText(r.labelPrice || r.suggestedPrice), invoiceReviewPrice: ldPriceText(r.invoiceReviewPrice || r.suggestedPrice), sellPriceText: ldPriceText(r.sellPriceText || r.suggestedPrice), nurseryCode: ldCanonicalNurseryCode(r.nurseryCode || saveSourceCode, r.nurseryName || saveSourceName), nurseryName: r.nurseryName || saveSourceName, id: newId, purchaseBatchId: importBatchId, receiptBatchId: importBatchId, labelBatchId: importBatchId, importBatchId, importBatchName: importBatchLabel, importedAt: new Date().toISOString(), labelPrinted: false, receiptCountExpected: expectedPlantCount || "", receiptCountActual: actualN, receiptTotalExpected: expectedReceiptTotal || "", receiptTotalParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.total) || "", receiptLineCostTotal: lineTotal, receiptSubtotalParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.subtotal) || "", receiptDiscountParsed: (parsed === null || parsed === void 0 ? void 0 : parsed.discount) || "", receiptDiscountRate: (parsed === null || parsed === void 0 ? void 0 : parsed.discountRate) || r.receiptDiscountRate || 0, receiptDiscountApplied: !!((parsed === null || parsed === void 0 ? void 0 : parsed.discountRate) || r.receiptDiscountRate), receiptDiscountLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.discountLabel) || r.receiptDiscountLabel || "", receiptHasOrderWideDiscount: !!((parsed === null || parsed === void 0 ? void 0 : parsed.hasOrderWideDiscount) || r.receiptHasOrderWideDiscount), receiptProfileId: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileId) || r.receiptProfileId || "", receiptProfileLabel: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileLabel) || r.receiptProfileLabel || "", receiptProfileNurseryOnly: (parsed === null || parsed === void 0 ? void 0 : parsed.receiptProfileNurseryOnly) || r.receiptProfileNurseryOnly || "", originalCostBeforeDiscount: r.originalCostBeforeDiscount || r.cost, invoicePaymentMethod: finalPaymentMethod || r.invoicePaymentMethod || "", invoiceCardLast4: finalCardLast4 || r.invoiceCardLast4 || "", paymentMethod: finalPaymentMethod || r.paymentMethod || "", cardLast4: finalCardLast4 || r.cardLast4 || "" };
         });
         setPlants(p => [...p, ...newPlantRows]);
         ldUpdateNumberLedgerLocal(saveSourceCode, newPlantRows.map(p => p.plantId || p.plantCode || ""));
@@ -19378,7 +19634,7 @@ Important: the plant numbers will remain skipped forever so they are never reuse
         alert("Invoice upload undone. The plants and plant-invoice expense were removed. Those plant numbers are still skipped forever and will not be reused.");
         reset();
     };
-    const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); setPaymentMethodOverride(""); setCardLast4Override(""); };
+    const reset = () => { setStep("upload"); setImg(null); setInvoicePages([]); setInvoiceRawText(""); setParsed(null); setRows([]); setErr(null); setPasteSummary(null); setPaymentMethodOverride(""); setCardLast4Override(""); };
     if (!nurseries.length)
         return React.createElement("div", { style: { padding: "60px", textAlign: "center", background: C.bg, minHeight: "100vh" } },
             React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "\uD83C\uDFEA"),
@@ -19545,7 +19801,7 @@ Important: the plant numbers will remain skipped forever so they are never reuse
                         React.createElement("td", { style: { padding: "3px 9px" } },
                             React.createElement("input", { type: "number", value: r.cost, onChange: e => updR(r._k, "cost", e.target.value), style: { width: 62, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12 } })),
                         React.createElement("td", { style: { padding: "3px 9px" } },
-                            React.createElement("input", { type: "number", value: r.suggestedPrice, onChange: e => updR(r._k, "suggestedPrice", e.target.value), style: { width: 72, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12, color: C.g600, fontWeight: 600 } })),
+                            React.createElement("input", { type: "number", step: "0.01", inputMode: "decimal", value: r.suggestedPrice, onChange: e => updR(r._k, "suggestedPrice", e.target.value), style: { width: 78, padding: "3px 6px", border: `1px solid ${C.bd}`, borderRadius: 5, fontSize: 12, color: C.g600, fontWeight: 600 } })),
                         React.createElement("td", { style: { padding: "5px 9px" } },
                             React.createElement(MBadge, { m: r.margin })),
                         React.createElement("td", { style: { padding: "3px 9px" } },
@@ -21462,6 +21718,7 @@ const SHOW_KEY_LEGACY = 'ld_show_builder_ids';
 let leafDiaryShowBuilderMemoryIds = [];
 const LEAF_DIARY_LOGO_IMAGE = 'https://theleafdiary.com/cdn/shop/files/leaf_diary_logo_png.png?v=1768865207&width=200';
 const safePlantId = p => ((p === null || p === void 0 ? void 0 : p.plantId) || (p === null || p === void 0 ? void 0 : p.id) || '').toString().trim();
+const plantCodeOf = p => String((p === null || p === void 0 ? void 0 : p.plantId) || (p === null || p === void 0 ? void 0 : p.plantCode) || (p === null || p === void 0 ? void 0 : p.code) || (p === null || p === void 0 ? void 0 : p.sku) || (p === null || p === void 0 ? void 0 : p.barcodeValue) || (p === null || p === void 0 ? void 0 : p.barcode) || '').trim();
 /* ══════════════════════════════════════════════════════════
    UPDATE 77 — PALMSTREET AUCTION MANAGER FOUNDATION
    No new pages. Auction UI will be added inside existing Shows,
@@ -22558,11 +22815,19 @@ async function ldDecodeBarcodeFromImageFile(file, detectorFormats = []) {
     console.warn("Leaf Diary label photo decode attempts failed", attempts.slice(-8));
     return "";
 }
+const ldPriceNumber = v => {
+    const n = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, ""));
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+};
+const ldPriceText = v => {
+    const n = ldPriceNumber(v);
+    return n > 0 ? n.toFixed(2) : "";
+};
 const labelifePrice = p => {
-    const raw = +(p === null || p === void 0 ? void 0 : p.suggestedPrice) || +(p === null || p === void 0 ? void 0 : p.listPrice) || +(p === null || p === void 0 ? void 0 : p.price) || +(p === null || p === void 0 ? void 0 : p.salePrice) || 0;
-    if (!raw || raw <= 0)
-        return "";
-    return String(Math.max(1, Math.ceil(raw)));
+    // Prefer the exact price typed on the invoice review screen. Suggested Price can be recalculated elsewhere.
+    const rawValue = (p === null || p === void 0 ? void 0 : p.labelPrice) ?? (p === null || p === void 0 ? void 0 : p.printPrice) ?? (p === null || p === void 0 ? void 0 : p.sellPriceText) ?? (p === null || p === void 0 ? void 0 : p.invoiceReviewPrice) ?? (p === null || p === void 0 ? void 0 : p.suggestedPrice) ?? (p === null || p === void 0 ? void 0 : p.listPrice) ?? (p === null || p === void 0 ? void 0 : p.price) ?? (p === null || p === void 0 ? void 0 : p.salePrice) ?? "";
+    const text = ldPriceText(rawValue);
+    return text || "";
 };
 const makeLabelifeBarcodeCSV = (list = []) => {
     const rows = safeArray(list).map(p => {
@@ -24015,6 +24280,42 @@ function Labels({ plants, setPlants, user, addAudit, setPage, settings }) {
         addAudit && addAudit({ action: `Exported latest import Labelife barcode CSV (${list.length} rows)`, user: user.name, page: 'Labels' });
         alert(`Downloaded ${list.length} Labelife label row(s) from the latest import batch.`);
     };
+    const repairLatestImportPricesToCents = () => {
+        const b = ldReadLastImportLabelBatch() || lastImportBatch;
+        const list = getLatestImportPlantsForLabels(false);
+        if (!b || !list.length) return alert("No latest import batch found to repair.");
+        const centsRaw = prompt("Add cents to the latest import prices. Type cents as 88 for .88", "88");
+        if (centsRaw === null) return;
+        const cents = String(centsRaw).replace(/\D/g, "").slice(0, 2).padStart(2, "0") || "88";
+        if (!confirm(`This will update ${list.length} latest-import label prices so whole-dollar prices end in .${cents}.\n\nExample: 20 becomes 20.${cents}.`)) return;
+        const ids = new Set(list.map(p => String(p.id)));
+        let changed = 0;
+        setPlants(prev => safeArray(prev).map(p => {
+            if (!ids.has(String(p.id))) return p;
+            const current = ldPriceNumber(p.labelPrice || p.suggestedPrice || p.price || p.listPrice);
+            if (!current) return p;
+            const fixed = Math.floor(current) + Number("0." + cents);
+            const fixedText = fixed.toFixed(2);
+            changed++;
+            return { ...p, suggestedPrice: fixed, labelPrice: fixedText, invoiceReviewPrice: fixedText, sellPriceText: fixedText, updatedAt: new Date().toISOString(), priceRepairNote: `Latest import price cents repaired to .${cents}` };
+        }));
+        addAudit && addAudit({ action: `Repaired latest import prices to .${cents} (${changed} plants)`, user: user.name, page: 'Labels' });
+        alert(`Updated ${changed} latest-import plant price(s). Download Latest CSV again.`);
+    };
+    const undoLatestImportFromLabels = () => {
+        const b = ldReadLastImportLabelBatch() || lastImportBatch;
+        const list = getLatestImportPlantsForLabels(false);
+        if (!b || !list.length) return alert("No latest import batch found to undo.");
+        if (!confirm(`Undo latest plant invoice upload?\n\n${b.label || "Latest invoice"}\n${list.length} plant record(s) will be removed from inventory. Matching plant-invoice expenses for this batch will also be removed.\n\nPlant numbers remain skipped forever and will not be reused.`)) return;
+        const ids = new Set(list.map(p => String(p.id)));
+        const batchId = b.id;
+        setPlants(prev => safeArray(prev).filter(p => !ids.has(String(p.id)) && p.importBatchId !== batchId && p.purchaseBatchId !== batchId && p.labelBatchId !== batchId && p.receiptBatchId !== batchId));
+        try { localStorage.removeItem(LD_LAST_IMPORT_LABEL_BATCH_KEY); localStorage.removeItem(LD_BULK_LABEL_IDS_KEY); } catch (e) {}
+        setLastImportBatch(null);
+        setSel(new Set());
+        addAudit && addAudit({ action: `Undo latest import from Labels — removed ${list.length} plants`, user: user.name, page: 'Labels' });
+        alert("Latest import removed from inventory. Numbers remain skipped forever.");
+    };
 
     const startJob = async () => {
         const toProc = avail.filter(p => sel.has(p.id));
@@ -24115,8 +24416,10 @@ function Labels({ plants, setPlants, user, addAudit, setPage, settings }) {
                 React.createElement(Row, { gap: 8, wrap: true },
                     React.createElement(Btn, { sz: "sm", onClick: () => exportLatestImportLabelife(false) }, "Download Latest CSV"),
                     React.createElement(Btn, { sz: "sm", v: "soft", onClick: () => exportLatestImportLabelife(true) }, "Download Unprinted CSV"),
+                    React.createElement(Btn, { sz: "sm", v: "outline", onClick: repairLatestImportPricesToCents }, "Fix Latest Prices .88"),
                     React.createElement(Btn, { sz: "sm", v: "outline", onClick: selectLastImportBatch }, "Select Latest Import"),
-                    React.createElement(Btn, { sz: "sm", v: "ghost", onClick: selectUnprintedFromLastImport }, "Select Unprinted Only"))))
+                    React.createElement(Btn, { sz: "sm", v: "ghost", onClick: selectUnprintedFromLastImport }, "Select Unprinted Only"),
+                    React.createElement(Btn, { sz: "sm", v: "ghost", onClick: undoLatestImportFromLabels }, "Undo Latest Upload"))))
 ,
         React.createElement(Card, { style: { marginBottom: 16, background: C.card, borderLeft: `5px solid ${C.blue}` } },
             React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
