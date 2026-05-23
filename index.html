@@ -106,6 +106,7 @@
 <!-- V318 — Mobile Production Precompiled Boot:
 Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to Today, skips parsing oversized localStorage backups on mobile without deleting them, and keeps Customers footer link. No Supabase schema changes. No data deletion. -->
 <!-- V354 — Show Import Status: adds a clear recent show import status card so two-show days can confirm whether a Whatnot/Palmstreet show was already uploaded, with title, platform, imported time, sales count, gross, and file name. -->
+<!-- V356 — Show Import Exact Match Lock: repairs plant-code extraction, disables unsafe fuzzy auto-matching, prevents one inventory plant from matching multiple sales in the same import, and makes the Import button sticky so it is easier to tap on mobile. -->
 <!-- V355 — Delete Show Import + Duplicate Lock: Show Upload Status now has owner/manager delete buttons to undo a mistaken duplicate show import, remove matching commission/audit records, reset matched inventory, remove missing historical rows, and block re-uploading the same show file/totals again. -->
 <!-- V344 — CFF Pot Size + Undo + Show Names: Central Florida Ferns invoice prefixes 04/06/08 now auto-fill pot size and clean plant names, invoice/show imports get one-click undo for the current session, and show sales imports require/store a custom show title so two shows per day are easy to identify. -->
 <!-- V343 — Label Export + Number Ledger: adds always-visible desktop latest-invoice Labelife export buttons, removes visible escaped changelog text on iPhone, hardens every nursery code to keep continuing after the highest used number, and blocks reused historical numbers in current inventory uploads. -->
@@ -37381,16 +37382,19 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
     const extractPlantCode = text => {
         if (!text)
             return null;
+        // V356: do not use regex word-boundary escape sequences here. Previous patches
+        // accidentally inserted hidden backspace characters, so plant codes stopped being
+        // detected and the importer started fuzzy-matching the wrong plants.
         const cleaned = String(text).toUpperCase().replace(/[_#]/g, " ");
-        const match = cleaned.match(/([A-Z]{1,4})\s*-?\s*(\d{1,4})/);
+        const match = cleaned.match(/(?:^|[^A-Z0-9])([A-Z]{1,4})\s*-\s*(\d{1,4})(?=$|[^A-Z0-9])/) || cleaned.match(/(?:^|[^A-Z0-9])([A-Z]{1,4})(\d{1,4})(?=$|[^A-Z0-9])/);
         if (!match)
             return null;
-        // V340: preserve the exact number printed on the plant/sale title.
-        // PC-35 must stay PC-35 and must not silently become PC-035.
+        // Preserve the exact digits from the sale title/SKU. PC-35 stays PC-35.
         return `${match[1]}-${String(match[2])}`;
     };
     const normalizePlantCode = v => {
-        const m = String(v || "").toUpperCase().replace(/[_#]/g, " ").match(/([A-Z]{1,4})\s*-?\s*(\d{1,4})/);
+        const cleaned = String(v || "").toUpperCase().replace(/[_#]/g, " ");
+        const m = cleaned.match(/(?:^|[^A-Z0-9])([A-Z]{1,4})\s*-\s*(\d{1,4})(?=$|[^A-Z0-9])/) || cleaned.match(/(?:^|[^A-Z0-9])([A-Z]{1,4})(\d{1,4})(?=$|[^A-Z0-9])/);
         return m ? `${m[1]}-${String(m[2])}` : "";
     };
     const plantCodeMatches = (a, b) => {
@@ -37550,25 +37554,18 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         return ship ? `SHIPMENT-${ship}` : (sale.orderNo || sale.orderNum || "");
     };
     const findInventoryMatch = sale => {
-        const code = sale.extractedPlantCode;
-        if (code) {
-            const byCurrentCode = plants.find(p => isCurrentInventoryRecord(p) && (plantCodeMatches(p.plantId, code) ||
-                plantCodeMatches(p.plantCode, code) ||
-                plantCodeMatches(p.barcodeValue, code) ||
-                safeLower(p.plantId) === safeLower(code) ||
-                safeLower(p.plantCode) === safeLower(code) ||
-                safeLower(p.barcodeValue) === safeLower(code)));
-            if (byCurrentCode)
-                return byCurrentCode;
-            return null; // old sold/dead/history records with the same plant number must NOT steal this sale
-        }
-        const title = safeLower(sale.productVariant);
-        if (!title || importMode === "historical")
+        const code = normalizePlantCode(sale && (sale.extractedPlantCode || sale.sku || sale.productVariant || sale.title));
+        if (!code)
             return null;
-        return plants.find(p => isCurrentInventoryRecord(p) && (title.includes(safeLower(p.plantId)) ||
-            title.includes(safeLower(p.plantCode)) ||
-            title.includes(safeLower(p.barcodeValue)) ||
-            (p.name && (safeLower(p.name).includes(title.slice(0, 8)) || title.includes(safeLower(p.name).slice(0, 8)))))) || null;
+        const plantExactCodes = p => [
+            p && p.plantId,
+            p && p.plantCode,
+            p && p.barcodeValue,
+            p && p.sku,
+            typeof safePlantId === "function" ? safePlantId(p) : ""
+        ].map(normalizePlantCode).filter(Boolean);
+        const byCurrentCode = plants.find(p => isCurrentInventoryRecord(p) && plantExactCodes(p).includes(code));
+        return byCurrentCode || null;
     };
     // V223: bundle-aware sales import. One show row can represent 2+ plants, so the importer must
     // remove 2+ inventory records instead of marking only the first matching plant sold.
@@ -37879,6 +37876,34 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
                 historicalImport: !match || bundleMissingCount > 0,
                 needsReview: !match || bundleMissingCount > 0
             });
+        });
+        // V356: one physical inventory plant can only be removed once per show import.
+        // Also, auto-matching is now code-only. Rows without an exact in-stock plant code stay unmatched
+        // so the owner can enter missing cost or manually match the correct plant.
+        const usedShowImportPlantIds = new Set();
+        good.forEach(row => {
+            if (!row || row.duplicate)
+                return;
+            const qtyNeeded = saleQuantityForImport(row);
+            const originalMatches = (Array.isArray(row.bundleMatches) && row.bundleMatches.length ? row.bundleMatches : (row.matched ? [row.matched] : [])).filter(Boolean);
+            const kept = [];
+            originalMatches.forEach(p => {
+                const pid = String((p && p.id) || "");
+                if (!pid || usedShowImportPlantIds.has(pid))
+                    return;
+                usedShowImportPlantIds.add(pid);
+                kept.push(p);
+            });
+            row.bundleMatches = kept.slice(0, qtyNeeded);
+            row.matched = row.bundleMatches[0] || null;
+            row.bundleMatchCount = row.bundleMatches.length;
+            row.bundleMissingCount = Math.max(0, qtyNeeded - row.bundleMatchCount);
+            row.matchStatus = row.bundleMatchCount >= qtyNeeded ? "matched" : row.bundleMatchCount > 0 ? "partial_bundle_match" : "unmatched";
+            row.historicalImport = !row.matched || row.bundleMissingCount > 0;
+            row.needsReview = !row.matched || row.bundleMissingCount > 0;
+            row.apply = !row.duplicate && (importMode !== "exact" || row.bundleMatchCount >= qtyNeeded);
+            if (!row.matched && row.extractedPlantCode)
+                row.reviewReason = `No exact in-stock inventory plant found for ${row.extractedPlantCode}. This row will not steal another plant by name.`;
         });
         const grossSales = good.reduce((sum, r) => sum + money(r.price), 0);
         const audit = {
@@ -38257,6 +38282,16 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             return;
         }
         const allSelected = validRowsBeforeSubmit;
+        const selectedMatchedPlantIds = [];
+        allSelected.forEach(s => {
+            const ms = (Array.isArray(s.bundleMatches) && s.bundleMatches.length ? s.bundleMatches : (s.matched ? [s.matched] : [])).filter(Boolean);
+            ms.forEach(p => selectedMatchedPlantIds.push(String((p && p.id) || "")));
+        });
+        const selectedMatchedDuplicates = selectedMatchedPlantIds.filter((id, idx, arr) => id && arr.indexOf(id) !== idx);
+        if (selectedMatchedDuplicates.length > 0) {
+            setImportMsg(`Import stopped: the same inventory plant is matched more than once in this show. Nothing was saved. Re-upload with V356 and use exact plant-number matches only.`);
+            return;
+        }
         const existingKeys = existingImportedSaleKeys(plants);
         const newKeys = new Set();
         const selected = [];
@@ -38981,8 +39016,8 @@ Matched inventory plants will be put back to their exact previous records and mi
                     "Showing first 350 rows for speed. All ",
                     matched.length,
                     " rows will import if checked.")),
-            React.createElement(Row, { gap: 8, wrap: true },
-                React.createElement(Btn, { onClick: applyImport, disabled: applied_count === 0 },
+            React.createElement(Row, { gap: 8, wrap: true, style: { position: "sticky", bottom: "calc(88px + env(safe-area-inset-bottom,0px))", zIndex: 480, background: C.card, border: `2px solid ${C.g200}`, borderRadius: 18, padding: 10, boxShadow: "0 -10px 28px rgba(0,0,0,.12)" } },
+                React.createElement(Btn, { onClick: applyImport, disabled: applied_count === 0, full: true, style: { minHeight: 54, fontSize: 15 } },
                     "\u2705 Import ",
                     applied_count,
                     " Sales",
