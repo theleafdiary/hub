@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 
 <html lang="en">
-<head><!--V361 — Palmstreet totals + pack count repair: fixes plant-sale parsing so Calathea Pinstripe and no-SKU plant rows import, counts footer badge as open shipment groups, and records plant sales/shipping/customer shipment totals in show upload status.-->
+<head><!--V362 — Footer Count Matches Customer Hub: makes the Shipping footer badge use the same customer open/ready order count logic as Customers, so the footer matches the Customer Hub Open Orders number instead of older tracking/problem logic.-->
 <!-- V336 — Simple Customers cleanup: simplifies Customer Hub into a clear customer command center with four main actions and More Customer Tools. Keeps customer profiles, open/ready/past orders, blocked alerts, website import, exports, Supabase, and shipping links untouched. -->
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
@@ -9201,6 +9201,81 @@ const ldOpenPackingOrders = (plants = [], certs = []) => {
     }
 };
 const ldOpenPackingPlantCount = (orders = []) => safeArray(orders).reduce((sum, order) => sum + Math.max(0, safeArray(order === null || order === void 0 ? void 0 : order.plants).length), 0);
+
+/* V362 — Customer Hub order count helper for footer badge.
+   The footer Shipping badge now follows the same idea as the Customers tab:
+   customer/order groups that are not shipped/completed yet. This avoids old
+   tracking/label/doc logic making the footer lower than Customer Hub Open Orders. */
+const ldV362CustomerFooterOrderSummary = (plants = []) => {
+    const clean = v => String(v || "").replace(/^@+/, "").trim();
+    const compact = v => clean(v).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const compactNoSpace = v => clean(v).toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const platformOf = p => {
+        try { if (typeof ldPlatformLabel === "function") return ldPlatformLabel(p); } catch (e) { }
+        const raw = clean((p === null || p === void 0 ? void 0 : p.platform) || (p === null || p === void 0 ? void 0 : p.salePlatform) || (p === null || p === void 0 ? void 0 : p.sourcePlatform) || (p === null || p === void 0 ? void 0 : p.source) || (p === null || p === void 0 ? void 0 : p.marketplace));
+        if (/whatnot/i.test(raw)) return "Whatnot";
+        if (/palm/i.test(raw)) return "Palmstreet";
+        if (/shopify|website|web/i.test(raw)) return "Website";
+        if (/local/i.test(raw)) return "Local";
+        return raw || ((p === null || p === void 0 ? void 0 : p.localSale) ? "Local" : "Unknown");
+    };
+    const dateOf = p => (p === null || p === void 0 ? void 0 : p.soldDate) || (p === null || p === void 0 ? void 0 : p.saleDate) || (p === null || p === void 0 ? void 0 : p.orderDate) || (p === null || p === void 0 ? void 0 : p.soldAt) || (p === null || p === void 0 ? void 0 : p.createdAt) || (p === null || p === void 0 ? void 0 : p.dateAdded) || (p === null || p === void 0 ? void 0 : p.importDate) || "";
+    const orderNumberOf = p => clean((p === null || p === void 0 ? void 0 : p.orderNumber) || (p === null || p === void 0 ? void 0 : p.orderNo) || (p === null || p === void 0 ? void 0 : p.orderId) || (p === null || p === void 0 ? void 0 : p.whatnotOrderId) || (p === null || p === void 0 ? void 0 : p.platformOrderId) || (p === null || p === void 0 ? void 0 : p.customerOrderId));
+    const trackingOf = p => clean((p === null || p === void 0 ? void 0 : p.trackingNumber) || (p === null || p === void 0 ? void 0 : p.tracking) || (p === null || p === void 0 ? void 0 : p.shipmentTracking) || (p === null || p === void 0 ? void 0 : p.labelTracking));
+    const stateOf = p => clean((p === null || p === void 0 ? void 0 : p.customerState) || (p === null || p === void 0 ? void 0 : p.buyerState) || (p === null || p === void 0 ? void 0 : p.state) || (p === null || p === void 0 ? void 0 : p.shippingState) || (p === null || p === void 0 ? void 0 : p.shipState)).toUpperCase();
+    const zipOf = p => clean((p === null || p === void 0 ? void 0 : p.customerZip) || (p === null || p === void 0 ? void 0 : p.zip) || (p === null || p === void 0 ? void 0 : p.shippingZip) || (p === null || p === void 0 ? void 0 : p.postalCode) || (p === null || p === void 0 ? void 0 : p.shipZip)).replace(/[^0-9-]/g, "");
+    const itemNameOf = p => clean((p === null || p === void 0 ? void 0 : p.name) || (p === null || p === void 0 ? void 0 : p.title) || (p === null || p === void 0 ? void 0 : p.plantName) || (p === null || p === void 0 ? void 0 : p.rawProductVariant) || (p === null || p === void 0 ? void 0 : p.productVariant) || (p === null || p === void 0 ? void 0 : p.variantName) || (p === null || p === void 0 ? void 0 : p.sku) || "Plant");
+    const saleLike = p => (p === null || p === void 0 ? void 0 : p.status) === "Sold" || !!(p === null || p === void 0 ? void 0 : p.historicalImport) || !!(p === null || p === void 0 ? void 0 : p.saleImportKey) || !!(p === null || p === void 0 ? void 0 : p.saleLegacyKey) || !!orderNumberOf(p) || !!(p === null || p === void 0 ? void 0 : p.customerName) || !!(p === null || p === void 0 ? void 0 : p.buyerName) || !!(p === null || p === void 0 ? void 0 : p.customerUsername) || !!(p === null || p === void 0 ? void 0 : p.buyerUsername) || !!(p === null || p === void 0 ? void 0 : p.recipientName) || !!(p === null || p === void 0 ? void 0 : p.localSale) || !!(p === null || p === void 0 ? void 0 : p.manualCustomerOrder) || String((p === null || p === void 0 ? void 0 : p.nurseryCode) || "").toUpperCase() === "HIST" || String((p === null || p === void 0 ? void 0 : p.nurseryCode) || "").toUpperCase() === "CUST";
+    const customerKey = p => {
+        const username = compactNoSpace((p === null || p === void 0 ? void 0 : p.customerUsername) || (p === null || p === void 0 ? void 0 : p.buyerUsername) || (p === null || p === void 0 ? void 0 : p.customer) || (p === null || p === void 0 ? void 0 : p.palmstreetUsername) || (p === null || p === void 0 ? void 0 : p.username));
+        const email = compactNoSpace((p === null || p === void 0 ? void 0 : p.customerEmail) || (p === null || p === void 0 ? void 0 : p.email) || (p === null || p === void 0 ? void 0 : p.buyerEmail));
+        const phone = compactNoSpace((p === null || p === void 0 ? void 0 : p.customerPhone) || (p === null || p === void 0 ? void 0 : p.phone) || (p === null || p === void 0 ? void 0 : p.buyerPhone));
+        const name = compact((p === null || p === void 0 ? void 0 : p.customerName) || (p === null || p === void 0 ? void 0 : p.buyerName) || (p === null || p === void 0 ? void 0 : p.recipientName) || (p === null || p === void 0 ? void 0 : p.shipToName));
+        const recipient = compact((p === null || p === void 0 ? void 0 : p.recipientName) || (p === null || p === void 0 ? void 0 : p.shipToName) || (p === null || p === void 0 ? void 0 : p.customerName));
+        const addr = compact((p === null || p === void 0 ? void 0 : p.customerAddress1) || (p === null || p === void 0 ? void 0 : p.address1) || (p === null || p === void 0 ? void 0 : p.shippingAddress1) || (p === null || p === void 0 ? void 0 : p.streetAddress) || (p === null || p === void 0 ? void 0 : p.shipAddress1));
+        const st = stateOf(p).toLowerCase();
+        const zip = zipOf(p).slice(0, 5);
+        const order = compactNoSpace(orderNumberOf(p));
+        const manualId = compactNoSpace((p === null || p === void 0 ? void 0 : p.customerId) || (p === null || p === void 0 ? void 0 : p.manualCustomerId) || (p === null || p === void 0 ? void 0 : p.customerProfileKey) || (p === null || p === void 0 ? void 0 : p.manualCustomerKey));
+        if (manualId) return `c:${manualId}`;
+        if (username) return `u:${username}`;
+        if (email) return `e:${email}`;
+        if (phone) return `p:${phone}`;
+        if (name && zip) return `nz:${name}|${zip}`;
+        if (recipient && addr) return `ra:${recipient}|${addr}`;
+        if (name && st) return `ns:${name}|${st}`;
+        if (order) return `o:${order}`;
+        return "";
+    };
+    const orderKey = p => {
+        const ck = customerKey(p);
+        const shipment = clean((p === null || p === void 0 ? void 0 : p.shipmentId) || (p === null || p === void 0 ? void 0 : p.shipmentGroupKey) || (p === null || p === void 0 ? void 0 : p.shipmentGroup));
+        const order = orderNumberOf(p);
+        const platform = platformOf(p);
+        const date = String(dateOf(p) || "").slice(0, 10);
+        if (shipment) return `ship:${shipment}`;
+        if (order) return `${platform}:order:${order}`;
+        return `${platform}:${date}:${ck}:${itemNameOf(p)}`;
+    };
+    const groups = {};
+    safeArray(plants).filter(p => saleLike(p) && customerKey(p)).forEach(p => {
+        const k = orderKey(p);
+        if (!groups[k]) groups[k] = [];
+        groups[k].push(p);
+    });
+    let open = 0, ready = 0, past = 0, problems = 0;
+    Object.values(groups).forEach(records => {
+        const anyProblem = safeArray(records).some(p => (p === null || p === void 0 ? void 0 : p.blockedCustomerReviewRequired) || (p === null || p === void 0 ? void 0 : p.watchCustomerReviewRequired) || (p === null || p === void 0 ? void 0 : p.needsReview) || (p === null || p === void 0 ? void 0 : p.needs_review) || (p === null || p === void 0 ? void 0 : p.importNeedsReview) || (p === null || p === void 0 ? void 0 : p.shippingProblem) || (p === null || p === void 0 ? void 0 : p.refundStatus) || (p === null || p === void 0 ? void 0 : p.refundAmount) || (p === null || p === void 0 ? void 0 : p.customerStatus) === "yellow" || (p === null || p === void 0 ? void 0 : p.customerStatus) === "red");
+        const anyPacked = safeArray(records).some(p => (p === null || p === void 0 ? void 0 : p.packedAt) || (p === null || p === void 0 ? void 0 : p.platformReadyAt) || (p === null || p === void 0 ? void 0 : p.labelPhotoUrl) || (p === null || p === void 0 ? void 0 : p.packingPhotoUrl) || /pack|ready|label/i.test(String((p === null || p === void 0 ? void 0 : p.fulfillmentStatus) || (p === null || p === void 0 ? void 0 : p.shipmentStatus) || (p === null || p === void 0 ? void 0 : p.shippingStatus) || (p === null || p === void 0 ? void 0 : p.manualOrderStatus) || "")));
+        const anyTracking = safeArray(records).some(p => trackingOf(p));
+        const completed = records.length && safeArray(records).every(p => (p === null || p === void 0 ? void 0 : p.shipmentCompletedAt) || (p === null || p === void 0 ? void 0 : p.orderCompletedAt) || (p === null || p === void 0 ? void 0 : p.completedAt) || (p === null || p === void 0 ? void 0 : p.packedCompleteAt) || (p === null || p === void 0 ? void 0 : p.shippedDate) || (p === null || p === void 0 ? void 0 : p.deliveredDate) || /complete|completed|done|fulfilled|shipped|delivered|past/i.test(String((p === null || p === void 0 ? void 0 : p.fulfillmentStatus) || (p === null || p === void 0 ? void 0 : p.shipmentStatus) || (p === null || p === void 0 ? void 0 : p.shippingStatus) || (p === null || p === void 0 ? void 0 : p.trackingStatus) || (p === null || p === void 0 ? void 0 : p.manualOrderStatus) || "")));
+        if (completed) past += 1;
+        else if (anyPacked || anyTracking) ready += 1;
+        else open += 1;
+        if (anyProblem) problems += 1;
+    });
+    return { open, ready, past, problems, totalOpen: open + ready };
+};
 const trackingUrl = (carrier, number) => {
     if (!number)
         return "";
@@ -46394,25 +46469,10 @@ function App() {
     const inStockPlantCount = safeArray(plants).filter(p => String(p.status || "").trim() === "In Stock").length;
     const shippingFooterCount = (() => {
         try {
-            const all = groupSalesIntoOrders(plants).sort((a, b) => String(b.soldDate || "").localeCompare(String(a.soldDate || "")));
-            const recent = all.filter(o => dateInLast(o.soldDate, 21));
-            const q = recent.length ? recent : all.slice(0, 75);
-            const docsStates = ["CA", "AZ", "TX", "LA", "HI"];
-            const stateOfOrder = o => String(o.state || o.shippingState || "").toUpperCase();
-            const orderPlants = o => safeArray(o === null || o === void 0 ? void 0 : o.plants);
-            const orderHasTracking = o => ldOrderHasTracking(o);
-            const orderLabel = o => moneyNum(o.actualLabelCost || o.actualShippingCost || o.labelCost) || orderPlants(o).reduce((sum, p) => sum + ldActualLabelCost(p), 0);
-            const orderCharged = o => moneyNum(o.shippingCharged || o.shippingRevenue || o.shippingCollected) || orderPlants(o).reduce((sum, p) => sum + ldShippingCharged(p), 0);
-            const hasDoc = o => safeArray(casdCerts).some(c => {
-                const nm = String(o.customerName || o.customerUsername || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-                const cn = String(c.consigneeName || c.customerName || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-                const st = String(c.destination || c.state || "").toUpperCase();
-                return nm && cn && (cn.includes(nm) || nm.includes(cn)) && st === stateOfOrder(o);
-            });
-            return q.filter(o => {
-                // V361: footer badge should show open shipment/customer groups to pack, not only problem groups.
-                return !ldOrderIsCompleted(o, casdCerts);
-            }).length;
+            // V362: use the same customer open/ready order idea as the Customers tab.
+            // This makes the footer badge match Customer Hub instead of older tracking/label/doc logic.
+            const summary = ldV362CustomerFooterOrderSummary(plants);
+            return Math.max(0, summary.totalOpen || 0);
         }
         catch (e) {
             return 0;
