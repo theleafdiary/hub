@@ -2,8 +2,7 @@
 <!DOCTYPE html>
 
 <html lang="en">
-<head>
-
+<head><!--V361 — Palmstreet totals + pack count repair: fixes plant-sale parsing so Calathea Pinstripe and no-SKU plant rows import, counts footer badge as open shipment groups, and records plant sales/shipping/customer shipment totals in show upload status.-->
 <!-- V336 — Simple Customers cleanup: simplifies Customer Hub into a clear customer command center with four main actions and More Customer Tools. Keeps customer profiles, open/ready/past orders, blocked alerts, website import, exports, Supabase, and shipping links untouched. -->
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
@@ -12,7 +11,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V359 Revert Show Match Save Fix</title>
+<title>LEAF DIARY - BUSINESS HUB · V361 Palmstreet Totals Fix</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
@@ -37364,20 +37363,13 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         return isNaN(d) ? String(dt).slice(0, 10) : d.toISOString().slice(0, 10);
     };
     const isNonPlantVariant = text => {
-        const t = String(text || "").toLowerCase();
-        return !t ||
-            t.includes("processing fee") ||
-            t.includes("payment fee") ||
-            t.includes("stripe") ||
-            t.includes("bnpl") ||
-            t.includes("1day") ||
-            t.includes("2day") ||
-            t.includes("heat pack") ||
-            t.includes("insulation") ||
-            t.includes("shipping") ||
-            t.includes("ship") ||
-            t.includes("label") ||
-            t.includes("bundle protection");
+        const t = String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
+        if (!t) return true;
+        // V361: only skip true fee/shipping lines. Do NOT skip plant names like Calathea Pinstripe.
+        if (/(?:1\s*day|2\s*day|overnight|express)\s+shipping\s+upgrade/i.test(t)) return true;
+        if (/(?:shipping\s+upgrade|shipping\s+label|shipping\s+fee|postage|label\s+fee|processing\s+fee|payment\s+fee|stripe\s+fee|bnpl\s+fee|heat\s*pack|insulation|bundle\s+protection)/i.test(t)) return true;
+        if (/^(?:shipping|ship|postage|label|fee|fees)$/i.test(t)) return true;
+        return false;
     };
     const extractPlantCode = text => {
         if (!text)
@@ -37882,6 +37874,15 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             });
         });
         const grossSales = good.reduce((sum, r) => sum + money(r.price), 0);
+        const shippingCollectedTotal = good.reduce((sum, r) => sum + money(r.shippingChargedToCustomer || r.shippingFee || r.shipping || 0), 0);
+        const shipmentCount = new Set(good.map(r => compactKey([
+            r.customerUsername || r.customer || "",
+            r.recipientName || r.customerName || "",
+            r.customerAddress1 || "",
+            r.customerCity || "",
+            r.customerState || r.state || "",
+            r.customerZip || ""
+        ].join("|"))).filter(Boolean)).size;
         const audit = {
             id: uid(),
             platform: importPlatform,
@@ -37894,6 +37895,10 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
             duplicates: good.filter(r => r.duplicate).length,
             skipped: bad.length,
             grossSales,
+            plantSales: grossSales,
+            shippingCollectedTotal,
+            grossCollected: grossSales + shippingCollectedTotal,
+            shipmentCount,
             netAfterFees: good.filter(r => !r.duplicate).reduce((sum, r) => sum + showNetAfterFees(r), 0),
             commissionAmount: showEmployeeId !== "none" ? +(good.filter(r => r.apply && !r.duplicate).reduce((s, r) => s + showNetAfterFees(r), 0) * ((+showCommissionPercent || 0) / 100)).toFixed(2) : 0,
             skippedRows: bad.slice(0, 100)
@@ -38443,6 +38448,16 @@ Continue with matched rows only?`);
             expectedSelected: selected.length,
             importedSaved: matchedSales.length + unmatchedSales.length,
             grossSales: selected.reduce((sum, sale) => sum + money(sale.price || sale.productAmount || sale.orderAmount), 0),
+            plantSales: selected.reduce((sum, sale) => sum + money(sale.price || sale.productAmount || sale.orderAmount), 0),
+            shippingCollectedTotal: selected.reduce((sum, sale) => sum + money(sale.shippingChargedToCustomer || sale.shippingFee || sale.shipping || 0), 0),
+            shipmentCount: new Set(selected.map(sale => compactKey([
+                sale.customerUsername || sale.customer || "",
+                sale.recipientName || sale.customerName || "",
+                sale.customerAddress1 || "",
+                sale.customerCity || "",
+                sale.customerState || sale.state || "",
+                sale.customerZip || ""
+            ].join("|"))).filter(Boolean)).size,
             netAfterFees: selected.reduce((sum, sale) => sum + showNetAfterFees(sale), 0),
             platform: activeImportPlatform,
             fileName: fileName || "pasted sales import",
@@ -38502,6 +38517,10 @@ Continue with matched rows only?`);
             duplicateSkipped: duplicates.length,
             skippedRows: skipped.length,
             grossSales: result.grossSales,
+            plantSales: result.plantSales || result.grossSales,
+            shippingCollectedTotal: result.shippingCollectedTotal || 0,
+            grossCollected: (result.plantSales || result.grossSales || 0) + (result.shippingCollectedTotal || 0),
+            shipmentCount: result.shipmentCount || 0,
             netAfterFees: result.netAfterFees,
             commissionEmployee: (selectedShowEmployee === null || selectedShowEmployee === void 0 ? void 0 : selectedShowEmployee.name) || "",
             commissionAmount,
@@ -38752,7 +38771,10 @@ Matched inventory plants will be put back to their exact previous records and mi
                 matched: +(r.matchedInventory || r.matchedAdded || 0),
                 missing: +(r.unmatched || r.historicalAdded || 0),
                 duplicates: +(r.duplicateSkipped || r.duplicates || 0),
-                gross: money(r.grossSales || r.revenue || r.totalSales || 0),
+                gross: money(r.plantSales || r.grossSales || r.revenue || r.totalSales || 0),
+                shippingCollected: money(r.shippingCollectedTotal || r.shippingCollected || 0),
+                grossCollected: money(r.grossCollected || 0),
+                shipmentCount: +(r.shipmentCount || r.shipments || 0),
                 importedBy: cleanText(r.importedBy || r.createdBy || ""),
                 source: r.id ? "audit" : "plants"
             });
@@ -38800,7 +38822,7 @@ Matched inventory plants will be put back to their exact previous records and mi
                                 React.createElement("div", { style: { fontSize: 11, color: C.tx3, marginTop: 3, lineHeight: 1.35 } },
                                     r.platform || "Show", " · ", showImportTimeText(r.importedAt), r.fileName ? ` · ${r.fileName}` : "", r.importedBy ? ` · by ${r.importedBy}` : "")),
                             React.createElement("div", { style: { textAlign: "right", fontSize: 12, fontWeight: 900, color: C.g700, whiteSpace: "nowrap" } },
-                                r.salesCount || 0, " sales", React.createElement("br", null), $(r.gross || 0))),
+                                r.salesCount || 0, " plant sales", React.createElement("br", null), $(r.gross || 0), r.shipmentCount ? React.createElement(React.Fragment, null, React.createElement("br", null), r.shipmentCount, " shipments") : null)),
                         React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 } },
                             React.createElement(Tag, { text: `${r.matched || 0} inventory sold`, color: C.g600 }),
                             React.createElement(Tag, { text: `${r.missing || 0} missing/review`, color: r.missing ? C.amber : C.g600 }),
@@ -46388,10 +46410,8 @@ function App() {
                 return nm && cn && (cn.includes(nm) || nm.includes(cn)) && st === stateOfOrder(o);
             });
             return q.filter(o => {
-                const whatnot = ldIsWhatnot(o);
-                const docsMissing = docsStates.includes(stateOfOrder(o)) && !hasDoc(o);
-                const labelMissing = !whatnot && orderCharged(o) > 0 && orderLabel(o) <= 0;
-                return !ldOrderIsCompleted(o, casdCerts) && (!orderHasTracking(o) || docsMissing || labelMissing);
+                // V361: footer badge should show open shipment/customer groups to pack, not only problem groups.
+                return !ldOrderIsCompleted(o, casdCerts);
             }).length;
         }
         catch (e) {
