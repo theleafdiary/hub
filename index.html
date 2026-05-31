@@ -118,6 +118,7 @@ Removes in-browser Babel compilation for iPhone/mobile, forces mobile startup to
 <!-- V353 — Photo Help Cleanup: removes the MacBook + iPhone camera reminder cards from the photo/scan pages and moves those instructions into the top info tab. Code128 label workflow kept. -->
 <!-- V330 — Shipping State Docs Repair: lazy-loads PDFLib for manual/missing document generation, scans saved sold/shipment records for CA/AZ/TX/LA/HI docs, fixes Generate Missing Docs doing nothing, and uses safer download anchors. -->
 <!-- V363 — Paste Inventory Parser Fix: supports plain cash-purchase lines like Plant qty 7 cost 3.08 sell 12.88, preserves pot-size sections, exact unit cost, and suggested sell price. -->
+<!-- V366 — XLSX Upload Fix: dynamically loads the SheetJS Excel parser when needed so Palmstreet/Whatnot show imports, inventory imports, and label-cost imports can accept .xlsx/.xls files as well as CSV. -->
 <!-- V340 — Show Import Missing Cost Fix: show sales import now supports mostly-matched imports with missing inventory rows, requires easy cost entry for missing plants before saving, preserves plant number formatting, and uses stricter exact-code matching so PC-35 cannot be matched to PC-035. -->
 <!-- V338 — Simple More / Settings Cleanup: reduces owner Settings to Start, Team, Backup, Checkup, and More Tools; moves AI/security/docs/repair behind More Owner Tools; keeps Supabase, imports, shipping docs, and saved data logic unchanged. -->
 <!-- V339 — Final Mobile/Desktop QA: updates the Workflow Test Checklist for the simplified Home, Plants, Shows, Shipping, Customers, Money, and More flow; adds no new backend writes and keeps Supabase/import/state-doc logic unchanged. -->
@@ -9356,6 +9357,77 @@ const downloadBlob = (blob, filename) => {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1200);
 };
+const ldEnsureExcelParser = () => {
+    if (window.XLSX && window.XLSX.read && window.XLSX.utils)
+        return Promise.resolve(window.XLSX);
+    if (window.__LEAF_DIARY_XLSX_LOAD_PROMISE__)
+        return window.__LEAF_DIARY_XLSX_LOAD_PROMISE__;
+    const urls = [
+        "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+        "https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js",
+        "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+    ];
+    window.__LEAF_DIARY_XLSX_LOAD_PROMISE__ = new Promise((resolve, reject) => {
+        let idx = 0;
+        const errors = [];
+        const tryNext = () => {
+            if (window.XLSX && window.XLSX.read && window.XLSX.utils)
+                return resolve(window.XLSX);
+            if (idx >= urls.length)
+                return reject(new Error("Excel parser could not load. Check internet connection, then refresh and try the XLSX again. " + errors.join(" | ")));
+            const url = urls[idx++];
+            const existing = Array.from(document.querySelectorAll('script[data-ld-heavy-lib="xlsx"],script[data-ld-xlsx-loader="yes"]')).find(s => s.src === url);
+            if (existing && !existing.dataset.ldXlsxFailed) {
+                existing.addEventListener("load", () => window.XLSX ? resolve(window.XLSX) : setTimeout(tryNext, 50), { once: true });
+                existing.addEventListener("error", () => { errors.push("error " + url); tryNext(); }, { once: true });
+                return;
+            }
+            const s = document.createElement("script");
+            s.src = url;
+            s.async = true;
+            s.defer = true;
+            s.crossOrigin = "anonymous";
+            s.referrerPolicy = "no-referrer";
+            s.dataset.ldHeavyLib = "xlsx";
+            s.dataset.ldXlsxLoader = "yes";
+            let done = false;
+            const timer = setTimeout(() => {
+                if (done)
+                    return;
+                done = true;
+                s.dataset.ldXlsxFailed = "timeout";
+                errors.push("timeout " + url);
+                try { s.remove(); } catch (e) { }
+                tryNext();
+            }, 10000);
+            s.onload = () => {
+                if (done)
+                    return;
+                done = true;
+                clearTimeout(timer);
+                if (window.XLSX && window.XLSX.read && window.XLSX.utils)
+                    resolve(window.XLSX);
+                else {
+                    errors.push("loaded but XLSX missing " + url);
+                    tryNext();
+                }
+            };
+            s.onerror = () => {
+                if (done)
+                    return;
+                done = true;
+                clearTimeout(timer);
+                s.dataset.ldXlsxFailed = "error";
+                errors.push("error " + url);
+                try { s.remove(); } catch (e) { }
+                tryNext();
+            };
+            document.head.appendChild(s);
+        };
+        tryNext();
+    });
+    return window.__LEAF_DIARY_XLSX_LOAD_PROMISE__;
+};
 /* ══════════════════════════════════════════════════════════
    AI AUTOMATION HELPERS — works now with local business rules.
    If you deploy Supabase Edge Function leaf-ai later, this screen
@@ -17209,7 +17281,8 @@ function VisualReportsCenter({ plants = [], expenses = [], bills = [], timecards
         <div class="page page-break"><div class="section"><h2>Period Comparison</h2><div class="section-note">Current period compared with the matching previous period.</div><table class="table"><thead><tr><th>Metric</th><th>Now</th><th>Previous</th><th>Change</th></tr></thead><tbody>${compareRows.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.money ? $(r.current) : numberFmt(r.current, r.suffix || ""))}</td><td>${esc(r.money ? $(r.previous) : numberFmt(r.previous, r.suffix || ""))}</td><td>${r.change >= 0 ? "+" : ""}${Math.round(r.change || 0)}%</td></tr>`).join("")}</tbody></table></div>
         <div class="section two"><div class="card"><h2>Top Shows</h2>${showRows.slice(0, 8).map(r => `<div class="action"><div class="action-num">${esc(r.plants || r.count || 0)}</div><div><b>${esc(shortLabel(r.show, 34))}</b><div class="alert-sub">${esc(r.platform)} · ${esc(r.date)} · avg ${esc($(r.avg || 0))}</div></div><div class="action-impact">${esc($(r.value))}</div></div>`).join("") || `<div class="muted">No show data for this period.</div>`}</div><div class="card"><h2>Top Plant Profit</h2>${plantProfitRows.slice(0, 8).map((r, i) => `<div class="action"><div class="action-num">${i + 1}</div><div><b>${esc(shortLabel(r.name, 34))}</b><div class="alert-sub">${esc(r.platform)} · sale ${esc($(r.sale))} · cost ${esc($(r.cost))}</div></div><div class="action-impact">${esc($(r.value))}</div></div>`).join("") || `<div class="muted">No plant profit rows yet.</div>`}</div></div>
         <div class="section two"><div class="card"><h2>Low Margin Review</h2>${lowMarginRows.slice(0, 7).map((r, i) => `<div class="action"><div class="action-num">${i + 1}</div><div><b>${esc(shortLabel(r.name, 34))}</b><div class="alert-sub">${esc(r.id || "")}${r.id ? " · " : ""}${esc($(r.cost))} cost → ${esc($(r.price))} price</div></div><div class="action-impact">${esc(safePct(r.margin))}</div></div>`).join("") || `<div class="muted">No low margin plants in this view.</div>`}</div><div class="card"><h2>Owner Notes</h2><div class="print-note">Use this PDF for a quick review with your wife, bookkeeper, or team. The report is generated from saved Leaf Diary app data. Missing plant cost, label cost, tracking, and state paperwork will make profit numbers less accurate until cleaned up.</div><div class="print-note no-print">Browser note: the app creates a real PDF when PDFLib is available. If your browser blocks it, the fallback opens a print-ready report that can be saved as PDF.</div></div></div>
-        <div class="footer"><span>Leaf Diary Business Hub</span><span>End of report</span></div></div></body></html>`;
+        <div class="footer"><span>Leaf Diary Business Hub</span><span>End of report</span></div></div></body></html>
+<!-- V366 — XLSX Upload Fix patch applied by ChatGPT on 2026-05-31. -->`;
         const downloadHtmlFallback = () => {
             const html = htmlReport();
             const w = window.open("", "_blank", "noopener,noreferrer,width=980,height=1100");
@@ -20178,7 +20251,8 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
         setBulkMsg("Reading inventory file...");
         try {
             const buf = await file.arrayBuffer();
-            const wb = XLSX.read(buf, { type: "array", cellDates: true });
+            const XL = await ldEnsureExcelParser();
+            const wb = XL.read(buf, { type: "array", cellDates: true });
             const ws = wb.Sheets[wb.SheetNames[0]];
             /*
               IMPORTANT FIX:
@@ -20187,7 +20261,7 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
               This importer now reads the sheet as a raw row array and maps columns by position/header.
               That prevents the upload from stopping around 198 rows when the file actually has more.
             */
-            const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: false });
+            const aoa = XL.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: false });
             const headers = (aoa[0] || []).map(h => String(h || "").trim());
             const hmap = headers.reduce((a, h, idx) => { a[cleanHeader(h)] = idx; return a; }, {});
             const valAt = (arr, names, fallbackIndex = -1) => {
@@ -21257,14 +21331,15 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
         setInvBulkMsg("Reading inventory file...");
         try {
             const buf = await file.arrayBuffer();
-            const wb = XLSX.read(buf, { type: "array", cellDates: true });
+            const XL = await ldEnsureExcelParser();
+            const wb = XL.read(buf, { type: "array", cellDates: true });
             const ws = wb.Sheets[wb.SheetNames[0]];
             /*
               IMPORTANT FIX:
               Read Excel as raw rows instead of object-header JSON so rows after odd formatting/table
               breaks do not get missed. This fixes uploads that only preview/import around 198 rows.
             */
-            const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: false });
+            const aoa = XL.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: false });
             const headers = (aoa[0] || []).map(h => String(h || "").trim());
             const hmap = headers.reduce((a, h, idx) => { a[cleanHeaderInv(h)] = idx; return a; }, {});
             const valAt = (arr, names, fallbackIndex = -1) => {
@@ -32186,14 +32261,15 @@ function ShippingCommandCenter({ initialTab = "overview", plants = [], setPlants
         };
         const reader = new FileReader();
         reader.onerror = () => { setLabelImportMsg("Could not read file."); setLabelImportBusy(false); };
-        reader.onload = e => {
+        reader.onload = async e => {
             try {
                 if (/\.xlsx?$/i.test(file.name || "")) {
-                    if (!window.XLSX)
-                        throw new Error("Excel parser did not load. Refresh and try again.");
-                    const wb = window.XLSX.read(new Uint8Array(e.target.result), { type: "array", cellDates: true });
+                    setLabelImportMsg("Loading Excel parser…");
+                    const XL = await ldEnsureExcelParser();
+                    setLabelImportMsg("Reading Excel label file…");
+                    const wb = XL.read(new Uint8Array(e.target.result), { type: "array", cellDates: true });
                     const ws = wb.Sheets[wb.SheetNames[0]];
-                    finish(window.XLSX.utils.sheet_to_json(ws, { defval: "", raw: false }));
+                    finish(XL.utils.sheet_to_json(ws, { defval: "", raw: false }));
                 }
                 else
                     finish(v244RowsFromText(e.target.result));
@@ -38087,24 +38163,27 @@ function ShowImport({ plants, setPlants, addAudit, user, users = [], settings = 
         setMissingCostDrafts({});
         const isXlsx = /\.xlsx?$/i.test(f.name || "");
         const r = new FileReader();
-        r.onload = e => {
+        r.onload = async e => {
             try {
                 if (!isXlsx && String(e.target.result || "").toLowerCase().includes("buyer_username") && String(e.target.result || "").toLowerCase().includes("product_name")) {
                     setPlatform("Whatnot");
                     setImportMode("historical");
                 }
                 if (isXlsx) {
-                    if (!window.XLSX)
-                        throw new Error("Excel parser did not load. Refresh the page and try again.");
-                    const wb = window.XLSX.read(new Uint8Array(e.target.result), { type: "array", cellDates: true });
-                    const sheetName = wb.SheetNames.includes("Order Details") ? "Order Details" : wb.SheetNames[0];
-                    const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "", raw: false });
+                    setImportMsg("Loading Excel parser…");
+                    const XL = await ldEnsureExcelParser();
+                    setImportMsg("Reading Excel show file…");
+                    const wb = XL.read(new Uint8Array(e.target.result), { type: "array", cellDates: true });
+                    const sheetName = wb.SheetNames.includes("Order Details") ? "Order Details" : (wb.SheetNames.find(n => /^All Orders/i.test(String(n || ""))) || wb.SheetNames[0]);
+                    const rows = XL.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "", raw: false });
                     const detected = detectShowPlatform(rows, platform);
                     setPlatform(detected);
                     const { good, bad } = normalizeSalesRows(rows, detected);
+                    setRaw("");
                     setParsed(rows);
                     setMatched(good);
                     setSkipped(bad);
+                    setImportMsg(`Loaded ${good.length} sale row(s) from ${sheetName}. Review, then import.`);
                     setStep("review");
                 }
                 else {
@@ -39103,7 +39182,7 @@ Matched inventory plants will be put back to their exact previous records and mi
                     " tab, or normal CSV order exports."),
                 React.createElement("div", { style: { border: `2px dashed ${C.g300}`, borderRadius: 12, padding: "30px", textAlign: "center", background: C.card, marginBottom: 12, cursor: "pointer" }, onClick: () => fileRef.current.click() },
                     React.createElement("div", { style: { fontSize: 36, marginBottom: 8 } }, "\uD83D\uDCC4"),
-                    React.createElement("div", { style: { fontWeight: 700, color: C.g900, marginBottom: 6 } }, fileName || "Upload XLSX or CSV file"),
+                    React.createElement("div", { style: { fontWeight: 700, color: C.g900, marginBottom: 6 } }, fileName || "Upload XLSX / CSV file"),
                     React.createElement("div", { style: { fontSize: 12, color: C.tx3, marginBottom: 12 } }, "Palmstreet analytics export or orders export"),
                     React.createElement(Btn, { onClick: e => { e.stopPropagation(); fileRef.current.click(); } }, "Choose File")),
                 React.createElement("input", { ref: fileRef, type: "file", accept: ".csv,.xlsx,.xls", style: { display: "none" }, onChange: e => loadFile(e.target.files[0]) }),
