@@ -7694,6 +7694,11 @@ const ldPlantNumberExists = (plants = [], plantId = "") => {
     const target = ldPlantNumberKey(plantId);
     return safeArray(plants).some(p => ldPlantNumbersForRow(p).some(v => ldPlantNumberKey(v) === target));
 };
+const ldPlantNumberKeysForRow = p => ldPlantNumbersForRow(p).map(v => ldPlantNumberKey(v)).filter(Boolean);
+const ldAnyPlantNumberKeyExists = (plants = [], plantId = "") => {
+    const target = ldPlantNumberKey(plantId);
+    return !!target && safeArray(plants).some(p => ldPlantNumberKeysForRow(p).includes(target));
+};
 const ldReadNumberLedger = () => { try { return JSON.parse(localStorage.getItem(LD_NUMBER_LEDGER_KEY) || "{}") || {}; } catch (e) { return {}; } };
 const ldWriteNumberLedger = ledger => { try { localStorage.setItem(LD_NUMBER_LEDGER_KEY, JSON.stringify(ledger || {})); } catch (e) { } };
 const ldLedgerMaxForCode = (settings = {}, code = "") => {
@@ -7767,6 +7772,16 @@ const ldUpdateNumberLedgerObject = (ledger = {}, code = "", plantIds = []) => {
 };
 const ldUpdateNumberLedgerLocal = (code = "", plantIds = []) => ldWriteNumberLedger(ldUpdateNumberLedgerObject(ldReadNumberLedger(), code, plantIds));
 const ldUpdateNumberLedgerSettings = (settings = {}, code = "", plantIds = []) => ({ ...(settings || {}), plantNumberLedger: ldUpdateNumberLedgerObject((settings && settings.plantNumberLedger) || {}, code, plantIds), plantNumberLedgerUpdatedAt: new Date().toISOString() });
+const ldUpdateNumberLedgerLocalFromRows = (rows = []) => {
+    const nextLedger = ldMergeNumberLedgers(ldReadNumberLedger(), ldBuildNumberLedgerFromPlants(rows));
+    ldWriteNumberLedger(nextLedger);
+    return nextLedger;
+};
+const ldUpdateNumberLedgerSettingsFromRows = (settings = {}, rows = []) => ({
+    ...(settings || {}),
+    plantNumberLedger: ldMergeNumberLedgers((settings && settings.plantNumberLedger) || {}, ldBuildNumberLedgerFromPlants(rows)),
+    plantNumberLedgerUpdatedAt: new Date().toISOString()
+});
 const ldLedgerWouldReuse = (settings = {}, code = "", ids = []) => {
     const c = ldCanonicalNurseryCode(code);
     const last = ldLedgerMaxForCode(settings, c);
@@ -7793,7 +7808,7 @@ const ldInvoiceSourceHaystack = (nursery = {}, invoiceResult = {}, rawText = "")
 const ldDetectedInvoiceNurseryCode = (nursery = {}, invoiceResult = {}, rawText = "") => {
     const hay = ldInvoiceSourceHaystack(nursery, invoiceResult, rawText);
     // Hard-lock the nurseries that have known invoice formats. This prevents CFF uploads from ever becoming PP-001 labels.
-    if (/central\s*florida\s*ferns|centralflorida\s*ferns|cfferns\.com|billing@cfferns\.com|006\d{4,}-in/i.test(hay)) return "CFF";
+    if (/central\s*florida\s*ferns|centralflorida\s*ferns|cfferns\.com|billing@cfferns\.com|\b006\d{4,}-in\b/i.test(hay)) return "CFF";
     if (/perfect\s*choice|perfectchoicenursery|perfect\s*choice\s*(gdns|gardens|nursery)/i.test(hay)) return "PC";
     if (/plant\s*proper/i.test(hay)) return "PP";
     return "";
@@ -20191,7 +20206,7 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
                 const st = String((p === null || p === void 0 ? void 0 : p.status) || "In Stock").toLowerCase();
                 return st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
             };
-            const existingMap = new Map((plants || []).filter(isCurrentInventoryForImport).map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
+            const existingMap = new Map((plants || []).filter(isCurrentInventoryForImport).flatMap(p => ldPlantNumberKeysForRow(p).map(k => [k, p])).filter(([k]) => k));
             const seen = new Set();
             const mapped = [];
             const skipped = [];
@@ -20206,12 +20221,13 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
                     return;
                 }
                 const plantNum = String(idMatch[1]).toUpperCase().replace(/\s*-\s*/g, "-").replace(/\s+/g, "");
-                if (seen.has(plantNum)) {
+                const plantKey = ldPlantNumberKey(plantNum);
+                if (seen.has(plantKey)) {
                     skipped.push(`Row ${excelRow}: duplicate plant number inside upload file (${plantNum}) — not imported because plant numbers must be unique`);
                     return;
                 }
-                seen.add(plantNum);
-                const existingPlant = existingMap.get(plantNum);
+                seen.add(plantKey);
+                const existingPlant = existingMap.get(plantKey);
                 const alreadyExists = !!existingPlant;
                 const name = toTC((rawTitle || explicitId).replace(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b\s*$/i, "").trim());
                 const costRaw = valAt(arr, COST_COLUMN_NAMES, 1);
@@ -20220,7 +20236,7 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
                 const suggestedPrice = cleanMoney(priceRaw);
                 const prefix = ((plantNum.match(/^[A-Z]+/) || ["INV"])[0] || "INV").toUpperCase();
                 mapped.push({
-                    _k: `${plantNum}-${excelRow}`, id: (existingPlant === null || existingPlant === void 0 ? void 0 : existingPlant.id) || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && String(p.plantId || p.plantCode || "").trim().toUpperCase() === plantNum),
+                    _k: `${plantNum}-${excelRow}`, id: (existingPlant === null || existingPlant === void 0 ? void 0 : existingPlant.id) || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && ldPlantNumberKeysForRow(p).includes(plantKey)),
                     nurseryCode: prefix, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPot(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
                     cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
                     status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDate(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
@@ -20248,21 +20264,28 @@ function ManualEntry({ plants, setPlants, nurseries, addAudit, user, settings = 
             alert("Import stopped. These plant numbers were already used in old sold/dead/history records and can never be reused:\n\n" + blockedHistorical.slice(0, 30).map(r => r.plantId || r.plantCode).join("\n"));
             return;
         }
+        ldSeedNumberLedgerFromPlantsLocal(plants, settings);
+        const ledgerReuseRows = bulkRows.filter(r => !r.existingInApp && ldPlantSeqFromId(r.plantId || r.plantCode || "") > 0 && ldPlantSeqFromId(r.plantId || r.plantCode || "") <= ldLedgerMaxForCode(settings, ldPlantCodeFromId(r.plantId || r.plantCode || "") || r.nurseryCode || "LD"));
+        if (ledgerReuseRows.length) {
+            alert("Import stopped. These plant numbers are at or below the last-used ledger for their nursery and can never be reused:\n\n" + ledgerReuseRows.slice(0, 30).map(r => r.plantId || r.plantCode).join("\n"));
+            return;
+        }
         const rows = bulkRows.map(({ _k, existingInApp, duplicateHistoricalPlantNumber, ...r }) => r);
-        const incomingIds = new Set(rows.map(r => String(r.plantId || r.plantCode || "").trim().toUpperCase()).filter(Boolean));
+        const incomingIds = new Set(rows.flatMap(r => ldPlantNumberKeysForRow(r)));
         const updateCount = bulkRows.filter(r => r.existingInApp).length;
         const newCount = rows.length - updateCount;
         setPlants(prev => [...(prev || []).filter(p => {
-                const id = String(p.plantId || p.plantCode || "").trim().toUpperCase();
                 const st = String((p === null || p === void 0 ? void 0 : p.status) || "In Stock").toLowerCase();
                 const isCurrent = st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
-                return !(incomingIds.has(id) && isCurrent);
+                return !(ldPlantNumberKeysForRow(p).some(k => incomingIds.has(k)) && isCurrent);
             }), ...rows]);
+        ldUpdateNumberLedgerLocalFromRows(rows);
+        if (typeof setSettings === "function") setSettings(prev => ldUpdateNumberLedgerSettingsFromRows(prev, rows));
         addAudit({ action: `Bulk imported/updated ${rows.length} existing inventory plants with original plant numbers (${newCount} new, ${updateCount} updated)`, user: user.name, page: "Manual Entry" });
         setSaved(p => [...p, ...rows]);
         setBulkRows([]);
         setBulkSkipped([]);
-        setBulkMsg(`Imported/updated ${rows.length} plants. Original plant numbers were kept. ${newCount} new, ${updateCount} updated.`);
+        setBulkMsg(`Imported/updated ${rows.length} plants. Original plant numbers were kept and the never-reuse ledger was updated for every nursery prefix. ${newCount} new, ${updateCount} updated.`);
         ldEmitNextStep("bulk_inventory_imported", { body: `Imported/updated ${rows.length} plants. Next: print labels and photograph anything missing photos.` });
         if (bulkRef.current)
             bulkRef.current.value = "";
@@ -21260,7 +21283,7 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
                 const st = String((p === null || p === void 0 ? void 0 : p.status) || "In Stock").toLowerCase();
                 return st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
             };
-            const existingMap = new Map((plants || []).filter(isCurrentInventoryForImport).map(p => [String(p.plantId || p.plantCode || "").trim().toUpperCase(), p]).filter(([k]) => k));
+            const existingMap = new Map((plants || []).filter(isCurrentInventoryForImport).flatMap(p => ldPlantNumberKeysForRow(p).map(k => [k, p])).filter(([k]) => k));
             const seen = new Set();
             const mapped = [];
             const skipped = [];
@@ -21275,12 +21298,13 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
                     return;
                 }
                 const plantNum = String(idRaw).toUpperCase().replace(/\s*-\s*/g, "-").replace(/\s+/g, "");
-                if (seen.has(plantNum)) {
+                const plantKey = ldPlantNumberKey(plantNum);
+                if (seen.has(plantKey)) {
                     skipped.push(`Row ${excelRow}: duplicate plant number inside upload file (${plantNum}) — not imported because plant numbers must be unique`);
                     return;
                 }
-                seen.add(plantNum);
-                const existingPlant = existingMap.get(plantNum);
+                seen.add(plantKey);
+                const existingPlant = existingMap.get(plantKey);
                 const alreadyExists = !!existingPlant;
                 const name = toTC((rawTitle || explicitId).replace(/\b([A-Z]{1,5}\s*-\s*\d{1,5}|[A-Z]{1,5}\d{2,5})\b\s*$/i, "").trim());
                 const costRaw = valAt(arr, COST_COLUMN_NAMES_INV, 1);
@@ -21298,7 +21322,7 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
                 const nurseryCode = (matchedNursery === null || matchedNursery === void 0 ? void 0 : matchedNursery.code) || prefix;
                 const nurseryName = nurseryRaw || (matchedNursery === null || matchedNursery === void 0 ? void 0 : matchedNursery.name) || "";
                 mapped.push({
-                    _k: `${plantNum}-${excelRow}`, id: (existingPlant === null || existingPlant === void 0 ? void 0 : existingPlant.id) || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && String(p.plantId || p.plantCode || "").trim().toUpperCase() === plantNum),
+                    _k: `${plantNum}-${excelRow}`, id: (existingPlant === null || existingPlant === void 0 ? void 0 : existingPlant.id) || uid(), plantId: plantNum, plantCode: plantNum, barcodeValue: plantNum, barcodeType: "CODE128", existingInApp: alreadyExists, duplicateHistoricalPlantNumber: !alreadyExists && (plants || []).some(p => !isCurrentInventoryForImport(p) && ldPlantNumberKeysForRow(p).includes(plantKey)),
                     nurseryCode: nurseryCode, nurseryName: nurseryName, name: name || rawTitle || plantNum, botanicalName: "", potSize: normPotInv(valAt(arr, ["Pot Size", "Size", "Pot"], 4)),
                     cost, suggestedPrice: suggestedPrice || sprice(cost), salePrice: "", shippingCost: "", margin: marg(cost, suggestedPrice || sprice(cost)),
                     status: "In Stock", invoiceNumber: "Existing Inventory Import", invoiceDate: "", dateAdded: parseStockDateInv(valAt(arr, ["Date", "Date ", "Purchase Date", "Added Date"], 3)),
@@ -21322,20 +21346,32 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
     const saveExistingInventoryOnInventory = () => {
         if (!invBulkRows.length)
             return;
-        const rows = invBulkRows.map(({ _k, existingInApp, ...r }) => r);
-        const incomingIds = new Set(rows.map(r => String(r.plantId || r.plantCode || "").trim().toUpperCase()).filter(Boolean));
+        const blockedHistorical = invBulkRows.filter(r => r.duplicateHistoricalPlantNumber && !r.existingInApp);
+        if (blockedHistorical.length) {
+            alert("Import stopped. These plant numbers were already used in old sold/dead/history records and can never be reused:\n\n" + blockedHistorical.slice(0, 30).map(r => r.plantId || r.plantCode).join("\n"));
+            return;
+        }
+        ldSeedNumberLedgerFromPlantsLocal(plants, settings);
+        const ledgerReuseRows = invBulkRows.filter(r => !r.existingInApp && ldPlantSeqFromId(r.plantId || r.plantCode || "") > 0 && ldPlantSeqFromId(r.plantId || r.plantCode || "") <= ldLedgerMaxForCode(settings, ldPlantCodeFromId(r.plantId || r.plantCode || "") || r.nurseryCode || "LD"));
+        if (ledgerReuseRows.length) {
+            alert("Import stopped. These plant numbers are at or below the last-used ledger for their nursery and can never be reused:\n\n" + ledgerReuseRows.slice(0, 30).map(r => r.plantId || r.plantCode).join("\n"));
+            return;
+        }
+        const rows = invBulkRows.map(({ _k, existingInApp, duplicateHistoricalPlantNumber, ...r }) => r);
+        const incomingIds = new Set(rows.flatMap(r => ldPlantNumberKeysForRow(r)));
         const updateCount = invBulkRows.filter(r => r.existingInApp).length;
         const newCount = rows.length - updateCount;
         setPlants(prev => [...(prev || []).filter(p => {
-                const id = String(p.plantId || p.plantCode || "").trim().toUpperCase();
                 const st = String((p === null || p === void 0 ? void 0 : p.status) || "In Stock").toLowerCase();
                 const isCurrent = st === "in stock" || st === "needs label" || st === "needs photo" || st === "holding for customer";
-                return !(incomingIds.has(id) && isCurrent);
+                return !(ldPlantNumberKeysForRow(p).some(k => incomingIds.has(k)) && isCurrent);
             }), ...rows]);
+        ldUpdateNumberLedgerLocalFromRows(rows);
+        if (typeof setSettings === "function") setSettings(prev => ldUpdateNumberLedgerSettingsFromRows(prev, rows));
         addAudit && addAudit({ action: `Bulk imported/updated ${rows.length} existing inventory plants with original plant numbers (${newCount} new, ${updateCount} updated)`, user: user.name, page: "Inventory" });
         setInvBulkRows([]);
         setInvBulkSkipped([]);
-        setInvBulkMsg(`Imported/updated ${rows.length} plants. Original plant numbers were kept. ${newCount} new, ${updateCount} updated.`);
+        setInvBulkMsg(`Imported/updated ${rows.length} plants. Original plant numbers were kept and the never-reuse ledger was updated for every nursery prefix. ${newCount} new, ${updateCount} updated.`);
         if (invBulkRef.current)
             invBulkRef.current.value = "";
     };
@@ -21357,9 +21393,13 @@ function Inventory({ plants = [], setPlants, user = {}, addAudit, nurseries = []
         addAudit && addAudit({ action: `Deleted duplicate plant entry ${plantIdStr}`, user: user.name, page: 'Inventory' });
     };
     const resolveNewId = (plant) => {
-        const nextSeq = getNextId(plants, plant.nurseryCode) + 1;
-        const newPlantId = pid(plant.nurseryCode || 'XX', nextSeq);
-        setPlants(prev => prev.map(x => x.id === plant.id ? { ...x, plantId: newPlantId, plantCode: newPlantId, barcodeValue: newPlantId } : x));
+        const code = ldCanonicalNurseryCode(plant.nurseryCode || ldPlantCodeFromId(plant.plantId || plant.plantCode || "") || "LD", plant.nurseryName || "");
+        ldSeedNumberLedgerFromPlantsLocal(plants, settings);
+        const reservedIds = new Set();
+        const newPlantId = ldNextUnusedPlantId(plants.filter(p => p.id !== plant.id), code, ldGetNextIdBase(plants, code, settings) + 1, reservedIds, settings);
+        setPlants(prev => prev.map(x => x.id === plant.id ? { ...x, plantId: newPlantId, plantCode: newPlantId, barcodeValue: newPlantId, nurseryCode: code } : x));
+        ldUpdateNumberLedgerLocal(code, [newPlantId]);
+        if (typeof setSettings === "function") setSettings(prev => ldUpdateNumberLedgerSettings(prev, code, [newPlantId]));
         addAudit && addAudit({ action: `Reassigned duplicate: ${plant.plantId} → ${newPlantId}`, user: user.name, page: 'Inventory' });
     };
     const resolveDeleteAll = () => {
