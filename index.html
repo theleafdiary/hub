@@ -2,7 +2,8 @@
 <!DOCTYPE html>
 
 <html lang="en">
-<head><!--V364 — All Shows Upload History + Duplicate Warning: shows every saved show upload with clear show dates, searchable history, stronger duplicate warning, and larger saved audit history.-->
+<head><!--V367 — Inventory PDF/Paste Parser Repair: PDF invoice text now auto-parses when available, scanned PDFs give clear scan guidance, and pasted nursery receipt lines like "13 x Plant @ $25.00" or "13 Plant 25.00" import with correct quantity and unit cost.-->
+<!--V364 — All Shows Upload History + Duplicate Warning: shows every saved show upload with clear show dates, searchable history, stronger duplicate warning, and larger saved audit history.-->
 <!--V362 — Footer Count Matches Customer Hub: makes the Shipping footer badge use the same customer open/ready order count logic as Customers, so the footer matches the Customer Hub Open Orders number instead of older tracking/problem logic.-->
 <!-- V336 — Simple Customers cleanup: simplifies Customer Hub into a clear customer command center with four main actions and More Customer Tools. Keeps customer profiles, open/ready/past orders, blocked alerts, website import, exports, Supabase, and shipping links untouched. -->
 <meta charset="utf-8"/>
@@ -12,7 +13,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V364 Show Upload History</title>
+<title>LEAF DIARY - BUSINESS HUB · V367 Inventory PDF Parser Fix</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
@@ -19252,11 +19253,33 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                         }
                         if (!renderedPages.length)
                             throw new Error("No pages were found in this PDF.");
+                        const extractedPdfText = renderedPageTexts.filter(Boolean).join("\n");
                         setInvoicePages(renderedPages);
-                        setInvoiceRawText(renderedPageTexts.filter(Boolean).join("\n"));
+                        setInvoiceRawText(extractedPdfText);
+                        setPasteText(extractedPdfText || pasteText);
                         setImg(renderedPages[0]);
                         if ((pdf.numPages || 1) > MAX_PDF_PAGES) {
                             setErr(`PDF has ${pdf.numPages} pages. First ${MAX_PDF_PAGES} pages loaded. Split the invoice if plants are after page ${MAX_PDF_PAGES}.`);
+                        }
+                        if (extractedPdfText && extractedPdfText.trim()) {
+                            try {
+                                const textResult = parsePastedInvoiceText(extractedPdfText);
+                                if (textResult && safeArray(textResult.plants).length) {
+                                    const mapped = buildRowsFromInvoicePlants(textResult);
+                                    setParsed(textResult);
+                                    setRows(mapped);
+                                    setPasteSummary({ lineItems: textResult.plants.length, plantRecords: mapped.length, subtotal: textResult.subtotal, lineSubtotalBeforeDiscount: textResult.lineSubtotalBeforeDiscount || textResult.subtotal, discountedLineSubtotal: textResult.discountedLineSubtotal || 0, discount: textResult.discount, discountRate: textResult.discountRate || 0, discountLabel: textResult.discountLabel || "", hasOrderWideDiscount: !!textResult.hasOrderWideDiscount, receiptProfileLabel: textResult.receiptProfileLabel || "", receiptProfileNote: textResult.receiptProfileNote || "", tax: textResult.tax, total: textResult.total, paymentMethod: textResult.paymentMethod || "", cardLast4: textResult.cardLast4 || "" });
+                                    setErr(`PDF text import worked: found ${textResult.plants.length} plant line(s). Review plant count, cost, and pot size before saving.`);
+                                    setStep("review");
+                                    return;
+                                }
+                            }
+                            catch (textErr) {
+                                setErr(`PDF loaded, but the saved PDF text did not match the plant parser yet. Click Scan Invoice, or copy/paste the item list. Details: ${(textErr && textErr.message) || textErr}`);
+                            }
+                        }
+                        else {
+                            setErr("PDF loaded as image pages, but no selectable text was found. This is probably a scanned/photo PDF. Click Scan Invoice so Leaf Diary reads each rendered PDF page, or paste the receipt text.");
                         }
                         setStep("preview");
                     }
@@ -19479,7 +19502,12 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
             return m ? `${parseInt(m[1], 10)}"` : "";
         };
         const pushManualInventoryLine = (name, qty, unitCost, suggestedPrice, sourceLine) => {
-            const cleanName = cleanPasteLine(String(name || "").replace(/^[-•*]+\s*/, ""));
+            let cleanName = cleanPasteLine(String(name || "").replace(/^[-•*]+\s*/, ""));
+            let linePotSize = "";
+            cleanName = cleanPasteLine(cleanName.replace(/\b(\d{1,2})\s*(?:inch|in\.?|["”])\s*(?:pots?|pot)?\b/ig, (m, n) => {
+                linePotSize = normalizePastedPotSize(n);
+                return " ";
+            }));
             const q = Math.max(1, parseInt(qty, 10) || 1);
             const costEach = Math.round((+unitCost || 0) * 100) / 100;
             const sellEach = Math.round((+suggestedPrice || 0) * 100) / 100;
@@ -19491,7 +19519,7 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                 quantity: q,
                 costPerPlant: costEach,
                 suggestedPrice: sellEach,
-                potSize: currentPastePotSize || "",
+                potSize: linePotSize || currentPastePotSize || "",
                 itemDiscount: 0,
                 sourceLine
             });
@@ -19503,6 +19531,18 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
             direct.push({ name: cleanPasteLine(name), price: Math.round((+price || 0) * 100) / 100, itemDiscount: 0, sourceLine });
         };
         for (const line of lines) {
+            // V367: Accept simple all-at-once nursery receipt lines without labels.
+            // Examples: "13 x Monstera Albo @ $65.00" or "13 Monstera Albo 4 inch pot 65.00".
+            const qtyAtLine = line.match(/^(\d+)\s*(?:x|×)\s+(.+?)\s*@\s*\$?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$/i);
+            if (qtyAtLine) {
+                pushManualInventoryLine(qtyAtLine[2], qtyAtLine[1], moneyFromText(qtyAtLine[3]), 0, line);
+                continue;
+            }
+            const qtyNamePriceLine = line.match(/^(\d+)\s+(.+?)\s+\$?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$/i);
+            if (qtyNamePriceLine && looksPlantName(qtyNamePriceLine[2]) && !skipPriceContext.test(qtyNamePriceLine[2])) {
+                pushManualInventoryLine(qtyNamePriceLine[2], qtyNamePriceLine[1], moneyFromText(qtyNamePriceLine[3]), 0, line);
+                continue;
+            }
             const potSection = line.match(/(\d{1,2})\s*(?:inch|in\.?|["”])\s*(?:pots?|pot)?/i);
             if (potSection && /(?:below|all|pots?|pot|inch|in\.?|["”])/i.test(line) && !/(?:qty|quantity|cost|sell|price)/i.test(line)) {
                 currentPastePotSize = normalizePastedPotSize(potSection[1]);
@@ -19779,7 +19819,23 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
             setStep("review");
         }
         catch (e) {
-            setErr("Scan failed: " + e.message);
+            const scanMessage = (e && e.message) || String(e);
+            if (invoiceRawText && String(invoiceRawText).trim()) {
+                try {
+                    const fallbackResult = parsePastedInvoiceText(invoiceRawText);
+                    if (fallbackResult && safeArray(fallbackResult.plants).length) {
+                        const mapped = buildRowsFromInvoicePlants(fallbackResult);
+                        setParsed(fallbackResult);
+                        setRows(mapped);
+                        setPasteSummary({ lineItems: fallbackResult.plants.length, plantRecords: mapped.length, subtotal: fallbackResult.subtotal, lineSubtotalBeforeDiscount: fallbackResult.lineSubtotalBeforeDiscount || fallbackResult.subtotal, discountedLineSubtotal: fallbackResult.discountedLineSubtotal || 0, discount: fallbackResult.discount, discountRate: fallbackResult.discountRate || 0, discountLabel: fallbackResult.discountLabel || "", hasOrderWideDiscount: !!fallbackResult.hasOrderWideDiscount, receiptProfileLabel: fallbackResult.receiptProfileLabel || "", receiptProfileNote: fallbackResult.receiptProfileNote || "", tax: fallbackResult.tax, total: fallbackResult.total, paymentMethod: fallbackResult.paymentMethod || "", cardLast4: fallbackResult.cardLast4 || "" });
+                        setErr(`AI scan failed, but PDF text fallback found ${fallbackResult.plants.length} plant line(s). Review carefully before saving. Original scan error: ${scanMessage}`);
+                        setStep("review");
+                        return;
+                    }
+                }
+                catch (_) { }
+            }
+            setErr("Scan failed: " + scanMessage + " If this is a scanned/photo PDF, use a clearer scan/photo or paste the item list into Paste Receipt Text.");
             setStep("preview");
         }
         finally {
