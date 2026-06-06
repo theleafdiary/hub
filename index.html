@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 
 <html lang="en">
-<head><!--V369 — Label Cost Code Export: adds Cost Code to Labelife label CSV using rounded whole-number cost without changing actual cost, sell price, accounting, or plant numbers. -->
+<head><!--V370 — Label My Cost Export + Fast Ship Complete: adds rounded My Cost to Labelife CSV exports and adds a Mark All Open Shipped button so tracking numbers are optional when orders are already shipped. -->
 <!--V367 — Inventory PDF/Paste Parser Repair: PDF invoice text now auto-parses when available, scanned PDFs give clear scan guidance, and pasted nursery receipt lines like "13 x Plant @ $25.00" or "13 Plant 25.00" import with correct quantity and unit cost.-->
 <!--V364 — All Shows Upload History + Duplicate Warning: shows every saved show upload with clear show dates, searchable history, stronger duplicate warning, and larger saved audit history.-->
 <!--V362 — Footer Count Matches Customer Hub: makes the Shipping footer badge use the same customer open/ready order count logic as Customers, so the footer matches the Customer Hub Open Orders number instead of older tracking/problem logic.-->
@@ -14,7 +14,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V369 Label Cost Code Export</title>
+<title>LEAF DIARY - BUSINESS HUB · V370 Label Cost + Fast Ship Complete</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
@@ -22924,7 +22924,7 @@ const makeShowListCSV = list => {
    Barcode value must match the existing plant number exactly.
 ══════════════════════════════════════════════════════════ */
 const LABELIFE_BARCODE_TYPE = "CODE128";
-const LABELIFE_HEADERS = ["Plant Number", "Plant Name", "Pot Size", "Suggested Price", "Cost Code", "Barcode Value", "Barcode Type", "Nursery Code", "Date Added", "Status"];
+const LABELIFE_HEADERS = ["Plant Number", "Plant Name", "Pot Size", "Suggested Price", "My Cost", "Cost Code", "Barcode Value", "Barcode Type", "Nursery Code", "Date Added", "Status"];
 const labelifeActualPlantNumber = p => String((p === null || p === void 0 ? void 0 : p.plantId) || (p === null || p === void 0 ? void 0 : p.plantCode) || "").trim();
 const labelifePlantNumber = p => String((p === null || p === void 0 ? void 0 : p.plantId) || (p === null || p === void 0 ? void 0 : p.plantCode) || (p === null || p === void 0 ? void 0 : p.barcodeValue) || "").trim();
 const labelifeBarcodeValue = p => labelifePlantNumber(p);
@@ -23239,15 +23239,16 @@ const labelifePrice = p => {
     const text = ldPriceText(rawValue);
     return text || "";
 };
-// V369 — Label cost code helper.
+// V370 — Label My Cost / Cost Code helper.
 // This NEVER overwrites actual plant cost or sell price.
-// It only creates a whole-number code for label CSV exports.
+// It only creates a whole-number cost label value for label CSV exports.
 // Examples: 55.00 -> 55, 20.50 -> 21, 5.76 -> 6, 8.50 -> 9.
 const labelifeCostCode = p => {
     const rawValue = (p === null || p === void 0 ? void 0 : p.costCode) ?? (p === null || p === void 0 ? void 0 : p.labelCostCode) ?? (p === null || p === void 0 ? void 0 : p.cost) ?? (p === null || p === void 0 ? void 0 : p.unitCost) ?? (p === null || p === void 0 ? void 0 : p.purchaseCost) ?? (p === null || p === void 0 ? void 0 : p.myCost) ?? "";
     const n = ldPriceNumber(rawValue);
     return n > 0 ? String(Math.round(n)) : "";
 };
+const labelifeMyCost = p => labelifeCostCode(p);
 const makeLabelifeBarcodeCSV = (list = []) => {
     const rows = safeArray(list).map(p => {
         const plantNumber = labelifePlantNumber(p);
@@ -23256,6 +23257,7 @@ const makeLabelifeBarcodeCSV = (list = []) => {
             toTC((p === null || p === void 0 ? void 0 : p.name) || ""),
             (p === null || p === void 0 ? void 0 : p.potSize) || "",
             labelifePrice(p),
+            labelifeMyCost(p),
             labelifeCostCode(p),
             plantNumber,
             LABELIFE_BARCODE_TYPE,
@@ -23521,7 +23523,7 @@ function LabelifeBarcodeCenter({ plants = [], user, setPage }) {
             React.createElement("div", { style: { fontFamily: F.display, color: C.g900, fontSize: 20, fontWeight: 900, marginBottom: 8 } }, "Sample CSV row"),
             React.createElement("div", { style: { overflowX: "auto" } },
                 React.createElement("code", { style: { display: "block", background: C.cardAlt, border: `1px solid ${C.bd}`, borderRadius: 12, padding: 12, color: C.tx1, fontSize: 12, whiteSpace: "nowrap" } },
-                    "Plant Number,Plant Name,Pot Size,Suggested Price,Cost Code,Barcode Value,Barcode Type,Nursery Code,Date Added,Status",
+                    "Plant Number,Plant Name,Pot Size,Suggested Price,My Cost,Cost Code,Barcode Value,Barcode Type,Nursery Code,Date Added,Status",
                     React.createElement("br", null),
                     "P-044,Monstera Mint,4\",45,10,P-044,CODE128,P,2026-05-10,In Stock"))),
         React.createElement(Card, { style: { borderLeft: `5px solid ${allIssues.duplicateNumbers.length || allIssues.missingNumber.length ? C.red : C.g600}` } },
@@ -35190,6 +35192,29 @@ function PackingShippingCenter({ plants, setPlants, user, addAudit, labelScanMod
         setBulkNote("");
         setSelected({});
     };
+    const markAllOpenShippedNoTracking = () => {
+        const openOrders = orders.filter(o => orderFulfillment(o) !== "Shipped");
+        if (!openOrders.length)
+            return alert("No open orders to mark shipped.");
+        const ok = confirm(`Mark ${openOrders.length} open order group(s) as shipped WITHOUT adding tracking numbers?
+
+Use this after you physically ship the boxes and do not want to enter tracking in Leaf Diary.`);
+        if (!ok)
+            return;
+        const ids = openOrders.map(o => o.orderId);
+        updateOrders(ids, {
+            fulfillmentStatus: "Shipped",
+            shipmentStatus: "Shipped",
+            trackingStatus: "Shipped - tracking skipped",
+            shippingTrackingOptional: true,
+            trackingSkipped: true,
+            fulfillmentNote: "Marked shipped in bulk. Tracking numbers skipped by owner."
+        });
+        setSelected({});
+        setView("shipped");
+        setLabelImportStatus(`✅ Marked ${openOrders.length} order group(s) shipped. Tracking numbers were skipped.`);
+        addAudit === null || addAudit === void 0 ? void 0 : addAudit(`Marked ${openOrders.length} open order group(s) shipped without tracking numbers`);
+    };
     const updateOne = (order, patch) => updateOrders([order.orderId], patch);
     const buildLabelRowsFromText = (text, fileName = "Manual Entry") => {
         const rawText = String(text || "");
@@ -35875,9 +35900,12 @@ function PackingShippingCenter({ plants, setPlants, user, addAudit, labelScanMod
     return React.createElement("div", { className: "ld-page page-scroll-safe", style: { padding: "14px 14px 130px", background: C.bg, minHeight: "100vh" } },
         React.createElement(SHdr, { icon: labelScanMode ? "📷" : "📦", title: labelScanMode ? "Scan Tracking" : "Order Fulfillment", sub: labelScanMode ? "Use the camera sprint, batch label upload, or manual paste to add tracking and mark orders shipped." : "Bulk pack sold orders from Palmstreet and Whatnot. Import shipping labels, add tracking, mark shipped, pull plants, print slips, and check paperwork.", right: React.createElement(Row, { gap: 8, wrap: true },
                 React.createElement(Btn, { sz: "sm", v: "soft", onClick: exportFulfillmentCsv }, "Export Queue CSV"),
+                React.createElement(Btn, { sz: "sm", v: "fill", onClick: markAllOpenShippedNoTracking }, "Mark All Open Shipped"),
                 React.createElement(Btn, { sz: "sm", onClick: () => setOrdersSelected(visibleOrders, true) }, "Select Visible")) }),
         React.createElement(Card, { style: { marginBottom: 12, background: C.g50, border: `1px solid ${C.g200}` } },
-            React.createElement(Row, { wrap: true, gap: 8 }, [["open", `Open ${counts.open}`], ["packed", `Packed ${counts.packed}`], ["ready", `Ready ${counts.ready}`], ["docs", `Needs Docs ${counts.docs}`], ["shipped", `Done ${counts.shipped}`], ["all", "All Orders"]].map(([id, label]) => React.createElement("button", { key: id, onClick: () => setView(id), style: { padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${view === id ? C.g700 : C.bd}`, background: view === id ? C.g700 : C.card, color: view === id ? "#fff" : C.tx2, fontWeight: 800, fontFamily: F.body, cursor: "pointer", fontSize: 12 } }, label)))),
+            React.createElement(Row, { between: true, wrap: true, gap: 8, center: true },
+                React.createElement(Row, { wrap: true, gap: 8 }, [["open", `Open ${counts.open}`], ["packed", `Packed ${counts.packed}`], ["ready", `Ready ${counts.ready}`], ["docs", `Needs Docs ${counts.docs}`], ["shipped", `Done ${counts.shipped}`], ["all", "All Orders"]].map(([id, label]) => React.createElement("button", { key: id, onClick: () => setView(id), style: { padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${view === id ? C.g700 : C.bd}`, background: view === id ? C.g700 : C.card, color: view === id ? "#fff" : C.tx2, fontWeight: 800, fontFamily: F.body, cursor: "pointer", fontSize: 12 } }, label))),
+                React.createElement(Btn, { sz: "sm", v: "fill", onClick: markAllOpenShippedNoTracking }, "✅ Ship All / Skip Tracking"))),
         React.createElement(Card, { style: { marginBottom: 14, borderTop: `4px solid ${C.blue}` } },
             React.createElement(Row, { between: true, wrap: true, gap: 10 },
                 React.createElement("div", null,
