@@ -2,7 +2,8 @@
 <!DOCTYPE html>
 
 <html lang="en">
-<head><!--V367 — Inventory PDF/Paste Parser Repair: PDF invoice text now auto-parses when available, scanned PDFs give clear scan guidance, and pasted nursery receipt lines like "13 x Plant @ $25.00" or "13 Plant 25.00" import with correct quantity and unit cost.-->
+<head><!--V369 — Label Cost Code Export: adds Cost Code to Labelife label CSV using rounded whole-number cost without changing actual cost, sell price, accounting, or plant numbers. -->
+<!--V367 — Inventory PDF/Paste Parser Repair: PDF invoice text now auto-parses when available, scanned PDFs give clear scan guidance, and pasted nursery receipt lines like "13 x Plant @ $25.00" or "13 Plant 25.00" import with correct quantity and unit cost.-->
 <!--V364 — All Shows Upload History + Duplicate Warning: shows every saved show upload with clear show dates, searchable history, stronger duplicate warning, and larger saved audit history.-->
 <!--V362 — Footer Count Matches Customer Hub: makes the Shipping footer badge use the same customer open/ready order count logic as Customers, so the footer matches the Customer Hub Open Orders number instead of older tracking/problem logic.-->
 <!-- V336 — Simple Customers cleanup: simplifies Customer Hub into a clear customer command center with four main actions and More Customer Tools. Keeps customer profiles, open/ready/past orders, blocked alerts, website import, exports, Supabase, and shipping links untouched. -->
@@ -13,7 +14,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V367 Inventory PDF Parser Fix</title>
+<title>LEAF DIARY - BUSINESS HUB · V369 Label Cost Code Export</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
@@ -22923,7 +22924,7 @@ const makeShowListCSV = list => {
    Barcode value must match the existing plant number exactly.
 ══════════════════════════════════════════════════════════ */
 const LABELIFE_BARCODE_TYPE = "CODE128";
-const LABELIFE_HEADERS = ["Plant Number", "Plant Name", "Pot Size", "Suggested Price", "Barcode Value", "Barcode Type", "Nursery Code", "Date Added", "Status"];
+const LABELIFE_HEADERS = ["Plant Number", "Plant Name", "Pot Size", "Suggested Price", "Cost Code", "Barcode Value", "Barcode Type", "Nursery Code", "Date Added", "Status"];
 const labelifeActualPlantNumber = p => String((p === null || p === void 0 ? void 0 : p.plantId) || (p === null || p === void 0 ? void 0 : p.plantCode) || "").trim();
 const labelifePlantNumber = p => String((p === null || p === void 0 ? void 0 : p.plantId) || (p === null || p === void 0 ? void 0 : p.plantCode) || (p === null || p === void 0 ? void 0 : p.barcodeValue) || "").trim();
 const labelifeBarcodeValue = p => labelifePlantNumber(p);
@@ -23238,6 +23239,15 @@ const labelifePrice = p => {
     const text = ldPriceText(rawValue);
     return text || "";
 };
+// V369 — Label cost code helper.
+// This NEVER overwrites actual plant cost or sell price.
+// It only creates a whole-number code for label CSV exports.
+// Examples: 55.00 -> 55, 20.50 -> 21, 5.76 -> 6, 8.50 -> 9.
+const labelifeCostCode = p => {
+    const rawValue = (p === null || p === void 0 ? void 0 : p.costCode) ?? (p === null || p === void 0 ? void 0 : p.labelCostCode) ?? (p === null || p === void 0 ? void 0 : p.cost) ?? (p === null || p === void 0 ? void 0 : p.unitCost) ?? (p === null || p === void 0 ? void 0 : p.purchaseCost) ?? (p === null || p === void 0 ? void 0 : p.myCost) ?? "";
+    const n = ldPriceNumber(rawValue);
+    return n > 0 ? String(Math.round(n)) : "";
+};
 const makeLabelifeBarcodeCSV = (list = []) => {
     const rows = safeArray(list).map(p => {
         const plantNumber = labelifePlantNumber(p);
@@ -23246,6 +23256,7 @@ const makeLabelifeBarcodeCSV = (list = []) => {
             toTC((p === null || p === void 0 ? void 0 : p.name) || ""),
             (p === null || p === void 0 ? void 0 : p.potSize) || "",
             labelifePrice(p),
+            labelifeCostCode(p),
             plantNumber,
             LABELIFE_BARCODE_TYPE,
             (p === null || p === void 0 ? void 0 : p.nurseryCode) || "",
@@ -23500,6 +23511,7 @@ function LabelifeBarcodeCenter({ plants = [], user, setPage }) {
                 ["Plant name text", "Plant Name"],
                 ["Pot size text", "Pot Size"],
                 ["Price text", "Suggested Price"],
+                ["Cost code text", "Cost Code"],
                 ["Barcode object/data", "Barcode Value"],
                 ["Barcode type", "CODE128"]
             ].map(([a, b]) => React.createElement("div", { key: a, style: { background: C.card, border: `1px solid ${C.bd}`, borderRadius: 14, padding: "11px 12px" } },
@@ -23509,9 +23521,9 @@ function LabelifeBarcodeCenter({ plants = [], user, setPage }) {
             React.createElement("div", { style: { fontFamily: F.display, color: C.g900, fontSize: 20, fontWeight: 900, marginBottom: 8 } }, "Sample CSV row"),
             React.createElement("div", { style: { overflowX: "auto" } },
                 React.createElement("code", { style: { display: "block", background: C.cardAlt, border: `1px solid ${C.bd}`, borderRadius: 12, padding: 12, color: C.tx1, fontSize: 12, whiteSpace: "nowrap" } },
-                    "Plant Number,Plant Name,Pot Size,Suggested Price,Barcode Value,Barcode Type,Nursery Code,Date Added,Status",
+                    "Plant Number,Plant Name,Pot Size,Suggested Price,Cost Code,Barcode Value,Barcode Type,Nursery Code,Date Added,Status",
                     React.createElement("br", null),
-                    "P-044,Monstera Mint,4\",45,P-044,CODE128,P,2026-05-10,In Stock"))),
+                    "P-044,Monstera Mint,4\",45,10,P-044,CODE128,P,2026-05-10,In Stock"))),
         React.createElement(Card, { style: { borderLeft: `5px solid ${allIssues.duplicateNumbers.length || allIssues.missingNumber.length ? C.red : C.g600}` } },
             React.createElement("div", { style: { fontFamily: F.display, color: C.g900, fontSize: 20, fontWeight: 900, marginBottom: 8 } }, "Barcode safety rule"),
             React.createElement("div", { style: { color: C.tx2, fontSize: 13, lineHeight: 1.55 } },
