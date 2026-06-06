@@ -19198,11 +19198,11 @@ function InvoiceUpload({ plants, setPlants, nurseries, addAudit, user, settings 
                 r.onload = async function () {
                     try {
                         const typedarray = new Uint8Array(this.result);
-                        const pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+                        const pdfjsLib = await (window.ldEnsurePdfJs ? window.ldEnsurePdfJs() : Promise.resolve(window.pdfjsLib || window['pdfjs-dist/build/pdf']));
                         if (!pdfjsLib)
-                            throw new Error('PDF reader did not load yet. Refresh and try again, or take a photo of the invoice.');
-                        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-                        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                            throw new Error('PDF reader could not load. Check internet connection, refresh once, then try the PDF again.');
+                        if (pdfjsLib.GlobalWorkerOptions) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+                        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
                         const renderedPages = [];
                         const renderedPageTexts = [];
                         const MAX_PDF_PAGES = Math.min(pdf.numPages || 1, 25);
@@ -34865,10 +34865,11 @@ async function ldReadShippingLabelFileText(file) {
     const name = String((file === null || file === void 0 ? void 0 : file.name) || "");
     const type = String((file === null || file === void 0 ? void 0 : file.type) || "");
     if (/\.pdf$/i.test(name) || type.includes("pdf")) {
-        if (!window.pdfjsLib)
+        const pdfjsLib = await (window.ldEnsurePdfJs ? window.ldEnsurePdfJs() : Promise.resolve(window.pdfjsLib || window['pdfjs-dist/build/pdf']));
+        if (!pdfjsLib)
             return name;
         const buf = await file.arrayBuffer();
-        const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
         const parts = [];
         for (let i = 1; i <= pdf.numPages; i++) {
             try {
@@ -47381,6 +47382,51 @@ window.LEAF_DIARY_V255_FINAL_QA = {
       next();
     });
   }
+
+  // V368 — PDF reader load fix: load PDF.js only when needed and wait until it is ready.
+  // This prevents invoice PDF imports from failing with "PDF reader did not load yet".
+  window.ldEnsurePdfJs = window.ldEnsurePdfJs || function(){
+    if (window.pdfjsLib && window.pdfjsLib.getDocument) return Promise.resolve(window.pdfjsLib);
+    if (window.__LD_PDFJS_LOADING__) return window.__LD_PDFJS_LOADING__;
+    var urls = [
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js',
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.min.js',
+      'https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.min.js'
+    ];
+    var i = 0;
+    window.__LD_PDFJS_LOADING__ = new Promise(function(resolve, reject){
+      function finish(){
+        var lib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+        if (lib && lib.getDocument) {
+          try { if (lib.GlobalWorkerOptions) lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'; } catch(_) {}
+          window.pdfjsLib = lib;
+          resolve(lib);
+        } else if (i < urls.length) {
+          loadNext();
+        } else {
+          reject(new Error('PDF reader could not load from CDN.'));
+        }
+      }
+      function loadNext(){
+        var url = urls[i++];
+        var existing = Array.prototype.slice.call(document.scripts || []).find(function(sc){ return sc && sc.src === url; });
+        if (existing) return setTimeout(finish, 250);
+        var s = document.createElement('script');
+        var done = false;
+        var timer = setTimeout(function(){ if (done) return; done = true; try { s.remove(); } catch(_) {} loadNext(); }, 10000);
+        s.src = url;
+        s.async = true;
+        s.crossOrigin = 'anonymous';
+        s.referrerPolicy = 'no-referrer';
+        s.onload = function(){ if (done) return; done = true; clearTimeout(timer); setTimeout(finish, 50); };
+        s.onerror = function(){ if (done) return; done = true; clearTimeout(timer); try { s.remove(); } catch(_) {} loadNext(); };
+        document.head.appendChild(s);
+      }
+      finish();
+    }).catch(function(err){ window.__LD_PDFJS_LOADING__ = null; throw err; });
+    return window.__LD_PDFJS_LOADING__;
+  };
+
   function runInertScripts(){
     if (window.__LEAF_DIARY_APP_SCRIPTS_STARTED__) {
       status('Leaf Diary app already started…');
