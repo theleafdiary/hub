@@ -2,7 +2,8 @@
 <!DOCTYPE html>
 
 <html lang="en">
-<head><!--V370 — Label My Cost Export + Fast Ship Complete: adds rounded My Cost to Labelife CSV exports and adds a Mark All Open Shipped button so tracking numbers are optional when orders are already shipped. -->
+<head><!--V371 — Today Inventory Show Builder: adds one-click Add/Replace/Export Palmstreet from plants added today, keeps Label My Cost export and Fast Ship Complete. -->
+<!--V370 — Label My Cost Export + Fast Ship Complete: adds rounded My Cost to Labelife CSV exports and adds a Mark All Open Shipped button so tracking numbers are optional when orders are already shipped. -->
 <!--V367 — Inventory PDF/Paste Parser Repair: PDF invoice text now auto-parses when available, scanned PDFs give clear scan guidance, and pasted nursery receipt lines like "13 x Plant @ $25.00" or "13 Plant 25.00" import with correct quantity and unit cost.-->
 <!--V364 — All Shows Upload History + Duplicate Warning: shows every saved show upload with clear show dates, searchable history, stronger duplicate warning, and larger saved audit history.-->
 <!--V362 — Footer Count Matches Customer Hub: makes the Shipping footer badge use the same customer open/ready order count logic as Customers, so the footer matches the Customer Hub Open Orders number instead of older tracking/problem logic.-->
@@ -14,7 +15,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V370 Label Cost + Fast Ship Complete</title>
+<title>LEAF DIARY - BUSINESS HUB · V371 Today Inventory Show Builder</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
@@ -36673,6 +36674,23 @@ function ShowBuilder({ plants, setPlants, user, addAudit, settings = {}, setSett
     const statusOf = p => (p === null || p === void 0 ? void 0 : p.status) || 'In Stock';
     const isShowablePlant = p => statusOf(p) === 'In Stock';
     const showablePlants = plants.filter(isShowablePlant);
+    // V371 — Today Inventory helper for fast Palmstreet show building.
+    // Uses dateAdded/importedAt created during invoice import. Does not change price, cost, or plant numbers.
+    const todayInventoryKey = today();
+    const plantAddedDateKey = p => {
+        const raw = (p === null || p === void 0 ? void 0 : p.dateAdded) || (p === null || p === void 0 ? void 0 : p.addedDate) || (p === null || p === void 0 ? void 0 : p.importedAt) || (p === null || p === void 0 ? void 0 : p.createdAt) || (p === null || p === void 0 ? void 0 : p.created_at) || '';
+        if (!raw)
+            return '';
+        const s = String(raw).trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(s))
+            return s.slice(0, 10);
+        const d = new Date(s);
+        return Number.isNaN(d.getTime()) ? s.slice(0, 10) : d.toISOString().slice(0, 10);
+    };
+    const todaysInventoryPlants = showablePlants.filter(p => plantAddedDateKey(p) === todayInventoryKey);
+    const todaysInventoryValue = todaysInventoryPlants.reduce((sum, p) => sum + priceOf(p), 0);
+    const todaysInventoryWithPrice = todaysInventoryPlants.filter(p => priceOf(p)).length;
+    const todaysInventoryMissingPhoto = todaysInventoryPlants.filter(p => !photoOf(p)).length;
     const selectedSet = new Set(ids.map(x => String(x).toLowerCase()));
     const byPlantId = id => plants.find(p => plantIdOf(p).toLowerCase() === String(id).trim().toLowerCase());
     const showPlants = ids.map(id => byPlantId(id)).filter(p => p && isShowablePlant(p));
@@ -37078,6 +37096,49 @@ function ShowBuilder({ plants, setPlants, user, addAudit, settings = {}, setSett
         addPlantIds(all);
         setMsg(`Added all ${all.length} In Stock plants to the show. If phone storage is full, export before refreshing.`);
     };
+    const addTodaysInventoryToShow = () => {
+        const todaysIds = todaysInventoryPlants.map(plantIdOf).filter(Boolean);
+        if (!todaysIds.length) {
+            setMsg('No In Stock plants added today were found. Import an invoice first, or check Inventory dateAdded values.');
+            return;
+        }
+        addPlantIds(todaysIds);
+        setMsg(`Added ${todaysIds.length} plant(s) from today's inventory to this show.`);
+        addAudit && addAudit({ action: `Added today's inventory to show — ${todaysIds.length} plants`, user: (user === null || user === void 0 ? void 0 : user.name) || 'Owner', page: 'Show Builder' });
+    };
+    const replaceShowWithTodaysInventory = () => {
+        const todaysIds = todaysInventoryPlants.map(plantIdOf).filter(Boolean);
+        if (!todaysIds.length) {
+            setMsg('No In Stock plants added today were found.');
+            return;
+        }
+        if (ids.length && !confirm(`Replace the current ${ids.length}-plant show cart with ${todaysIds.length} plant(s) added today?`))
+            return;
+        setIds(Array.from(new Set(todaysIds)));
+        setMsg(`Show cart replaced with ${todaysIds.length} plant(s) added today.`);
+        addAudit && addAudit({ action: `Replaced show cart with today's inventory — ${todaysIds.length} plants`, user: (user === null || user === void 0 ? void 0 : user.name) || 'Owner', page: 'Show Builder' });
+    };
+    const exportTodaysPalmstreetDirect = () => {
+        const todays = todaysInventoryPlants.filter(p => plantIdOf(p));
+        if (!todays.length) {
+            alert('No In Stock plants added today were found for Palmstreet export.');
+            return;
+        }
+        const report = runShowExportGuard(todays, 'Palmstreet', { showName: `${showName} — Today Inventory` });
+        setExportGuard(report);
+        if (report.errors.length) {
+            const details = report.errors.slice(0, 25).join('\n') + (report.errors.length > 25 ? `\n...and ${report.errors.length - 25} more` : '');
+            if (!canOverrideExport || !confirm(`Palmstreet Export Guard found ${report.errors.length} issue(s) in today's inventory:\n\n${details}\n\nOwner override: export today's inventory anyway?`)) {
+                setMsg(`Today's Palmstreet export blocked. Fix ${report.errors.length} issue(s), or add today's plants to the show and review them.`);
+                return;
+            }
+        }
+        const fileSafe = showName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'leaf-diary-show';
+        downloadCSVFile(`${fileSafe}-today-inventory-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(todays, { showName: `${showName} — Today Inventory`, privateListing }));
+        setPlants(prev => prev.map(p => todays.some(t => plantIdOf(t) === plantIdOf(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: `${showName} — Today Inventory` } : p));
+        addAudit && addAudit({ action: `Exported today's inventory to Palmstreet CSV — ${todays.length} plants`, user: (user === null || user === void 0 ? void 0 : user.name) || 'Owner', page: 'Show Builder' });
+        setMsg(`Palmstreet CSV exported for ${todays.length} plant(s) added today.`);
+    };
     const exportAllPalmstreetDirect = () => {
         const allPlants = showablePlants.filter(p => plantIdOf(p));
         if (!allPlants.length) {
@@ -37220,9 +37281,28 @@ Cancel if you want to save money.`);
                 React.createElement(Btn, { onClick: exportWhatnot }, "\uD83D\uDED2 Export Whatnot CSV"),
                 React.createElement(Btn, { v: "soft", onClick: exportPalmstreet }, "\uD83C\uDF34 Export Palmstreet CSV"),
                 React.createElement(Btn, { v: "outline", onClick: exportAllPalmstreetDirect }, "\uD83C\uDF34 Export All In Stock"),
+                React.createElement(Btn, { v: "gold", onClick: addTodaysInventoryToShow }, "\uD83C\uDF31 Add Today's Plants"),
+                React.createElement(Btn, { v: "soft", onClick: exportTodaysPalmstreetDirect }, "\uD83C\uDF34 Export Today Palmstreet"),
                 React.createElement(Btn, { v: "outline", onClick: exportShowList }, "\uD83D\uDCCB Export Show List"),
                 React.createElement(Btn, { v: "ghost", onClick: clear }, "Clear Show")) }),
         msg && React.createElement("div", { style: { background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 800 } }, msg),
+        React.createElement(Card, { style: { marginBottom: 12, background: '#fffdf2', borderLeft: `5px solid ${C.gold || '#d9a441'}` } },
+            React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
+                React.createElement("div", { style: { minWidth: 0 } },
+                    React.createElement("div", { style: { fontFamily: F.display, fontWeight: 950, color: C.g900, fontSize: 19 } }, "\uD83C\uDF31 Today's Inventory"),
+                    React.createElement("div", { style: { color: C.tx3, fontSize: 12, lineHeight: 1.45 } },
+                        todaysInventoryPlants.length,
+                        " In Stock plant(s) added today · ",
+                        todaysInventoryWithPrice,
+                        " priced · ",
+                        todaysInventoryMissingPhoto,
+                        " missing photos · value ",
+                        $(todaysInventoryValue),
+                        ". Use this after importing today's invoice to build/export only today's plants.")),
+                React.createElement(Row, { gap: 7, wrap: true },
+                    React.createElement(Btn, { v: "gold", onClick: addTodaysInventoryToShow }, "Add Today's Plants"),
+                    React.createElement(Btn, { v: "soft", onClick: replaceShowWithTodaysInventory }, "Replace Cart With Today"),
+                    React.createElement(Btn, { v: "outline", onClick: exportTodaysPalmstreetDirect }, "Export Today Palmstreet")))),
         aiDescReviewOpen && React.createElement(Modal, { title: "Review AI Plant Descriptions", wide: true, onClose: () => setAiDescReviewOpen(false) },
             React.createElement("div", { style: { background: C.g50, border: `1px solid ${C.g200}`, borderLeft: `5px solid ${C.g600}`, borderRadius: 14, padding: 12, marginBottom: 12 } },
                 React.createElement("div", { style: { fontWeight: 900, color: C.g900 } }, "Descriptions save on this device by plant number."),
