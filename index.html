@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 
 <html lang="en">
-<head><!--V371 — Today Inventory Show Builder: adds one-click Add/Replace/Export Palmstreet from plants added today, keeps Label My Cost export and Fast Ship Complete. -->
+<head><!--V373 — Last 3 Import Batches Show Builder: Today show tools now include plants imported today and the last 3 import batches, with Available/In Stock status support. Keeps Label My Cost export and Fast Ship Complete. -->
 <!--V370 — Label My Cost Export + Fast Ship Complete: adds rounded My Cost to Labelife CSV exports and adds a Mark All Open Shipped button so tracking numbers are optional when orders are already shipped. -->
 <!--V367 — Inventory PDF/Paste Parser Repair: PDF invoice text now auto-parses when available, scanned PDFs give clear scan guidance, and pasted nursery receipt lines like "13 x Plant @ $25.00" or "13 Plant 25.00" import with correct quantity and unit cost.-->
 <!--V364 — All Shows Upload History + Duplicate Warning: shows every saved show upload with clear show dates, searchable history, stronger duplicate warning, and larger saved audit history.-->
@@ -15,7 +15,7 @@
 <meta content="LEAF DIARY - BUSINESS HUB" name="apple-mobile-web-app-title"/>
 <meta content="#174D2F" name="theme-color"/>
 <meta content="no-referrer" name="referrer"/>
-<title>LEAF DIARY - BUSINESS HUB · V371 Today Inventory Show Builder</title>
+<title>LEAF DIARY - BUSINESS HUB · V373 Last 3 Import Batches Show Builder</title>
 <!-- V337 — Simple Money Cleanup: reduces Money to main daily actions, moves reports/buy/charts/tax/goals into More Money Tools, and keeps existing finance logic untouched. -->
 <!-- V352 — No Refresh Work-In-Progress Save: protects invoice review and live form edits when iPhone/Chrome/Safari refreshes after switching tabs. Adds invoice WIP restore, pagehide/visibility autosave, and safer last-page local save. -->
 <!-- V232 — Phase 2 Mobile Navigation + Search Polish: improves global search with quick actions, opens workspace search results to real destination pages, strengthens the mobile search sheet, removes duplicate Labels from main-area menu, and makes guided Add buttons open the correct master workflow. -->
@@ -36672,22 +36672,79 @@ function ShowBuilder({ plants, setPlants, user, addAudit, settings = {}, setSett
     const photoOf = p => (p === null || p === void 0 ? void 0 : p.photoUrl) || (p === null || p === void 0 ? void 0 : p.photo_url) || (p === null || p === void 0 ? void 0 : p.imageUrl) || (p === null || p === void 0 ? void 0 : p.image_url) || (p === null || p === void 0 ? void 0 : p.photoBase64) || '';
     const nurseryOf = p => String((p === null || p === void 0 ? void 0 : p.nurseryCode) || (p === null || p === void 0 ? void 0 : p.nursery) || (p === null || p === void 0 ? void 0 : p.vendor) || '').trim();
     const statusOf = p => (p === null || p === void 0 ? void 0 : p.status) || 'In Stock';
-    const isShowablePlant = p => statusOf(p) === 'In Stock';
+    // V372 — Showable status support.
+    // Some imports save plants as Available/Active instead of exactly "In Stock".
+    // Only exclude sold/shipped/dead/archived style statuses.
+    const isShowablePlant = p => {
+        const s = String(statusOf(p) || '').trim().toLowerCase();
+        if (!s)
+            return true;
+        if (['sold', 'shipped', 'packed', 'dead', 'damaged', 'archive', 'archived', 'deleted', 'inactive'].includes(s))
+            return false;
+        return ['in stock', 'instock', 'available', 'active', 'ready', 'new'].includes(s) || !s.includes('sold');
+    };
     const showablePlants = plants.filter(isShowablePlant);
-    // V371 — Today Inventory helper for fast Palmstreet show building.
-    // Uses dateAdded/importedAt created during invoice import. Does not change price, cost, or plant numbers.
-    const todayInventoryKey = today();
+    // V372 — Today Inventory helper for fast Palmstreet show building.
+    // Uses local date, importedAt, dateAdded, invoice date, and latest import batch fallback.
+    // Does not change price, cost, or plant numbers.
+    const ldLocalDateKey = d => {
+        try {
+            const dt = d instanceof Date ? d : new Date(d);
+            if (Number.isNaN(dt.getTime()))
+                return '';
+            const y = dt.getFullYear();
+            const m = String(dt.getMonth() + 1).padStart(2, '0');
+            const day = String(dt.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+        catch (e) { return ''; }
+    };
+    const todayInventoryKey = ldLocalDateKey(new Date()) || today();
     const plantAddedDateKey = p => {
-        const raw = (p === null || p === void 0 ? void 0 : p.dateAdded) || (p === null || p === void 0 ? void 0 : p.addedDate) || (p === null || p === void 0 ? void 0 : p.importedAt) || (p === null || p === void 0 ? void 0 : p.createdAt) || (p === null || p === void 0 ? void 0 : p.created_at) || '';
+        const raw = (p === null || p === void 0 ? void 0 : p.importedAt) || (p === null || p === void 0 ? void 0 : p.importDate) || (p === null || p === void 0 ? void 0 : p.createdAt) || (p === null || p === void 0 ? void 0 : p.created_at) || (p === null || p === void 0 ? void 0 : p.dateAdded) || (p === null || p === void 0 ? void 0 : p.addedDate) || (p === null || p === void 0 ? void 0 : p.invoiceDate) || (p === null || p === void 0 ? void 0 : p.purchaseDate) || '';
         if (!raw)
             return '';
         const s = String(raw).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s))
+            return s;
+        const localKey = ldLocalDateKey(s);
+        if (localKey)
+            return localKey;
         if (/^\d{4}-\d{2}-\d{2}/.test(s))
             return s.slice(0, 10);
-        const d = new Date(s);
-        return Number.isNaN(d.getTime()) ? s.slice(0, 10) : d.toISOString().slice(0, 10);
+        return s.slice(0, 10);
     };
-    const todaysInventoryPlants = showablePlants.filter(p => plantAddedDateKey(p) === todayInventoryKey);
+    const plantImportTime = p => {
+        const raw = (p === null || p === void 0 ? void 0 : p.importedAt) || (p === null || p === void 0 ? void 0 : p.createdAt) || (p === null || p === void 0 ? void 0 : p.created_at) || (p === null || p === void 0 ? void 0 : p.dateAdded) || '';
+        const t = raw ? new Date(raw).getTime() : 0;
+        return Number.isFinite(t) ? t : 0;
+    };
+    const plantBatchKey = p => String((p === null || p === void 0 ? void 0 : p.importBatchId) || (p === null || p === void 0 ? void 0 : p.receiptBatchId) || (p === null || p === void 0 ? void 0 : p.labelBatchId) || (p === null || p === void 0 ? void 0 : p.purchaseBatchId) || (p === null || p === void 0 ? void 0 : p.invoiceNumber) || '').trim();
+    const exactTodayInventoryPlants = showablePlants.filter(p => plantAddedDateKey(p) === todayInventoryKey);
+    // V373 — last 3 import batches for real buying days where multiple invoices are imported.
+    const lastThreeImportBatchKeys = (() => {
+        const grouped = {};
+        showablePlants.forEach(p => {
+            const key = plantBatchKey(p);
+            if (!key)
+                return;
+            const t = plantImportTime(p);
+            if (!grouped[key])
+                grouped[key] = { key, newest: 0, count: 0 };
+            grouped[key].newest = Math.max(grouped[key].newest, t || 0);
+            grouped[key].count += 1;
+        });
+        return Object.values(grouped)
+            .sort((a, b) => (b.newest || 0) - (a.newest || 0))
+            .slice(0, 3)
+            .map(x => x.key);
+    })();
+    const lastThreeImportBatchPlants = lastThreeImportBatchKeys.length
+        ? showablePlants.filter(p => lastThreeImportBatchKeys.includes(plantBatchKey(p)))
+        : [];
+    const newestFallbackPlants = !exactTodayInventoryPlants.length && !lastThreeImportBatchPlants.length ? [...showablePlants].sort((a, b) => plantImportTime(b) - plantImportTime(a)).slice(0, 750) : [];
+    const todaysInventoryPlants = exactTodayInventoryPlants.length ? exactTodayInventoryPlants : (lastThreeImportBatchPlants.length ? lastThreeImportBatchPlants : newestFallbackPlants);
+    const todaysInventoryMode = exactTodayInventoryPlants.length ? "today" : (lastThreeImportBatchPlants.length ? "last 3 import batches" : "newest inventory fallback");
     const todaysInventoryValue = todaysInventoryPlants.reduce((sum, p) => sum + priceOf(p), 0);
     const todaysInventoryWithPrice = todaysInventoryPlants.filter(p => priceOf(p)).length;
     const todaysInventoryMissingPhoto = todaysInventoryPlants.filter(p => !photoOf(p)).length;
@@ -37099,29 +37156,29 @@ function ShowBuilder({ plants, setPlants, user, addAudit, settings = {}, setSett
     const addTodaysInventoryToShow = () => {
         const todaysIds = todaysInventoryPlants.map(plantIdOf).filter(Boolean);
         if (!todaysIds.length) {
-            setMsg('No In Stock plants added today were found. Import an invoice first, or check Inventory dateAdded values.');
+            setMsg('No plants were found for today or the last 3 import batches. Try exporting All In Stock, or check whether the invoice import saved the plants.');
             return;
         }
         addPlantIds(todaysIds);
-        setMsg(`Added ${todaysIds.length} plant(s) from today's inventory to this show.`);
+        setMsg(`Added ${todaysIds.length} plant(s) from today's inventory/last 3 batches to this show.`);
         addAudit && addAudit({ action: `Added today's inventory to show — ${todaysIds.length} plants`, user: (user === null || user === void 0 ? void 0 : user.name) || 'Owner', page: 'Show Builder' });
     };
     const replaceShowWithTodaysInventory = () => {
         const todaysIds = todaysInventoryPlants.map(plantIdOf).filter(Boolean);
         if (!todaysIds.length) {
-            setMsg('No In Stock plants added today were found.');
+            setMsg('No plants were found for today or the last 3 import batches.');
             return;
         }
         if (ids.length && !confirm(`Replace the current ${ids.length}-plant show cart with ${todaysIds.length} plant(s) added today?`))
             return;
         setIds(Array.from(new Set(todaysIds)));
-        setMsg(`Show cart replaced with ${todaysIds.length} plant(s) added today.`);
+        setMsg(`Show cart replaced with ${todaysIds.length} plant(s) from today's inventory/last 3 batches.`);
         addAudit && addAudit({ action: `Replaced show cart with today's inventory — ${todaysIds.length} plants`, user: (user === null || user === void 0 ? void 0 : user.name) || 'Owner', page: 'Show Builder' });
     };
     const exportTodaysPalmstreetDirect = () => {
         const todays = todaysInventoryPlants.filter(p => plantIdOf(p));
         if (!todays.length) {
-            alert('No In Stock plants added today were found for Palmstreet export.');
+            alert('No plants were found for today or the last 3 import batches for Palmstreet export.');
             return;
         }
         const report = runShowExportGuard(todays, 'Palmstreet', { showName: `${showName} — Today Inventory` });
@@ -37137,7 +37194,7 @@ function ShowBuilder({ plants, setPlants, user, addAudit, settings = {}, setSett
         downloadCSVFile(`${fileSafe}-today-inventory-palmstreet-upload-${today()}.csv`, makePalmstreetCSV(todays, { showName: `${showName} — Today Inventory`, privateListing }));
         setPlants(prev => prev.map(p => todays.some(t => plantIdOf(t) === plantIdOf(p)) ? { ...p, palmstreetExportedAt: new Date().toISOString(), lastShowName: `${showName} — Today Inventory` } : p));
         addAudit && addAudit({ action: `Exported today's inventory to Palmstreet CSV — ${todays.length} plants`, user: (user === null || user === void 0 ? void 0 : user.name) || 'Owner', page: 'Show Builder' });
-        setMsg(`Palmstreet CSV exported for ${todays.length} plant(s) added today.`);
+        setMsg(`Palmstreet CSV exported for ${todays.length} plant(s) from today's inventory/last 3 batches.`);
     };
     const exportAllPalmstreetDirect = () => {
         const allPlants = showablePlants.filter(p => plantIdOf(p));
@@ -37282,27 +37339,27 @@ Cancel if you want to save money.`);
                 React.createElement(Btn, { v: "soft", onClick: exportPalmstreet }, "\uD83C\uDF34 Export Palmstreet CSV"),
                 React.createElement(Btn, { v: "outline", onClick: exportAllPalmstreetDirect }, "\uD83C\uDF34 Export All In Stock"),
                 React.createElement(Btn, { v: "gold", onClick: addTodaysInventoryToShow }, "\uD83C\uDF31 Add Today's Plants"),
-                React.createElement(Btn, { v: "soft", onClick: exportTodaysPalmstreetDirect }, "\uD83C\uDF34 Export Today Palmstreet"),
+                React.createElement(Btn, { v: "soft", onClick: exportTodaysPalmstreetDirect }, "\uD83C\uDF34 Export Last 3 Batches Palmstreet"),
                 React.createElement(Btn, { v: "outline", onClick: exportShowList }, "\uD83D\uDCCB Export Show List"),
                 React.createElement(Btn, { v: "ghost", onClick: clear }, "Clear Show")) }),
         msg && React.createElement("div", { style: { background: C.g50, border: `1px solid ${C.g300}`, borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: C.g800, fontWeight: 800 } }, msg),
         React.createElement(Card, { style: { marginBottom: 12, background: '#fffdf2', borderLeft: `5px solid ${C.gold || '#d9a441'}` } },
             React.createElement(Row, { between: true, center: true, wrap: true, gap: 10 },
                 React.createElement("div", { style: { minWidth: 0 } },
-                    React.createElement("div", { style: { fontFamily: F.display, fontWeight: 950, color: C.g900, fontSize: 19 } }, "\uD83C\uDF31 Today's Inventory"),
+                    React.createElement("div", { style: { fontFamily: F.display, fontWeight: 950, color: C.g900, fontSize: 19 } }, "\uD83C\uDF31 Today / Last 3 Batches"),
                     React.createElement("div", { style: { color: C.tx3, fontSize: 12, lineHeight: 1.45 } },
                         todaysInventoryPlants.length,
-                        " In Stock plant(s) added today · ",
+                        " plant(s) selected by Today / Last 3 Batches tool · ",
                         todaysInventoryWithPrice,
                         " priced · ",
                         todaysInventoryMissingPhoto,
                         " missing photos · value ",
                         $(todaysInventoryValue),
-                        ". Use this after importing today's invoice to build/export only today's plants.")),
+                        " · source: " + todaysInventoryMode + ". Use this after importing multiple invoices to build/export only the newest batches.")),
                 React.createElement(Row, { gap: 7, wrap: true },
                     React.createElement(Btn, { v: "gold", onClick: addTodaysInventoryToShow }, "Add Today's Plants"),
-                    React.createElement(Btn, { v: "soft", onClick: replaceShowWithTodaysInventory }, "Replace Cart With Today"),
-                    React.createElement(Btn, { v: "outline", onClick: exportTodaysPalmstreetDirect }, "Export Today Palmstreet")))),
+                    React.createElement(Btn, { v: "soft", onClick: replaceShowWithTodaysInventory }, "Replace Cart With Last 3 Batches"),
+                    React.createElement(Btn, { v: "outline", onClick: exportTodaysPalmstreetDirect }, "Export Last 3 Batches Palmstreet")))),
         aiDescReviewOpen && React.createElement(Modal, { title: "Review AI Plant Descriptions", wide: true, onClose: () => setAiDescReviewOpen(false) },
             React.createElement("div", { style: { background: C.g50, border: `1px solid ${C.g200}`, borderLeft: `5px solid ${C.g600}`, borderRadius: 14, padding: 12, marginBottom: 12 } },
                 React.createElement("div", { style: { fontWeight: 900, color: C.g900 } }, "Descriptions save on this device by plant number."),
